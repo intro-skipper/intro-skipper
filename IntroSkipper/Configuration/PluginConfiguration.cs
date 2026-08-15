@@ -9,8 +9,8 @@
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Diagnostics;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json.Serialization;
 using System.Xml.Serialization;
