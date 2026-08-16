@@ -23,7 +23,7 @@ export const blackFrameTab: Tab = {
                 id: "UseLegacyBlackFrameAnalyzer",
                 label: "Use legacy black frame analyzer",
                 description:
-                    "If enabled, the legacy black frame analyzer is used instead of the modern credits-focused analyzer. The legacy analyzer does not support refined credits boundaries or non-black credits detection.",
+                    "If enabled, the legacy black frame analyzer is used instead of the modern black frame analyzer. The legacy analyzer does not support refined credits boundaries or non-black credits detection, but can use chapter markers for credits detection.",
             }),
             checkboxField({
                 id: "RefineCreditsBoundary",
