@@ -20,6 +20,12 @@ export const blackFrameTab: Tab = {
                     "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
             }),
             checkboxField({
+                id: "UseLegacyBlackFrameAnalyzer",
+                label: "Use legacy black frame analyzer",
+                description:
+                    "If enabled, the legacy black frame analyzer is used instead of the modern credits-focused analyzer. The legacy analyzer does not support refined credits boundaries or non-black credits detection.",
+            }),
+            checkboxField({
                 id: "RefineCreditsBoundary",
                 label: "Refine credits boundary",
                 description:
