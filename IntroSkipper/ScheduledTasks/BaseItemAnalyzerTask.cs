@@ -469,10 +469,10 @@ public partial class BaseItemAnalyzerTask(
     /// <summary>
     /// Creates the configured black frame analyzer variant.
     /// </summary>
-    /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="CreditsBlackFrameAnalyzer"/> based on configuration.</returns>
-    private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer
-        ? new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _database)
-        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _database);
+    /// <returns>A <see cref="CreditsBlackFrameAnalyzer"/> by default, or the legacy <see cref="BlackFrameAnalyzer"/> when configured.</returns>
+    private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseLegacyBlackFrameAnalyzer
+        ? new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _database)
+        : new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _database);
 
     /// <summary>
     /// Moves the first analyzer matching <paramref name="predicate"/> to the front of the list,
