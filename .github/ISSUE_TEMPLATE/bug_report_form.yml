@@ -12,7 +12,7 @@ body:
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
       options:
-        - label: I use Jellyfin 12.0.0 (or newer) and my permissions are correct
+        - label: I use Jellyfin 12.0.0 (or newer) and my filesystem permissions are correct
           required: true
         - label: I installed the Plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
@@ -32,6 +32,12 @@ body:
           4. See error...
     validations:
       required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]  
+        > Please do not revise the form, but you may omit sections that do not apply.
 
   - type: input
     attributes:
