@@ -71,7 +71,7 @@ body:
   - type: textarea
     attributes:
       label: Intro Skipper Support Log
-      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Expand Intro Skipper Support Log (at the bottom of the page) and paste the contents of the textbox here
+      placeholder: Go to Dashboard -> Plugins -> Intro Skipper -> Settings -> Information. Click the Copy to Clipboard button and paste the contents here
       render: shell
     validations:
       required: true
