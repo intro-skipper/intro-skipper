@@ -361,8 +361,10 @@ public sealed class TestDbSegmentStorage
 
                 // The whole v2 schema comes from one baseline migration; anything added
                 // after the first release lands as a plain EF migration on top.
-                var appliedMigration = Assert.Single(await db.Database.GetAppliedMigrationsAsync());
-                Assert.EndsWith("_InitialCreate", appliedMigration, StringComparison.Ordinal);
+                string[] appliedMigrations = [.. await db.Database.GetAppliedMigrationsAsync()];
+                Assert.Equal(2, appliedMigrations.Length);
+                Assert.EndsWith("_InitialCreate", appliedMigrations[0], StringComparison.Ordinal);
+                Assert.EndsWith("_AddSegmentProjectionJournal", appliedMigrations[1], StringComparison.Ordinal);
 
                 db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
                 db.AnalyzedItems.Add(new DbAnalyzedItem(episodeId, AnalysisMode.Introduction, "season-config"));

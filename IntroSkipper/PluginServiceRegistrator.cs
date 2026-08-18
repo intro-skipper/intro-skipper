@@ -8,6 +8,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
@@ -16,6 +17,7 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace IntroSkipper
 {
@@ -43,6 +45,15 @@ namespace IntroSkipper
             // service; the facades' internal gate still guarantees ordering for any
             // request that arrives earlier.
             serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
+
+            serviceCollection.AddSingleton(TimeProvider.System);
+            serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
+            serviceCollection.AddSingleton<SegmentProjectionConfiguration>();
+            serviceCollection.AddSingleton<ISegmentProjectionConfiguration>(serviceProvider => serviceProvider.GetRequiredService<SegmentProjectionConfiguration>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentProjectionConfiguration>());
+            serviceCollection.AddSingleton<SegmentChange>();
+            serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
 
             serviceCollection.AddHostedService<Entrypoint>();
             // Owns the shared dependency set of the per-run analysis objects

@@ -37,6 +37,11 @@ public class IntroSkipperDbContext : DbContext
         AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
+        ProjectionPlans = Set<DbProjectionPlan>();
+        ProjectionPlanSegments = Set<DbProjectionPlanSegment>();
+        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
+        ProjectionAttempts = Set<DbProjectionAttempt>();
+        ProjectionHeads = Set<DbProjectionHead>();
     }
 
     /// <summary>
@@ -58,6 +63,11 @@ public class IntroSkipperDbContext : DbContext
         AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
+        ProjectionPlans = Set<DbProjectionPlan>();
+        ProjectionPlanSegments = Set<DbProjectionPlanSegment>();
+        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
+        ProjectionAttempts = Set<DbProjectionAttempt>();
+        ProjectionHeads = Set<DbProjectionHead>();
     }
 
     /// <summary>
@@ -85,6 +95,21 @@ public class IntroSkipperDbContext : DbContext
     /// segments are withheld from Jellyfin.
     /// </summary>
     public DbSet<DbDisabledItem> DisabledItems { get; set; }
+
+    /// <summary>Gets or sets immutable projection plan headers.</summary>
+    internal DbSet<DbProjectionPlan> ProjectionPlans { get; set; }
+
+    /// <summary>Gets or sets immutable projection plan segment images.</summary>
+    internal DbSet<DbProjectionPlanSegment> ProjectionPlanSegments { get; set; }
+
+    /// <summary>Gets or sets immutable exact external operations.</summary>
+    internal DbSet<DbProjectionExternalOperation> ProjectionExternalOperations { get; set; }
+
+    /// <summary>Gets or sets mutable projection retry attempts.</summary>
+    internal DbSet<DbProjectionAttempt> ProjectionAttempts { get; set; }
+
+    /// <summary>Gets or sets compacted per-item projection heads.</summary>
+    internal DbSet<DbProjectionHead> ProjectionHeads { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -170,6 +195,41 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.SeasonId);
         });
 
+        modelBuilder.Entity<DbProjectionPlan>(entity =>
+        {
+            entity.ToTable("ProjectionPlans");
+            entity.HasKey(e => new { e.ChangeId, e.ItemId });
+            entity.HasIndex(e => new { e.ItemId, e.Sequence }).IsUnique();
+            entity.Property(e => e.CreatedAt).HasConversion(_utcDateTimeConverter);
+        });
+
+        modelBuilder.Entity<DbProjectionPlanSegment>(entity =>
+        {
+            entity.ToTable("ProjectionPlanSegments");
+            entity.HasKey(e => new { e.ChangeId, e.ItemId, e.Position });
+        });
+
+        modelBuilder.Entity<DbProjectionExternalOperation>(entity =>
+        {
+            entity.ToTable("ProjectionExternalOperations");
+            entity.HasKey(e => new { e.ChangeId, e.ItemId, e.Position });
+            entity.HasIndex(e => new { e.ItemId, e.ExternalSegmentId });
+        });
+
+        modelBuilder.Entity<DbProjectionAttempt>(entity =>
+        {
+            entity.ToTable("ProjectionAttempts");
+            entity.HasKey(e => new { e.ChangeId, e.ItemId });
+            entity.Property(e => e.LastAttemptAt).HasConversion(_utcDateTimeConverter);
+            entity.Property(e => e.NextAttemptAt).HasConversion(_utcDateTimeConverter);
+        });
+
+        modelBuilder.Entity<DbProjectionHead>(entity =>
+        {
+            entity.ToTable("ProjectionHeads");
+            entity.HasKey(e => e.ItemId);
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 
@@ -217,6 +277,11 @@ public class IntroSkipperDbContext : DbContext
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
         var disabledItems = new List<DbDisabledItem>();
+        var projectionPlans = new List<DbProjectionPlan>();
+        var projectionPlanSegments = new List<DbProjectionPlanSegment>();
+        var projectionExternalOperations = new List<DbProjectionExternalOperation>();
+        var projectionAttempts = new List<DbProjectionAttempt>();
+        var projectionHeads = new List<DbProjectionHead>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -238,6 +303,11 @@ public class IntroSkipperDbContext : DbContext
                 analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionPlans = await db.ProjectionPlans.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionPlanSegments = await db.ProjectionPlanSegments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionAttempts = await db.ProjectionAttempts.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionHeads = await db.ProjectionHeads.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -291,6 +361,11 @@ public class IntroSkipperDbContext : DbContext
                 await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionPlans, projectionPlans, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionPlanSegments, projectionPlanSegments, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionAttempts, projectionAttempts, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionHeads, projectionHeads, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
