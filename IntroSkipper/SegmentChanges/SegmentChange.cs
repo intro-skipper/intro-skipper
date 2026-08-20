@@ -32,7 +32,7 @@ internal sealed partial class SegmentChange(
         cancellationToken.ThrowIfCancellationRequested();
         if (intent.ItemId == Guid.Empty)
         {
-            return new Rejected("Item ID must not be empty.");
+            return new Rejected(SegmentChangeRejectedReason.EmptyItemId, "Item ID must not be empty.");
         }
 
         ExternalSegmentTarget? externalTarget = null;
@@ -42,17 +42,17 @@ internal sealed partial class SegmentChange(
 
             if (externalTarget is null)
             {
-                return new Rejected("External segment was not found.");
+                return new Rejected(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found.");
             }
 
             if (externalTarget.ItemId != external.ItemId)
             {
-                return new Rejected("External segment belongs to another item.");
+                return new Rejected(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item.");
             }
 
             if (externalTarget.Type != external.ExpectedType)
             {
-                return new Rejected("External segment type does not match the expected type.");
+                return new Rejected(SegmentChangeRejectedReason.ExternalTypeMismatch, "External segment type does not match the expected type.");
             }
         }
 
@@ -463,14 +463,14 @@ internal sealed partial class SegmentChange(
 
         return intent switch
         {
-            AddUserSegmentIntent value when !ValidMode(value.Mode) || !ValidRange(value.StartTicks, value.EndTicks) => new("Invalid mode or tick range."),
-            ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !ValidRange(range.StartTicks, range.EndTicks)) => new("Invalid mode or tick range."),
-            UpdateSegmentIntent value when value.SegmentId == Guid.Empty || !ValidRange(value.StartTicks, value.EndTicks) => new("Invalid segment ID or tick range."),
-            DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new("Segment ID must not be empty."),
-            RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new("Segment ID must not be empty."),
-            DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new("Invalid external segment ID or type."),
-            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !ValidRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new("User timestamps must contain unique supported modes and valid ranges."),
-            SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new("Season ID must not be empty."),
+            AddUserSegmentIntent value when !ValidMode(value.Mode) || !ValidRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
+            ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !ValidRange(range.StartTicks, range.EndTicks)) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
+            UpdateSegmentIntent value when value.SegmentId == Guid.Empty || !ValidRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid segment ID or tick range."),
+            DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
+            RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
+            DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid external segment ID or type."),
+            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !ValidRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
+            SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
     }
@@ -490,7 +490,7 @@ internal sealed partial class SegmentChange(
                     {
                         if (await HasAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
                         {
-                            return MutationResult.Ignore("The user segment already exists.");
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.");
                         }
 
                         affected.Add(ToValue(exact));
@@ -519,7 +519,7 @@ internal sealed partial class SegmentChange(
                     {
                         if (await HasAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
                         {
-                            return MutationResult.Ignore("The requested user image already exists.");
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
                         }
 
                         affected.AddRange(active.Select(ToValue));
@@ -559,14 +559,14 @@ internal sealed partial class SegmentChange(
                     var row = rows.FirstOrDefault(item => item.Id == value.SegmentId && item.State == SegmentState.Active);
                     if (row is null)
                     {
-                        return MutationResult.Reject("Segment was not found on the item or is suppressed.");
+                        return MutationResult.Reject(SegmentChangeRejectedReason.SegmentMissingOrSuppressed, "Segment was not found on the item or is suppressed.");
                     }
 
                     if (row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks && row.Source == SegmentSource.User)
                     {
                         if (await HasAnalyzedStateAsync(db, value.ItemId, row.Type, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
                         {
-                            return MutationResult.Ignore("The segment already has the requested values.");
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.");
                         }
 
                         affected.Add(ToValue(row));
@@ -603,7 +603,7 @@ internal sealed partial class SegmentChange(
                     var row = rows.FirstOrDefault(item => item.Id == value.SegmentId && item.State == SegmentState.Active);
                     if (row is null)
                     {
-                        return MutationResult.Ignore("Segment was not found on the item or was already deleted.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.");
                     }
 
                     if (row.Source == SegmentSource.User)
@@ -625,7 +625,7 @@ internal sealed partial class SegmentChange(
                     var row = rows.FirstOrDefault(item => item.Id == value.SegmentId && item.State == SegmentState.Suppressed);
                     if (row is null)
                     {
-                        return MutationResult.Ignore("Segment was not found on the item or was not suppressed.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed, "Segment was not found on the item or was not suppressed.");
                     }
 
                     row.State = SegmentState.Active;
@@ -684,12 +684,12 @@ internal sealed partial class SegmentChange(
                     var disabled = await db.DisabledItems.FirstOrDefaultAsync(item => item.ItemId == value.ItemId, cancellationToken).ConfigureAwait(false);
                     if (value.Visible && disabled is null)
                     {
-                        return MutationResult.Ignore("The item is already visible.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.AlreadyVisible, "The item is already visible.");
                     }
 
                     if (!value.Visible && disabled is not null && disabled.SeasonId == value.SeasonId)
                     {
-                        return MutationResult.Ignore("The item is already hidden.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.AlreadyHidden, "The item is already hidden.");
                     }
 
                     if (value.Visible)
@@ -710,7 +710,7 @@ internal sealed partial class SegmentChange(
                 }
 
             default:
-                return MutationResult.Reject("Unsupported segment change intent.");
+                return MutationResult.Reject(SegmentChangeRejectedReason.UnsupportedIntent, "Unsupported segment change intent.");
         }
 
         return new MutationResult(null, affected, externalOperations);

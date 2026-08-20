@@ -4,5 +4,6 @@
 namespace IntroSkipper.SegmentChanges;
 
 /// <summary>The intent was invalid or did not own its addressed target.</summary>
-/// <param name="Reason">Domain reason.</param>
-public sealed record Rejected(string Reason) : SegmentChangeOutcome;
+/// <param name="Reason">Typed rejection reason.</param>
+/// <param name="Message">Human-readable reason.</param>
+public sealed record Rejected(SegmentChangeRejectedReason Reason, string Message) : SegmentChangeOutcome;

@@ -4,5 +4,6 @@
 namespace IntroSkipper.SegmentChanges;
 
 /// <summary>The intent already held and no transaction was needed.</summary>
-/// <param name="Reason">Domain reason.</param>
-public sealed record Ignored(string Reason) : SegmentChangeOutcome;
+/// <param name="Reason">Typed no-change reason.</param>
+/// <param name="Message">Human-readable reason.</param>
+public sealed record Ignored(SegmentChangeIgnoredReason Reason, string Message) : SegmentChangeOutcome;

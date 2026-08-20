@@ -9,7 +9,7 @@ namespace IntroSkipper.SegmentChanges;
 /// <param name="ExternalOperations">Exact external operations to journal.</param>
 internal sealed record MutationResult(SegmentChangeOutcome? Outcome, IReadOnlyList<SegmentValue> Affected, IReadOnlyList<ProjectedExternalOperation> ExternalOperations)
 {
-    internal static MutationResult Ignore(string reason) => new(new Ignored(reason), [], []);
+    internal static MutationResult Ignore(SegmentChangeIgnoredReason reason, string message) => new(new Ignored(reason, message), [], []);
 
-    internal static MutationResult Reject(string reason) => new(new Rejected(reason), [], []);
+    internal static MutationResult Reject(SegmentChangeRejectedReason reason, string message) => new(new Rejected(reason, message), [], []);
 }
