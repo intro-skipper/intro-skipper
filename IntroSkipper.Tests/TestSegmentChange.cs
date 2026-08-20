@@ -424,6 +424,38 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task RecoveryPoll_DoesNotReconcilePendingExternalOperation()
+    {
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        await SeedAsync(
+            new DbSegment(Guid.NewGuid(), AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter),
+            new DbSegment(Guid.NewGuid(), AnalysisMode.Credits, 30, 40, SegmentSource.BlackFrame));
+        var adapter = new RecordingProjectionAdapter
+        {
+            ExternalTarget = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20),
+            FailuresRemaining = 1
+        };
+        var service = CreateService(adapter);
+
+        await service.ApplyAsync(new DeleteExternalSegmentIntent(itemId, externalId, MediaSegmentType.Intro));
+        adapter.FailuresRemaining = 1;
+        await service.StartAsync(CancellationToken.None);
+        var reconciled = await Task.WhenAny(adapter.Applied.Task, Task.Delay(TimeSpan.FromSeconds(1))) == adapter.Applied.Task;
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.False(reconciled);
+        Assert.Equal(new long[] { 1, 1 }, adapter.Attempts.Select(plan => plan.Sequence));
+        Assert.All(adapter.Attempts, plan => Assert.Equal(externalId, Assert.Single(plan.ExternalOperations).ExternalSegmentId));
+        await using var db = CreateContext();
+        Assert.Equal(1, Assert.Single(await db.ProjectionPlans.ToListAsync()).Sequence);
+        Assert.Equal(1, Assert.Single(await db.ProjectionExternalOperations.ToListAsync()).Sequence);
+        var head = Assert.Single(await db.ProjectionHeads.ToListAsync());
+        Assert.Equal(1, head.LastAcceptedSequence);
+        Assert.Equal(ProjectionState.Pending, head.Status);
+    }
+
+    [Fact]
     public async Task FailureForOneItem_DoesNotBlockAnotherItem()
     {
         var blockedItem = Guid.NewGuid();

@@ -286,7 +286,10 @@ internal sealed partial class SegmentChange(
         if (configuration.Enabled
             && Volatile.Read(ref _reconcileRequested) == 0
             && (await db.ProjectionHeads.AnyAsync(head => head.Status == ProjectionState.Skipped, cancellationToken).ConfigureAwait(false)
-                || await db.ProjectionExternalOperations.AnyAsync(cancellationToken).ConfigureAwait(false)))
+                || await db.ProjectionExternalOperations.AnyAsync(
+                    operation => !db.ProjectionPlans.Any(
+                        plan => plan.ChangeId == operation.ChangeId && plan.ItemId == operation.ItemId),
+                    cancellationToken).ConfigureAwait(false)))
         {
             Interlocked.Exchange(ref _reconcileRequested, 1);
             await ReconcileAfterEnableAsync().ConfigureAwait(false);
