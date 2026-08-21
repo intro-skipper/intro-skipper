@@ -25,5 +25,8 @@ public enum SegmentChangeIgnoredReason
     AlreadyVisible,
 
     /// <summary>The item is already hidden.</summary>
-    AlreadyHidden
+    AlreadyHidden,
+
+    /// <summary>The timestamp payload contained no valid slots.</summary>
+    NoValidUserTimestamps
 }

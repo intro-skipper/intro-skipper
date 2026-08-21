@@ -13,6 +13,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -33,7 +34,7 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
-/// <param name="mediaSegmentEditorService">Media segment editor service; owns the disable-flag mutation end-to-end.</param>
+/// <param name="segmentChange">Durable segment change coordinator.</param>
 /// <param name="libraryManager">libraryManager.</param>
 /// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
@@ -42,11 +43,11 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, MediaSegmentEditorService mediaSegmentEditorService, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ISegmentChange segmentChange, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
-    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
+    private readonly ISegmentChange _segmentChange = segmentChange;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
@@ -242,11 +243,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <returns>No content.</returns>
     [HttpPut("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public Task<ActionResult> DisableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
-        return SetItemDisabledAsync(itemId, disabled: true, cancellationToken);
+        return SetItemVisibilityAsync(itemId, disabled: true, cancellationToken);
     }
 
     /// <summary>
@@ -257,14 +259,15 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <returns>No content.</returns>
     [HttpDelete("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public Task<ActionResult> EnableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
-        return SetItemDisabledAsync(itemId, disabled: false, cancellationToken);
+        return SetItemVisibilityAsync(itemId, disabled: false, cancellationToken);
     }
 
-    private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
+    private async Task<ActionResult> SetItemVisibilityAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
         if (MediaItemHelper.FindSupported(itemId) is not { } item)
         {
@@ -273,9 +276,16 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            // The editor service owns the whole mutation as one per-item linearized
-            // unit: flag write, strict mirror resync, and flag rollback on failure.
-            await _mediaSegmentEditorService.SetItemDisabledAsync(item, disabled, cancellationToken).ConfigureAwait(false);
+            var outcome = await _segmentChange.ApplyAsync(
+                new SegmentVisibilityChangeIntent(itemId, SeasonStateKeyResolver.Resolve(item), Visible: !disabled), cancellationToken).ConfigureAwait(false);
+            return outcome switch
+            {
+                Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+                Accepted _ => NoContent(),
+                Ignored { Reason: SegmentChangeIgnoredReason.AlreadyHidden or SegmentChangeIgnoredReason.AlreadyVisible } => NoContent(),
+                Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+                _ => Conflict()
+            };
         }
         catch (OperationCanceledException)
         {
@@ -283,14 +293,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         }
         catch (Exception ex)
         {
-            // The service rolls the flag back on a mirror failure, but a failing rollback
-            // is logged there rather than thrown; do not promise a state the response
-            // cannot know.
             LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-            return Problem("The media segment mirror could not be refreshed; the request was not applied. See the server log for the item's current state.", statusCode: StatusCodes.Status500InternalServerError);
+            return Problem("The segment visibility change could not be committed.", statusCode: StatusCodes.Status500InternalServerError);
         }
-
-        return NoContent();
     }
 
     private async Task<IReadOnlyList<QueuedEpisode>> GetExcludedInventoryAsync(Plugin plugin, CancellationToken cancellationToken)
@@ -402,6 +407,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to commit segment visibility for item {ItemId} disabled={Disabled}")]
     private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

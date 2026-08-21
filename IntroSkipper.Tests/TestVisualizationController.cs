@@ -11,6 +11,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Http;
@@ -232,7 +233,7 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(
-            refresher, loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+            refresher, loggerFactory, database, pluginScope.CacheDbPath, ControllerSegmentChangeTestHelpers.Create(database, store));
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -273,7 +274,7 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, ControllerSegmentChangeTestHelpers.Create(database, store));
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
@@ -283,7 +284,7 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
-    public async Task DisabledItems_RefreshFailureRollsBackDisable_AndReports500()
+    public async Task DisabledItems_ProjectionFailure_KeepsDisablePending()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -301,19 +302,16 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, ControllerSegmentChangeTestHelpers.Create(database, store));
 
         var result = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
-        // The mirror kept its old rows, so the response must not be a success and
-        // the flag write must be rolled back.
-        var problem = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
-        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
-    public async Task DisabledItems_RefreshFailureRollsBackEnable_AndReports500()
+    public async Task DisabledItems_ProjectionFailure_KeepsEnablePending()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -332,18 +330,16 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, ControllerSegmentChangeTestHelpers.Create(database, store));
 
         var result = await controller.EnableItem(episodeIds[0], CancellationToken.None);
 
-        // Jellyfin still withholds the rows, so the stored flag must stay disabled.
-        var problem = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
-        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
-    public async Task DisabledItems_ConcurrentMutationSerializesBehindFailingRollback()
+    public async Task DisabledItems_ConcurrentDuplicateSerializesBehindPendingProjection()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -366,34 +362,29 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.InitializeAsync();
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, ControllerSegmentChangeTestHelpers.Create(database, store));
 
         // Request A writes the flag, then parks inside its strict mirror write.
         var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
         await writeEntered.Task;
 
-        // Request B mutates the same item while A is in flight. It must serialize
-        // behind A's whole mutation instead of observing A's uncommitted flag: if it
-        // ran now it would see `previous == true` and no-op, and A's rollback would
-        // then silently clobber B's "successful" disable.
+        // Request B waits behind A's in-flight projection, then observes the committed flag.
         var requestB = controller.DisableItem(episodeIds[0], CancellationToken.None);
         Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
         Assert.Equal(1, store.WriteCallCount);
 
-        // A's mirror write now fails; the rollback must complete before B proceeds.
+        // A's projection fails but its authoritative flag remains; B becomes an idempotent no-op.
         writeGate.SetException(new InvalidOperationException("mirror write failed"));
 
-        var problem = Assert.IsType<ObjectResult>(await requestA);
-        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<AcceptedResult>(await requestA);
         Assert.IsType<NoContentResult>(await requestB);
 
-        // B reported success after A's rollback, so the item must end up disabled.
-        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal(1, store.WriteCallCount);
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
-    public async Task DisabledItems_ConcurrentSegmentCreateSerializesBehindFailingRollback()
+    public async Task DisabledItems_ConcurrentSegmentCreate_ProjectsInAcceptedOrder()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -416,37 +407,33 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
-        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
+        var segmentChange = ControllerSegmentChangeTestHelpers.Create(database, store);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, editorService);
-        var segmentsController = new SegmentsController(database, editorService);
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, segmentChange);
+        var segmentsController = new SegmentsController(database, segmentChange);
 
         // Request A writes the disable flag, then parks inside its strict mirror write.
         var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
         await writeEntered.Task;
 
-        // A segment create for the same item must serialize behind A's whole mutation:
-        // syncing now would read A's uncommitted disabled flag and strip the automatic
-        // rows, a state A's rollback would leave baked into the mirror.
+        // A segment create for the same item waits behind A's in-flight projection.
         var requestB = segmentsController.CreateSegment(
             episodeIds[0], new CreateSegmentRequest(AnalysisMode.Commercial, 100, 120), CancellationToken.None);
         Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
         Assert.Equal(1, store.WriteCallCount);
 
-        // A's mirror write now fails and rolls the flag back; only then does B proceed.
+        // A becomes pending; B retries A's plan, then applies its own image.
         writeGate.SetException(new InvalidOperationException("mirror write failed"));
 
-        var problem = Assert.IsType<ObjectResult>(await requestA);
-        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<AcceptedResult>(await requestA);
         Assert.IsType<CreatedAtActionResult>((await requestB).Result);
 
-        // B's sync ran after the rollback: the flag is enabled again, so the final
-        // mirror push carries the automatic segment alongside the new user segment.
-        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
-        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal(3, store.WriteCallCount);
         var finalPush = store.ReplacedItems[^1];
         Assert.Equal(episodeIds[0], finalPush.ItemId);
-        Assert.Equal(2, finalPush.Segments.Count);
+        var projected = Assert.Single(finalPush.Segments);
+        Assert.Equal(Jellyfin.Database.Implementations.Enums.MediaSegmentType.Commercial, projected.Type);
     }
 
     [Fact]
@@ -486,12 +473,12 @@ public sealed class TestVisualizationController
     private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
         => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
 
-    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, MediaSegmentEditorService? editorService = null)
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, ISegmentChange? segmentChange = null)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
             refresher,
-            editorService ?? DatabaseTestHelpers.CreateEditorService(new FakeJellyfinSegmentStore(), database),
+            segmentChange ?? ControllerSegmentChangeTestHelpers.Create(database, new FakeJellyfinSegmentStore()),
             libraryManager: null!,
             new AnalyzerTaskFactory(
                 loggerFactory,

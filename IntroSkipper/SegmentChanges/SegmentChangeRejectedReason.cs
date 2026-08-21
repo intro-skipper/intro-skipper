@@ -33,6 +33,9 @@ public enum SegmentChangeRejectedReason
     /// <summary>The external segment has another type.</summary>
     ExternalTypeMismatch,
 
+    /// <summary>The resolved external target is not the exact addressed row.</summary>
+    ExternalIdMismatch,
+
     /// <summary>The user timestamp set is invalid.</summary>
     InvalidUserTimestamps,
 

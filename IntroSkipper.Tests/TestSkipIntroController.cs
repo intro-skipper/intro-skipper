@@ -15,7 +15,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestSkipIntroController
 {
     [Fact]
-    public async Task UpdateTimestampsAsync_AwaitsMirrorWrite_BeforeReturningNoContent()
+    public async Task UpdateTimestampsAsync_AwaitsProjectionBeforeReturningNoContent()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -28,7 +28,12 @@ public sealed class TestSkipIntroController
             WriteGate = writeGate,
             BlockedItemId = itemId
         };
+        // Pre-warm the facade's init gate so the action below runs synchronously up to the
+        // projection await (its single pending point). With a cold gate, initialization
+        // completes on the thread pool and the pre-completion assertions race it. This
+        // mirrors production, where the hosted initializer warms the gate before traffic.
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.InitializeAsync();
         var controller = CreateController(store, database, pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
@@ -41,6 +46,7 @@ public sealed class TestSkipIntroController
         // still has to wait for that write to finish.
         await writeEntered.Task;
         Assert.False(actionTask.IsCompleted);
+        Assert.Equal(1, store.WriteCallCount);
 
         writeGate.SetResult();
         var result = await actionTask;
@@ -55,14 +61,14 @@ public sealed class TestSkipIntroController
     }
 
     [Fact]
-    public async Task UpdateTimestampsAsync_MirrorDisabled_StoresSegmentWithoutJellyfinWrite()
+    public async Task UpdateTimestampsAsync_ProjectionDisabled_ReturnsAcceptedSkipped()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         var store = new FakeJellyfinSegmentStore();
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(store, database, pluginScope.CacheDbPath);
+        var controller = CreateController(store, database, pluginScope.CacheDbPath, projectionEnabled: false);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -70,15 +76,14 @@ public sealed class TestSkipIntroController
 
         var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
 
-        // The controller does not gate on UpdateMediaSegments; the mirror itself no-ops.
-        Assert.IsType<NoContentResult>(result);
+        Assert.IsType<AcceptedResult>(result);
         Assert.Equal(0, store.WriteCallCount);
         var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, segment.Source);
     }
 
     [Fact]
-    public async Task UpdateTimestampsAsync_MirrorFailure_PropagatesAndKeepsStoredSegment()
+    public async Task UpdateTimestampsAsync_MirrorFailure_ReturnsAcceptedAndKeepsStoredSegment()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -94,11 +99,11 @@ public sealed class TestSkipIntroController
             Introduction = new Segment(itemId, new TimeRange(10, 20))
         };
 
-        // Like every editor write: the failure reaches the caller instead of a 204, and
-        // the committed plugin row stays (the next sync converges the mirror).
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None));
+        // The mirror failure no longer reaches the caller: the committed plugin row stays,
+        // the projection plan stays pending for retry, and the response reports 202.
+        var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
 
+        Assert.IsType<AcceptedResult>(result);
         Assert.Equal(1, store.WriteCallCount);
         var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, segment.Source);
@@ -121,7 +126,7 @@ public sealed class TestSkipIntroController
             AnalysisMode.Introduction,
             [new Segment(itemId, new TimeRange(10, 20))],
             SegmentSource.Chapter);
-        var controller = CreateController(new FakeJellyfinSegmentStore(), database, pluginScope.CacheDbPath);
+        var controller = CreateController(new FakeJellyfinSegmentStore(), database, pluginScope.CacheDbPath, projectionEnabled: false);
         var timestamps = new TimeStamps
         {
             Commercial = new Segment(itemId, new TimeRange(400, 430))
@@ -131,7 +136,7 @@ public sealed class TestSkipIntroController
 
         // The deprecated singular endpoint replaces every stored commercial with the one
         // posted user segment (no more append), while other modes stay untouched.
-        Assert.IsType<NoContentResult>(result);
+        Assert.IsType<AcceptedResult>(result);
         var rows = await database.GetSegmentsAsync(itemId);
         var commercial = Assert.Single(rows, row => row.Type == AnalysisMode.Commercial);
         Assert.Equal(TickConversions.FromSeconds(400), commercial.StartTicks);
@@ -174,15 +179,16 @@ public sealed class TestSkipIntroController
     }
 
     private static SkipIntroController CreateController(
-        IJellyfinSegmentStore store,
+        FakeJellyfinSegmentStore store,
         IntroSkipperDatabase database,
         string cacheDbPath,
-        IMediaSegmentRefresher? refresher = null)
+        IMediaSegmentRefresher? refresher = null,
+        bool projectionEnabled = true)
         => new(
-            DatabaseTestHelpers.CreateEditorService(store, database),
             refresher ?? new RecordingMediaSegmentRefresher(),
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-            database);
+            database,
+            ControllerSegmentChangeTestHelpers.Create(database, store, projectionEnabled));
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-skip-controller.db");

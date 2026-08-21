@@ -5,12 +5,14 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
-using IntroSkipper.Controllers;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -48,12 +50,17 @@ internal static class DatabaseTestHelpers
     internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
         => new(CreateMirror(store, database), database, NullLogger<MediaSegmentEditorService>.Instance);
 
-    /// <summary>
-    /// Composes the editor controller over the standard editor-service wiring, the
-    /// single test home of the controller composition chain.
-    /// </summary>
-    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(CreateEditorService(store, database), database, store);
+    internal static SegmentChange CreateSegmentChange(string dbPath)
+    {
+        var factory = new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath));
+        return new SegmentChange(
+            factory,
+            CreateSegmentDatabase(dbPath),
+            new NoOpProjectionAdapter(),
+            new EnabledProjectionConfiguration(),
+            TimeProvider.System,
+            NullLogger<SegmentChange>.Instance);
+    }
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.
@@ -114,5 +121,24 @@ internal static class DatabaseTestHelpers
                 File.Delete(path);
             }
         }
+    }
+
+    private sealed class NoOpProjectionAdapter : ISegmentProjectionAdapter
+    {
+        public Task<ExternalSegmentTarget?> ResolveExternalTargetAsync(Guid itemId, Guid externalSegmentId, CancellationToken cancellationToken)
+            => Task.FromResult<ExternalSegmentTarget?>(null);
+
+        public Task ApplyAsync(SegmentProjectionPlan plan, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class EnabledProjectionConfiguration : ISegmentProjectionConfiguration
+    {
+        public event EventHandler<bool>? EnabledChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool Enabled => true;
     }
 }

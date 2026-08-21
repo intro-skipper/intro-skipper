@@ -12,8 +12,10 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IntroSkipper.Controllers;
@@ -25,15 +27,15 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
-    MediaSegmentEditorService editorService,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
-    IIntroSkipperDatabase database) : ControllerBase
+    IIntroSkipperDatabase database,
+    ISegmentChange segmentChange) : ControllerBase
 {
-    private readonly MediaSegmentEditorService _editorService = editorService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
+    private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -52,6 +54,8 @@ public partial class SkipIntroController(
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
@@ -74,19 +78,25 @@ public partial class SkipIntroController(
             (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
-        var segmentsByMode = new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)>();
+        var valid = new List<UserTimestamp>();
         foreach (var (mode, segment) in segmentTypes)
         {
             // An empty or degenerate slot (end not after start) is skipped, not stored.
             if (TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
             {
-                segmentsByMode[mode] = (startTicks, endTicks);
+                valid.Add(new UserTimestamp(mode, startTicks, endTicks));
             }
         }
 
-        await _editorService.ReplaceUserSegmentsAsync(id, segmentsByMode, cancellationToken).ConfigureAwait(false);
-
-        return NoContent();
+        var outcome = await _segmentChange.ApplyAsync(new WriteUserTimestampsIntent(id, valid), cancellationToken).ConfigureAwait(false);
+        return outcome switch
+        {
+            Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+            Accepted _ => NoContent(),
+            Ignored { Reason: SegmentChangeIgnoredReason.NoValidUserTimestamps } => NoContent(),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => Conflict()
+        };
     }
 
     /// <summary>

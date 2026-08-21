@@ -136,7 +136,7 @@ public sealed class TestSegmentsApiController
                 new CreateSegmentRequest(AnalysisMode.Introduction, 5, 30),
                 CancellationToken.None);
 
-            Assert.IsType<CreatedAtActionResult>(response.Result);
+            Assert.IsType<AcceptedResult>(response.Result);
             Assert.Empty(store.ReplacedItems);
         }
         finally
@@ -269,7 +269,7 @@ public sealed class TestSegmentsApiController
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, autoRow.Id, CancellationToken.None));
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == autoRow.Id);
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Contains((itemId, autoRow.Id), store.DeletedSegments);
+            Assert.DoesNotContain(store.ReplacedItems[^1].Segments, segment => segment.Id == autoRow.Id);
 
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, userRow.Id, CancellationToken.None));
             Assert.DoesNotContain(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == userRow.Id);
@@ -296,7 +296,7 @@ public sealed class TestSegmentsApiController
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
             var controller = CreateController(database, out var store);
 
-            Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
+            Assert.IsType<AcceptedResult>(await controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
 
             // Plugin-side delete happened; Jellyfin stays untouched, consistent with
             // how create/update/restore honor the UpdateMediaSegments flag.
@@ -312,7 +312,7 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
-    public async Task DeleteSegment_RollsBackPluginDelete_WhenJellyfinDeleteFails()
+    public async Task DeleteSegment_JellyfinFailure_ReturnsAcceptedPendingWithoutRollingBack()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -324,13 +324,13 @@ public sealed class TestSegmentsApiController
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
             var controller = CreateController(database, out _, new InvalidOperationException("Jellyfin unavailable"));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
+            Assert.IsType<AcceptedResult>(
+                await controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
 
-            // The tombstone was rolled back — the row is active again with its metadata.
-            var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.Equal(row.Id, restored.Id);
-            Assert.Equal("cfg", restored.ConfigHash);
+            var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(row.Id, tombstone.Id);
+            Assert.Equal(SegmentState.Suppressed, tombstone.State);
+            Assert.Equal("cfg", tombstone.ConfigHash);
         }
         finally
         {
@@ -370,11 +370,15 @@ public sealed class TestSegmentsApiController
     private static SegmentsController CreateController(
         IIntroSkipperDatabase database,
         out FakeJellyfinSegmentStore store,
-        Exception? deleteException = null)
+        Exception? projectionException = null)
     {
-        store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
-        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
-        return new SegmentsController(database, editorService);
+        store = new FakeJellyfinSegmentStore { WriteException = projectionException };
+        return new SegmentsController(
+            database,
+            ControllerSegmentChangeTestHelpers.Create(
+                (IntroSkipperDatabase)database,
+                store,
+                Plugin.Instance!.Configuration.UpdateMediaSegments));
     }
 
     private static string CreateTempDbPath()

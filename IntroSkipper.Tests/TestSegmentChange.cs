@@ -493,6 +493,70 @@ public sealed class TestSegmentChange : IDisposable
         Assert.Single(await verify.ProjectionHeads.ToListAsync());
     }
 
+    [Fact]
+    public async Task EditorDelete_CorrelatedId_TombstonesAutomaticWithExactTicks()
+    {
+        var itemId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Introduction, 123456789, 987654321, SegmentSource.Chapter, "hash");
+        await SeedAsync(row);
+        var adapter = new RecordingProjectionAdapter { ResolveException = new InvalidOperationException("correlated delete must not resolve externally") };
+
+        var accepted = Assert.IsType<Accepted>(await CreateService(adapter).ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, row.Id, MediaSegmentType.Intro)));
+
+        var affected = Assert.Single(accepted.AffectedValues);
+        Assert.Equal(row.Id, affected.Id);
+        Assert.Equal(123456789, affected.StartTicks);
+        Assert.Equal(987654321, affected.EndTicks);
+        Assert.Equal(SegmentState.Suppressed, affected.State);
+        Assert.Empty(Assert.Single(adapter.Plans).ExternalOperations);
+        await using var db = CreateContext();
+        Assert.Equal(SegmentState.Suppressed, Assert.Single(await db.Segments.ToListAsync()).State);
+    }
+
+    [Fact]
+    public async Task EditorDelete_UncorrelatedId_UsesExactTickFallbackAndDurableExternalDelete()
+    {
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Credits, 111111111, 222222222, SegmentSource.User);
+        await SeedAsync(row);
+        var adapter = new RecordingProjectionAdapter
+        {
+            ExternalTarget = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Outro, row.StartTicks, row.EndTicks)
+        };
+
+        var accepted = Assert.IsType<Accepted>(await CreateService(adapter).ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Outro)));
+
+        Assert.Equal(row.Id, Assert.Single(accepted.AffectedValues).Id);
+        var operation = Assert.Single(Assert.Single(adapter.Plans).ExternalOperations);
+        Assert.Equal(externalId, operation.ExternalSegmentId);
+        await using var db = CreateContext();
+        Assert.Empty(await db.Segments.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_RejectsResolvedTargetMismatchWithoutMutation()
+    {
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter);
+        await SeedAsync(row);
+        var adapter = new RecordingProjectionAdapter
+        {
+            ExternalTarget = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Outro, row.StartTicks, row.EndTicks)
+        };
+
+        var rejected = Assert.IsType<Rejected>(await CreateService(adapter).ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        Assert.Equal(SegmentChangeRejectedReason.ExternalTypeMismatch, rejected.Reason);
+        await using var db = CreateContext();
+        Assert.Equal(SegmentState.Active, Assert.Single(await db.Segments.ToListAsync()).State);
+        Assert.Empty(await db.ProjectionPlans.ToListAsync());
+    }
+
     /// <inheritdoc />
     public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
 

@@ -5,7 +5,7 @@ using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -24,16 +24,16 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentsController"/> class.
 /// </remarks>
 /// <param name="database">Segment database facade.</param>
-/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
+/// <param name="segmentChange">Durable segment change coordinator.</param>
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public class SegmentsController(
     IIntroSkipperDatabase database,
-    MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
+    ISegmentChange segmentChange) : ControllerBase
 {
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
+    private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Gets all stored segments of an item, ordered by type and start time.
@@ -76,6 +76,7 @@ public class SegmentsController(
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{itemId}/Segments")]
     [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> CreateSegment(
@@ -102,10 +103,16 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var row = await _mediaSegmentEditorService
-            .CreateUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken)
-            .ConfigureAwait(false);
-        return CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentDto.FromDbSegment(row));
+        var outcome = await _segmentChange.ApplyAsync(
+            new AddUserSegmentIntent(itemId, request.Type, startTicks, endTicks), cancellationToken).ConfigureAwait(false);
+        return outcome switch
+        {
+            Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+            Accepted accepted => CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentChangeHttp.ToDto(AssertSingle(accepted.AffectedValues))),
+            Ignored { Reason: SegmentChangeIgnoredReason.UserSegmentAlreadyExists } ignored => CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentChangeHttp.ToDto(AssertSingle(ignored.AffectedValues))),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => Conflict()
+        };
     }
 
     /// <summary>
@@ -124,6 +131,7 @@ public class SegmentsController(
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPut("Episode/{itemId}/Segments/{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> UpdateSegment(
@@ -144,15 +152,16 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var updated = await _mediaSegmentEditorService
-            .UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken)
-            .ConfigureAwait(false);
-        if (updated is null)
+        var outcome = await _segmentChange.ApplyAsync(
+            new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks), cancellationToken).ConfigureAwait(false);
+        return outcome switch
         {
-            return NotFound();
-        }
-
-        return Ok(SegmentDto.FromDbSegment(updated));
+            Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+            Accepted accepted => Ok(SegmentChangeHttp.ToDto(AssertSingle(accepted.AffectedValues))),
+            Ignored { Reason: SegmentChangeIgnoredReason.SegmentAlreadyHasValues } ignored => Ok(SegmentChangeHttp.ToDto(AssertSingle(ignored.AffectedValues))),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => Conflict()
+        };
     }
 
     /// <summary>
@@ -168,6 +177,7 @@ public class SegmentsController(
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpDelete("Episode/{itemId}/Segments/{segmentId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteSegment(
         [FromRoute] Guid itemId,
@@ -179,19 +189,15 @@ public class SegmentsController(
             return NotFound();
         }
 
-        // The cascade owns the whole delete workflow: item-scoped plugin delete, targeted
-        // Jellyfin delete with rollback, mirror re-sync when the shared id found no
-        // Jellyfin row, and the season-state reset (mode comes from the deleted row).
-        // The Jellyfin row shares the segment id.
-        var deleted = await _mediaSegmentEditorService
-            .DeleteSegmentAsync(itemId, segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (deleted is null)
+        var outcome = await _segmentChange.ApplyAsync(new DeleteSegmentIntent(itemId, segmentId), cancellationToken).ConfigureAwait(false);
+        return outcome switch
         {
-            return NotFound();
-        }
-
-        return NoContent();
+            Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+            Accepted _ => NoContent(),
+            Ignored { Reason: SegmentChangeIgnoredReason.SegmentMissingOrDeleted } => NotFound(),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => Conflict()
+        };
     }
 
     /// <summary>
@@ -206,6 +212,7 @@ public class SegmentsController(
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{itemId}/Segments/{segmentId}/Restore")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<SegmentChangeAcceptedResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> RestoreSegment(
         [FromRoute] Guid itemId,
@@ -217,14 +224,17 @@ public class SegmentsController(
             return NotFound();
         }
 
-        var restored = await _mediaSegmentEditorService
-            .RestoreSegmentAsync(itemId, segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (restored is null)
+        var outcome = await _segmentChange.ApplyAsync(new RestoreSegmentIntent(itemId, segmentId), cancellationToken).ConfigureAwait(false);
+        return outcome switch
         {
-            return NotFound();
-        }
-
-        return Ok(SegmentDto.FromDbSegment(restored));
+            Accepted accepted when !SegmentChangeHttp.IsApplied(accepted) => SegmentChangeHttp.Accepted(accepted),
+            Accepted accepted => Ok(SegmentChangeHttp.ToDto(AssertSingle(accepted.AffectedValues))),
+            Ignored { Reason: SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed } => NotFound(),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => Conflict()
+        };
     }
+
+    private static SegmentValue AssertSingle(IReadOnlyList<SegmentValue> values)
+        => values.Count == 1 ? values[0] : throw new InvalidOperationException("A single affected segment was expected.");
 }

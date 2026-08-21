@@ -35,6 +35,11 @@ internal sealed partial class SegmentChange(
             return new Rejected(SegmentChangeRejectedReason.EmptyItemId, "Item ID must not be empty.");
         }
 
+        if (Validate(intent) is { } rejection)
+        {
+            return rejection;
+        }
+
         ExternalSegmentTarget? externalTarget = null;
         if (intent is DeleteExternalSegmentIntent external)
         {
@@ -43,6 +48,11 @@ internal sealed partial class SegmentChange(
             if (externalTarget is null)
             {
                 return new Rejected(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found.");
+            }
+
+            if (externalTarget.Id != external.ExternalSegmentId)
+            {
+                return new Rejected(SegmentChangeRejectedReason.ExternalIdMismatch, "Resolved external segment does not match the addressed ID.");
             }
 
             if (externalTarget.ItemId != external.ItemId)
@@ -56,16 +66,24 @@ internal sealed partial class SegmentChange(
             }
         }
 
-        if (Validate(intent) is { } rejection)
-        {
-            return rejection;
-        }
-
         await database.InitializeAsync().ConfigureAwait(false);
         var changeId = Guid.CreateVersion7();
         IReadOnlyList<SegmentValue> affected;
         {
             using var itemLock = await _locks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
+            if (intent is EditorDeleteSegmentIntent editorDelete)
+            {
+                using var lookup = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                var correlated = await lookup.Segments.AsNoTracking().AnyAsync(
+                    value => value.ItemId == editorDelete.ItemId && value.Id == editorDelete.SegmentId,
+                    cancellationToken).ConfigureAwait(false);
+                if (!correlated)
+                {
+                    externalTarget = await adapter.ResolveExternalTargetAsync(
+                        editorDelete.ItemId, editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             using (var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false))
             {
                 var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -472,7 +490,8 @@ internal sealed partial class SegmentChange(
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid external segment ID or type."),
-            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !ValidRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
+            EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment ID or type."),
+            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !ValidRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
             SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
@@ -491,7 +510,7 @@ internal sealed partial class SegmentChange(
                     var exact = rows.FirstOrDefault(row => row.Type == value.Mode && row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks);
                     if (exact is { Source: SegmentSource.User, State: SegmentState.Active })
                     {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.", [ToValue(exact)]);
                     }
 
                     exact ??= new DbSegment(value.ItemId, value.Mode, value.StartTicks, value.EndTicks, SegmentSource.User);
@@ -513,7 +532,7 @@ internal sealed partial class SegmentChange(
                     var active = rows.Where(row => row.Type == value.Mode && row.State == SegmentState.Active).ToList();
                     if (active.Count == requested.Count && active.All(row => row.Source == SegmentSource.User && requested.Contains(new SegmentRange(row.StartTicks, row.EndTicks))))
                     {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.", active.Select(ToValue).ToList());
                     }
 
                     db.Segments.RemoveRange(active);
@@ -546,7 +565,7 @@ internal sealed partial class SegmentChange(
 
                     if (row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks && row.Source == SegmentSource.User)
                     {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.");
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.", [ToValue(row)]);
                     }
 
                     var occupant = rows.FirstOrDefault(item => item.Id != row.Id && item.Type == row.Type && item.StartTicks == value.StartTicks && item.EndTicks == value.EndTicks);
@@ -632,8 +651,86 @@ internal sealed partial class SegmentChange(
                     break;
                 }
 
+            case EditorDeleteSegmentIntent value:
+                {
+                    var mode = AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType)!.Value;
+                    var correlated = rows.FirstOrDefault(row => row.Id == value.SegmentId);
+                    if (correlated is not null)
+                    {
+                        if (correlated.State != SegmentState.Active)
+                        {
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was already deleted.");
+                        }
+
+                        if (correlated.Type != mode)
+                        {
+                            return MutationResult.Reject(SegmentChangeRejectedReason.ExternalTypeMismatch, "Segment type does not match the expected type.");
+                        }
+
+                        if (correlated.Source == SegmentSource.User)
+                        {
+                            db.Segments.Remove(correlated);
+                        }
+                        else
+                        {
+                            correlated.State = SegmentState.Suppressed;
+                        }
+
+                        affected.Add(ToValue(correlated));
+                        await DeriveAnalyzedItemAsync(db, rows, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
+
+                    if (externalTarget is null)
+                    {
+                        return MutationResult.Reject(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found.");
+                    }
+
+                    if (externalTarget.Id != value.SegmentId)
+                    {
+                        return MutationResult.Reject(SegmentChangeRejectedReason.ExternalIdMismatch, "Resolved external segment does not match the addressed ID.");
+                    }
+
+                    if (externalTarget.ItemId != value.ItemId)
+                    {
+                        return MutationResult.Reject(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item.");
+                    }
+
+                    if (externalTarget.Type != value.ExpectedType)
+                    {
+                        return MutationResult.Reject(SegmentChangeRejectedReason.ExternalTypeMismatch, "External segment type does not match the expected type.");
+                    }
+
+                    var match = rows.FirstOrDefault(row => row.Type == mode
+                        && row.StartTicks == externalTarget.StartTicks
+                        && row.EndTicks == externalTarget.EndTicks
+                        && row.State == SegmentState.Active);
+                    if (match is not null)
+                    {
+                        if (match.Source == SegmentSource.User)
+                        {
+                            db.Segments.Remove(match);
+                        }
+                        else
+                        {
+                            match.State = SegmentState.Suppressed;
+                        }
+
+                        affected.Add(ToValue(match));
+                    }
+
+                    externalOperations.Add(new ProjectedExternalOperation(value.SegmentId, value.ExpectedType, ProjectionExternalOperationKind.Delete));
+                    await DeriveAnalyzedItemAsync(db, rows, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+
             case WriteUserTimestampsIntent value:
                 {
+                    if (value.Timestamps.Count == 0)
+                    {
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.NoValidUserTimestamps, "The payload contained no valid timestamp slots.");
+                    }
+
                     foreach (var timestamp in value.Timestamps)
                     {
                         var active = rows.Where(row => row.Type == timestamp.Mode && row.State == SegmentState.Active).ToList();

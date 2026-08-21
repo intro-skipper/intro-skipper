@@ -169,7 +169,7 @@ public sealed class TestVisualizationControllerSeams
         => new(
             NullLogger<VisualizationController>.Instance,
             new NoOpMediaSegmentRefresher(),
-            DatabaseTestHelpers.CreateEditorService(new FakeJellyfinSegmentStore(), database),
+            new RecordingSegmentChange(),
             libraryManager!,
             new AnalyzerTaskFactory(
                 NullLoggerFactory.Instance,

@@ -122,6 +122,12 @@ export type SegmentUpdateRequest = {
     End: number;
 };
 
+export type SegmentChangeAcceptedResponse = {
+    ChangeId: string;
+    ChangeStatus: "Accepted";
+    ProjectionStatus: "Pending" | "Skipped";
+};
+
 export type ScanStatus = {
     isRunning: boolean;
 };

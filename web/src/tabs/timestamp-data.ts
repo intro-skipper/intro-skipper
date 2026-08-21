@@ -54,6 +54,6 @@ export async function getDisabledItemIds(seasonId: string): Promise<string[] | n
     return result.ok && result.data ? result.data : null;
 }
 
-export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {
+export function setItemDisabled(itemId: string, disabled: boolean): ReturnType<typeof api.setItemDisabled> {
     return api.setItemDisabled(itemId, disabled);
 }

@@ -10,6 +10,7 @@ import type {
     LibraryStorage,
     SystemStorageInfo,
     ClearExcludedTimestampsResponse,
+    SegmentChangeAcceptedResponse,
 } from "../types.ts";
 
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
@@ -116,24 +117,24 @@ export function getEpisodeSegments(
 export function createEpisodeSegment(
     itemId: string,
     body: SegmentCreateRequest,
-): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", body);
+): Promise<ApiResult<SegmentDto | SegmentChangeAcceptedResponse>> {
+    return request<SegmentDto | SegmentChangeAcceptedResponse>(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", body);
 }
 
 export function updateEpisodeSegment(
     itemId: string,
     segmentId: string,
     body: SegmentUpdateRequest,
-): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(
+): Promise<ApiResult<SegmentDto | SegmentChangeAcceptedResponse>> {
+    return request<SegmentDto | SegmentChangeAcceptedResponse>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
         "PUT",
         body,
     );
 }
 
-export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<ApiResult<null>> {
-    return request<null>(
+export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<ApiResult<null | SegmentChangeAcceptedResponse>> {
+    return request<null | SegmentChangeAcceptedResponse>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
         "DELETE",
     );
@@ -142,8 +143,8 @@ export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise
 export function restoreEpisodeSegment(
     itemId: string,
     segmentId: string,
-): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(
+): Promise<ApiResult<SegmentDto | SegmentChangeAcceptedResponse>> {
+    return request<SegmentDto | SegmentChangeAcceptedResponse>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}/Restore`,
         "POST",
     );
@@ -170,8 +171,8 @@ export function getDisabledItems(seasonId: string): Promise<ApiResult<string[]>>
     return getJson<string[]>(`Intros/DisabledItems/${encodeURIComponent(seasonId)}`);
 }
 
-export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {
-    return request<null>(
+export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null | SegmentChangeAcceptedResponse>> {
+    return request<null | SegmentChangeAcceptedResponse>(
         `Intros/DisabledItems/${encodeURIComponent(itemId)}`,
         disabled ? "PUT" : "DELETE",
     );
