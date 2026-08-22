@@ -142,8 +142,8 @@ export type SupportBundleEntry = {
 export type SupportBundleSection = {
     Title: string;
     Collapsed: boolean;
-    Entries: SupportBundleEntry[] | null;
-    Text: string | null;
+    Entries?: SupportBundleEntry[] | null;
+    Text?: string | null;
 };
 
 export type SupportBundle = {

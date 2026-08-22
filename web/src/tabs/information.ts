@@ -41,7 +41,7 @@ function renderEntries(entries: SupportBundleEntry[]): HTMLElement {
 }
 
 function renderBody(section: SupportBundleSection): HTMLElement {
-    if (section.Text !== null) {
+    if (typeof section.Text === "string") {
         return el("pre", { className: "support-pre" }, section.Text);
     }
     const entries = section.Entries ?? [];
@@ -51,7 +51,7 @@ function renderBody(section: SupportBundleSection): HTMLElement {
 }
 
 function sizeHint(section: SupportBundleSection): string {
-    if (section.Text !== null) {
+    if (typeof section.Text === "string") {
         const lines = section.Text.length === 0 ? 0 : section.Text.trimEnd().split("\n").length;
         return lines === 1 ? "1 line" : `${lines} lines`;
     }
