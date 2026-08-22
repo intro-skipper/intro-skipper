@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    [Migration("20260727163825_InitialCreate")]
+    [Migration("20260822154223_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -19,6 +19,39 @@ namespace IntroSkipper.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
+
+            modelBuilder.Entity("IntroSkipper.Db.DbAnalyzedItem", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConfigHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ItemId", "Type");
+
+                    b.ToTable("AnalyzedItems", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbDisabledItem", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ItemId");
+
+                    b.HasIndex("SeasonId");
+
+                    b.ToTable("DisabledItems", (string)null);
+                });
 
             modelBuilder.Entity("IntroSkipper.Db.DbImportRecord", b =>
                 {
@@ -60,14 +93,6 @@ namespace IntroSkipper.Migrations
 
                     b.Property<int>("Action")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("ConfigHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.PrimitiveCollection<string>("EpisodeIds")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
 
                     b.PrimitiveCollection<string>("SettledReanalysisEpisodeIds")
                         .IsRequired()
@@ -117,7 +142,10 @@ namespace IntroSkipper.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_Segments_ItemId_Type_StartTicks_EndTicks");
 
-                    b.ToTable("Segments", (string)null);
+                    b.ToTable("Segments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Segments_Range", "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0");
+                        });
                 });
 #pragma warning restore 612, 618
         }

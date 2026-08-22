@@ -12,6 +12,31 @@ namespace IntroSkipper.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "AnalyzedItems",
+                columns: table => new
+                {
+                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
+                    Type = table.Column<int>(type: "INTEGER", nullable: false),
+                    ConfigHash = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AnalyzedItems", x => new { x.ItemId, x.Type });
+                });
+
+            migrationBuilder.CreateTable(
+                name: "DisabledItems",
+                columns: table => new
+                {
+                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
+                    SeasonId = table.Column<Guid>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DisabledItems", x => x.ItemId);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ImportHistory",
                 columns: table => new
                 {
@@ -36,8 +61,6 @@ namespace IntroSkipper.Migrations
                     SeasonId = table.Column<Guid>(type: "TEXT", nullable: false),
                     Type = table.Column<int>(type: "INTEGER", nullable: false),
                     Action = table.Column<int>(type: "INTEGER", nullable: false),
-                    EpisodeIds = table.Column<string>(type: "TEXT", nullable: false),
-                    ConfigHash = table.Column<string>(type: "TEXT", nullable: false),
                     SettledReanalysisEpisodeIds = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -63,7 +86,13 @@ namespace IntroSkipper.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Segments", x => x.Id);
+                    table.CheckConstraint("CK_Segments_Range", "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0");
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DisabledItems_SeasonId",
+                table: "DisabledItems",
+                column: "SeasonId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Segments_ItemId_Type_StartTicks_EndTicks",
@@ -75,6 +104,12 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AnalyzedItems");
+
+            migrationBuilder.DropTable(
+                name: "DisabledItems");
+
             migrationBuilder.DropTable(
                 name: "ImportHistory");
 

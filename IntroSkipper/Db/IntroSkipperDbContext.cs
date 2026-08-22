@@ -13,8 +13,8 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Plugin segment database (<c>introskipper-v2.db</c>). The schema is owned by EF
-/// migrations (a baseline plus one per later change); data from the legacy
-/// <c>introskipper.db</c> is carried over once by <see cref="LegacyDatabaseImporter"/>.
+/// migrations (a single baseline; later changes are plain migrations on top); data from
+/// the legacy <c>introskipper.db</c> is carried over once by <see cref="LegacyDatabaseImporter"/>.
 /// </summary>
 public class IntroSkipperDbContext : DbContext
 {
