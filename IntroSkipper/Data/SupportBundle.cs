@@ -50,15 +50,7 @@ public sealed record SupportBundle(IReadOnlyList<SupportBundleSection> Sections)
         if (section.Text is { } text)
         {
             // A fence longer than any backtick run in the text keeps the block intact.
-            var longestRun = 0;
-            var run = 0;
-            foreach (var c in text)
-            {
-                run = c == '`' ? run + 1 : 0;
-                longestRun = Math.Max(longestRun, run);
-            }
-
-            var fence = new string('`', Math.Max(3, longestRun + 1));
+            var fence = new string('`', Math.Max(3, LongestBacktickRun(text) + 1));
             markdown.Append(fence).Append('\n').Append(text);
             if (!text.EndsWith('\n'))
             {
@@ -81,8 +73,10 @@ public sealed record SupportBundle(IReadOnlyList<SupportBundleSection> Sections)
         }
     }
 
-    // Wraps a value in a code span longer than any backtick run it contains, padded when it starts or ends with a
-    // backtick, so regex patterns and paths survive Markdown rendering untouched.
+    // Wraps a value in a code span longer than any backtick run it contains, so regex patterns and paths survive
+    // Markdown rendering untouched. CommonMark strips one space from each end of a span that starts and ends with
+    // one, so values that begin or end with a backtick or a space get an extra padding space on both sides. An
+    // all-space value is left alone because the stripping rule skips those.
     private static string CodeSpan(string value)
     {
         if (value.Length == 0)
@@ -90,15 +84,23 @@ public sealed record SupportBundle(IReadOnlyList<SupportBundleSection> Sections)
             return value;
         }
 
-        var longestRun = 0;
+        var longestRun = LongestBacktickRun(value);
+        var delimiter = new string('`', longestRun + 1);
+        var needsPadding = longestRun > 0
+            || ((value[0] == ' ' || value[^1] == ' ') && value.AsSpan().Trim(' ').Length > 0);
+        return needsPadding ? delimiter + " " + value + " " + delimiter : delimiter + value + delimiter;
+    }
+
+    private static int LongestBacktickRun(string text)
+    {
+        var longest = 0;
         var run = 0;
-        foreach (var c in value)
+        foreach (var c in text)
         {
             run = c == '`' ? run + 1 : 0;
-            longestRun = Math.Max(longestRun, run);
+            longest = Math.Max(longest, run);
         }
 
-        var delimiter = new string('`', longestRun + 1);
-        return longestRun == 0 ? delimiter + value + delimiter : delimiter + " " + value + " " + delimiter;
+        return longest;
     }
 }

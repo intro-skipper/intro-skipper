@@ -42,6 +42,18 @@ public class TestSupportBundle
         Assert.Equal("**Overview**\n\n* Pattern: ``` a``b` ```\n* Empty: \n", bundle.Markdown);
     }
 
+    [Theory]
+    [InlineData(" foo ", "`  foo  `")]
+    [InlineData("foo ", "` foo  `")]
+    [InlineData("   ", "`   `")]
+    [InlineData("foo", "`foo`")]
+    public void Markdown_ValuesWithBoundarySpacesArePaddedSoCommonMarkKeepsThem(string value, string expectedSpan)
+    {
+        var bundle = new SupportBundle([new("Overview") { Entries = [new("Value", value)] }]);
+
+        Assert.Equal("**Overview**\n\n* Value: " + expectedSpan + "\n", bundle.Markdown);
+    }
+
     [Fact]
     public void Markdown_TextContainingFenceUsesLongerFence()
     {

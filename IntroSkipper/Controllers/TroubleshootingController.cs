@@ -111,13 +111,13 @@ public partial class TroubleshootingController : ControllerBase
                     new("FFmpeg path", string.IsNullOrEmpty(plugin.FFmpegPath) ? "unknown" : plugin.FFmpegPath),
                     new("Debug logging", _logger.IsEnabled(LogLevel.Debug) ? "on" : "off"),
                     new("Last scan", detectTask is null ? "unknown" : DescribeLastRun(detectTask)),
-                    new("Scan running", detectTask is null ? "unknown" : DescribeState(detectTask)),
+                    new("Scan running", DescribeScanState(detectTask)),
                     new("Queue contents", FormattableString.Invariant($"{plugin.TotalQueued} episodes, {plugin.TotalSeasons} seasons")),
                     new("Warnings", WarningManager.GetWarnings()),
                     new(
                         "File Transformation plugin",
                         (plugin.Configuration.FileTransformationPluginEnabled ? "installed" : "not installed")
-                        + (plugin.Configuration.UseFileTransformationPlugin ? ", used" : ", not used")),
+                        + (plugin.Configuration.UseFileTransformationPlugin ? ", enabled in settings" : ", disabled in settings")),
                 ],
             },
             new("Changed settings")
@@ -152,12 +152,24 @@ public partial class TroubleshootingController : ControllerBase
         return string.IsNullOrWhiteSpace(result.ErrorMessage) ? summary : summary + ": " + result.ErrorMessage.ReplaceLineEndings(" ").Trim();
     }
 
-    private static string DescribeState(IScheduledTaskWorker task) => task.State switch
+    // Manual season scans hold ScheduledTaskSemaphore without going through the task worker, so the
+    // semaphore decides whether a scan is running; the worker only contributes its progress.
+    private static string DescribeScanState(IScheduledTaskWorker? task)
     {
-        TaskState.Running => task.CurrentProgress is { } progress ? FormattableString.Invariant($"yes ({progress:0}%)") : "yes",
-        TaskState.Cancelling => "cancelling",
-        _ => "no",
-    };
+        if (task?.State == TaskState.Cancelling)
+        {
+            return "cancelling";
+        }
+
+        if (!ScheduledTaskSemaphore.IsBusy && task?.State != TaskState.Running)
+        {
+            return "no";
+        }
+
+        return task is { State: TaskState.Running, CurrentProgress: { } progress }
+            ? FormattableString.Invariant($"yes ({progress:0}%)")
+            : "yes";
+    }
 
     private static string FormatDuration(TimeSpan duration) => duration switch
     {
