@@ -39,7 +39,7 @@ public static class ConfigHasher
                 $"analysis|v2|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
-                $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{CreditsNonBlackToken(config)}",
+                $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
@@ -147,11 +147,11 @@ public static class ConfigHasher
     public static bool IsStreamScopedDetectionCacheHash(string? cacheHash)
         => cacheHash?.StartsWith("audio-stream-v1|", StringComparison.Ordinal) == true;
 
-    // DetectNonBlackCredits only affects output when the alternative analyzer is active; including it
-    // unconditionally would invalidate cached credits on the default BlackFrameAnalyzer path, which
+    // DetectNonBlackCredits only affects output when the default analyzer is active; including it
+    // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
     // cannot observe the setting (the UI also hides it there).
     private static string CreditsNonBlackToken(PluginConfiguration config)
-        => config.UseAlternativeBlackFrameAnalyzer
+        => !config.UseLegacyBlackFrameAnalyzer
             ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}")
             : string.Empty;
 
