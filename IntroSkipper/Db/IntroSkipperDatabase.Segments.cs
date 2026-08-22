@@ -403,27 +403,6 @@ public sealed partial class IntroSkipperDatabase
             .ThenBy(s => s.StartTicks);
 
     /// <inheritdoc/>
-    public async Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
-        {
-            await db.Segments
-                .Where(s => s.ItemId == itemId)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await db.AnalyzedItems
-                .Where(a => a.ItemId == itemId)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -453,28 +432,6 @@ public sealed partial class IntroSkipperDatabase
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return itemIds;
         }
-    }
-
-    /// <inheritdoc/>
-    public async Task<int> DeleteSegmentsForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
-        var ids = itemIds.Distinct().ToArray();
-        if (ids.Length == 0)
-        {
-            return 0;
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
-        // delete is one statement regardless of the item count.
-        return await db.Segments
-            .Where(s => EF.Parameter(ids).Contains(s.ItemId))
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
     }
 
     // Hands a row to the user: active (a tombstone is revived), user-sourced, and without

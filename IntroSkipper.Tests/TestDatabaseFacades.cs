@@ -517,33 +517,6 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task DeleteItemSegmentsAsync_RemovesAllSegmentsForTheItemOnly()
-    {
-        var dbPath = CreateTempDbPath();
-        var targetItemId = Guid.NewGuid();
-        var otherItemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Credits, [new Segment(targetItemId, new TimeRange(1200, 1260))], SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Commercial, [new Segment(targetItemId, new TimeRange(100, 110))], SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
-
-            await database.DeleteItemSegmentsAsync(targetItemId);
-
-            await using var db = new IntroSkipperDbContext(dbPath);
-            var remaining = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
-            Assert.Equal(otherItemId, remaining.ItemId);
-            Assert.Equal(AnalysisMode.Introduction, remaining.Type);
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
     public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly()
     {
         var dbPath = CreateTempDbPath();
@@ -673,7 +646,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task DeleteSegmentsForItemsAsync_DoesNotExceedSqliteVariableLimit_WhenItemListIsLarge()
+    public async Task EraseItemsAsync_DoesNotExceedSqliteVariableLimit_WhenItemListIsLarge()
     {
         const int LargeItemCount = 33_000;
 
@@ -691,7 +664,7 @@ public sealed class TestDatabaseFacades
             await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 10))], SegmentSource.Chapter);
             await database.ReplaceAutoSegmentsAsync(retainedItemId, AnalysisMode.Introduction, [new Segment(retainedItemId, new TimeRange(20, 30))], SegmentSource.Chapter);
 
-            var deleted = await database.DeleteSegmentsForItemsAsync(itemIds);
+            var deleted = await database.EraseItemsAsync(itemIds);
 
             Assert.Equal(1, deleted);
             Assert.Empty(await database.GetSegmentsAsync(targetItemId));

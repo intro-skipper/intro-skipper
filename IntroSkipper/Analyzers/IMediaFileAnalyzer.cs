@@ -14,12 +14,14 @@ namespace IntroSkipper.Analyzers;
 public interface IMediaFileAnalyzer
 {
     /// <summary>
-    /// Analyze media files for shared introductions or credits, returning all media files that were **not successfully analyzed**.
+    /// Analyzes the media files that still need analysis for the mode (see
+    /// <see cref="QueuedEpisode.NeedsAnalysis"/>) and marks the ones it found segments
+    /// for as analyzed, so the next analyzer in the chain skips them.
     /// </summary>
-    /// <param name="analysisQueue">Collection of unanalyzed media files.</param>
+    /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token from scheduled task.</param>
-    /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
+    /// <returns>The same collection, with the per-mode analysis state of each file updated in place.</returns>
     Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,

@@ -154,16 +154,6 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlyList<DbSegment>> GetServableSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all segments stored for an item, tombstones included, together with its
-    /// analysis records so the item is analyzed afresh if it is still in the library
-    /// (used when the item itself disappears or its media is replaced).
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Deletes every stored segment of the given analysis mode, tombstones included
     /// (explicit erase is a factory reset), and the mode's analysis records so the next
     /// scan re-detects instead of classifying the erased items as <c>NoSegments</c>.
@@ -176,18 +166,11 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all segments stored for the given items in a single statement; the ID set
-    /// is bound as one JSON parameter, so the item count is unbounded.
-    /// </summary>
-    /// <param name="itemIds">Item IDs whose segments should be removed.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of deleted segment rows.</returns>
-    Task<int> DeleteSegmentsForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Erases the supplied items: every segment (tombstones included) and every analysis
-    /// record, in one transaction, so the items are re-analyzed from scratch on the next
-    /// scan. Season state and disable flags are untouched.
+    /// record, in one transaction, so items still in the library are re-analyzed from
+    /// scratch on the next scan and items that left it (or had their media replaced)
+    /// leave nothing behind. Season state and disable flags are untouched. The ID set is
+    /// bound as one JSON parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

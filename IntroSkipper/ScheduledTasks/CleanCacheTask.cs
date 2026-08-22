@@ -107,7 +107,7 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
 
             await _database
-                .DeleteSegmentsForItemsAsync(staleTimestampEpisodeIds, cancellationToken)
+                .EraseItemsAsync(staleTimestampEpisodeIds, cancellationToken)
                 .ConfigureAwait(false);
         }
 

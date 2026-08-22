@@ -218,7 +218,7 @@ public sealed class TestDbSegmentStorage
                 Assert.Equal(2, db.Segments.Count());
             }
 
-            await database.DeleteSegmentsForItemsAsync(staleEpisodeIds);
+            await database.EraseItemsAsync(staleEpisodeIds);
 
             using var cleanedDb = new IntroSkipperDbContext(dbPath);
             var itemId = Assert.Single(cleanedDb.Segments.Select(segment => segment.ItemId));

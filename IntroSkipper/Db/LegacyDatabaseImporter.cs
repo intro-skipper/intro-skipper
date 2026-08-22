@@ -24,7 +24,8 @@ internal static partial class LegacyDatabaseImporter
     private const int SaveBatchSize = 1000;
 
     /// <summary>
-    /// Imports segments and season states from the legacy database into <paramref name="newDb"/>.
+    /// Imports segments, season states and per-item analysis records from the legacy
+    /// database into <paramref name="newDb"/>.
     /// The caller owns the surrounding transaction and the <see cref="DbImportRecord"/> marker;
     /// this method only reads the legacy file and stages/saves rows on the new context.
     /// </summary>

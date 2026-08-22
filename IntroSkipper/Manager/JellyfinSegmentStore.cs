@@ -175,9 +175,9 @@ public sealed partial class JellyfinSegmentStore(
 
     private static MediaSegment Map(MediaSegmentDto segment, Guid itemId)
     {
-        // The stored-state invariant (end > start) holds at every plugin write boundary;
-        // this is the single downstream assertion, so a violated invariant fails loudly
-        // at the Jellyfin write choke point.
+        // The plugin database enforces end > start (CK_Segments_Range); this backstop
+        // keeps a violated invariant loud at the Jellyfin write choke point instead of
+        // letting a bad DTO from any other source reach the server.
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(segment.EndTicks, segment.StartTicks);
 
         return new MediaSegment

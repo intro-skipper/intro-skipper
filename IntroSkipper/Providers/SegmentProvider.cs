@@ -39,7 +39,7 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
-            await _database.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await _database.EraseItemsAsync([itemId], cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -78,7 +79,9 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        var settledEpisodeIds = DbSeasonState.SerializeEpisodeIds(episodeIds);
+        // Same JSON shape EF writes for the primitive collection, so the raw upsert and
+        // tracked reads agree.
+        var settledEpisodeIds = JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();

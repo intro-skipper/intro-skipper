@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Text.Json;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -58,7 +57,4 @@ public class DbSeasonState
     /// Gets the episode IDs present when the settled-season reanalysis completed.
     /// </summary>
     public IEnumerable<Guid> SettledReanalysisEpisodeIds { get; private set; } = [];
-
-    internal static string SerializeEpisodeIds(IEnumerable<Guid> episodeIds)
-        => JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
 }
