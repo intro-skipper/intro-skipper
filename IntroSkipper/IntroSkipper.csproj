@@ -11,13 +11,22 @@
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.Model" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.MediaEncoding.Keyframes" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.*-*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <!-- Pinned rather than floating (12.0.*-*): nuget.org also carries a stray 12.0.0-rcrc3
+         package that sorts above every 12.0.0-rcN in prerelease ordering, so the float resolves
+         to RC3-era packages. Bump by hand per RC; at GA 12.0.0 outranks it again. -->
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc5" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc5" />
+    <PackageReference Include="Jellyfin.MediaEncoding.Keyframes" Version="12.0.0-rc5" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc5" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
+    <!-- EF Core Sqlite 10.0.10 pulls in SQLitePCLRaw 2.1.11 (SQLite 3.49.1), which NuGet audit
+         rejects under TreatWarningsAsErrors (NU1903; CVE-2025-6965 and CVE-2025-70873, see
+         dotnet/efcore#38257). 2.1.12 carries SQLite 3.53.3 and is what EF Core Sqlite 10.0.11
+         resolves on its own, so this line can go once EF moves to 10.0.11. Only the local
+         build/tests use it: the shipped artifact is IntroSkipper.dll alone and runs on the
+         server's SQLite. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
