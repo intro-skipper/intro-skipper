@@ -49,8 +49,16 @@ public sealed record SupportBundle(IReadOnlyList<SupportBundleSection> Sections)
     {
         if (section.Text is { } text)
         {
-            // A longer fence keeps the block intact when the text itself contains a fence.
-            var fence = text.Contains("```", StringComparison.Ordinal) ? "````" : "```";
+            // A fence longer than any backtick run in the text keeps the block intact.
+            var longestRun = 0;
+            var run = 0;
+            foreach (var c in text)
+            {
+                run = c == '`' ? run + 1 : 0;
+                longestRun = Math.Max(longestRun, run);
+            }
+
+            var fence = new string('`', Math.Max(3, longestRun + 1));
             markdown.Append(fence).Append('\n').Append(text);
             if (!text.EndsWith('\n'))
             {

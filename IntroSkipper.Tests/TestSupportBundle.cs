@@ -51,6 +51,14 @@ public class TestSupportBundle
     }
 
     [Fact]
+    public void Markdown_FenceOutgrowsLongestBacktickRunInText()
+    {
+        var bundle = new SupportBundle([new("Log", Collapsed: true) { Text = "a\n`````\nb" }]);
+
+        Assert.Contains("``````\na\n`````\nb\n``````\n", bundle.Markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ConfigurationReport_DefaultConfigurationHasNoChangedSettings()
     {
         var settings = ConfigurationReport.Enumerate(new PluginConfiguration());
