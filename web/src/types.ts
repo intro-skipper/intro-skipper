@@ -131,6 +131,26 @@ export type ClearExcludedTimestampsResponse = {
     RemovedCacheEntries: number;
 };
 
+// Support bundle returned by IntroSkipper/SupportBundle/Json. A section holds
+// either Entries (facts) or Text (a preformatted block); collapsed sections are
+// noise that stays folded until expanded.
+export type SupportBundleEntry = {
+    Label: string;
+    Value: string;
+};
+
+export type SupportBundleSection = {
+    Title: string;
+    Collapsed: boolean;
+    Entries: SupportBundleEntry[] | null;
+    Text: string | null;
+};
+
+export type SupportBundle = {
+    Markdown: string;
+    Sections: SupportBundleSection[];
+};
+
 // Raw Jellyfin API response shapes (only the fields we actually read).
 export type JellyfinItemsResponse<T> = {
     Items?: T[];

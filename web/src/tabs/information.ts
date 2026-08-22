@@ -1,62 +1,146 @@
-import type { Tab } from "../types.ts";
+import type { SupportBundleEntry, SupportBundleSection, Tab } from "../types.ts";
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
-import { bindStatusMessage, loadTextContent } from "../components/async-feedback.ts";
-import { appendTabContent, readonlyTextSection } from "../components/tab-layout.ts";
+import { bindStatusMessage } from "../components/async-feedback.ts";
+import { appendTabContent } from "../components/tab-layout.ts";
+
+// Copies text to the clipboard. Dashboards served over plain HTTP have no
+// navigator.clipboard, so fall back to selecting an offscreen textarea.
+async function copyText(text: string): Promise<boolean> {
+    try {
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch {
+        /* fall through to the legacy path */
+    }
+
+    const scratch = el("textarea", { readonly: "", "aria-hidden": "true" });
+    scratch.value = text;
+    scratch.style.position = "fixed";
+    scratch.style.opacity = "0";
+    document.body.append(scratch);
+    scratch.select();
+    let copied = false;
+    try {
+        copied = document.execCommand("copy");
+    } catch {
+        copied = false;
+    }
+    scratch.remove();
+    return copied;
+}
+
+function renderEntries(entries: SupportBundleEntry[]): HTMLElement {
+    const grid = el("dl", { className: "support-grid" });
+    for (const entry of entries) {
+        grid.append(el("dt", {}, entry.Label), el("dd", {}, entry.Value));
+    }
+    return grid;
+}
+
+function renderBody(section: SupportBundleSection): HTMLElement {
+    if (section.Text !== null) {
+        return el("pre", { className: "support-pre" }, section.Text);
+    }
+    const entries = section.Entries ?? [];
+    return entries.length > 0
+        ? renderEntries(entries)
+        : el("div", { className: "support-none" }, "None");
+}
+
+function sizeHint(section: SupportBundleSection): string {
+    if (section.Text !== null) {
+        const lines = section.Text.length === 0 ? 0 : section.Text.trimEnd().split("\n").length;
+        return lines === 1 ? "1 line" : `${lines} lines`;
+    }
+    const count = section.Entries?.length ?? 0;
+    return count === 1 ? "1 item" : `${count} items`;
+}
+
+// Visible sections get an uppercase label and their body; collapsed sections
+// become fold rows, introduced once by a "Details" label.
+function renderSections(sections: SupportBundleSection[]): HTMLElement[] {
+    const nodes: HTMLElement[] = [];
+    let foldsStarted = false;
+
+    for (const section of sections) {
+        if (!section.Collapsed) {
+            const block = el("div", { className: "support-section" });
+            block.append(el("div", { className: "support-title" }, section.Title), renderBody(section));
+            nodes.push(block);
+            continue;
+        }
+
+        if (!foldsStarted) {
+            foldsStarted = true;
+            nodes.push(el("div", { className: "support-title" }, "Details"));
+        }
+        const fold = el("details", { className: "support-fold" });
+        const summary = el("summary", {}, section.Title);
+        summary.append(el("span", { className: "support-fold-meta" }, sizeHint(section)));
+        fold.append(summary, renderBody(section));
+        nodes.push(fold);
+    }
+
+    return nodes;
+}
 
 export const informationTab: Tab = {
     id: "information",
     label: "Information",
     render(container) {
-        const supportSection = readonlyTextSection({
-            title: "Intro Skipper Support Log",
-            labelId: "support-log-label",
-            statusId: "support-log-status",
-        });
-        const supportStatus = bindStatusMessage(supportSection.statusEl, { display: "block" });
-        supportStatus.show("Loading support log\u2026");
-        const supportTextarea = supportSection.textareaEl;
-
+        const supportContainer = el("section", { className: "tab-readonly-section" });
+        const supportTitle = el(
+            "h3",
+            { className: "checkbox-list-label", id: "support-log-label" },
+            "Intro Skipper Support Log",
+        );
         const copyButtonEl = el(
             "button",
-            {
-                className: "raised button-submit",
-                type: "button",
-            },
+            { className: "raised button-submit", type: "button" },
             "Copy to Clipboard",
-        ) as HTMLButtonElement;
+        );
         copyButtonEl.disabled = true;
-        copyButtonEl.setAttribute("aria-describedby", supportStatus.element.id);
+        const supportHead = el("div", { className: "support-head" });
+        supportHead.append(supportTitle, copyButtonEl);
+
+        const supportStatusEl = el("div", { className: "status-message", id: "support-log-status" });
+        const supportStatus = bindStatusMessage(supportStatusEl, { display: "block" });
+        copyButtonEl.setAttribute("aria-describedby", supportStatusEl.id);
+
+        const supportSections = el("div", {});
+        supportSections.setAttribute("aria-labelledby", supportTitle.id);
+        appendTabContent(supportContainer, supportHead, supportStatusEl, supportSections);
+
+        let markdown = "";
         copyButtonEl.addEventListener("click", async () => {
-            const text = supportTextarea.value;
-            if (!text) return;
-            try {
-                await navigator.clipboard.writeText(text);
-                window.Dashboard.alert("Support bundle copied to clipboard");
-            } catch {
-                supportTextarea.focus();
-                supportTextarea.setSelectionRange(0, text.length);
-                window.Dashboard.alert("Press Ctrl+C to copy support bundle");
-            }
+            if (!markdown) return;
+            const copied = await copyText(markdown);
+            window.Dashboard.alert(
+                copied ? "Support bundle copied to clipboard" : "Could not copy to clipboard",
+            );
         });
-        supportSection.container.append(copyButtonEl);
 
         async function loadSupportBundle(): Promise<void> {
-            await loadTextContent({
-                load: () => api.getSupportBundle(),
-                textarea: supportTextarea,
-                status: supportStatus,
-                loadingText: "Loading support log\u2026",
-                loadedText: "Support log loaded.",
-                emptyText: "Support log is empty.",
-                errorText: "Failed to load support log.",
-                onLoaded: (text) => {
-                    copyButtonEl.disabled = !text;
-                },
-                onError: () => {
-                    copyButtonEl.disabled = true;
-                },
-            });
+            supportStatus.show("Loading support log…");
+            try {
+                const bundle = await api.getSupportBundle();
+                markdown = bundle.Markdown;
+                supportSections.replaceChildren(...renderSections(bundle.Sections));
+                copyButtonEl.disabled = !markdown;
+                if (bundle.Sections.length === 0) {
+                    supportStatus.show("Support log is empty.");
+                } else {
+                    supportStatus.clear();
+                }
+            } catch {
+                markdown = "";
+                supportSections.replaceChildren();
+                copyButtonEl.disabled = true;
+                supportStatus.show("Failed to load support log.", "var(--is-error)");
+            }
         }
 
         loadSupportBundle().catch(console.error);
@@ -75,7 +159,7 @@ export const informationTab: Tab = {
             id: "storage-usage-status",
         });
         const storageStatus = bindStatusMessage(storageStatusEl, { display: "block" });
-        storageStatus.show("Loading storage usage\u2026");
+        storageStatus.show("Loading storage usage…");
         const storageList = el("div", {});
         storageList.setAttribute("aria-labelledby", storageTitle.id);
         appendTabContent(storageContainer, storageTitle, storageDesc, storageStatusEl, storageList);
@@ -129,7 +213,7 @@ export const informationTab: Tab = {
         }
 
         async function loadStorageUsage(): Promise<void> {
-            storageStatus.show("Loading storage usage\u2026");
+            storageStatus.show("Loading storage usage…");
             try {
                 const libraries = await api.getStorageUsage();
                 storageList.replaceChildren();
@@ -160,6 +244,6 @@ export const informationTab: Tab = {
 
         loadStorageUsage().catch(console.error);
 
-        appendTabContent(container, supportSection.container, storageContainer);
+        appendTabContent(container, supportContainer, storageContainer);
     },
 };
