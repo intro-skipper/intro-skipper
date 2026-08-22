@@ -10,9 +10,10 @@ namespace IntroSkipper.Manager;
 /// The plugin's write path into Jellyfin's media segments: per-item locked convergence
 /// (<see cref="SyncItemAsync"/>), targeted delete (<see cref="DeleteSegmentAsync"/>),
 /// and a stripe-serialized bulk cleanup (<see cref="DeleteOwnSegmentsAsync"/>).
-/// Other providers' segments are never touched, and every operation no-ops when
-/// mirroring is disabled (<see cref="MediaSegmentMirrorPolicy"/>), so callers never
-/// gate it. The one writer that bypasses this class is Jellyfin itself: it persists
+/// Sync and bulk cleanup never touch other providers' segments; the targeted delete
+/// removes any of the item's rows by id (the editor lets users delete foreign rows).
+/// Every operation no-ops when mirroring is disabled (<see cref="MediaSegmentMirrorPolicy"/>),
+/// so callers never gate it. The one writer that bypasses this class is Jellyfin itself: it persists
 /// <see cref="SegmentProvider"/> results during its own provider runs and can therefore
 /// re-add a just-deleted segment from a read that predates the delete, until a later
 /// sync converges the item.

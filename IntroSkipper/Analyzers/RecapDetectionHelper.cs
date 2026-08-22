@@ -35,7 +35,7 @@ internal static class RecapDetectionHelper
         // A recap must end before the earliest stored introduction begins.
         foreach (var segment in segments)
         {
-            if (segment.Type == AnalysisMode.Introduction && segment.EndTicks > 0)
+            if (segment.Type == AnalysisMode.Introduction)
             {
                 maximumBoundary = Math.Min(maximumBoundary, TickConversions.ToSeconds(segment.StartTicks));
             }

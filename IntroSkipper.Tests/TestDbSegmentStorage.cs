@@ -252,21 +252,14 @@ public sealed class TestDbSegmentStorage
             {
                 await db.ApplyMigrationsAsync();
                 db.Segments.Add(new DbSegment(episodeWithSegmentId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(30), SegmentSource.Chromaprint));
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Chromaprint,
-                    [episodeWithSegmentId],
-                    "snapshot-config"));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Chromaprint));
+                db.AnalyzedItems.Add(new DbAnalyzedItem(episodeWithSegmentId, AnalysisMode.Introduction, "snapshot-config"));
                 await db.SaveChangesAsync();
             }
 
             // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
             var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
-            Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
-            Assert.Contains(episodeWithSegmentId, analyzedIds!);
-            Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));
-            Assert.Equal("snapshot-config", configHash);
+            Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(episodeWithSegmentId, AnalysisMode.Introduction)]);
             Assert.True(snapshot.AnalyzerActionByMode.TryGetValue(AnalysisMode.Introduction, out var analyzerAction));
             Assert.Equal(AnalyzerAction.Chromaprint, analyzerAction);
 
@@ -324,6 +317,99 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
+    public async Task Migrations_UpgradeFromAddDisabledItems_CarriesAnalyzedEpisodesAndDropsDegenerateRows()
+    {
+        var dbPath = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
+        var seasonId = Guid.NewGuid();
+        var episodeA = Guid.NewGuid();
+        var episodeB = Guid.NewGuid();
+        var validItemId = Guid.NewGuid();
+
+        try
+        {
+            // A database at the last pre-AnalyzedItems migration, seeded the way that
+            // schema stored analysis state: JSON episode lists on SeasonStates (EF writes
+            // uppercase Guids; one lowercase entry proves the carry-over normalizes) and a
+            // degenerate segment row the range check must not trip over.
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.MigrateAsync("AddDisabledItems");
+            }
+
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                    VALUES ($season, 0, 0, $introEpisodes, 'intro-hash', '[]'),
+                           ($season, 1, 0, $creditsEpisodes, 'credits-hash', '[]');
+                    INSERT INTO "Segments" ("Id", "ItemId", "Type", "StartTicks", "EndTicks", "Source", "State", "ConfigHash", "CreatedAt", "UpdatedAt")
+                    VALUES ($validId, $validItem, 0, 100, 200, 1, 0, '', '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
+                           ($degenerateId, $validItem, 1, 300, 300, 1, 0, '', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+                    """;
+                command.Parameters.AddWithValue("$season", seasonId.ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$introEpisodes", $"[\"{episodeA.ToString().ToUpperInvariant()}\",\"{episodeB.ToString().ToLowerInvariant()}\"]");
+                command.Parameters.AddWithValue("$creditsEpisodes", $"[\"{episodeA.ToString().ToUpperInvariant()}\"]");
+                command.Parameters.AddWithValue("$validId", Guid.NewGuid().ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$degenerateId", Guid.NewGuid().ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$validItem", validItemId.ToString().ToUpperInvariant());
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.ApplyMigrationsAsync();
+                Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+
+                var analyzed = await db.AnalyzedItems.AsNoTracking().ToListAsync();
+                Assert.Equal(3, analyzed.Count);
+                Assert.Equal("intro-hash", Assert.Single(analyzed, a => a.ItemId == episodeA && a.Type == AnalysisMode.Introduction).ConfigHash);
+                Assert.Equal("intro-hash", Assert.Single(analyzed, a => a.ItemId == episodeB && a.Type == AnalysisMode.Introduction).ConfigHash);
+                Assert.Equal("credits-hash", Assert.Single(analyzed, a => a.ItemId == episodeA && a.Type == AnalysisMode.Credits).ConfigHash);
+
+                var segment = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
+                Assert.Equal(100, segment.StartTicks);
+            }
+
+            // The carried records must be found by the facade's own Guid binding, which
+            // is what queue verification relies on.
+            var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, [episodeA, episodeB]);
+            Assert.Equal("intro-hash", snapshot.AnalyzedConfigHashes[(episodeB, AnalysisMode.Introduction)]);
+            Assert.Equal("credits-hash", snapshot.AnalyzedConfigHashes[(episodeA, AnalysisMode.Credits)]);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task Segments_RejectDegenerateRange_AtTheDatabase()
+    {
+        var dbPath = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
+
+        try
+        {
+            using var db = new IntroSkipperDbContext(dbPath);
+            await db.ApplyMigrationsAsync();
+
+            // Every facade write validates the range; the CHECK constraint is the backstop
+            // for paths that do not (raw SQL, a future bug), so a degenerate row can never
+            // reach the Jellyfin mirror.
+            db.Segments.Add(new DbSegment(Guid.NewGuid(), AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(10), SegmentSource.Chapter));
+
+            var exception = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+            Assert.IsType<SqliteException>(exception.InnerException);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ApplyMigrations_CreatesCurrentSchemaFromEmptyDatabase()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
@@ -343,18 +429,16 @@ public sealed class TestDbSegmentStorage
                 Assert.Empty(pendingMigrations);
 
                 // The core schema comes from the baseline; later features are plain
-                // EF migrations on top (currently: DisabledItems).
+                // EF migrations on top.
                 var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
-                Assert.Equal(2, appliedMigrations.Length);
+                Assert.Equal(4, appliedMigrations.Length);
                 Assert.EndsWith("_InitialCreate", appliedMigrations[0], StringComparison.Ordinal);
                 Assert.EndsWith("_AddDisabledItems", appliedMigrations[1], StringComparison.Ordinal);
+                Assert.EndsWith("_AnalyzedItems", appliedMigrations[2], StringComparison.Ordinal);
+                Assert.EndsWith("_SegmentRangeCheck", appliedMigrations[3], StringComparison.Ordinal);
 
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Default,
-                    [episodeId],
-                    "season-config"));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
+                db.AnalyzedItems.Add(new DbAnalyzedItem(episodeId, AnalysisMode.Introduction, "season-config"));
                 db.Segments.Add(new DbSegment(episodeId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(30), SegmentSource.Chapter, "segment-config"));
                 await db.SaveChangesAsync();
             }
@@ -362,11 +446,12 @@ public sealed class TestDbSegmentStorage
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 var seasonState = await db.SeasonStates.SingleAsync();
+                var analyzed = await db.AnalyzedItems.SingleAsync();
                 var segment = await db.Segments.SingleAsync();
 
-                Assert.Equal("season-config", seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
+                Assert.Equal(episodeId, analyzed.ItemId);
+                Assert.Equal("season-config", analyzed.ConfigHash);
                 Assert.Equal("segment-config", segment.ConfigHash);
                 Assert.NotEqual(Guid.Empty, segment.Id);
             }

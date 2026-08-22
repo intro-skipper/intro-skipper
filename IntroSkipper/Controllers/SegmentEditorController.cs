@@ -7,6 +7,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Model.MediaSegments;
@@ -73,8 +74,7 @@ public class SegmentEditorController(
         [FromBody, Required] MediaSegmentDto segment,
         CancellationToken cancellationToken = default)
     {
-        var item = Plugin.Instance!.GetItem(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }

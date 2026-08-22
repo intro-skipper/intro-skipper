@@ -122,7 +122,7 @@ public sealed class TestDisabledItems
     }
 
     [Fact]
-    public async Task CleanDisabledItemsAsync_PrunesByItemId_NotByStoredSeasonKey()
+    public async Task CleanItemStateAsync_PrunesByItemId_NotByStoredSeasonKey()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var retainedItemId = Guid.NewGuid();
@@ -140,7 +140,7 @@ public sealed class TestDisabledItems
         await database.SetItemDisabledAsync(movieId, movieId, disabled: true);
         await database.SetItemDisabledAsync(removedSeasonId, removedItemId, disabled: true);
 
-        await database.CleanDisabledItemsAsync([retainedItemId, movieId]);
+        await database.CleanItemStateAsync([retainedItemId, movieId]);
 
         Assert.Equal([retainedItemId], await database.GetDisabledItemIdsAsync(staleSeasonId));
         Assert.Equal([movieId], await database.GetDisabledItemIdsAsync(movieId));
@@ -148,7 +148,7 @@ public sealed class TestDisabledItems
     }
 
     [Fact]
-    public async Task CleanDisabledItemsAsync_SurvivingFlagKeepsWithholdingSegments()
+    public async Task CleanItemStateAsync_SurvivingFlagKeepsWithholdingSegments()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var itemId = Guid.NewGuid();
@@ -161,7 +161,7 @@ public sealed class TestDisabledItems
         // The reviewer's drift repro: the item moved to a retained season key
         // while its disable row still carries the dropped key. Cleanup must not
         // resurrect the automatic segments.
-        await database.CleanDisabledItemsAsync([itemId]);
+        await database.CleanItemStateAsync([itemId]);
 
         Assert.Empty(await database.GetServableSegmentsAsync(itemId));
     }

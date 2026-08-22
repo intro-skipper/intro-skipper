@@ -116,8 +116,8 @@ public sealed class SegmentEditorControllerTests
             itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(100, 160))], SegmentSource.Chapter, "cfg-intro");
         await database.ReplaceAutoSegmentsAsync(
             itemId, AnalysisMode.Credits, [new Segment(itemId, new TimeRange(1200, 1260))], SegmentSource.Chapter, "cfg-credits");
-        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId], "cfg-intro");
-        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Credits, [itemId], "cfg-credits");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemId], "cfg-intro");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemId], "cfg-credits");
 
         var store = new FakeJellyfinSegmentStore
         {
@@ -152,8 +152,8 @@ public sealed class SegmentEditorControllerTests
         Assert.Equal("cfg-credits", credits.ConfigHash);
 
         var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
-        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
-        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Credits]);
+        Assert.Equal("cfg-intro", snapshot.AnalyzedConfigHashes[(itemId, AnalysisMode.Introduction)]);
+        Assert.Equal("cfg-credits", snapshot.AnalyzedConfigHashes[(itemId, AnalysisMode.Credits)]);
     }
 
     [Fact]

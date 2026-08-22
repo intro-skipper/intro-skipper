@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.Json;
-using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -13,9 +12,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Plugin segment database (<c>introskipper-v2.db</c>). The schema is owned by a
-/// single EF baseline migration; data from the legacy <c>introskipper.db</c> is
-/// carried over once by <see cref="LegacyDatabaseImporter"/>.
+/// Plugin segment database (<c>introskipper-v2.db</c>). The schema is owned by EF
+/// migrations (a baseline plus one per later change); data from the legacy
+/// <c>introskipper.db</c> is carried over once by <see cref="LegacyDatabaseImporter"/>.
 /// </summary>
 public class IntroSkipperDbContext : DbContext
 {
@@ -35,6 +34,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = dbPath;
         Segments = Set<DbSegment>();
         SeasonStates = Set<DbSeasonState>();
+        AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
     }
@@ -55,6 +55,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = null;
         Segments = Set<DbSegment>();
         SeasonStates = Set<DbSeasonState>();
+        AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
     }
@@ -68,6 +69,11 @@ public class IntroSkipperDbContext : DbContext
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season state.
     /// </summary>
     public DbSet<DbSeasonState> SeasonStates { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the per-item analysis records.
+    /// </summary>
+    public DbSet<DbAnalyzedItem> AnalyzedItems { get; set; }
 
     /// <summary>
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
@@ -94,7 +100,12 @@ public class IntroSkipperDbContext : DbContext
     {
         modelBuilder.Entity<DbSegment>(entity =>
         {
-            entity.ToTable("Segments");
+            // The range invariant is the database's, not only the facade's: no write path
+            // (raw SQL, a future bug) can store a row that would fail every later mirror
+            // sync of its item at the Jellyfin write boundary.
+            entity.ToTable("Segments", table => table.HasCheckConstraint(
+                "CK_Segments_Range",
+                "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0"));
             entity.HasKey(s => s.Id);
 
             // Ids are always supplied by the plugin (Guid v7) so they can be shared
@@ -123,6 +134,15 @@ public class IntroSkipperDbContext : DbContext
         {
             entity.ToTable("SeasonStates");
             entity.HasKey(s => new { s.SeasonId, s.Type });
+        });
+
+        modelBuilder.Entity<DbAnalyzedItem>(entity =>
+        {
+            entity.ToTable("AnalyzedItems");
+
+            // One record per item and mode; the ItemId prefix serves the per-season
+            // snapshot (ItemId IN ...) and the per-item clears.
+            entity.HasKey(e => new { e.ItemId, e.Type });
 
             entity.Property(e => e.ConfigHash)
                   .IsRequired();
@@ -178,8 +198,10 @@ public class IntroSkipperDbContext : DbContext
     }
 
     /// <summary>
-    /// Asynchronously rebuilds the database while attempting to preserve valid segments,
-    /// season state, disabled items and the legacy-import marker.
+    /// Asynchronously rebuilds the database while attempting to preserve segments,
+    /// season state, analysis records, disabled items and the legacy-import marker. When no marker exists
+    /// (the legacy import never succeeded) none is written, so the next start retries the
+    /// import; the importer skips rows the restored data already holds.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
     /// <param name="forceCleanOnBackupFailure">
@@ -192,6 +214,7 @@ public class IntroSkipperDbContext : DbContext
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
+        var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
         var disabledItems = new List<DbDisabledItem>();
         var backupFailed = false;
@@ -209,11 +232,10 @@ public class IntroSkipperDbContext : DbContext
 
             try
             {
-                segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-
                 // Suppressed rows are salvaged too: tombstones are user intent.
-                segments = [.. segments.Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)];
+                segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -251,18 +273,6 @@ public class IntroSkipperDbContext : DbContext
 
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
-        // A rebuilt database must never re-run the legacy import on top of the restored
-        // rows, so synthesize a marker when none could be salvaged.
-        if (importRecords.Count == 0)
-        {
-            importRecords.Add(new DbImportRecord
-            {
-                ImportedAt = DateTime.UtcNow,
-                SourceFileFound = false,
-                Notes = "rebuild"
-            });
-        }
-
         // Auto-increment keys must not be restored verbatim into the fresh table.
         foreach (var record in importRecords)
         {
@@ -279,6 +289,7 @@ public class IntroSkipperDbContext : DbContext
             {
                 await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
 

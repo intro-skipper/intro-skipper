@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Controllers;
@@ -168,6 +169,18 @@ public sealed class TestSegmentsApiController
         {
             DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
         }
+    }
+
+    [Fact]
+    public void CreateSegmentRequest_RejectsOmittedType_InsteadOfDefaultingToIntroduction()
+    {
+        // A positional record binds an omitted property to default(AnalysisMode) =
+        // Introduction; the request marks Type required so the body is rejected (400)
+        // instead of silently creating an intro.
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CreateSegmentRequest>("""{"Start":10,"End":20}"""));
+
+        var request = JsonSerializer.Deserialize<CreateSegmentRequest>("""{"Type":"Credits","Start":10,"End":20}""");
+        Assert.Equal(AnalysisMode.Credits, request!.Type);
     }
 
     [Fact]

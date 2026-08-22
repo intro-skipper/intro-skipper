@@ -8,18 +8,22 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Owns every interactive media-segment mutation end-to-end: plugin-database write,
-/// Jellyfin mirror convergence, and failure handling. Mutations for the same item are
-/// serialized on a striped lock, so each write-plus-mirror(-plus-rollback) sequence is
-/// linearizable per item; controllers only validate requests and map results to HTTP.
-/// Mirror writes honor <see cref="MediaSegmentMirrorPolicy"/> and no-op when mirroring
-/// is disabled, so callers never gate them.
+/// Owns every interactive mutation end-to-end (the plural segments API, the
+/// MediaSegmentsApi and <c>Timestamps</c> shims and the per-item disable toggle):
+/// plugin-database write, Jellyfin mirror convergence, and failure handling. Mutations
+/// for the same item are serialized on a striped lock, so each
+/// write-plus-mirror(-plus-rollback) sequence is linearizable per item; controllers only
+/// validate requests and map results to HTTP. Mirror writes honor
+/// <see cref="MediaSegmentMirrorPolicy"/> and no-op when mirroring is disabled, so
+/// callers never gate them.
 /// <para>
 /// On a mirror failure: create/update/restore keep the committed row (the plugin
 /// database is the source of truth; a retry or later sync converges the mirror),
 /// delete rolls the plugin delete back (a hard-deleted user row is unrecoverable),
 /// and the disable toggle rolls the flag back (the flag must not disagree with what
-/// Jellyfin serves). All failures propagate so responses never claim success.
+/// Jellyfin serves). All failures propagate so responses never claim success; a
+/// rollback that itself fails is logged and the mirror failure still propagates, so
+/// the cause is never replaced by its own cleanup.
 /// </para>
 /// </summary>
 /// <remarks>
@@ -35,14 +39,17 @@ public partial class MediaSegmentEditorService(
     IIntroSkipperDatabase database,
     ILogger<MediaSegmentEditorService> logger)
 {
+    // See DeleteUncorrelatedSegmentAsync: truncated (pre-upgrade mirror) vs rounded
+    // (import) conversion of the same seconds value differs by at most one tick.
+    private const long UncorrelatedTickTolerance = 1;
+
     // Serializes all editor mutations per item, above the mirror's stripes: a concurrent
     // editor mutation's sync between another request's plugin write and its rollback
     // would bake the rolled-back state into the mirror. Separate pool from
     // MediaSegmentMirror's; lock order is always mutation stripe -> mirror stripe.
-    // Non-editor syncs (bulk refreshes, the legacy Timestamps shim) take only mirror
-    // stripes, so they can delay, never deadlock, a mutation. One of them can still
-    // interleave between a write and its rollback and briefly publish the pre-rollback
-    // state; the next sync converges it.
+    // Non-editor syncs (bulk refreshes) take only mirror stripes, so they can delay,
+    // never deadlock, a mutation. One of them can still interleave between a write and
+    // its rollback and briefly publish the pre-rollback state; the next sync converges it.
     private readonly StripedAsyncLock _mutationLock = new();
 
     private readonly MediaSegmentMirror _mirror = mirror;
@@ -65,6 +72,22 @@ public partial class MediaSegmentEditorService(
         var row = await _database.AddUserSegmentAsync(itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
         await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
         return row;
+    }
+
+    /// <summary>
+    /// Replaces the stored segments of each given mode with one user segment (the
+    /// deprecated singular <c>POST Episode/{id}/Timestamps</c> contract) in a single
+    /// plugin transaction and converges the item's Jellyfin mirror.
+    /// </summary>
+    /// <param name="itemId">The item that owns the segments.</param>
+    /// <param name="segmentsByMode">The user segment to store per mode, in ticks; each end must be after its start.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task ReplaceUserSegmentsAsync(Guid itemId, IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode, CancellationToken cancellationToken)
+    {
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        await _database.ReplaceUserSegmentsAsync(itemId, segmentsByMode, cancellationToken).ConfigureAwait(false);
+        await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -142,7 +165,18 @@ public partial class MediaSegmentEditorService(
         {
             // The mirror kept its old rows, so restore the stored flag. The held
             // stripe guarantees `previous` is still the value this request replaced.
-            await _database.SetItemDisabledAsync(seasonKey, item.Id, previous, CancellationToken.None).ConfigureAwait(false);
+            // A failing rollback is logged rather than thrown: the mirror failure is
+            // the cause the caller has to see, and swapping it out would also hide
+            // that the flag is now stuck at the requested value.
+            try
+            {
+                await _database.SetItemDisabledAsync(seasonKey, item.Id, previous, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception rollbackException)
+            {
+                LogFailedToRollBackDisabledFlag(_logger, rollbackException, item.Id, previous);
+            }
+
             throw;
         }
     }
@@ -150,8 +184,8 @@ public partial class MediaSegmentEditorService(
     /// <summary>
     /// Deletes a stored segment whose plugin row shares its id with the Jellyfin row:
     /// tombstones automatic segments, hard-deletes user rows, mirrors the delete, and
-    /// resets the season state for the row's mode so re-analysis can run (the tombstone
-    /// keeps the deleted range gone).
+    /// clears the item's analysis record for the row's mode so re-analysis can run (the
+    /// tombstone keeps the deleted range gone).
     /// </summary>
     /// <param name="itemId">The item that owns the segment.</param>
     /// <param name="segmentId">The shared plugin/Jellyfin segment id.</param>
@@ -176,10 +210,13 @@ public partial class MediaSegmentEditorService(
     /// <summary>
     /// Deletes a Jellyfin segment row with no shared plugin id (rows predating the
     /// shared-id scheme, or foreign-provider rows). The plugin counterpart is matched by
-    /// mode and exact ticks; without one, only the Jellyfin delete and state reset run.
+    /// mode and ticks (one tick of tolerance, see <see cref="UncorrelatedTickTolerance"/>);
+    /// without one, only the Jellyfin delete and state reset run. A matched counterpart
+    /// may already be mirrored under its own id, so the item's mirror is re-synced after
+    /// the targeted delete.
     /// </summary>
     /// <param name="itemId">The item that owns the segment.</param>
-    /// <param name="mode">The segment's mode; drives the season-state reset.</param>
+    /// <param name="mode">The segment's mode; drives the analysis-record clear.</param>
     /// <param name="jellyfinSegment">The Jellyfin row to delete; the caller resolves and validates it.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
@@ -189,9 +226,13 @@ public partial class MediaSegmentEditorService(
 
         using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var itemRows = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // Rows mirrored before the shared-id scheme were converted from seconds by
+        // truncation while the legacy import rounds, so the two can sit one tick apart;
+        // absorb that here without reintroducing range-level epsilon matching elsewhere.
         var match = itemRows.FirstOrDefault(s => s.Type == mode
-            && s.StartTicks == jellyfinSegment.StartTicks
-            && s.EndTicks == jellyfinSegment.EndTicks);
+            && Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) <= UncorrelatedTickTolerance
+            && Math.Abs(s.EndTicks - jellyfinSegment.EndTicks) <= UncorrelatedTickTolerance);
 
         DbSegment? deleted = null;
         if (match is not null)
@@ -211,10 +252,13 @@ public partial class MediaSegmentEditorService(
     /// <summary>
     /// Shared tail of both delete flows: targeted Jellyfin delete through the mirror
     /// (rolling any plugin delete back on failure; uncancelable once started) and the
-    /// season-state reset. A deleted plugin row whose Jellyfin row is not found signals
-    /// drift (a concurrent refresh removed it first, or the server stopped preserving
-    /// provider-supplied ids), so the item's mirror is re-synced with a warning. Once
-    /// the Jellyfin delete has committed, the season-state reset runs uncancelably.
+    /// analysis-record clear. The item's mirror is re-synced whenever the targeted delete
+    /// cannot have covered the deleted plugin row: its shared id found no Jellyfin row
+    /// (drift — a concurrent refresh removed it first, or the server stopped preserving
+    /// provider-supplied ids — logged as a warning), or the delete targeted an
+    /// uncorrelated Jellyfin id while the plugin row, matched by ticks, may still be
+    /// mirrored under its own id. Once the Jellyfin delete has committed, the
+    /// analysis-record clear runs uncancelably.
     /// </summary>
     private async Task DeleteMirrorRowAndResetStateAsync(Guid itemId, AnalysisMode resetMode, Guid jellyfinSegmentId, DbSegment? deletedPluginRow, CancellationToken cancellationToken)
     {
@@ -224,24 +268,43 @@ public partial class MediaSegmentEditorService(
             if (deletedPluginRow is not null && outcome == MirrorDeleteOutcome.RowNotFound)
             {
                 LogJellyfinRowMissingOnDelete(_logger, jellyfinSegmentId, itemId);
+            }
+
+            if (deletedPluginRow is not null
+                && outcome != MirrorDeleteOutcome.MirroringDisabled
+                && (outcome == MirrorDeleteOutcome.RowNotFound || deletedPluginRow.Id != jellyfinSegmentId))
+            {
                 await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
             }
         }
         catch
         {
-            await _database.UndoDeleteAsync(deletedPluginRow, CancellationToken.None).ConfigureAwait(false);
+            // As in SetItemDisabledAsync: a failing rollback must not replace the mirror
+            // failure that caused it, or the log loses both the real cause and the fact
+            // that the plugin row stayed deleted.
+            try
+            {
+                await _database.UndoDeleteAsync(deletedPluginRow, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception rollbackException)
+            {
+                LogFailedToRollBackSegmentDelete(_logger, rollbackException, jellyfinSegmentId, itemId);
+            }
+
             throw;
         }
 
-        var item = Plugin.Instance!.GetItem(itemId);
-        if (item is not null)
-        {
-            // Uncancelable: the deletes above are committed and a retried request 404s
-            // before reaching this repair, so honoring a cancellation here would leave
-            // the item permanently marked analyzed and re-analysis skipping it.
-            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), resetMode, itemId, CancellationToken.None).ConfigureAwait(false);
-        }
+        // Uncancelable: the deletes above are committed and a retried request 404s
+        // before reaching this repair, so honoring a cancellation here would leave
+        // the item permanently marked analyzed and re-analysis skipping it.
+        await _database.ClearItemAnalysisAsync(itemId, resetMode, CancellationToken.None).ConfigureAwait(false);
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to roll the disable flag of item {ItemId} back to {Previous} after a mirror failure; the item stays at the requested value while Jellyfin still serves the old rows. Re-issue the toggle to repair both.")]
+    private static partial void LogFailedToRollBackDisabledFlag(ILogger logger, Exception exception, Guid itemId, bool previous);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to restore segment {SegmentId} of item {ItemId} after its Jellyfin delete failed; the plugin row stays deleted while Jellyfin still holds its row. The next mirror sync of the item converges them.")]
+    private static partial void LogFailedToRollBackSegmentDelete(ILogger logger, Exception exception, Guid segmentId, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No Jellyfin media segment row found under id {SegmentId} for item {ItemId}; re-syncing the item's mirror. A concurrent refresh may have removed the row already; if this recurs without concurrent activity, the server may no longer preserve provider-supplied segment ids.")]
     private static partial void LogJellyfinRowMissingOnDelete(ILogger logger, Guid segmentId, Guid itemId);

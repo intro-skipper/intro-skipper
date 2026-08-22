@@ -144,7 +144,7 @@ public partial class BaseItemAnalyzerTask(
                 {
                     var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, _config.AnimePreviewFromCreditsEnd);
                     LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
-                    await _database.ResetSeasonForReanalysisAsync(first.SeasonId, episodeIds, resetModes, ct).ConfigureAwait(false);
+                    await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, ct).ConfigureAwait(false);
                     foreach (var episode in episodes)
                     {
                         foreach (var resetMode in resetModes)
@@ -168,7 +168,7 @@ public partial class BaseItemAnalyzerTask(
                 foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();
-                    int analyzed = await AnalyzeItemsAsync(
+                    var segmentsChanged = await AnalyzeItemsAsync(
                         episodes,
                         mode,
                         ffmpegValid,
@@ -184,7 +184,7 @@ public partial class BaseItemAnalyzerTask(
                         completedSettledModes.Add(mode);
                     }
 
-                    updateMediaSegments = analyzed > 0 || updateMediaSegments;
+                    updateMediaSegments = segmentsChanged || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
@@ -287,8 +287,10 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Number of items successfully analyzed.</returns>
-    private async Task<int> AnalyzeItemsAsync(
+    /// <returns><see langword="true"/> when the pass changed stored segments — an item was
+    /// analyzed, or stale automatic rows were removed before the analyzers ran — so the
+    /// caller converges the Jellyfin mirror.</returns>
+    private async Task<bool> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         bool ffmpegValid,
@@ -296,7 +298,7 @@ public partial class BaseItemAnalyzerTask(
     {
         if (!HasUncachedAnalysisWork(items, mode))
         {
-            return 0;
+            return false;
         }
 
         var first = items[0];
@@ -306,7 +308,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (!isMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
-            return 0;
+            return false;
         }
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
@@ -316,7 +318,7 @@ public partial class BaseItemAnalyzerTask(
         if (action == AnalyzerAction.None)
         {
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
-            return 0;
+            return false;
         }
 
         foreach (var item in items)
@@ -324,7 +326,9 @@ public partial class BaseItemAnalyzerTask(
             item.AnalysisConfigHash = configHash;
         }
 
-        await _database.CleanStaleAutomaticSegmentsAsync(
+        // Rows removed here must reach the mirror even if the analyzers below detect
+        // nothing new, or Jellyfin keeps serving segments the plugin no longer stores.
+        var staleRemoved = await _database.CleanStaleAutomaticSegmentsAsync(
             items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
@@ -417,10 +421,11 @@ public partial class BaseItemAnalyzerTask(
             await CreateAnimePreviewFromCreditsAsync(items, cancellationToken).ConfigureAwait(false);
         }
 
-        // Set the episode IDs for the analyzed items
-        await _database.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
+        // Record every item of the pass as analyzed under this hash, found segments or not.
+        await _database.MarkItemsAnalyzedAsync(mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var analyzed = totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        return analyzed > 0 || staleRemoved > 0;
     }
 
     /// <summary>

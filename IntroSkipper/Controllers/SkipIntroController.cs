@@ -25,10 +25,12 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
+    MediaSegmentEditorService editorService,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
+    private readonly MediaSegmentEditorService _editorService = editorService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
@@ -38,7 +40,9 @@ public partial class SkipIntroController(
     /// </summary>
     /// <remarks>
     /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Each provided slot
-    /// replaces every stored segment of its mode with the single user segment.
+    /// replaces every stored segment of its mode with the single user segment; all slots
+    /// commit in one transaction. A failed Jellyfin mirror update is reported as an error
+    /// (the stored segments stay committed and the next sync converges the mirror).
     /// </remarks>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
@@ -51,7 +55,7 @@ public partial class SkipIntroController(
     public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
-        if (MediaItemHelper.FindSupported(id) is not { } rawItem)
+        if (MediaItemHelper.FindSupported(id) is null)
         {
             return NotFound();
         }
@@ -70,16 +74,17 @@ public partial class SkipIntroController(
             (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
+        var segmentsByMode = new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)>();
         foreach (var (mode, segment) in segmentTypes)
         {
-            if (segment.Valid
-                && TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
+            // An empty or degenerate slot (end not after start) is skipped, not stored.
+            if (TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
             {
-                await _database.ReplaceUserSegmentAsync(id, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+                segmentsByMode[mode] = (startTicks, endTicks);
             }
         }
 
-        await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
+        await _editorService.ReplaceUserSegmentsAsync(id, segmentsByMode, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }
@@ -161,7 +166,9 @@ public partial class SkipIntroController(
     }
 
     /// <summary>
-    /// Erases all previously discovered introduction timestamps.
+    /// Erases all previously discovered timestamps of a mode: the stored segments
+    /// (tombstones included), the mode's analyzed-episode lists so the next scan
+    /// re-detects, and the affected items' Jellyfin mirrors.
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
@@ -172,7 +179,7 @@ public partial class SkipIntroController(
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -181,6 +188,9 @@ public partial class SkipIntroController(
             // database rows are already gone, so make one complete cleanup attempt.
             await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
+
+        // The items keep their other modes' segments, so converge (not wipe) their mirrors.
+        await _mediaSegmentRefresher.RefreshAsync(itemIds, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

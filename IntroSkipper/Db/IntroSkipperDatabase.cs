@@ -12,8 +12,10 @@ namespace IntroSkipper.Db;
 /// <list type="bullet">
 /// <item><description><c>IntroSkipperDatabase.cs</c> — lifecycle (initialization gate, migrations, legacy import, rebuild).</description></item>
 /// <item><description><c>IntroSkipperDatabase.Segments.cs</c> — <see cref="DbSegment"/> reads and writes.</description></item>
-/// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes.</description></item>
-/// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning both tables.</description></item>
+/// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes and the queue-verification snapshot.</description></item>
+/// <item><description><c>IntroSkipperDatabase.AnalyzedItems.cs</c> — <see cref="DbAnalyzedItem"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.DisabledItems.cs</c> — <see cref="DbDisabledItem"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning several tables.</description></item>
 /// </list>
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory.

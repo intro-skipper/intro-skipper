@@ -128,7 +128,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         try
         {
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await _database.ClearSeasonAnalysisAsync(seasonId, episodeIds, cancellationToken).ConfigureAwait(false);
+            await _database.EraseItemsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             if (eraseCache)
             {
@@ -137,7 +137,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
-            await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+            // Every plugin row of these items is gone, so the mirror converges to a plain
+            // delete; a failure surfaces as the 500 below instead of a logged 204.
+            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -173,12 +175,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
             }
 
-            var excludedIdsBySeason = excludedItems
-                .GroupBy(e => e.SeasonId)
-                .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(e => e.EpisodeId).ToHashSet());
-
             var removedSegments = await _database
-                .RemoveItemsFromAnalysisAsync(excludedIdsBySeason, cancellationToken)
+                .EraseItemsAsync(excludedIds, cancellationToken)
                 .ConfigureAwait(false);
 
             // Best-effort cache cleanup (the facade logs and swallows database errors),
@@ -188,7 +186,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .DeleteForItemsAsync(excludedIds, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            await _mediaSegmentRefresher.RefreshAsync(excludedIds, cancellationToken).ConfigureAwait(false);
+            // As in EraseSeasonAsync: no plugin rows remain for these items, so their
+            // mirrors converge to a plain delete.
+            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }
@@ -266,8 +266,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
-        var item = Plugin.Instance!.GetItem(itemId);
-        if (!MediaItemHelper.IsSupported(item))
+        if (MediaItemHelper.FindSupported(itemId) is not { } item)
         {
             return NotFound();
         }
@@ -284,8 +283,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         }
         catch (Exception ex)
         {
+            // The service rolls the flag back on a mirror failure, but a failing rollback
+            // is logged there rather than thrown; do not promise a state the response
+            // cannot know.
             LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-            return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
+            return Problem("The media segment mirror could not be refreshed; the request was not applied. See the server log for the item's current state.", statusCode: StatusCodes.Status500InternalServerError);
         }
 
         return NoContent();
@@ -400,6 +402,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}; the flag was rolled back")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}")]
     private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

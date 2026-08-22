@@ -205,6 +205,37 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
+    public async Task DeleteUncorrelatedSegmentAsync_MatchesWithinOneTick_TombstonesAndResyncs()
+    {
+        using var scope = CreatePluginScope();
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        // Imported rows are rounded from seconds (1238398 ticks for 0.12383975...);
+        // the pre-upgrade mirror row of the same value was truncated to 1238397.
+        var pluginRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, 1238398, 500000000);
+        var store = new FakeJellyfinSegmentStore();
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
+        var jellyfinRowId = Guid.NewGuid();
+
+        await service.DeleteUncorrelatedSegmentAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            CreateSegment(MediaSegmentType.Intro, 1238397, 500000000, jellyfinRowId, itemId),
+            CancellationToken.None);
+
+        // The one-tick-off counterpart is the plugin row: deleted (user row, hard delete),
+        // the targeted Jellyfin delete hits the uncorrelated id, and because that id is not
+        // the plugin row's, the item's mirror is re-synced so a row mirrored under the
+        // plugin id cannot linger.
+        Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal([(itemId, jellyfinRowId)], store.DeletedSegments);
+        var (syncedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, syncedItemId);
+        Assert.Empty(pushed);
+        Assert.NotEqual(pluginRow.Id, jellyfinRowId);
+    }
+
+    [Fact]
     public async Task DeleteOwnSegments_WaitsForParkedSyncOfSameItem()
     {
         var itemId = Guid.NewGuid();
@@ -249,7 +280,7 @@ public sealed class TestMediaSegmentEditorService
         await database.ReplaceAutoSegmentsAsync(
             itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId]);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemId], "hash");
 
         // Cancel at the exact point where the Jellyfin delete has committed: the
         // cascade cannot be retried (a repeated DELETE 404s on the tombstoned row),
@@ -264,19 +295,15 @@ public sealed class TestMediaSegmentEditorService
         Assert.NotNull(deleted);
         Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
         var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
-        Assert.DoesNotContain(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
+        Assert.False(snapshot.AnalyzedConfigHashes.ContainsKey((itemId, AnalysisMode.Introduction)));
     }
 
     /// <summary>
-    /// Scopes a plugin instance with an empty library manager so the delete cascade's
-    /// item lookup (for the season-state reset) resolves to null instead of crashing.
+    /// Scopes a plugin instance so the mirror policy can read the (default, mirroring
+    /// enabled) configuration.
     /// </summary>
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope()
-    {
-        var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
-        return scope;
-    }
+        => new(EntrypointTestHelpers.CreateTempCacheDir());
 
     /// <summary>
     /// Picks an id on a different lock stripe than <paramref name="other"/> (the mirror

@@ -13,7 +13,6 @@ using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -23,7 +22,7 @@ public sealed class TestMediaSegmentRefreshService
     public async Task RefreshAsync_AwaitsSegmentStoreWrite_BeforeCompleting()
     {
         var itemId = Guid.NewGuid();
-        var item = CreateMovie(itemId);
+        using var scope = CreatePluginScope();
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var store = new FakeJellyfinSegmentStore
@@ -32,9 +31,9 @@ public sealed class TestMediaSegmentRefreshService
             WriteGate = writeGate,
             BlockedItemId = itemId
         };
-        var refresher = CreateRefresher(store);
+        var refresher = CreateRefresher(store, itemId);
 
-        var refreshTask = refresher.RefreshAsync(item, CancellationToken.None);
+        var refreshTask = refresher.RefreshAsync([itemId], CancellationToken.None);
 
         // Wait until the refresh has passed the DTO factory and is parked on the closed
         // gate inside the store write; only then does the task's incompleteness prove
@@ -71,10 +70,11 @@ public sealed class TestMediaSegmentRefreshService
         var suppressedRow = seeded.First(row => row.Type == AnalysisMode.Credits && row.StartTicks == TickConversions.FromSeconds(1300));
         await database.DeleteSegmentAsync(itemId, suppressedRow.Id);
 
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore();
-        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+        var refresher = CreateRefresher(store, itemId, new SegmentDtoFactory(database));
 
-        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
 
         var active = await database.GetSegmentsAsync(itemId);
         Assert.Equal(3, active.Count);
@@ -123,10 +123,11 @@ public sealed class TestMediaSegmentRefreshService
         // still disables the item.
         await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
 
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore();
-        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+        var refresher = CreateRefresher(store, itemId, new SegmentDtoFactory(database));
 
-        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
 
         // Stored segments are untouched; only the user row crosses to Jellyfin.
         Assert.Equal(3, (await database.GetSegmentsAsync(itemId)).Count);
@@ -151,10 +152,11 @@ public sealed class TestMediaSegmentRefreshService
             SegmentSource.Chapter);
         await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
 
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore();
-        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+        var refresher = CreateRefresher(store, itemId, new SegmentDtoFactory(database));
 
-        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
 
         // The empty replace is what deletes the item's mirrored rows in production.
         var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
@@ -166,13 +168,14 @@ public sealed class TestMediaSegmentRefreshService
     public async Task RefreshAsync_LogsAndReturnsAfterStoreFailure()
     {
         var itemId = Guid.NewGuid();
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore
         {
             WriteException = new InvalidOperationException("boom")
         };
-        var refresher = CreateRefresher(store);
+        var refresher = CreateRefresher(store, itemId);
 
-        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
 
         Assert.Equal(1, store.WriteCallCount);
         var (replacedItemId, _) = Assert.Single(store.ReplacedItems);
@@ -180,50 +183,31 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
-    public async Task RefreshStrictAsync_PropagatesStoreFailure()
-    {
-        var itemId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore
-        {
-            WriteException = new InvalidOperationException("boom")
-        };
-        var refresher = CreateRefresher(store);
-
-        // Unlike RefreshAsync's log-and-continue, the strict path must surface the
-        // failure so interactive callers can roll back and report an error.
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => refresher.RefreshStrictAsync(CreateMovie(itemId), CancellationToken.None));
-
-        Assert.Equal(1, store.WriteCallCount);
-    }
-
-    [Fact]
     public async Task RefreshAsync_RethrowsCriticalException()
     {
+        var itemId = Guid.NewGuid();
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore
         {
             WriteException = new ThreadInterruptedException()
         };
-        var refresher = CreateRefresher(store);
+        var refresher = CreateRefresher(store, itemId);
 
         await Assert.ThrowsAsync<ThreadInterruptedException>(
-            () => refresher.RefreshAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None));
+            () => refresher.RefreshAsync([itemId], CancellationToken.None));
 
         Assert.Equal(1, store.WriteCallCount);
     }
 
     [Fact]
-    public async Task RefreshAsync_ByIds_ResolvesItemsViaLibraryManager_SkippingEmptyAndDuplicateIds()
+    public async Task RefreshAsync_ResolvesItemsViaLibraryManager_SkippingEmptyDuplicateAndUnknownIds()
     {
         var itemId = Guid.NewGuid();
-        var item = CreateMovie(itemId);
+        using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore();
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
-        var refresher = CreateRefresher(store, libraryManager);
+        var refresher = CreateRefresher(store, itemId);
 
-        await refresher.RefreshAsync([itemId, Guid.Empty, itemId], CancellationToken.None);
+        await refresher.RefreshAsync([itemId, Guid.Empty, itemId, Guid.NewGuid()], CancellationToken.None);
 
         var (replacedItemId, _) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
@@ -241,7 +225,6 @@ public sealed class TestMediaSegmentRefreshService
         var refresher = CreateRefresher(store);
 
         // The mirror flag lives in the service, not at call sites: every write no-ops.
-        await refresher.RefreshAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
         await refresher.RefreshAsync([Guid.NewGuid()], CancellationToken.None);
         await refresher.RemoveIntroSkipperSegmentsAsync([Guid.NewGuid()], CancellationToken.None);
 
@@ -280,13 +263,21 @@ public sealed class TestMediaSegmentRefreshService
         Assert.Same(expectedException, exception);
     }
 
+    // RefreshAsync resolves ids through the library manager and reads MaxParallelism
+    // from the plugin configuration, so refresh tests scope a plugin instance and
+    // register the refreshed item.
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope()
+        => new(EntrypointTestHelpers.CreateTempCacheDir());
+
     private static MediaSegmentRefreshService CreateRefresher(
         FakeJellyfinSegmentStore store,
-        ILibraryManager? libraryManager = null,
+        Guid? libraryItemId = null,
         SegmentDtoFactory? segmentDtoFactory = null)
         => new(
             new MediaSegmentMirror(store, segmentDtoFactory ?? new SegmentDtoFactory(DatabaseTestHelpers.CreateTempSegmentDatabase())),
-            libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(),
+            libraryItemId is { } itemId
+                ? EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId))
+                : EntrypointTestHelpers.CreateLibraryManager(),
             NullLogger<MediaSegmentRefreshService>.Instance);
 
     private static Movie CreateMovie(Guid itemId)

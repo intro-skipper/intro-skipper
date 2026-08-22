@@ -145,8 +145,7 @@ public sealed partial class IntroSkipperDatabase
         if (exact is not null)
         {
             // Promote an automatic row, revive a tombstone, or return the user row unchanged.
-            exact.State = SegmentState.Active;
-            exact.Source = SegmentSource.User;
+            PromoteToUser(exact);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return exact;
         }
@@ -158,46 +157,56 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<DbSegment> ReplaceUserSegmentAsync(
+    public async Task ReplaceUserSegmentsAsync(
         Guid itemId,
-        AnalysisMode mode,
-        long startTicks,
-        long endTicks,
+        IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode,
         CancellationToken cancellationToken = default)
     {
-        ValidateMode(mode);
-        ValidateRange(startTicks, endTicks);
+        ArgumentNullException.ThrowIfNull(segmentsByMode);
+        foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
+        {
+            ValidateMode(mode);
+            ValidateRange(startTicks, endTicks);
+        }
+
+        if (segmentsByMode.Count == 0)
+        {
+            return;
+        }
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
+        var modes = segmentsByMode.Keys.ToArray();
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
             var existing = await db.Segments
-                .Where(s => s.ItemId == itemId && s.Type == mode)
+                .Where(s => s.ItemId == itemId && modes.Contains(s.Type))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active));
+            foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
+            {
+                // A row with exactly the new range survives in place (keeping the id
+                // Jellyfin knows): an active row is promoted, a tombstone revived; either
+                // way it cannot collide with itself on the unique index. Only the mode's
+                // other active rows go.
+                var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
+                db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && s != row));
 
-            // A tombstone with exactly the new range would collide on the unique index:
-            // revive it as the user segment instead of inserting.
-            var row = existing.Find(s => s.State == SegmentState.Suppressed && s.StartTicks == startTicks && s.EndTicks == endTicks);
-            if (row is not null)
-            {
-                row.State = SegmentState.Active;
-                row.Source = SegmentSource.User;
-            }
-            else
-            {
-                row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
-                db.Segments.Add(row);
+                if (row is not null)
+                {
+                    PromoteToUser(row);
+                }
+                else
+                {
+                    db.Segments.Add(new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User));
+                }
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return row;
         }
     }
 
@@ -240,7 +249,7 @@ public sealed partial class IntroSkipperDatabase
                 // Jellyfin already knows) survives as the user segment and the moved
                 // row is absorbed into it.
                 db.Segments.Remove(row);
-                occupant.Source = SegmentSource.User;
+                PromoteToUser(occupant);
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 return occupant;
             }
@@ -254,7 +263,7 @@ public sealed partial class IntroSkipperDatabase
 
         row.StartTicks = startTicks;
         row.EndTicks = endTicks;
-        row.Source = SegmentSource.User;
+        PromoteToUser(row);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return row;
     }
@@ -398,21 +407,52 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.Segments
-            .Where(s => s.ItemId == itemId)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            await db.Segments
+                .Where(s => s.ItemId == itemId)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await db.AnalyzedItems
+                .Where(a => a.ItemId == itemId)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
-    public async Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.Segments
-            .Where(s => s.Type == mode)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var itemIds = await db.Segments
+                .Where(s => s.Type == mode)
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            await db.Segments
+                .Where(s => s.Type == mode)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // Without this the erased items stay recorded as analyzed for the mode and
+            // VerifyQueueAsync settles them as NoSegments, so nothing would re-detect them.
+            await db.AnalyzedItems
+                .Where(a => a.Type == mode)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return itemIds;
+        }
     }
 
     /// <inheritdoc/>
@@ -435,6 +475,17 @@ public sealed partial class IntroSkipperDatabase
             .Where(s => EF.Parameter(ids).Contains(s.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    // Hands a row to the user: active (a tombstone is revived), user-sourced, and without
+    // the analyzer's config hash. Provenance and hash move together because ConfigHash
+    // only describes analyzer output and a hash-driven cleanup must never mistake a
+    // user-owned row for it.
+    private static void PromoteToUser(DbSegment row)
+    {
+        row.State = SegmentState.Active;
+        row.Source = SegmentSource.User;
+        row.ConfigHash = string.Empty;
     }
 
     private static void ValidateRange(long startTicks, long endTicks)

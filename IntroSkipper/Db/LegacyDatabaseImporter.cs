@@ -80,8 +80,10 @@ internal static partial class LegacyDatabaseImporter
         var hasUser = columns.Contains("IsUserProvided");
         var hasHash = columns.Contains("ConfigHash");
 
-        // Quadruples already present in the new database (crash-retry safety: a previous
-        // import attempt may have saved rows before its marker committed).
+        // Quadruples already present in the new database. Import and marker commit in
+        // one transaction, so a crash never leaves partial rows; but a failed import is
+        // swallowed and retried at the next start, and in between the plugin has run
+        // (analysis, user edits) against the marker-less new file.
         var seen = new HashSet<(Guid ItemId, AnalysisMode Type, long StartTicks, long EndTicks)>();
         var existing = await newDb.Segments
             .AsNoTracking()
@@ -131,7 +133,10 @@ internal static partial class LegacyDatabaseImporter
                     continue;
                 }
 
-                if (!Enum.IsDefined((AnalysisMode)type)
+                // IsSupported, not Enum.IsDefined: a stored mode without a
+                // ModeToSegmentType entry would throw in SegmentDtoFactory on every
+                // later mirror sync and provider read for the item.
+                if (!AnalysisHelpers.IsSupported((AnalysisMode)type)
                     || !TickConversions.TryFromSecondsRange(startSeconds, endSeconds, out var startTicks, out var endTicks))
                 {
                     skipped++;
@@ -155,12 +160,12 @@ internal static partial class LegacyDatabaseImporter
 
                 if (pending.Count >= SaveBatchSize)
                 {
-                    await SaveBatchAsync(newDb, pending, cancellationToken).ConfigureAwait(false);
+                    await SaveBatchAsync(newDb, newDb.Segments, pending, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
 
-        await SaveBatchAsync(newDb, pending, cancellationToken).ConfigureAwait(false);
+        await SaveBatchAsync(newDb, newDb.Segments, pending, cancellationToken).ConfigureAwait(false);
 
         LogSegmentsImported(logger, imported, skipped);
         return (imported, skipped, $"segments: {(hasUser ? "+IsUserProvided" : "-IsUserProvided")} {(hasHash ? "+ConfigHash" : "-ConfigHash")}");
@@ -189,6 +194,9 @@ internal static partial class LegacyDatabaseImporter
         var hasHash = columns.Contains("ConfigHash");
         var hasSettled = columns.Contains("SettledReanalysisEpisodeIds");
 
+        // Same retry-against-a-populated-database case as the segment import: rows written
+        // since the swallowed attempt win, keyed by (SeasonId, Type) for season state and
+        // by (ItemId, Type) for analysis records.
         var existingKeys = new HashSet<(Guid SeasonId, AnalysisMode Type)>();
         var existing = await newDb.SeasonStates
             .AsNoTracking()
@@ -198,6 +206,17 @@ internal static partial class LegacyDatabaseImporter
         foreach (var row in existing)
         {
             existingKeys.Add((row.SeasonId, row.Type));
+        }
+
+        var analyzedKeys = new HashSet<(Guid ItemId, AnalysisMode Type)>();
+        var existingAnalyzed = await newDb.AnalyzedItems
+            .AsNoTracking()
+            .Select(a => new { a.ItemId, a.Type })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var row in existingAnalyzed)
+        {
+            analyzedKeys.Add((row.ItemId, row.Type));
         }
 
         using var command = legacy.CreateCommand();
@@ -212,7 +231,9 @@ internal static partial class LegacyDatabaseImporter
 #pragma warning restore CA2100
 
         var imported = 0;
+        var analyzedImported = 0;
         var states = new List<DbSeasonState>();
+        var analyzed = new List<DbAnalyzedItem>();
 
         var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using (reader.ConfigureAwait(false))
@@ -223,16 +244,14 @@ internal static partial class LegacyDatabaseImporter
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var typeValue = reader.GetValue(1);
-                if (!TryReadGuid(reader.GetValue(0), out var seasonId) || !TryToInt32(typeValue, out var type))
+                if (!TryReadGuid(reader.GetValue(0), out var seasonId)
+                    || !TryToInt32(typeValue, out var type)
+                    || !Enum.IsDefined((AnalysisMode)type))
                 {
                     continue;
                 }
 
-                if (!Enum.IsDefined((AnalysisMode)type) || !existingKeys.Add((seasonId, (AnalysisMode)type)))
-                {
-                    continue;
-                }
-
+                var mode = (AnalysisMode)type;
                 var actionValue = reader.GetValue(2);
                 var action = TryToInt32(actionValue, out var actionNumber) && Enum.IsDefined((AnalyzerAction)actionNumber)
                     ? (AnalyzerAction)actionNumber
@@ -244,29 +263,49 @@ internal static partial class LegacyDatabaseImporter
                 var configHash = ReadOptionalString(reader, hashOrdinal);
                 var settled = hasSettled ? ParseGuidArray(reader.GetValue(settledOrdinal)) : [];
 
-                states.Add(new DbSeasonState(seasonId, (AnalysisMode)type, action, episodeIds, configHash, settled));
-                imported++;
+                if (existingKeys.Add((seasonId, mode)))
+                {
+                    states.Add(new DbSeasonState(seasonId, mode, action, settled));
+                    imported++;
+                }
+
+                // The legacy analyzed-episode list becomes one analysis record per episode,
+                // all under the season's hash, so an unchanged configuration does not
+                // re-analyze the library after the upgrade.
+                foreach (var episodeId in episodeIds)
+                {
+                    if (!analyzedKeys.Add((episodeId, mode)))
+                    {
+                        continue;
+                    }
+
+                    analyzed.Add(new DbAnalyzedItem(episodeId, mode, configHash));
+                    analyzedImported++;
+
+                    if (analyzed.Count >= SaveBatchSize)
+                    {
+                        await SaveBatchAsync(newDb, newDb.AnalyzedItems, analyzed, cancellationToken).ConfigureAwait(false);
+                    }
+                }
             }
         }
 
-        if (states.Count > 0)
-        {
-            newDb.SeasonStates.AddRange(states);
-            await newDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
+        await SaveBatchAsync(newDb, newDb.SeasonStates, states, cancellationToken).ConfigureAwait(false);
+        await SaveBatchAsync(newDb, newDb.AnalyzedItems, analyzed, cancellationToken).ConfigureAwait(false);
 
-        LogSeasonStatesImported(logger, imported, table);
-        return (imported, $"seasons: {table}");
+        LogSeasonStatesImported(logger, imported, analyzedImported, table);
+        return (imported, $"seasons: {table}, {analyzedImported} analysis records");
     }
 
-    private static async Task SaveBatchAsync(IntroSkipperDbContext newDb, List<DbSegment> pending, CancellationToken cancellationToken)
+    private static async Task SaveBatchAsync<TEntity>(IntroSkipperDbContext newDb, DbSet<TEntity> set, List<TEntity> pending, CancellationToken cancellationToken)
+        where TEntity : class
     {
         if (pending.Count == 0)
         {
             return;
         }
 
-        newDb.Segments.AddRange(pending);
+        set.AddRange(pending);
         await newDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         newDb.ChangeTracker.Clear();
         pending.Clear();
@@ -386,6 +425,6 @@ internal static partial class LegacyDatabaseImporter
     [LoggerMessage(Level = LogLevel.Information, Message = "Imported {Imported} legacy segments ({Skipped} skipped as invalid or duplicate)")]
     private static partial void LogSegmentsImported(ILogger logger, int imported, int skipped);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Imported {Imported} legacy season states from table {Table}")]
-    private static partial void LogSeasonStatesImported(ILogger logger, int imported, string table);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Imported {Imported} legacy season states and {Analyzed} analysis records from table {Table}")]
+    private static partial void LogSeasonStatesImported(ILogger logger, int imported, int analyzed, string table);
 }

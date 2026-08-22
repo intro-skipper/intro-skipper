@@ -3,6 +3,7 @@ using System;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    partial class IntroSkipperDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260822142139_AnalyzedItems")]
+    partial class AnalyzedItems
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -139,10 +142,7 @@ namespace IntroSkipper.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_Segments_ItemId_Type_StartTicks_EndTicks");
 
-                    b.ToTable("Segments", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Segments_Range", "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0");
-                        });
+                    b.ToTable("Segments", (string)null);
                 });
 #pragma warning restore 612, 618
         }

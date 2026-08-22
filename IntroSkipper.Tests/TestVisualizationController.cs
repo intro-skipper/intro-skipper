@@ -11,7 +11,6 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Http;
@@ -26,7 +25,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestVisualizationController
 {
     [Fact]
-    public async Task EraseSeasonAsync_AwaitsDirectMediaSegmentRefresh_BeforeReturningNoContent()
+    public async Task EraseSeasonAsync_AwaitsMirrorDelete_BeforeReturningNoContent()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -50,7 +49,7 @@ public sealed class TestVisualizationController
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
         Assert.False(actionTask.IsCompleted);
-        Assert.Equal(episodeIds.OrderBy(id => id), refresher.LastItemIds.OrderBy(id => id));
+        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
 
         refresher.Completion.SetResult();
         var result = await actionTask;
@@ -60,8 +59,7 @@ public sealed class TestVisualizationController
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
     }
 
     [Fact]
@@ -82,7 +80,7 @@ public sealed class TestVisualizationController
         // The controller no longer gates on UpdateMediaSegments: it always delegates,
         // and MediaSegmentRefreshService itself owns the mirror flag.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal(1, refresher.CollectionCallCount);
+        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
     }
 
     [Fact]
@@ -118,8 +116,7 @@ public sealed class TestVisualizationController
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
     }
 
     [Fact]
@@ -156,13 +153,13 @@ public sealed class TestVisualizationController
         // items is a full erase, so suppressed rows are deleted (and counted) too.
         Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(1, response.RemovedCacheEntries);
-        Assert.Equal([excludedId], refresher.LastItemIds);
+        Assert.Equal([excludedId], refresher.RemovedItemIds);
 
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
+        Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
 
         using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
         Assert.False(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
@@ -214,8 +211,8 @@ public sealed class TestVisualizationController
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
+        Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
     }
 
     [Fact]
@@ -256,7 +253,6 @@ public sealed class TestVisualizationController
         // Both directions resync the item's mirror through the editor service; the
         // refresher (the bulk/lenient path) is not involved in the disable flow.
         Assert.Equal(2, store.WriteCallCount);
-        Assert.Equal(0, refresher.StrictCallCount);
         Assert.Equal(0, refresher.CollectionCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
@@ -545,8 +541,13 @@ public sealed class TestVisualizationController
                 State = SegmentState.Suppressed,
             });
         db.SeasonStates.AddRange(
-            new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
-            new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
+            new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default),
+            new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default));
+        db.AnalyzedItems.AddRange(episodeIds.SelectMany(id => new[]
+        {
+            new DbAnalyzedItem(id, AnalysisMode.Introduction, "hash"),
+            new DbAnalyzedItem(id, AnalysisMode.Credits, "hash")
+        }));
         await db.SaveChangesAsync();
     }
 
@@ -568,31 +569,18 @@ public sealed class TestVisualizationController
 
         public int CollectionCallCount { get; private set; }
 
-        public int StrictCallCount { get; private set; }
-
-        public IReadOnlyList<Guid> LastItemIds { get; private set; } = [];
-
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
-        {
-            LastItemIds = [item.Id];
-            return Completion?.Task ?? Task.CompletedTask;
-        }
-
-        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
-        {
-            StrictCallCount++;
-            LastItemIds = [item.Id];
-            return Completion?.Task ?? Task.CompletedTask;
-        }
+        public IReadOnlyList<Guid> RemovedItemIds { get; private set; } = [];
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             CollectionCallCount++;
-            LastItemIds = [.. itemIds];
             return Completion?.Task ?? Task.CompletedTask;
         }
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-            => RefreshAsync(itemIds, cancellationToken);
+        {
+            RemovedItemIds = [.. itemIds];
+            return Completion?.Task ?? Task.CompletedTask;
+        }
     }
 }

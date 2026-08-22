@@ -474,16 +474,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         // The expected config hash depends on the season-level analyzer action and mode, not on the
-        // individual episode, so compute it once per mode instead of once per episode and mode.
-        var hashMatchesByMode = new Dictionary<AnalysisMode, bool>(modes.Count);
+        // individual episode, so compute it once per mode; each episode then compares its own
+        // analysis record against it.
+        var expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
         foreach (var mode in modes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
                 ? savedAction
                 : AnalyzerAction.Default;
-            var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
-            hashMatchesByMode[mode] = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+            expectedHashByMode[mode] = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
         }
 
         foreach (var candidate in candidates)
@@ -513,7 +512,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    var hashMatches = hashMatchesByMode[mode];
+                    // An analysis record under the current hash settles the episode for the mode
+                    // (Analyzed with segments, NoSegments without); a missing or stale record
+                    // leaves it NotAnalyzed.
+                    var hashMatches = snapshot.AnalyzedConfigHashes.TryGetValue((candidate.EpisodeId, mode), out var analyzedHash) &&
+                        string.Equals(analyzedHash, expectedHashByMode[mode], StringComparison.Ordinal);
 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
@@ -529,9 +532,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain && hashMatches &&
-                             snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
-                             ids.Contains(candidate.EpisodeId))
+                    else if (!plugin.AnalyzeAgain && hashMatches)
                     {
                         candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                     }

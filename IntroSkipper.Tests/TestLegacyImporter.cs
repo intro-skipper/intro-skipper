@@ -89,11 +89,16 @@ public sealed class TestLegacyImporter
         Assert.Equal(seasonId, state.SeasonId);
         Assert.Equal(AnalysisMode.Introduction, state.Type);
         Assert.Equal(AnalyzerAction.Chromaprint, state.Action);
-        Assert.Equal([episodeId], state.EpisodeIds);
-        Assert.Equal(hasHash ? "season-hash" : string.Empty, state.ConfigHash);
         Assert.Equal(
             shape == LegacyShape.V5SeasonState ? [episodeId] : Array.Empty<Guid>(),
             state.SettledReanalysisEpisodeIds);
+
+        // The legacy analyzed-episode list becomes per-item analysis records under the
+        // season's hash.
+        var analyzed = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
+        Assert.Equal(episodeId, analyzed.ItemId);
+        Assert.Equal(AnalysisMode.Introduction, analyzed.Type);
+        Assert.Equal(hasHash ? "season-hash" : string.Empty, analyzed.ConfigHash);
 
         var marker = Assert.Single(await db.ImportHistory.AsNoTracking().ToListAsync());
         Assert.True(marker.SourceFileFound);
@@ -183,7 +188,7 @@ public sealed class TestLegacyImporter
         await using var db = new IntroSkipperDbContext(scope.V2Path);
         var state = Assert.Single(await db.SeasonStates.AsNoTracking().ToListAsync());
         Assert.Equal(AnalyzerAction.Chapter, state.Action);
-        Assert.Empty(state.EpisodeIds);
+        Assert.Empty(await db.AnalyzedItems.AsNoTracking().ToListAsync());
     }
 
     [Fact]

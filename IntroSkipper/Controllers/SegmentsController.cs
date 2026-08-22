@@ -85,8 +85,7 @@ public class SegmentsController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var item = MediaItemHelper.FindSupported(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
@@ -135,8 +134,7 @@ public class SegmentsController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var item = MediaItemHelper.FindSupported(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
@@ -176,8 +174,7 @@ public class SegmentsController(
         [FromRoute] Guid segmentId,
         CancellationToken cancellationToken = default)
     {
-        var item = MediaItemHelper.FindSupported(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
@@ -215,8 +212,7 @@ public class SegmentsController(
         [FromRoute] Guid segmentId,
         CancellationToken cancellationToken = default)
     {
-        var item = MediaItemHelper.FindSupported(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }

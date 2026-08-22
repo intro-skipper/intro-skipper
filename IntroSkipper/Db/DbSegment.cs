@@ -84,8 +84,10 @@ public class DbSegment
     public SegmentState State { get; set; }
 
     /// <summary>
-    /// Gets or sets the configuration hash that produced this segment.
-    /// Empty for user-provided and legacy-imported rows.
+    /// Gets or sets the configuration hash that produced this segment. Empty for
+    /// user-provided rows (a promoted row drops it). Legacy-imported automatic rows keep
+    /// the hash the legacy plugin recorded (same <c>ConfigHasher</c> format), so an
+    /// unchanged configuration does not wipe them on the first analysis after import.
     /// </summary>
     public string ConfigHash { get; set; } = string.Empty;
 

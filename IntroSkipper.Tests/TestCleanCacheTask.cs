@@ -190,7 +190,8 @@ public sealed class TestCleanCacheTask
                 AnalysisMode.Introduction,
                 [new Segment(movieId, new TimeRange(10, 40))],
                 SegmentSource.Chapter);
-            await database.SetEpisodeIdsAsync(movieId, AnalysisMode.Introduction, [movieId], "hash");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [movieId], "hash");
+            await database.SetAnalyzerActionAsync(movieId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
             cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
             await SeedAsync(database, cacheDatabase, staleEpisodeId);
 
@@ -221,6 +222,10 @@ public sealed class TestCleanCacheTask
                 db.DisabledItems, e => e.ItemId == movieId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
                 db.DisabledItems, e => e.ItemId == staleEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == movieId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == staleEpisodeId));
         }
         finally
         {
@@ -264,7 +269,8 @@ public sealed class TestCleanCacheTask
             AnalysisMode.Introduction,
             [new Segment(episodeId, new TimeRange(5, 65))],
             SegmentSource.Chapter);
-        await database.SetEpisodeIdsAsync(episodeId, AnalysisMode.Introduction, [episodeId], "hash");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeId], "hash");
+        await database.SetAnalyzerActionAsync(episodeId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
         cacheDatabase.Upsert(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
     }
 
@@ -302,10 +308,6 @@ public sealed class TestCleanCacheTask
     private sealed class RecordingRefresher : IMediaSegmentRefresher
     {
         public int RemoveCallCount { get; private set; }
-
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

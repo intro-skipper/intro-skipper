@@ -133,9 +133,9 @@ public partial class CleanCacheTask(
         // Clean up season state by removing items that no longer exist.
         await _database.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
 
-        // Disabled-item flags follow the item, not the mutable season key recorded on
-        // the row, so they are pruned against the retained item IDs instead.
-        await _database.CleanDisabledItemsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        // Per-item state (disable flags, analysis records) follows the item, not a season
+        // key, so it is pruned against the retained item IDs instead.
+        await _database.CleanItemStateAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         progress.Report(100);
     }

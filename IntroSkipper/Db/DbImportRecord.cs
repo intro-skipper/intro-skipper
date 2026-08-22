@@ -43,8 +43,7 @@ public class DbImportRecord
     public int SeasonStatesImported { get; set; }
 
     /// <summary>
-    /// Gets or sets free-form diagnostics (detected legacy shape, or "rebuild" for
-    /// markers synthesized by a database rebuild).
+    /// Gets or sets free-form diagnostics (the detected legacy shape).
     /// </summary>
     public string Notes { get; set; } = string.Empty;
 }

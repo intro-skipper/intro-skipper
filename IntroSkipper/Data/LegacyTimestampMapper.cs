@@ -14,9 +14,11 @@ namespace IntroSkipper.Data;
 internal static class LegacyTimestampMapper
 {
     /// <summary>
-    /// Reduces stored segments to one canonical timestamp per mode.
+    /// Reduces stored segments to one canonical timestamp per mode. This is the owner of
+    /// the tombstone filter for these endpoints: it accepts raw stored rows, so callers
+    /// reading through a pre-filtered query must not drop it on that assumption.
     /// </summary>
-    /// <param name="segments">Stored segments of a single item.</param>
+    /// <param name="segments">Stored segments of a single item, suppressed rows included.</param>
     /// <returns>The canonical timestamp per analysis mode.</returns>
     internal static Dictionary<AnalysisMode, Segment> ToCanonical(IEnumerable<DbSegment> segments)
         => segments

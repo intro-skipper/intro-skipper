@@ -24,6 +24,9 @@ using static IntroSkipper.Tests.DatabaseTestHelpers;
 /// </summary>
 public sealed class TestDatabaseFacades
 {
+    private static Dictionary<AnalysisMode, (long StartTicks, long EndTicks)> Slot(AnalysisMode mode, long startTicks, long endTicks)
+        => new() { [mode] = (startTicks, endTicks) };
+
     [Fact]
     public async Task InitializationGate_CreatesSchemaBeforeFirstQuery()
     {
@@ -67,7 +70,7 @@ public sealed class TestDatabaseFacades
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
                 () => database.AddUserSegmentAsync(itemId, undefined, Ticks(10), Ticks(20)));
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-                () => database.ReplaceUserSegmentAsync(itemId, undefined, Ticks(10), Ticks(20)));
+                () => database.ReplaceUserSegmentsAsync(itemId, Slot(undefined, Ticks(10), Ticks(20))));
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
                 () => database.ReplaceAutoSegmentsAsync(
                     itemId, undefined, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter));
@@ -139,7 +142,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task ReplaceUserSegmentAsync_ReplacesAnalysisResult()
+    public async Task ReplaceUserSegmentsAsync_ReplacesAnalysisResult()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -148,7 +151,7 @@ public sealed class TestDatabaseFacades
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(20, 80))], SegmentSource.Chromaprint);
-            await database.ReplaceUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(60));
+            await database.ReplaceUserSegmentsAsync(itemId, Slot(AnalysisMode.Introduction, Ticks(10), Ticks(60)));
 
             var stored = Assert.Single(await database.GetSegmentsAsync(itemId));
             Assert.Equal(SegmentSource.User, stored.Source);
@@ -162,22 +165,49 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task ReplaceUserSegmentAsync_SwapsExactRangeWithExistingActiveRow()
+    public async Task ReplaceUserSegmentsAsync_PerMode_PromotesExactRangeInPlace_AndLeavesAbsentModes()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
+            await database.ReplaceAutoSegmentsAsync(
+                itemId,
+                AnalysisMode.Introduction,
+                [new Segment(itemId, new TimeRange(10, 60)), new Segment(itemId, new TimeRange(300, 330))],
+                SegmentSource.Chromaprint,
+                configHash: "analyzer-hash");
+            await database.ReplaceAutoSegmentsAsync(
+                itemId,
+                AnalysisMode.Credits,
+                [new Segment(itemId, new TimeRange(1200, 1260))],
+                SegmentSource.Chromaprint,
+                configHash: "analyzer-hash");
+            var autoIntro = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Type == AnalysisMode.Introduction && s.StartTicks == Ticks(10));
 
-            // Delete-all-active + insert of the IDENTICAL quadruple in one SaveChanges:
-            // EF must order the delete before the insert (unique-value edges) or this throws.
-            var row = await database.ReplaceUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(60));
+            await database.ReplaceUserSegmentsAsync(
+                itemId,
+                new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)>
+                {
+                    [AnalysisMode.Introduction] = (Ticks(10), Ticks(60)),
+                    [AnalysisMode.Commercial] = (Ticks(400), Ticks(430))
+                });
 
-            var stored = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-            Assert.Equal(row.Id, stored.Id);
-            Assert.Equal(SegmentSource.User, stored.Source);
+            // The exact-range occupant keeps its id (Jellyfin addresses the row by it) and
+            // changes hands, every other active intro is gone, the commercial slot is a
+            // new user row, and the credits mode was not named so it is untouched.
+            var stored = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
+            var intro = Assert.Single(stored, s => s.Type == AnalysisMode.Introduction);
+            Assert.Equal(autoIntro.Id, intro.Id);
+            Assert.Equal(SegmentSource.User, intro.Source);
+            Assert.Empty(intro.ConfigHash);
+            var commercial = Assert.Single(stored, s => s.Type == AnalysisMode.Commercial);
+            Assert.Equal(SegmentSource.User, commercial.Source);
+            Assert.Equal(Ticks(400), commercial.StartTicks);
+            var credits = Assert.Single(stored, s => s.Type == AnalysisMode.Credits);
+            Assert.Equal(SegmentSource.Chromaprint, credits.Source);
+            Assert.Equal("analyzer-hash", credits.ConfigHash);
         }
         finally
         {
@@ -194,14 +224,17 @@ public sealed class TestDatabaseFacades
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chapter);
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chapter, configHash: "analyzer-hash");
             var autoRow = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Equal("analyzer-hash", autoRow.ConfigHash);
 
             var promoted = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(60));
 
             // Same row, same id — the auto row was promoted instead of duplicated.
             Assert.Equal(autoRow.Id, promoted.Id);
             Assert.Equal(SegmentSource.User, promoted.Source);
+            // Provenance moves with the hash: a user row carries no analyzer config hash.
+            Assert.Empty(promoted.ConfigHash);
             Assert.Single(await database.GetSegmentsAsync(itemId));
         }
         finally
@@ -423,7 +456,16 @@ public sealed class TestDatabaseFacades
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
             await database.DeleteSegmentAsync(itemB, tombstoned.Id);
 
-            await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+            // Analysis records: the erased mode's must go so the next scan re-detects;
+            // other modes' stay.
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemA, itemB], "intro-hash");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemA], "credits-hash");
+
+            var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+
+            Assert.Equal(2, erasedItemIds.Count);
+            Assert.Contains(itemA, erasedItemIds);
+            Assert.Contains(itemB, erasedItemIds);
 
             await using var db = new IntroSkipperDbContext(dbPath);
             var remaining = await db.Segments.AsNoTracking().ToListAsync();
@@ -431,6 +473,42 @@ public sealed class TestDatabaseFacades
             Assert.DoesNotContain(remaining, s => s.Type == AnalysisMode.Introduction);
             Assert.Single(remaining, s => s.ItemId == itemA && s.Type == AnalysisMode.Credits);
             Assert.Single(remaining, s => s.ItemId == itemB && s.Type == AnalysisMode.Commercial);
+
+            var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
+            Assert.Equal((itemA, AnalysisMode.Credits), (record.ItemId, record.Type));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task CleanStaleAutomaticSegmentsAsync_CreditsDerivedPreview_IsJudgedByTheCreditsPass()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            // The credits pass stamps derived previews with the credits hash; a chapter
+            // preview on another item carries the preview hash like any automatic row.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+            var otherItemId = Guid.NewGuid();
+            await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Preview, [new Segment(otherItemId, new TimeRange(1300, 1440))], SegmentSource.Chapter, configHash: "stale-preview-hash");
+
+            // The preview pass ignores the derived row even though its hash differs.
+            await database.CleanStaleAutomaticSegmentsAsync([itemId, otherItemId], AnalysisMode.Preview, "preview-hash");
+            Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Empty(await database.GetSegmentsAsync(otherItemId));
+
+            // The credits pass keeps it while the credits hash matches ...
+            await database.CleanStaleAutomaticSegmentsAsync([itemId], AnalysisMode.Credits, "credits-hash");
+            Assert.Single(await database.GetSegmentsAsync(itemId));
+
+            // ... and drops it once the credits configuration changed.
+            await database.CleanStaleAutomaticSegmentsAsync([itemId], AnalysisMode.Credits, "new-credits-hash");
+            Assert.Empty(await database.GetSegmentsAsync(itemId));
         }
         finally
         {
@@ -466,11 +544,9 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task ClearSeasonAnalysisAsync_DeletesSegmentsAndClearsSeasonState()
+    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly()
     {
         var dbPath = CreateTempDbPath();
-        var seasonId = Guid.NewGuid();
-        var otherSeasonId = Guid.NewGuid();
         var targetItemId = Guid.NewGuid();
         var otherItemId = Guid.NewGuid();
         try
@@ -478,23 +554,22 @@ public sealed class TestDatabaseFacades
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
             await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [targetItemId]);
-            await database.SetEpisodeIdsAsync(otherSeasonId, AnalysisMode.Introduction, [otherItemId]);
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [targetItemId, otherItemId], "hash");
 
-            // Tombstone the target item's intro: an explicit season erase is a factory
-            // reset, so the tombstone must go too.
+            // Tombstone the target item's intro and add a user row: an explicit erase is a
+            // factory reset, so the tombstone and the user row go too (and are counted).
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
             await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
+            await database.AddUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
 
-            await database.ClearSeasonAnalysisAsync(seasonId, [targetItemId]);
+            var removed = await database.EraseItemsAsync([targetItemId]);
 
+            Assert.Equal(2, removed);
             await using var db = new IntroSkipperDbContext(dbPath);
             Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId));
+            Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
             Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
-            var targetState = await db.SeasonStates.SingleAsync(s => s.SeasonId == seasonId);
-            Assert.Empty(targetState.EpisodeIds);
-            var otherState = await db.SeasonStates.SingleAsync(s => s.SeasonId == otherSeasonId);
-            Assert.Equal([otherItemId], otherState.EpisodeIds);
+            Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == otherItemId));
         }
         finally
         {
@@ -503,38 +578,26 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task SetEpisodeIdsAsync_AcceptsLazyEnumerable_OnInsertAndUpdate()
+    public async Task MarkItemsAnalyzedAsync_ReplacesTheRecordPerItem_AndAcceptsLazyEnumerables()
     {
-        // Regression: EF Core maps the IEnumerable<Guid> EpisodeIds property as a primitive
-        // collection whose change tracking only accepts arrays or IList<Guid>. The analyzer
-        // task passes items.Select(i => i.EpisodeId) — a lazy iterator — which made both the
-        // insert and the update path throw InvalidOperationException until the facade
-        // materialized the sequence.
         var dbPath = CreateTempDbPath();
-        var seasonId = Guid.NewGuid();
         var retainedEpisodeId = Guid.NewGuid();
-        var removedEpisodeId = Guid.NewGuid();
-        var episodeIds = new List<Guid> { retainedEpisodeId, removedEpisodeId };
+        var rehashedEpisodeId = Guid.NewGuid();
+        var episodeIds = new List<Guid> { retainedEpisodeId, rehashedEpisodeId };
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-            // Insert path with a lazy projection, mirroring BaseItemAnalyzerTask.
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds.Select(id => id), "hash-1");
+            // Lazy projections mirror BaseItemAnalyzerTask's items.Select(i => i.EpisodeId).
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds.Select(id => id), "hash-1");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds.Where(id => id == rehashedEpisodeId), "hash-2");
 
-            // Update path with a lazy projection over the existing row.
-            await database.SetEpisodeIdsAsync(
-                seasonId,
-                AnalysisMode.Introduction,
-                episodeIds.Where(id => id != removedEpisodeId),
-                "hash-2");
-
+            // A later pass overwrites only the items it covered; the rest keep their record.
             await using var db = new IntroSkipperDbContext(dbPath);
-            var state = await db.SeasonStates
-                .AsNoTracking()
-                .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
-            Assert.Equal([retainedEpisodeId], state.EpisodeIds);
-            Assert.Equal("hash-2", state.ConfigHash);
+            var records = await db.AnalyzedItems.AsNoTracking().ToDictionaryAsync(a => a.ItemId, a => a.ConfigHash);
+            Assert.Equal(2, records.Count);
+            Assert.Equal("hash-1", records[retainedEpisodeId]);
+            Assert.Equal("hash-2", records[rehashedEpisodeId]);
         }
         finally
         {
@@ -717,7 +780,6 @@ public sealed class TestDatabaseFacades
         var dbPath = CreateTempDbPath();
         var retainedSeasonId = Guid.NewGuid();
         var staleSeasonId = Guid.NewGuid();
-        var retainedEpisodeId = Guid.NewGuid();
         var retainedSeasonIds = Enumerable.Range(0, LargeSeasonCount - 1)
             .Select(_ => Guid.NewGuid())
             .Append(retainedSeasonId)
@@ -726,16 +788,14 @@ public sealed class TestDatabaseFacades
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.SetEpisodeIdsAsync(retainedSeasonId, AnalysisMode.Introduction, [retainedEpisodeId]);
-            await database.SetEpisodeIdsAsync(staleSeasonId, AnalysisMode.Introduction, [Guid.NewGuid()]);
+            var action = new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chapter };
+            await database.SetAnalyzerActionAsync(retainedSeasonId, action);
+            await database.SetAnalyzerActionAsync(staleSeasonId, action);
 
             await database.CleanSeasonStateAsync(retainedSeasonIds);
 
             await using var db = new IntroSkipperDbContext(dbPath);
-            var retainedState = await db.SeasonStates
-                .AsNoTracking()
-                .SingleAsync(s => s.SeasonId == retainedSeasonId);
-            Assert.Equal([retainedEpisodeId], retainedState.EpisodeIds);
+            Assert.True(await db.SeasonStates.AnyAsync(s => s.SeasonId == retainedSeasonId));
             Assert.False(await db.SeasonStates.AnyAsync(s => s.SeasonId == staleSeasonId));
         }
         finally
@@ -761,12 +821,11 @@ public sealed class TestDatabaseFacades
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(episodeWithSegmentId, AnalysisMode.Introduction, [new Segment(episodeWithSegmentId, new TimeRange(0, 30))], SegmentSource.Chapter);
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeWithSegmentId], "snapshot-config");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeWithSegmentId], "snapshot-config");
 
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
 
-            Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
-            Assert.Contains(episodeWithSegmentId, analyzedIds!);
+            Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(episodeWithSegmentId, AnalysisMode.Introduction)]);
             Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
             Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
         }
@@ -777,12 +836,11 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task ResetSeasonForReanalysisAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public async Task ResetItemsForReanalysisAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
     {
         const int LargeEpisodeCount = 33_000;
 
         var dbPath = CreateTempDbPath();
-        var seasonId = Guid.NewGuid();
         var automaticEpisodeId = Guid.NewGuid();
         var userProvidedEpisodeId = Guid.NewGuid();
         var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 2)
@@ -796,17 +854,14 @@ public sealed class TestDatabaseFacades
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(automaticEpisodeId, AnalysisMode.Introduction, [new Segment(automaticEpisodeId, new TimeRange(0, 30))], SegmentSource.Chapter);
             await database.AddUserSegmentAsync(userProvidedEpisodeId, AnalysisMode.Introduction, Ticks(0), Ticks(30));
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds);
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds, "hash");
 
-            await database.ResetSeasonForReanalysisAsync(seasonId, episodeIds, [AnalysisMode.Introduction]);
+            await database.ResetItemsForReanalysisAsync(episodeIds, [AnalysisMode.Introduction]);
 
             Assert.Empty(await database.GetSegmentsAsync(automaticEpisodeId));
             Assert.Single(await database.GetSegmentsAsync(userProvidedEpisodeId));
             await using var db = new IntroSkipperDbContext(dbPath);
-            var seasonState = await db.SeasonStates
-                .AsNoTracking()
-                .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
-            Assert.Empty(seasonState.EpisodeIds);
+            Assert.False(await db.AnalyzedItems.AnyAsync());
         }
         finally
         {
@@ -870,13 +925,12 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task RebuildDatabaseAsync_PreservesValidSegmentsSeasonStatesAndImportMarker()
+    public async Task RebuildDatabaseAsync_PreservesValidSegmentsSeasonStatesAnalysisRecordsAndImportMarker()
     {
         var dbPath = CreateTempDbPath();
         var automaticItemId = Guid.NewGuid();
         var userProvidedItemId = Guid.NewGuid();
         var tombstonedItemId = Guid.NewGuid();
-        var invalidItemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         try
@@ -885,7 +939,7 @@ public sealed class TestDatabaseFacades
             await database.ReplaceAutoSegmentsAsync(automaticItemId, AnalysisMode.Introduction, [new Segment(automaticItemId, new TimeRange(5, 30))], SegmentSource.Chromaprint, "cfg-auto");
             await database.ReplaceAutoSegmentsAsync(automaticItemId, AnalysisMode.Commercial, [new Segment(automaticItemId, new TimeRange(100, 110))], SegmentSource.Chapter);
             await database.AddUserSegmentAsync(userProvidedItemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds, "cfg-season");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds, "cfg-season");
             await database.SetAnalyzerActionAsync(
                 seasonId,
                 new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Credits] = AnalyzerAction.None });
@@ -895,26 +949,6 @@ public sealed class TestDatabaseFacades
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(tombstonedItemId));
             await database.DeleteSegmentAsync(tombstonedItemId, tombstoned.Id);
 
-            // An invalid segment (EndTicks <= StartTicks) is seeded raw — the facade
-            // write paths never produce one — and must be dropped by the rebuild's
-            // backup filter.
-            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    """
-                    INSERT INTO "Segments" ("Id", "ItemId", "Type", "StartTicks", "EndTicks", "Source", "State", "ConfigHash", "CreatedAt", "UpdatedAt")
-                    VALUES ($id, $itemId, $type, $start, $end, 1, 0, '', '2026-01-01 00:00:00', '2026-01-01 00:00:00')
-                    """;
-                command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString().ToUpperInvariant());
-                command.Parameters.AddWithValue("$itemId", invalidItemId.ToString().ToUpperInvariant());
-                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$start", Ticks(10));
-                command.Parameters.AddWithValue("$end", 0L);
-                await command.ExecuteNonQueryAsync();
-            }
-
             await database.RebuildDatabaseAsync();
 
             await using var db = new IntroSkipperDbContext(dbPath);
@@ -922,7 +956,6 @@ public sealed class TestDatabaseFacades
 
             var segments = await db.Segments.AsNoTracking().ToListAsync();
             Assert.Equal(4, segments.Count);
-            Assert.DoesNotContain(segments, s => s.ItemId == invalidItemId);
             var automatic = Assert.Single(segments, s => s.ItemId == automaticItemId && s.Type == AnalysisMode.Introduction);
             Assert.Equal("cfg-auto", automatic.ConfigHash);
             Assert.NotEqual(SegmentSource.User, automatic.Source);
@@ -932,13 +965,12 @@ public sealed class TestDatabaseFacades
             Assert.Single(segments, s => s.Type == AnalysisMode.Commercial);
             Assert.Single(segments, s => s.ItemId == tombstonedItemId && s.State == SegmentState.Suppressed);
 
-            var seasonStates = await db.SeasonStates.AsNoTracking().Where(s => s.SeasonId == seasonId).ToListAsync();
-            Assert.Equal(2, seasonStates.Count);
-            var introState = Assert.Single(seasonStates, s => s.Type == AnalysisMode.Introduction);
-            Assert.Equal(episodeIds, introState.EpisodeIds);
-            Assert.Equal("cfg-season", introState.ConfigHash);
-            var creditsState = Assert.Single(seasonStates, s => s.Type == AnalysisMode.Credits);
+            var creditsState = Assert.Single(await db.SeasonStates.AsNoTracking().Where(s => s.SeasonId == seasonId).ToListAsync());
+            Assert.Equal(AnalysisMode.Credits, creditsState.Type);
             Assert.Equal(AnalyzerAction.None, creditsState.Action);
+            var analyzed = await db.AnalyzedItems.AsNoTracking().ToListAsync();
+            Assert.Equal(episodeIds.OrderBy(id => id), analyzed.Select(a => a.ItemId).OrderBy(id => id));
+            Assert.All(analyzed, a => Assert.Equal("cfg-season", a.ConfigHash));
 
             // The import marker survives the rebuild, so the next initialization never
             // re-runs the legacy import on top of the restored rows.
@@ -996,15 +1028,15 @@ public sealed class TestDatabaseFacades
             await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
 
             // Explicitly requested clean rebuild: the unreadable data is gone and the
-            // schema is recreated at the current migration level. The rebuild synthesizes
-            // an import marker so the legacy import never runs on top of a rebuilt file.
+            // schema is recreated at the current migration level. No import marker is
+            // synthesized: with the rebuilt file empty, the legacy database may be the
+            // only copy of the user's data, so the next start must import it.
             await using (var db = new IntroSkipperDbContext(dbPath))
             {
                 Assert.Empty(await db.Database.GetPendingMigrationsAsync());
                 Assert.Empty(await db.Segments.AsNoTracking().ToListAsync());
                 Assert.Empty(await db.SeasonStates.AsNoTracking().ToListAsync());
-                var marker = Assert.Single(await db.ImportHistory.AsNoTracking().ToListAsync());
-                Assert.Equal("rebuild", marker.Notes);
+                Assert.Empty(await db.ImportHistory.AsNoTracking().ToListAsync());
             }
 
             // The facade stays operational over the recreated database.

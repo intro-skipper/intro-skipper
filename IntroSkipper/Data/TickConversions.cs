@@ -23,8 +23,10 @@ internal static class TickConversions
             return false;
         }
 
+        // long.MaxValue widens to exactly 2^63, which is NOT representable as a long:
+        // compare with >= so the boundary value is rejected instead of saturating.
         var scaled = Math.Round(seconds * TimeSpan.TicksPerSecond);
-        if (scaled > long.MaxValue)
+        if (scaled >= (double)long.MaxValue)
         {
             return false;
         }

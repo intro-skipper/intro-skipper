@@ -404,7 +404,7 @@ public sealed class TestSeasonReanalysisReset
 
 
     [Fact]
-    public async Task ResetSeasonForReanalysisAsync_DeletesAutomaticSegments_PreservesUserAndOtherModes()
+    public async Task ResetItemsForReanalysisAsync_DeletesAutomaticSegments_PreservesUserAndOtherModes()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
@@ -413,6 +413,7 @@ public sealed class TestSeasonReanalysisReset
         var seasonId = Guid.NewGuid();
         var autoEpisode = Guid.NewGuid();
         var userEpisode = Guid.NewGuid();
+        var mixedEpisode = Guid.NewGuid();
 
         try
         {
@@ -427,6 +428,22 @@ public sealed class TestSeasonReanalysisReset
                     TickConversions.FromSeconds(0),
                     TickConversions.FromSeconds(30),
                     SegmentSource.Chapter));
+
+                // An episode holding both an automatic and a user intro is UserProvided for
+                // the mode: the analyzers skip it, so the reset must keep its automatic row
+                // (nothing would regenerate it).
+                db.Segments.Add(new DbSegment(
+                    mixedEpisode,
+                    AnalysisMode.Introduction,
+                    TickConversions.FromSeconds(0),
+                    TickConversions.FromSeconds(60),
+                    SegmentSource.Chromaprint));
+                db.Segments.Add(new DbSegment(
+                    mixedEpisode,
+                    AnalysisMode.Introduction,
+                    TickConversions.FromSeconds(300),
+                    TickConversions.FromSeconds(330),
+                    SegmentSource.User));
 
                 // Tombstoned (user-deleted) automatic intro of the reset mode — must survive
                 // the reset so the deleted range stays gone after re-analysis.
@@ -456,19 +473,13 @@ public sealed class TestSeasonReanalysisReset
                     TickConversions.FromSeconds(60),
                     SegmentSource.Chapter));
 
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Chromaprint,
-                    new[] { autoEpisode, userEpisode },
-                    "hash"));
-
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Recap,
-                    AnalyzerAction.Default,
-                    new[] { autoEpisode },
-                    "recap-hash"));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Chromaprint));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Recap, AnalyzerAction.Default));
+                db.AnalyzedItems.AddRange(
+                    new DbAnalyzedItem(autoEpisode, AnalysisMode.Introduction, "hash"),
+                    new DbAnalyzedItem(userEpisode, AnalysisMode.Introduction, "hash"),
+                    new DbAnalyzedItem(mixedEpisode, AnalysisMode.Introduction, "hash"),
+                    new DbAnalyzedItem(autoEpisode, AnalysisMode.Recap, "recap-hash"));
 
                 await db.SaveChangesAsync();
             }
@@ -485,9 +496,8 @@ public sealed class TestSeasonReanalysisReset
                 await cacheDb.SaveChangesAsync();
             }
 
-            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
-                seasonId,
-                new[] { autoEpisode, userEpisode },
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetItemsForReanalysisAsync(
+                new[] { autoEpisode, userEpisode, mixedEpisode },
                 new[] { AnalysisMode.Introduction });
 
             using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
@@ -501,16 +511,17 @@ public sealed class TestSeasonReanalysisReset
                 Assert.True(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Suppressed));
                 Assert.True(db.Segments.Any(s => s.ItemId == userEpisode && s.Type == AnalysisMode.Introduction && s.Source == SegmentSource.User));
                 Assert.True(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Recap));
+                Assert.Equal(2, db.Segments.Count(s => s.ItemId == mixedEpisode && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active));
 
+                // The intro records are gone (every item is NotAnalyzed again); the season's
+                // action and the other mode's record survive.
+                Assert.False(db.AnalyzedItems.Any(a => a.Type == AnalysisMode.Introduction));
                 var state = await db.SeasonStates.SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
-                Assert.Empty(state.EpisodeIds);
                 Assert.Equal(AnalyzerAction.Chromaprint, state.Action);
-                Assert.Equal("hash", state.ConfigHash);
 
-                var recapState = await db.SeasonStates.SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Recap);
-                Assert.Equal(new[] { autoEpisode }, recapState.EpisodeIds);
-                Assert.Equal(AnalyzerAction.Default, recapState.Action);
-                Assert.Equal("recap-hash", recapState.ConfigHash);
+                var recap = await db.AnalyzedItems.SingleAsync(a => a.Type == AnalysisMode.Recap);
+                Assert.Equal(autoEpisode, recap.ItemId);
+                Assert.Equal("recap-hash", recap.ConfigHash);
             }
         }
         finally
@@ -520,13 +531,12 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
-    public async Task ResetSeasonForReanalysisAsync_DeletesCreditsDerivedAutomaticPreview()
+    public async Task ResetItemsForReanalysisAsync_DeletesCreditsDerivedAutomaticPreview()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
-        var seasonId = Guid.NewGuid();
         var autoEpisode = Guid.NewGuid();
         var userPreviewEpisode = Guid.NewGuid();
 
@@ -555,26 +565,18 @@ public sealed class TestSeasonReanalysisReset
                     TickConversions.FromSeconds(1320),
                     SegmentSource.User));
 
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Credits,
-                    AnalyzerAction.Default,
-                    new[] { autoEpisode, userPreviewEpisode },
-                    "credits-hash"));
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Preview,
-                    AnalyzerAction.Default,
-                    new[] { autoEpisode, userPreviewEpisode },
-                    "preview-hash"));
+                db.AnalyzedItems.AddRange(
+                    new DbAnalyzedItem(autoEpisode, AnalysisMode.Credits, "credits-hash"),
+                    new DbAnalyzedItem(userPreviewEpisode, AnalysisMode.Credits, "credits-hash"),
+                    new DbAnalyzedItem(autoEpisode, AnalysisMode.Preview, "preview-hash"),
+                    new DbAnalyzedItem(userPreviewEpisode, AnalysisMode.Preview, "preview-hash"));
 
                 await db.SaveChangesAsync();
             }
 
             var resetModes = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
 
-            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
-                seasonId,
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetItemsForReanalysisAsync(
                 new[] { autoEpisode, userPreviewEpisode },
                 resetModes);
 
@@ -583,11 +585,7 @@ public sealed class TestSeasonReanalysisReset
                 Assert.False(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Credits));
                 Assert.False(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Preview));
                 Assert.True(db.Segments.Any(s => s.ItemId == userPreviewEpisode && s.Type == AnalysisMode.Preview && s.Source == SegmentSource.User));
-
-                var creditsState = await db.SeasonStates.SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Credits);
-                var previewState = await db.SeasonStates.SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Preview);
-                Assert.Empty(creditsState.EpisodeIds);
-                Assert.Empty(previewState.EpisodeIds);
+                Assert.False(db.AnalyzedItems.Any());
             }
         }
         finally
@@ -597,7 +595,7 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
-    public async Task SeasonState_UpsertsActionsEpisodeIdsAndSettledReanalysisWithoutClobberingFields()
+    public async Task SeasonStateAndAnalysisRecords_UpsertWithoutClobberingEachOther()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
@@ -617,7 +615,7 @@ public sealed class TestSeasonReanalysisReset
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeA, episodeB], "hash-a");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeA, episodeB], "hash-a");
             await database.SetAnalyzerActionAsync(
                 seasonId,
                 new Dictionary<AnalysisMode, AnalyzerAction>
@@ -626,8 +624,8 @@ public sealed class TestSeasonReanalysisReset
                 });
             await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds);
             await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
-            await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, episodeA);
-            await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, Guid.NewGuid());
+            await database.ClearItemAnalysisAsync(episodeA, AnalysisMode.Introduction);
+            await database.ClearItemAnalysisAsync(Guid.NewGuid(), AnalysisMode.Introduction);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -635,9 +633,11 @@ public sealed class TestSeasonReanalysisReset
                 Assert.Equal(seasonId, state.SeasonId);
                 Assert.Equal(AnalysisMode.Introduction, state.Type);
                 Assert.Equal(AnalyzerAction.Chromaprint, state.Action);
-                Assert.Equal(new[] { episodeB }, state.EpisodeIds);
-                Assert.Equal("hash-a", state.ConfigHash);
                 Assert.Equal(lowerEpisodeIds, state.SettledReanalysisEpisodeIds);
+
+                var analyzed = await db.AnalyzedItems.SingleAsync();
+                Assert.Equal(episodeB, analyzed.ItemId);
+                Assert.Equal("hash-a", analyzed.ConfigHash);
             }
         }
         finally
@@ -670,12 +670,8 @@ public sealed class TestSeasonReanalysisReset
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 await db.ApplyMigrationsAsync();
-                db.SeasonStates.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Default,
-                    [episodeId],
-                    withoutChromaprintHash));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
+                db.AnalyzedItems.Add(new DbAnalyzedItem(episodeId, AnalysisMode.Introduction, withoutChromaprintHash));
                 await db.SaveChangesAsync();
             }
 

@@ -1,4 +1,3 @@
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -21,30 +20,6 @@ public sealed partial class MediaSegmentRefreshService(
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
-    /// <inheritdoc />
-    public async Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(item);
-
-        await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(item);
-
-        // The mirror gates its own writes; this early return only keeps the update log
-        // below from claiming a sync that no-oped.
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return;
-        }
-
-        await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
-        LogUpdatedMediaSegments(logger, item.Id);
-    }
-
     /// <inheritdoc />
     public async Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
@@ -72,14 +47,13 @@ public sealed partial class MediaSegmentRefreshService(
 
         await Parallel.ForEachAsync(ids, options, async (itemId, ct) =>
         {
-            var item = libraryManager.GetItemById(itemId);
-            if (item is null)
+            if (libraryManager.GetItemById(itemId) is null)
             {
                 LogItemNotFoundForMediaSegmentOperation(logger, itemId);
                 return;
             }
 
-            await RefreshCoreAsync(item, ct).ConfigureAwait(false);
+            await RefreshCoreAsync(itemId, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
@@ -93,17 +67,18 @@ public sealed partial class MediaSegmentRefreshService(
         await mirror.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
     }
 
-    // The lenient path: the strict refresh with non-critical failures logged and
-    // swallowed.
-    private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
+    // The lenient path: editor mutations converge the mirror through MediaSegmentMirror
+    // directly and see its failures; here a non-critical failure is logged and swallowed.
+    private async Task RefreshCoreAsync(Guid itemId, CancellationToken cancellationToken)
     {
         try
         {
-            await RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
+            await mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+            LogUpdatedMediaSegments(logger, itemId);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            LogMediaSegmentRefreshCanceled(logger, item.Id);
+            LogMediaSegmentRefreshCanceled(logger, itemId);
             throw;
         }
         catch (Exception ex)
@@ -119,7 +94,7 @@ public sealed partial class MediaSegmentRefreshService(
                 throw;
             }
 
-            LogErrorRefreshingMediaSegments(logger, ex, item.Id);
+            LogErrorRefreshingMediaSegments(logger, ex, itemId);
         }
     }
 
