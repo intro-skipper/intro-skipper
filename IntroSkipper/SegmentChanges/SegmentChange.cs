@@ -232,7 +232,7 @@ internal sealed partial class SegmentChange(
             using var db = await contextFactory.CreateDbContextAsync().ConfigureAwait(false);
             var itemIds = await db.Segments.Select(value => value.ItemId)
                 .Union(db.DisabledItems.Select(value => value.ItemId))
-                .Union(db.AnalyzedStates.Select(value => value.ItemId))
+                .Union(db.AnalyzedItems.Select(value => value.ItemId))
                 .Union(db.ProjectionHeads.Select(value => value.ItemId))
                 .Union(db.ProjectionExternalOperations.Select(value => value.ItemId))
                 .Distinct()
@@ -491,14 +491,7 @@ internal sealed partial class SegmentChange(
                     var exact = rows.FirstOrDefault(row => row.Type == value.Mode && row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks);
                     if (exact is { Source: SegmentSource.User, State: SegmentState.Active })
                     {
-                        if (await HasAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
-                        {
-                            return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.");
-                        }
-
-                        affected.Add(ToValue(exact));
-                        await UpsertAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
-                        break;
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.");
                     }
 
                     exact ??= new DbSegment(value.ItemId, value.Mode, value.StartTicks, value.EndTicks, SegmentSource.User);
@@ -510,7 +503,7 @@ internal sealed partial class SegmentChange(
                     exact.Source = SegmentSource.User;
                     exact.State = SegmentState.Active;
                     affected.Add(ToValue(exact));
-                    await UpsertAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
+                    await ClearAnalyzedItemAsync(db, value.ItemId, value.Mode, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
@@ -520,14 +513,7 @@ internal sealed partial class SegmentChange(
                     var active = rows.Where(row => row.Type == value.Mode && row.State == SegmentState.Active).ToList();
                     if (active.Count == requested.Count && active.All(row => row.Source == SegmentSource.User && requested.Contains(new SegmentRange(row.StartTicks, row.EndTicks))))
                     {
-                        if (await HasAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
-                        {
-                            return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
-                        }
-
-                        affected.AddRange(active.Select(ToValue));
-                        await UpsertAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
-                        break;
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
                     }
 
                     db.Segments.RemoveRange(active);
@@ -545,14 +531,7 @@ internal sealed partial class SegmentChange(
                         affected.Add(ToValue(row));
                     }
 
-                    if (requested.Count > 0)
-                    {
-                        await UpsertAnalyzedStateAsync(db, value.ItemId, value.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await DeriveAnalyzedStateAsync(db, rows, value.ItemId, value.Mode, cancellationToken).ConfigureAwait(false);
-                    }
+                    await DeriveAnalyzedItemAsync(db, rows, value.ItemId, value.Mode, cancellationToken).ConfigureAwait(false);
 
                     break;
                 }
@@ -567,14 +546,7 @@ internal sealed partial class SegmentChange(
 
                     if (row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks && row.Source == SegmentSource.User)
                     {
-                        if (await HasAnalyzedStateAsync(db, value.ItemId, row.Type, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false))
-                        {
-                            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.");
-                        }
-
-                        affected.Add(ToValue(row));
-                        await UpsertAnalyzedStateAsync(db, value.ItemId, row.Type, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
-                        break;
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.");
                     }
 
                     var occupant = rows.FirstOrDefault(item => item.Id != row.Id && item.Type == row.Type && item.StartTicks == value.StartTicks && item.EndTicks == value.EndTicks);
@@ -597,7 +569,7 @@ internal sealed partial class SegmentChange(
                         affected.Add(ToValue(row));
                     }
 
-                    await UpsertAnalyzedStateAsync(db, value.ItemId, row.Type, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
+                    await ClearAnalyzedItemAsync(db, value.ItemId, row.Type, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
@@ -619,7 +591,7 @@ internal sealed partial class SegmentChange(
                     }
 
                     affected.Add(ToValue(row));
-                    await DeriveAnalyzedStateAsync(db, rows, value.ItemId, row.Type, cancellationToken).ConfigureAwait(false);
+                    await DeriveAnalyzedItemAsync(db, rows, value.ItemId, row.Type, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
@@ -633,7 +605,7 @@ internal sealed partial class SegmentChange(
 
                     row.State = SegmentState.Active;
                     affected.Add(ToValue(row));
-                    await DeriveAnalyzedStateAsync(db, rows, value.ItemId, row.Type, cancellationToken).ConfigureAwait(false);
+                    await DeriveAnalyzedItemAsync(db, rows, value.ItemId, row.Type, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
@@ -656,7 +628,7 @@ internal sealed partial class SegmentChange(
                     }
 
                     externalOperations.Add(new ProjectedExternalOperation(value.ExternalSegmentId, value.ExpectedType, ProjectionExternalOperationKind.Delete));
-                    await DeriveAnalyzedStateAsync(db, rows, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
+                    await DeriveAnalyzedItemAsync(db, rows, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
                     break;
                 }
 
@@ -676,7 +648,7 @@ internal sealed partial class SegmentChange(
                         }
 
                         affected.Add(ToValue(row));
-                        await UpsertAnalyzedStateAsync(db, value.ItemId, timestamp.Mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
+                        await ClearAnalyzedItemAsync(db, value.ItemId, timestamp.Mode, cancellationToken).ConfigureAwait(false);
                     }
 
                     break;
@@ -721,7 +693,7 @@ internal sealed partial class SegmentChange(
 
     private static SegmentValue ToValue(DbSegment row) => new(row.Id, row.ItemId, row.Type, row.StartTicks, row.EndTicks, row.Source, row.State);
 
-    private static async Task DeriveAnalyzedStateAsync(
+    private static async Task DeriveAnalyzedItemAsync(
         IntroSkipperDbContext db,
         IReadOnlyList<DbSegment> itemRows,
         Guid itemId,
@@ -733,63 +705,53 @@ internal sealed partial class SegmentChange(
             .ToList();
         if (remaining.Any(row => row.Source == SegmentSource.User))
         {
-            await UpsertAnalyzedStateAsync(db, itemId, mode, EpisodeState.UserProvided, string.Empty, cancellationToken).ConfigureAwait(false);
+            await ClearAnalyzedItemAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         if (remaining.Count > 0)
         {
             var hashes = remaining.Select(row => row.ConfigHash).Distinct(StringComparer.Ordinal).ToList();
-            await UpsertAnalyzedStateAsync(
-                db,
-                itemId,
-                mode,
-                EpisodeState.Analyzed,
-                hashes.Count == 1 ? hashes[0] : string.Empty,
-                cancellationToken).ConfigureAwait(false);
+            await UpsertAnalyzedItemAsync(db, itemId, mode, hashes.Count == 1 ? hashes[0] : string.Empty, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        var existing = await db.AnalyzedStates.FirstOrDefaultAsync(
-            value => value.ItemId == itemId && value.Type == mode,
-            cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
-        {
-            db.AnalyzedStates.Remove(existing);
-        }
+        await ClearAnalyzedItemAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task UpsertAnalyzedStateAsync(
+    private static async Task UpsertAnalyzedItemAsync(
         IntroSkipperDbContext db,
         Guid itemId,
         AnalysisMode mode,
-        EpisodeState state,
         string configHash,
         CancellationToken cancellationToken)
     {
-        var existing = await db.AnalyzedStates.FirstOrDefaultAsync(
+        var existing = await db.AnalyzedItems.FirstOrDefaultAsync(
             value => value.ItemId == itemId && value.Type == mode,
             cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
-            db.AnalyzedStates.Add(new DbAnalyzedState(itemId, mode, state, configHash));
+            db.AnalyzedItems.Add(new DbAnalyzedItem(itemId, mode, configHash));
             return;
         }
 
-        db.Entry(existing).Property(value => value.State).CurrentValue = state;
         db.Entry(existing).Property(value => value.ConfigHash).CurrentValue = configHash;
     }
 
-    private static async Task<bool> HasAnalyzedStateAsync(
+    private static async Task ClearAnalyzedItemAsync(
         IntroSkipperDbContext db,
         Guid itemId,
         AnalysisMode mode,
-        EpisodeState state,
-        string configHash,
         CancellationToken cancellationToken)
-        => await db.AnalyzedStates.AnyAsync(
-            value => value.ItemId == itemId && value.Type == mode && value.State == state && value.ConfigHash == configHash,
+    {
+        var existing = await db.AnalyzedItems.FirstOrDefaultAsync(
+            value => value.ItemId == itemId && value.Type == mode,
             cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            db.AnalyzedItems.Remove(existing);
+        }
+    }
 
     private static string Sanitize(Exception exception)
     {

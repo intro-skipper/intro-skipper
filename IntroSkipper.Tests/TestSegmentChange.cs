@@ -165,26 +165,26 @@ public sealed class TestSegmentChange : IDisposable
         var rows = await db.Segments.OrderBy(row => row.Type).ToListAsync();
         Assert.Equal(2, rows.Count);
         Assert.All(rows, row => Assert.Equal(SegmentSource.User, row.Source));
-        Assert.Equal(2, await db.AnalyzedStates.CountAsync(state => state.State == EpisodeState.UserProvided));
+        Assert.Empty(await db.AnalyzedItems.ToListAsync());
     }
 
     [Fact]
-    public async Task AddPromotion_UpsertsUserProvidedAnalyzedState()
+    public async Task AddPromotion_ClearsPriorAnalysisRecord()
     {
         var itemId = Guid.NewGuid();
         var automatic = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter, "automatic-hash");
         await SeedAsync(automatic);
-        await SeedAnalyzedStateAsync(new DbAnalyzedState(itemId, AnalysisMode.Introduction, EpisodeState.Analyzed, "automatic-hash"));
+        await SeedAnalyzedItemAsync(new DbAnalyzedItem(itemId, AnalysisMode.Introduction, "automatic-hash"));
 
         var accepted = Assert.IsType<Accepted>(await CreateService(new RecordingProjectionAdapter()).ApplyAsync(
             new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
 
         Assert.Equal(automatic.Id, Assert.Single(accepted.AffectedValues).Id);
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Introduction, EpisodeState.UserProvided, string.Empty);
+        await AssertNoAnalyzedItemAsync(itemId, AnalysisMode.Introduction);
     }
 
     [Fact]
-    public async Task ReplaceUserSegments_UpsertsUserProvidedAnalyzedState()
+    public async Task ReplaceUserSegments_ClearsPriorAnalysisRecord()
     {
         var itemId = Guid.NewGuid();
         await SeedAsync(new DbSegment(itemId, AnalysisMode.Credits, 1, 2, SegmentSource.BlackFrame, "old-hash"));
@@ -194,7 +194,7 @@ public sealed class TestSegmentChange : IDisposable
             AnalysisMode.Credits,
             [new SegmentRange(30, 40), new SegmentRange(50, 60)]));
 
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Credits, EpisodeState.UserProvided, string.Empty);
+        await AssertNoAnalyzedItemAsync(itemId, AnalysisMode.Credits);
     }
 
     [Fact]
@@ -202,18 +202,18 @@ public sealed class TestSegmentChange : IDisposable
     {
         var itemId = Guid.NewGuid();
         await SeedAsync(new DbSegment(itemId, AnalysisMode.Commercial, 10, 20, SegmentSource.User));
-        await SeedAnalyzedStateAsync(new DbAnalyzedState(itemId, AnalysisMode.Commercial, EpisodeState.UserProvided));
+        await SeedAnalyzedItemAsync(new DbAnalyzedItem(itemId, AnalysisMode.Commercial, "old"));
 
         Assert.IsType<Accepted>(await CreateService(new RecordingProjectionAdapter()).ApplyAsync(
             new ReplaceUserSegmentsForModeIntent(itemId, AnalysisMode.Commercial, [])));
 
         await using var db = CreateContext();
-        Assert.Empty(await db.AnalyzedStates.ToListAsync());
+        Assert.Empty(await db.AnalyzedItems.ToListAsync());
         Assert.Empty(await db.Segments.Where(row => row.State == SegmentState.Active).ToListAsync());
     }
 
     [Fact]
-    public async Task UpdateCollision_UpsertsUserProvidedAnalyzedState()
+    public async Task UpdateCollision_ClearsPriorAnalysisRecord()
     {
         var itemId = Guid.NewGuid();
         var moved = new DbSegment(itemId, AnalysisMode.Preview, 10, 20, SegmentSource.Chapter, "one");
@@ -224,7 +224,7 @@ public sealed class TestSegmentChange : IDisposable
             new UpdateSegmentIntent(itemId, moved.Id, occupant.StartTicks, occupant.EndTicks)));
 
         Assert.Equal(occupant.Id, Assert.Single(accepted.AffectedValues).Id);
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Preview, EpisodeState.UserProvided, string.Empty);
+        await AssertNoAnalyzedItemAsync(itemId, AnalysisMode.Preview);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public sealed class TestSegmentChange : IDisposable
         var service = CreateService(new RecordingProjectionAdapter());
 
         await service.ApplyAsync(new DeleteSegmentIntent(userItemId, deletedUser.Id));
-        await AssertAnalyzedStateAsync(userItemId, AnalysisMode.Commercial, EpisodeState.UserProvided, string.Empty);
+        await AssertNoAnalyzedItemAsync(userItemId, AnalysisMode.Commercial);
 
         var autoItemId = Guid.NewGuid();
         var deletedAuto = new DbSegment(autoItemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter, "deleted");
@@ -246,7 +246,7 @@ public sealed class TestSegmentChange : IDisposable
             new DbSegment(autoItemId, AnalysisMode.Introduction, 50, 60, SegmentSource.BlackFrame, "hash-b"));
 
         await service.ApplyAsync(new DeleteSegmentIntent(autoItemId, deletedAuto.Id));
-        await AssertAnalyzedStateAsync(autoItemId, AnalysisMode.Introduction, EpisodeState.Analyzed, string.Empty);
+        await AssertAnalyzedItemAsync(autoItemId, AnalysisMode.Introduction, string.Empty);
     }
 
     [Fact]
@@ -258,7 +258,7 @@ public sealed class TestSegmentChange : IDisposable
 
         await CreateService(new RecordingProjectionAdapter()).ApplyAsync(new DeleteSegmentIntent(itemId, deleted.Id));
 
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Recap, EpisodeState.Analyzed, "remaining");
+        await AssertAnalyzedItemAsync(itemId, AnalysisMode.Recap, "remaining");
     }
 
     [Fact]
@@ -273,11 +273,11 @@ public sealed class TestSegmentChange : IDisposable
 
         await CreateService(new RecordingProjectionAdapter()).ApplyAsync(new RestoreSegmentIntent(itemId, tombstone.Id));
 
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Credits, EpisodeState.Analyzed, "restore-hash");
+        await AssertAnalyzedItemAsync(itemId, AnalysisMode.Credits, "restore-hash");
     }
 
     [Fact]
-    public async Task RestoreAutomatic_WithActiveUserSegment_KeepsUserProvidedState()
+    public async Task RestoreAutomatic_WithActiveUserSegment_ClearsAnalysisRecord()
     {
         var itemId = Guid.NewGuid();
         var automatic = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter, "restored-hash")
@@ -291,7 +291,7 @@ public sealed class TestSegmentChange : IDisposable
         Assert.IsType<Accepted>(await CreateService(new RecordingProjectionAdapter()).ApplyAsync(
             new RestoreSegmentIntent(itemId, automatic.Id)));
 
-        await AssertAnalyzedStateAsync(itemId, AnalysisMode.Introduction, EpisodeState.UserProvided, string.Empty);
+        await AssertNoAnalyzedItemAsync(itemId, AnalysisMode.Introduction);
     }
 
     [Fact]
@@ -310,7 +310,7 @@ public sealed class TestSegmentChange : IDisposable
 
         await using var verify = CreateContext();
         Assert.Empty(await verify.Segments.ToListAsync());
-        Assert.Empty(await verify.AnalyzedStates.ToListAsync());
+        Assert.Empty(await verify.AnalyzedItems.ToListAsync());
         Assert.Empty(await verify.ProjectionPlans.ToListAsync());
         Assert.Empty(await verify.ProjectionHeads.ToListAsync());
     }
@@ -513,20 +513,25 @@ public sealed class TestSegmentChange : IDisposable
         await db.SaveChangesAsync();
     }
 
-    private async Task SeedAnalyzedStateAsync(params DbAnalyzedState[] states)
+    private async Task SeedAnalyzedItemAsync(params DbAnalyzedItem[] items)
     {
         await using var db = CreateContext();
         await db.ApplyMigrationsAsync();
-        db.AnalyzedStates.AddRange(states);
+        db.AnalyzedItems.AddRange(items);
         await db.SaveChangesAsync();
     }
 
-    private async Task AssertAnalyzedStateAsync(Guid itemId, AnalysisMode mode, EpisodeState expectedState, string expectedHash)
+    private async Task AssertAnalyzedItemAsync(Guid itemId, AnalysisMode mode, string expectedHash)
     {
         await using var db = CreateContext();
-        var state = await db.AnalyzedStates.SingleAsync(value => value.ItemId == itemId && value.Type == mode);
-        Assert.Equal(expectedState, state.State);
-        Assert.Equal(expectedHash, state.ConfigHash);
+        var item = await db.AnalyzedItems.SingleAsync(value => value.ItemId == itemId && value.Type == mode);
+        Assert.Equal(expectedHash, item.ConfigHash);
+    }
+
+    private async Task AssertNoAnalyzedItemAsync(Guid itemId, AnalysisMode mode)
+    {
+        await using var db = CreateContext();
+        Assert.False(await db.AnalyzedItems.AnyAsync(value => value.ItemId == itemId && value.Type == mode));
     }
 
     private sealed class TestProjectionConfiguration : ISegmentProjectionConfiguration
