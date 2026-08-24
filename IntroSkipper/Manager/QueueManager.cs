@@ -305,8 +305,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        return _libraryManager.GetItemList(episodeQuery, false)
-            .Concat(_libraryManager.GetItemList(movieQuery, false));
+        // Match the unscoped path, which treats a null GetItemList result as an empty library.
+        var episodes = _libraryManager.GetItemList(episodeQuery, false) ?? [];
+        var movies = _libraryManager.GetItemList(movieQuery, false) ?? [];
+        return episodes.Concat(movies);
     }
 
     private async Task<bool> QueueEpisode(
