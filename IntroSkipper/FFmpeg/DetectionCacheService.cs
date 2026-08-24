@@ -144,9 +144,15 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
+            var config = Plugin.Instance?.Configuration ?? new();
+            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, mode);
+
+            // Pre-stream-selection rows are accepted optimistically, like stream-scoped hashes:
+            // whether the effective stream still matches is only decided at read time, and a
+            // mismatch there just refingerprints the episode.
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal)
                 || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash);
         }
         catch (DbException ex)
