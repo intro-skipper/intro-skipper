@@ -120,6 +120,7 @@ public sealed class TestQueueManager
         var specialsSeasonId = Guid.NewGuid();
         var host = CreateEpisode(Guid.NewGuid(), seriesId, hostSeasonId);
         var special = CreateEpisode(Guid.NewGuid(), seriesId, specialsSeasonId);
+        special.ParentIndexNumber = 0;
         special.AirsBeforeSeasonNumber = 1;
         special.Name = "Special";
 
