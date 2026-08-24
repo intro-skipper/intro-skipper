@@ -414,8 +414,8 @@ public sealed class TestCacheOperations
     [Fact]
     public void AnalysisHash_Credits_ChangesWithDetectNonBlackCredits()
     {
-        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
-        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
+        var baseline = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
 
         // Toggling the non-black fallback changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result.
@@ -425,12 +425,23 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void AnalysisHash_Credits_IgnoresDetectNonBlackCredits_WhenAlternativeAnalyzerOff()
+    public void AnalysisHash_Credits_ChangesWhenLegacyAnalyzerIsSelected()
     {
-        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = true };
-        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
+        var defaultAnalyzer = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false };
+        var legacyAnalyzer = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true };
 
-        // The default BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not
+        Assert.NotEqual(
+            ConfigHasher.Analysis(defaultAnalyzer, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(legacyAnalyzer, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    [Fact]
+    public void AnalysisHash_Credits_IgnoresDetectNonBlackCredits_WhenLegacyAnalyzerIsActive()
+    {
+        var baseline = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
+
+        // The legacy BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not
         // invalidate stored credits analysis on that path.
         Assert.Equal(
             ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),

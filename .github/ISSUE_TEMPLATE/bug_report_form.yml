@@ -12,10 +12,51 @@ body:
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
       options:
-        - label: I use Jellyfin 12.0.0 (or newer) and my permissions are correct
+        - label: I use Jellyfin 12.0.0 (or newer) and my filesystem permissions are correct
           required: true
         - label: I installed the Plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]  
+        > Please do not revise the form, but you may omit sections that do not apply.
+
+  - type: input
+    attributes:
+      label: Jellyfin version or container image/tag
+      description: The Jellyfin version or container for Docker
+      placeholder: 10.11.11, jellyfin/jellyfin:10.9.9, etc.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: operating-systems
+    attributes:
+      label: What type of installtion is this?
+      description: Select how you installed Jellyfin
+      options:
+        - label: Docker
+          required: false
+        - label: Installer
+          required: false
+        - label: Portable
+          required: false
+
+  - type: input
+    attributes:
+      label: Operating System
+      description: The operating system of the Jellyfin / Docker host computer
+      placeholder: Debian 11, Windows 11, etc.
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: IMDb ID of that TV Series
+      placeholder: tt0903747
+  
   - type: textarea
     attributes:
       label: Describe the bug
@@ -33,39 +74,10 @@ body:
     validations:
       required: true
 
-  - type: input
-    attributes:
-      label: Jellyfin install method
-      description: How you installed Jellyfin or the tool used to install it
-      placeholder: Docker, Windows installer, etc.
-    validations:
-      required: true
-
-  - type: input
-    attributes:
-      label: Container image/tag or Jellyfin version
-      description: The container for Docker or Jellyfin version for a native install
-      placeholder: jellyfin/jellyfin:10.9.9, jellyfin-intro-skipper:latest, etc.
-    validations:
-      required: true
-
-  - type: input
-    attributes:
-      label: Operating System
-      description: The operating system of the Jellyfin / Docker host computer
-      placeholder: Debian 11, Windows 11, etc.
-    validations:
-      required: true
-
-  - type: input
-    attributes:
-      label: IMDb ID of that TV Series
-      placeholder: tt0903747
-
   - type: textarea
     attributes:
       label: Intro Skipper Support Log
-      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Expand Intro Skipper Support Log (at the bottom of the page) and paste the contents of the textbox here
+      placeholder: Go to Dashboard -> Plugins -> Intro Skipper -> Settings -> Information. Click the Copy to Clipboard button and paste the contents here
       render: shell
     validations:
       required: true
