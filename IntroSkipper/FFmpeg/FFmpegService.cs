@@ -788,7 +788,6 @@ public sealed partial class FFmpegService(
                 return null;
             }
 
-            var fallbackStream = SelectAudioStream(audioStreams, preferMostChannels);
             var defaultStream = SelectAudioStream(audioStreams, preferMostChannels: true);
             var candidates = hasLanguagePreference
                 ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
@@ -806,10 +805,12 @@ public sealed partial class FFmpegService(
                 ? "policy=most-channels"
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
+            // Legacy rows were fingerprinted from FFmpeg's default stream (most channels, then
+            // lowest index), so they are only reusable when that is still the effective stream.
             return new AudioStreamSelection(
                 preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
                 cacheVariant,
-                selectedStream.Index == fallbackStream.Index);
+                selectsDefaultMostStream);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {

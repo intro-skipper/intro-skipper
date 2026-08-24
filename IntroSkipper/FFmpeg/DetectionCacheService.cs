@@ -62,10 +62,14 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
             if (!string.IsNullOrEmpty(entry.ConfigHash)
-                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                && !string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
+                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
             {
-                return false;
+                if (!string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                LogLegacyDetectionCacheReused(_logger, itemId, mode, type);
             }
 
             result = DecompressBrotli<T[]>(entry.Data) ?? [];
@@ -186,6 +190,9 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
     private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Reusing pre-stream-selection {Type} cache entry for {ItemId} in {Mode} mode")]
+    private static partial void LogLegacyDetectionCacheReused(ILogger logger, Guid itemId, AnalysisMode mode, CacheEntryType type);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
     private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
