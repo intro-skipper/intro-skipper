@@ -94,6 +94,7 @@ public sealed class TestQueueManager
         EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", existingQueue);
         plugin.TotalQueued = 1;
         plugin.TotalSeasons = 1;
+        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
 
         var seriesId = Guid.NewGuid();
         var targetSeasonId = Guid.NewGuid();
