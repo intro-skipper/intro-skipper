@@ -79,6 +79,43 @@ public sealed class TestQueueManager
         Assert.Equal(movieId, Assert.Single(plugin.QueuedMediaItems[movieId]).EpisodeId);
     }
 
+    [Fact]
+    public async Task GetMediaItems_WithSeasonIds_DoesNotQueueUnrelatedItems()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+
+        var seriesId = Guid.NewGuid();
+        var targetSeasonId = Guid.NewGuid();
+        var otherSeasonId = Guid.NewGuid();
+        var targetEpisode = CreateEpisode(Guid.NewGuid(), seriesId, targetSeasonId);
+        var otherEpisode = CreateEpisode(Guid.NewGuid(), seriesId, otherSeasonId);
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Unrelated feature",
+            Path = "/media/unrelated.mkv",
+            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
+        };
+
+        var queueManager = new QueueManager(
+            NullLogger<QueueManager>.Instance,
+            QueueLibraryManager.Create([NewFolder("Media")], [targetEpisode, otherEpisode, movie]),
+            providerManager: null!,
+            fileSystem: null!,
+            ffmpegService: null!,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        var queue = await queueManager.GetMediaItems([targetSeasonId]);
+
+        var queuedEpisode = Assert.Single(queue[targetSeasonId]);
+        Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
+        Assert.DoesNotContain(otherSeasonId, queue.Keys);
+        Assert.DoesNotContain(movie.Id, queue.Keys);
+    }
+
     private static Episode CreateEpisode(Guid episodeId, Guid seriesId, Guid seasonId)
     {
         var episode = new Episode
@@ -123,10 +160,28 @@ public sealed class TestQueueManager
             return targetMethod?.Name switch
             {
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
-                nameof(ILibraryManager.GetItemList) => new List<BaseItem>(_items),
+                nameof(ILibraryManager.GetItemList) => GetItems(args),
                 nameof(ILibraryManager.GetItemById) => null,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
+        }
+
+        private List<BaseItem> GetItems(object?[]? args)
+        {
+            var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
+            if (query?.AncestorIds is { Length: > 0 })
+            {
+                return _items
+                    .Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))
+                    .ToList();
+            }
+
+            if (query?.ItemIds is { Length: > 0 })
+            {
+                return _items.Where(item => query.ItemIds.Contains(item.Id)).ToList();
+            }
+
+            return new List<BaseItem>(_items);
         }
     }
 }

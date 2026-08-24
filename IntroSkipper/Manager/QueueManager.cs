@@ -63,7 +63,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds: null, cancellationToken);
+
+    /// <summary>
+    /// Gets media items belonging to the specified seasons or movies.
+    /// </summary>
+    /// <param name="seasonIds">Season IDs and movie IDs to enqueue.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Queued media items.</returns>
+    public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
+        IReadOnlyCollection<Guid> seasonIds,
+        CancellationToken cancellationToken = default)
+        => GetMediaItems(includeExcluded: false, seasonIds, cancellationToken);
 
     // Per-run memo on top of the service's success-only memoization: while ffmpeg is
     // invalid the service re-probes every call, so cache the verdict here to keep an
@@ -81,6 +92,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
+        => await GetMediaItems(includeExcluded, seasonIds: null, cancellationToken).ConfigureAwait(false);
+
+    private async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
+        bool includeExcluded,
+        IReadOnlyCollection<Guid>? seasonIds,
+        CancellationToken cancellationToken)
     {
         _enumerationFailures = 0;
 
@@ -98,7 +115,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         LoadAnalysisSettings(plugin);
 
-        // For all selected libraries, enqueue all contained episodes.
+        if (seasonIds is { Count: 0 })
+        {
+            return _queuedEpisodes;
+        }
+
+        // For selected libraries, enqueue either all contained items or only the requested seasons/movies.
         var virtualFolders = _libraryManager.GetVirtualFolders();
         if (virtualFolders is null)
         {
@@ -125,7 +147,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
             try
             {
-                await QueueLibraryContents(folderId, includeExcluded, cancellationToken).ConfigureAwait(false);
+                await QueueLibraryContents(folderId, includeExcluded, seasonIds, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -182,7 +204,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
     }
 
-    private async Task QueueLibraryContents(Guid id, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task QueueLibraryContents(
+        Guid id,
+        bool includeExcluded,
+        IReadOnlyCollection<Guid>? seasonIds,
+        CancellationToken cancellationToken)
     {
         LogConstructingQuery(_logger);
 
@@ -196,9 +222,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        var items = _libraryManager.GetItemList(query, false)
-            .DistinctBy(e => e.Id)
-            .ToList();
+        var items = seasonIds is null
+            ? _libraryManager.GetItemList(query, false)
+            : GetScopedLibraryItems(id, seasonIds);
 
         if (items is null)
         {
@@ -206,11 +232,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
+        var distinctItems = items
+            .DistinctBy(e => e.Id)
+            .ToList();
+
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         var queuedCount = 0;
-        foreach (var item in items)
+        foreach (var item in distinctItems)
         {
             try
             {
@@ -247,6 +277,34 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         LogQueuedEpisodes(_logger, queuedCount);
+    }
+
+    private IEnumerable<BaseItem> GetScopedLibraryItems(Guid libraryId, IReadOnlyCollection<Guid> seasonIds)
+    {
+        var targetIds = seasonIds.ToArray();
+
+        var episodeQuery = new InternalItemsQuery
+        {
+            ParentId = libraryId,
+            AncestorIds = targetIds,
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            IsVirtualItem = false
+        };
+
+        var movieQuery = new InternalItemsQuery
+        {
+            ParentId = libraryId,
+            ItemIds = targetIds,
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+            IncludeItemTypes = [BaseItemKind.Movie],
+            Recursive = true,
+            IsVirtualItem = false
+        };
+
+        return _libraryManager.GetItemList(episodeQuery, false)
+            .Concat(_libraryManager.GetItemList(movieQuery, false));
     }
 
     private async Task<bool> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
