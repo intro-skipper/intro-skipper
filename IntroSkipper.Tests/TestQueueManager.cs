@@ -26,10 +26,7 @@ public sealed class TestQueueManager
     public async Task GetMediaItems_QueuesRegularEpisodeAndMovie_AndPublishesQueueState()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
-        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var plugin = InitializePlugin();
 
         var seriesId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var seasonId = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -44,13 +41,7 @@ public sealed class TestQueueManager
             RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
         };
 
-        var queueManager = new QueueManager(
-            NullLogger<QueueManager>.Instance,
-            QueueLibraryManager.Create([NewFolder("Media")], [episode, movie]),
-            providerManager: null!,
-            fileSystem: null!,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var queueManager = CreateQueueManager(episode, movie);
 
         var queue = await queueManager.GetMediaItems();
 
@@ -84,17 +75,12 @@ public sealed class TestQueueManager
     public async Task GetMediaItems_WithSeasonIds_DoesNotQueueUnrelatedItems()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
         var existingSeasonId = Guid.NewGuid();
         var existingQueue = new ConcurrentDictionary<Guid, List<QueuedEpisode>>
         {
             [existingSeasonId] = [new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = existingSeasonId }]
         };
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", existingQueue);
-        plugin.TotalQueued = 1;
-        plugin.TotalSeasons = 1;
-        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var plugin = InitializePlugin(existingQueue, totalQueued: 1, totalSeasons: 1);
 
         var seriesId = Guid.NewGuid();
         var targetSeasonId = Guid.NewGuid();
@@ -109,13 +95,7 @@ public sealed class TestQueueManager
             RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
         };
 
-        var queueManager = new QueueManager(
-            NullLogger<QueueManager>.Instance,
-            QueueLibraryManager.Create([NewFolder("Media")], [targetEpisode, otherEpisode, movie]),
-            providerManager: null!,
-            fileSystem: null!,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var queueManager = CreateQueueManager(targetEpisode, otherEpisode, movie);
 
         var queue = await queueManager.GetMediaItems([targetSeasonId]);
 
@@ -128,6 +108,32 @@ public sealed class TestQueueManager
         Assert.Equal(1, plugin.TotalQueued);
         Assert.Equal(1, plugin.TotalSeasons);
     }
+
+    private static Plugin InitializePlugin(
+        ConcurrentDictionary<Guid, List<QueuedEpisode>>? queuedMediaItems = null,
+        int totalQueued = 0,
+        int totalSeasons = 0)
+    {
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
+        EntrypointTestHelpers.SetPropertyOrField(
+            plugin,
+            "QueuedMediaItems",
+            queuedMediaItems ?? new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        plugin.TotalQueued = totalQueued;
+        plugin.TotalSeasons = totalSeasons;
+        return plugin;
+    }
+
+    private static QueueManager CreateQueueManager(params BaseItem[] items)
+        => new(
+            NullLogger<QueueManager>.Instance,
+            QueueLibraryManager.Create([NewFolder("Media")], [.. items]),
+            providerManager: null!,
+            fileSystem: null!,
+            ffmpegService: null!,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
     private static Episode CreateEpisode(Guid episodeId, Guid seriesId, Guid seasonId)
     {
