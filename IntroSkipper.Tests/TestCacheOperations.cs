@@ -655,6 +655,40 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void HasCachedFingerprint_ReturnsTrueForLegacyPreStreamSelectionEntry()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IntroFingerprintEnd = 600,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
+        {
+            // Row written by a release without audio stream selection: its ConfigHash carries
+            // no audio tokens. It must still count as a cached fingerprint so already-analyzed
+            // episodes can rejoin the Chromaprint comparison pool after an upgrade.
+            db.DetectionCache.Add(new DbDetectionCache(
+                episode.EpisodeId,
+                AnalysisMode.Introduction,
+                CacheEntryType.Chromaprint,
+                EntrypointTestHelpers.EmptyJsonArray,
+                0,
+                600,
+                ConfigHasher.LegacyChromaprintCacheWithoutLanguage(new PluginConfiguration(), AnalysisMode.Introduction)));
+            db.SaveChanges();
+        }
+
+        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
+        {
+            Assert.True(cachingScope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        }
+    }
+
+    [Fact]
     public void HasCachedFingerprint_Credits_ReturnsTrueForMatchingEntry()
     {
         var episode = new QueuedEpisode
