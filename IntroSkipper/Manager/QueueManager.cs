@@ -63,7 +63,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds: null, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds: null, publishQueue: true, cancellationToken);
 
     /// <summary>
     /// Gets media items belonging to the specified seasons or movies.
@@ -74,7 +74,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
         IReadOnlyCollection<Guid> seasonIds,
         CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds, publishQueue: false, cancellationToken);
 
     // Per-run memo on top of the service's success-only memoization: while ffmpeg is
     // invalid the service re-probes every call, so cache the verdict here to keep an
@@ -92,11 +92,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
-        => await GetMediaItems(includeExcluded, seasonIds: null, cancellationToken).ConfigureAwait(false);
+        => await GetMediaItems(includeExcluded, seasonIds: null, publishQueue: !includeExcluded, cancellationToken).ConfigureAwait(false);
 
     private async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
         bool includeExcluded,
         IReadOnlyCollection<Guid>? seasonIds,
+        bool publishQueue,
         CancellationToken cancellationToken)
     {
         _enumerationFailures = 0;
@@ -108,7 +109,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return _queuedEpisodes;
         }
 
-        if (!includeExcluded)
+        if (publishQueue)
         {
             plugin.TotalQueued = 0;
         }
@@ -147,7 +148,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
             try
             {
-                await QueueLibraryContents(folderId, includeExcluded, seasonIds, cancellationToken).ConfigureAwait(false);
+                await QueueLibraryContents(folderId, includeExcluded, seasonIds, publishQueue, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -165,7 +166,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             LogRefreshedMetadata(_logger, _refreshedEpisodes.Count);
         }
 
-        if (!includeExcluded)
+        if (publishQueue)
         {
             plugin.TotalSeasons = _queuedEpisodes.Count;
             plugin.QueuedMediaItems.Clear();
@@ -208,6 +209,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         Guid id,
         bool includeExcluded,
         IReadOnlyCollection<Guid>? seasonIds,
+        bool publishQueue,
         CancellationToken cancellationToken)
     {
         LogConstructingQuery(_logger);
@@ -246,14 +248,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 if (item is Episode episode)
                 {
-                    if (await QueueEpisode(episode, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    if (await QueueEpisode(episode, includeExcluded, publishQueue, cancellationToken).ConfigureAwait(false))
                     {
                         queuedCount++;
                     }
                 }
                 else if (item is Movie movie)
                 {
-                    if (await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    if (await QueueMovieAsync(movie, includeExcluded, publishQueue, cancellationToken).ConfigureAwait(false))
                     {
                         queuedCount++;
                     }
@@ -307,7 +309,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             .Concat(_libraryManager.GetItemList(movieQuery, false));
     }
 
-    private async Task<bool> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<bool> QueueEpisode(
+        Episode episode,
+        bool includeExcluded,
+        bool publishQueue,
+        CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -371,7 +377,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             CreditsFingerprintEnd = creditsDuration,
         });
 
-        if (!includeExcluded)
+        if (publishQueue)
         {
             pluginInstance.TotalQueued++;
         }
@@ -400,7 +406,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
     }
 
-    private async Task<bool> QueueMovieAsync(Movie movie, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<bool> QueueMovieAsync(
+        Movie movie,
+        bool includeExcluded,
+        bool publishQueue,
+        CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -440,7 +450,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsExcluded = decision.IsExcluded,
         });
 
-        if (!includeExcluded)
+        if (publishQueue)
         {
             pluginInstance.TotalQueued++;
         }

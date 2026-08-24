@@ -86,7 +86,14 @@ public sealed class TestQueueManager
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        var existingSeasonId = Guid.NewGuid();
+        var existingQueue = new ConcurrentDictionary<Guid, List<QueuedEpisode>>
+        {
+            [existingSeasonId] = [new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = existingSeasonId }]
+        };
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", existingQueue);
+        plugin.TotalQueued = 1;
+        plugin.TotalSeasons = 1;
 
         var seriesId = Guid.NewGuid();
         var targetSeasonId = Guid.NewGuid();
@@ -115,6 +122,10 @@ public sealed class TestQueueManager
         Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
         Assert.DoesNotContain(otherSeasonId, queue.Keys);
         Assert.DoesNotContain(movie.Id, queue.Keys);
+        Assert.True(plugin.QueuedMediaItems.ContainsKey(existingSeasonId));
+        Assert.DoesNotContain(targetSeasonId, plugin.QueuedMediaItems.Keys);
+        Assert.Equal(1, plugin.TotalQueued);
+        Assert.Equal(1, plugin.TotalSeasons);
     }
 
     private static Episode CreateEpisode(Guid episodeId, Guid seriesId, Guid seasonId)
@@ -172,17 +183,15 @@ public sealed class TestQueueManager
             var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
             if (query?.AncestorIds is { Length: > 0 })
             {
-                return _items
-                    .Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))
-                    .ToList();
+                return [.. _items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];
             }
 
             if (query?.ItemIds is { Length: > 0 })
             {
-                return _items.Where(item => query.ItemIds.Contains(item.Id)).ToList();
+                return [.. _items.Where(item => query.ItemIds.Contains(item.Id))];
             }
 
-            return new List<BaseItem>(_items);
+            return [.. _items];
         }
     }
 }
