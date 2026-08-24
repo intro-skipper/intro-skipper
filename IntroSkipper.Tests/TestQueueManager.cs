@@ -109,6 +109,31 @@ public sealed class TestQueueManager
         Assert.Equal(1, plugin.TotalSeasons);
     }
 
+    [Fact]
+    public async Task GetMediaItems_WithSeasonIds_IncludesInSeasonSpecials()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        InitializePlugin();
+
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var host = CreateEpisode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var special = CreateEpisode(Guid.NewGuid(), seriesId, specialsSeasonId);
+        special.AirsBeforeSeasonNumber = 1;
+        special.Name = "Special";
+
+        var queueManager = CreateQueueManager(host, special);
+
+        var queue = await queueManager.GetMediaItems([hostSeasonId]);
+
+        var season = Assert.Single(queue);
+        Assert.Equal(hostSeasonId, season.Key);
+        Assert.Equal(2, season.Value.Count);
+        Assert.All(season.Value, episode => Assert.Equal(hostSeasonId, episode.SeasonId));
+        Assert.Contains(season.Value, episode => episode.EpisodeId == special.Id);
+    }
+
     private static Plugin InitializePlugin(
         ConcurrentDictionary<Guid, List<QueuedEpisode>>? queuedMediaItems = null,
         int totalQueued = 0,
@@ -188,6 +213,13 @@ public sealed class TestQueueManager
         private List<BaseItem> GetItems(object?[]? args)
         {
             var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
+            if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
+            {
+                return [.. _items.Where(item => item is Episode episode &&
+                    episode.ParentIndexNumber == query.ParentIndexNumber &&
+                    query.AncestorIds.Contains(episode.SeriesId))];
+            }
+
             if (query?.AncestorIds is { Length: > 0 })
             {
                 return [.. _items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];

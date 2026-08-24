@@ -234,9 +234,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        var distinctItems = items
-            .DistinctBy(e => e.Id)
-            .ToList();
+        List<BaseItem> distinctItems = [.. items.DistinctBy(e => e.Id)];
 
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
@@ -283,7 +281,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     private IEnumerable<BaseItem> GetScopedLibraryItems(Guid libraryId, IReadOnlyCollection<Guid> seasonIds)
     {
-        var targetIds = seasonIds.ToArray();
+        Guid[] targetIds = [.. seasonIds];
 
         var episodeQuery = new InternalItemsQuery
         {
@@ -308,7 +306,40 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         // Match the unscoped path, which treats a null GetItemList result as an empty library.
         var episodes = _libraryManager.GetItemList(episodeQuery, false) ?? [];
         var movies = _libraryManager.GetItemList(movieQuery, false) ?? [];
-        return episodes.Concat(movies);
+
+        // In-season specials are stored beneath their own raw SeasonId, but belong to the season
+        // identified by AirsBefore/AirsAfterSeasonNumber. Query only specials from the series that
+        // supplied the requested season episodes, then filter them to those resolved season keys.
+        HashSet<(Guid SeriesId, int SeasonNumber)> targetSeasonKeys =
+        [
+            .. episodes
+                .OfType<Episode>()
+                .Where(episode => episode.SeriesId != Guid.Empty && episode.AiredSeasonNumber is not null)
+                .Select(episode => (episode.SeriesId, episode.AiredSeasonNumber!.Value))
+        ];
+
+        IEnumerable<BaseItem> specials = [];
+        if (targetSeasonKeys.Count > 0)
+        {
+            Guid[] seriesIds = [.. targetSeasonKeys.Select(key => key.SeriesId).Distinct()];
+            var specialQuery = new InternalItemsQuery
+            {
+                ParentId = libraryId,
+                AncestorIds = seriesIds,
+                ParentIndexNumber = 0,
+                OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+                IncludeItemTypes = [BaseItemKind.Episode],
+                Recursive = true,
+                IsVirtualItem = false
+            };
+
+            specials = (_libraryManager.GetItemList(specialQuery, false) ?? [])
+                .Where(item => item is Episode episode &&
+                    episode.AiredSeasonNumber is int airedSeasonNumber &&
+                    targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
+        }
+
+        return episodes.Concat(specials).Concat(movies);
     }
 
     private async Task<bool> QueueEpisode(
