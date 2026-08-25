@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -25,10 +26,7 @@ public sealed class TestQueueManager
     public async Task GetMediaItems_QueuesRegularEpisodeAndMovie_AndPublishesQueueState()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
-        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var plugin = InitializePlugin();
 
         var seriesId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var seasonId = Guid.Parse("22222222-2222-2222-2222-222222222222");
@@ -43,13 +41,7 @@ public sealed class TestQueueManager
             RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
         };
 
-        var queueManager = new QueueManager(
-            NullLogger<QueueManager>.Instance,
-            QueueLibraryManager.Create([NewFolder("Media")], [episode, movie]),
-            providerManager: null!,
-            fileSystem: null!,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var queueManager = CreateQueueManager(episode, movie);
 
         var queue = await queueManager.GetMediaItems();
 
@@ -78,6 +70,96 @@ public sealed class TestQueueManager
         Assert.Equal(episodeId, Assert.Single(plugin.QueuedMediaItems[seasonId]).EpisodeId);
         Assert.Equal(movieId, Assert.Single(plugin.QueuedMediaItems[movieId]).EpisodeId);
     }
+
+    [Fact]
+    public async Task GetMediaItems_WithSeasonIds_DoesNotQueueUnrelatedItems()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var existingSeasonId = Guid.NewGuid();
+        var existingQueue = new ConcurrentDictionary<Guid, List<QueuedEpisode>>
+        {
+            [existingSeasonId] = [new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = existingSeasonId }]
+        };
+        var plugin = InitializePlugin(existingQueue, totalQueued: 1, totalSeasons: 1);
+
+        var seriesId = Guid.NewGuid();
+        var targetSeasonId = Guid.NewGuid();
+        var otherSeasonId = Guid.NewGuid();
+        var targetEpisode = CreateEpisode(Guid.NewGuid(), seriesId, targetSeasonId);
+        var otherEpisode = CreateEpisode(Guid.NewGuid(), seriesId, otherSeasonId);
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "Unrelated feature",
+            Path = "/media/unrelated.mkv",
+            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
+        };
+
+        var queueManager = CreateQueueManager(targetEpisode, otherEpisode, movie);
+
+        var queue = await queueManager.GetMediaItems([targetSeasonId]);
+
+        var queuedEpisode = Assert.Single(queue[targetSeasonId]);
+        Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
+        Assert.DoesNotContain(otherSeasonId, queue.Keys);
+        Assert.DoesNotContain(movie.Id, queue.Keys);
+        Assert.True(plugin.QueuedMediaItems.ContainsKey(existingSeasonId));
+        Assert.DoesNotContain(targetSeasonId, plugin.QueuedMediaItems.Keys);
+        Assert.Equal(1, plugin.TotalQueued);
+        Assert.Equal(1, plugin.TotalSeasons);
+    }
+
+    [Fact]
+    public async Task GetMediaItems_WithSeasonIds_IncludesInSeasonSpecials()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        InitializePlugin();
+
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var host = CreateEpisode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var special = CreateEpisode(Guid.NewGuid(), seriesId, specialsSeasonId);
+        special.ParentIndexNumber = 0;
+        special.AirsBeforeSeasonNumber = 1;
+        special.Name = "Special";
+
+        var queueManager = CreateQueueManager(host, special);
+
+        var queue = await queueManager.GetMediaItems([hostSeasonId]);
+
+        var season = Assert.Single(queue);
+        Assert.Equal(hostSeasonId, season.Key);
+        Assert.Equal(2, season.Value.Count);
+        Assert.All(season.Value, episode => Assert.Equal(hostSeasonId, episode.SeasonId));
+        Assert.Contains(season.Value, episode => episode.EpisodeId == special.Id);
+    }
+
+    private static Plugin InitializePlugin(
+        ConcurrentDictionary<Guid, List<QueuedEpisode>>? queuedMediaItems = null,
+        int totalQueued = 0,
+        int totalSeasons = 0)
+    {
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
+        EntrypointTestHelpers.SetPropertyOrField(
+            plugin,
+            "QueuedMediaItems",
+            queuedMediaItems ?? new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        plugin.TotalQueued = totalQueued;
+        plugin.TotalSeasons = totalSeasons;
+        return plugin;
+    }
+
+    private static QueueManager CreateQueueManager(params BaseItem[] items)
+        => new(
+            NullLogger<QueueManager>.Instance,
+            QueueLibraryManager.Create([NewFolder("Media")], [.. items]),
+            providerManager: null!,
+            fileSystem: null!,
+            ffmpegService: null!,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
     private static Episode CreateEpisode(Guid episodeId, Guid seriesId, Guid seasonId)
     {
@@ -123,10 +205,33 @@ public sealed class TestQueueManager
             return targetMethod?.Name switch
             {
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
-                nameof(ILibraryManager.GetItemList) => new List<BaseItem>(_items),
+                nameof(ILibraryManager.GetItemList) => GetItems(args),
                 nameof(ILibraryManager.GetItemById) => null,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
+        }
+
+        private List<BaseItem> GetItems(object?[]? args)
+        {
+            var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
+            if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
+            {
+                return [.. _items.Where(item => item is Episode episode &&
+                    episode.ParentIndexNumber == query.ParentIndexNumber &&
+                    query.AncestorIds.Contains(episode.SeriesId))];
+            }
+
+            if (query?.AncestorIds is { Length: > 0 })
+            {
+                return [.. _items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];
+            }
+
+            if (query?.ItemIds is { Length: > 0 })
+            {
+                return [.. _items.Where(item => query.ItemIds.Contains(item.Id))];
+            }
+
+            return [.. _items];
         }
     }
 }
