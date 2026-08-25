@@ -108,8 +108,8 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets Chromaprint debugging logs.
+    /// Gets the outcome of the most recent <see cref="CheckFFmpegVersionAsync"/> run for the support bundle.
     /// </summary>
-    /// <returns>Markdown formatted logs.</returns>
-    string GetChromaprintLogs();
+    /// <returns>The status token and the raw output of each probe in check order; <see cref="FFmpegCheckResult.NotRun"/> before the first check.</returns>
+    FFmpegCheckResult GetCheckResult();
 }
