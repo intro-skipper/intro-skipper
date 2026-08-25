@@ -80,7 +80,6 @@ body:
     attributes:
       label: Intro Skipper Support Log
       placeholder: Go to Dashboard -> Plugins -> Intro Skipper -> Settings -> Information. Click the Copy to Clipboard button and paste the contents here
-      render: shell
     validations:
       required: true
 

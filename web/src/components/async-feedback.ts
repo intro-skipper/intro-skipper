@@ -47,28 +47,3 @@ export async function withDashboardLoading<T>(task: () => Promise<T>): Promise<T
         window.Dashboard.hideLoadingMsg();
     }
 }
-
-export async function loadTextContent(opts: {
-    load: () => Promise<string>;
-    textarea: HTMLTextAreaElement;
-    status: StatusMessageController;
-    loadingText: string;
-    loadedText: string;
-    emptyText: string;
-    errorText: string;
-    onLoaded?: (text: string) => void;
-    onError?: () => void;
-}): Promise<void> {
-    opts.status.show(opts.loadingText);
-
-    try {
-        const text = await opts.load();
-        opts.textarea.value = text;
-        opts.status.show(text ? opts.loadedText : opts.emptyText);
-        opts.onLoaded?.(text);
-    } catch {
-        opts.textarea.value = "";
-        opts.status.show(opts.errorText, "var(--is-error)");
-        opts.onError?.();
-    }
-}

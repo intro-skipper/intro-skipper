@@ -1975,7 +1975,7 @@ public class TestBlackFrames
         public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public string GetChromaprintLogs() => string.Empty;
+        public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
     }
 
     private sealed class FakeFFmpegService(
@@ -2078,6 +2078,6 @@ public class TestBlackFrames
         public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public string GetChromaprintLogs() => string.Empty;
+        public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
     }
 }
