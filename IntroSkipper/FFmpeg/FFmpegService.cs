@@ -33,12 +33,12 @@ public sealed partial class FFmpegService(
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
+    private readonly Lock _versionProbeLock = new();
 
     // Replaced atomically by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) and read
     // concurrently by the support bundle endpoint, so each run publishes a new immutable snapshot.
     private volatile FFmpegCheckResult _checkResult = FFmpegCheckResult.NotRun;
 
-    private readonly Lock _versionProbeLock = new();
     private Task<bool>? _versionProbeTask;
     private volatile bool _versionProbeSucceeded;
 
