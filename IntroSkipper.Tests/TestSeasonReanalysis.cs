@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -14,6 +15,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -830,6 +832,299 @@ public sealed class TestSeasonReanalysisReset
                 File.Delete(mediaPath);
             }
 
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_DoesNotRedoSeasonsAlreadyAnalyzedUnderCurrentSettings()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var mediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var currentHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        try
+        {
+            await File.WriteAllTextAsync(mediaPath, string.Empty);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Default,
+                    [episodeId],
+                    "stale-hash"));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                var episode = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true));
+
+                // A settings change leaves the season carrying a stale hash, so it is queued for work.
+                var beforeAnalysis = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction]);
+                Assert.Equal(EpisodeState.NotAnalyzed, beforeAnalysis.Single().GetAnalyzed(AnalysisMode.Introduction));
+
+                // The analyzer records the new hash for every season it finishes, so a run interrupted
+                // after this point must not queue the season again.
+                await Plugin.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], currentHash);
+
+                var afterAnalysis = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction]);
+                Assert.Equal(EpisodeState.NoSegments, afterAnalysis.Single().GetAnalyzed(AnalysisMode.Introduction));
+            }
+        }
+        finally
+        {
+            if (File.Exists(mediaPath))
+            {
+                File.Delete(mediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+    [Fact]
+    public async Task VerifyQueueAsync_IgnoresSettingsSave_WhenStoredHashStillMatches()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var mediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var currentHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        // Built before the plugin scope: the constructor requires Plugin.Instance to be null.
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
+
+        try
+        {
+            await File.WriteAllTextAsync(mediaPath, string.Empty);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Default,
+                    [episodeId],
+                    currentHash));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                var episode = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                // Saving settings that leave every hash untouched must not requeue anything. This is
+                // the whole-library rescan users reported after changing a cosmetic setting, and the
+                // process-wide flag that caused it is also what made an interrupted run unresumable.
+                EntrypointTestHelpers.InvokePrivate(
+                    entrypoint,
+                    "OnSettingsChanged",
+                    (MediaBrowser.Model.Plugins.BasePluginConfiguration)config);
+
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true));
+
+                var verified = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction]);
+
+                Assert.Equal(EpisodeState.NoSegments, verified.Single().GetAnalyzed(AnalysisMode.Introduction));
+            }
+        }
+        finally
+        {
+            if (File.Exists(mediaPath))
+            {
+                File.Delete(mediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_KeepsChromaprintResults_WhenTheProbeReportsUnavailable()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var mediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var withChromaprintHash = ConfigHasher.Analysis(
+            config,
+            AnalysisMode.Introduction,
+            AnalyzerAction.Default,
+            ffmpegValid: true);
+
+        try
+        {
+            await File.WriteAllTextAsync(mediaPath, string.Empty);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Default,
+                    [episodeId],
+                    withChromaprintHash));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                var episode = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                // The probe reports false for a genuinely incapable ffmpeg and for a one-off failure to
+                // launch it alike, so losing chromaprint must never discard results produced with it.
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: false));
+
+                var verified = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction]);
+
+                Assert.Equal(EpisodeState.NoSegments, verified.Single().GetAnalyzed(AnalysisMode.Introduction));
+            }
+        }
+        finally
+        {
+            if (File.Exists(mediaPath))
+            {
+                File.Delete(mediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task AnalyzeItemsAsync_RecordsConfigHash_WhenAnalyzerActionIsNone()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var noneHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.None, ffmpegValid: true);
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                await Plugin.SetAnalyzerActionAsync(
+                    seasonId,
+                    new Dictionary<AnalysisMode, AnalyzerAction>
+                    {
+                        [AnalysisMode.Introduction] = AnalyzerAction.None,
+                    });
+
+                var analyzer = new BaseItemAnalyzerTask(
+                    NullLogger.Instance,
+                    NullLoggerFactory.Instance,
+                    libraryManager: null!,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    mediaSegmentRefresher: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true),
+                    cacheService: null!);
+
+                var episode = CreateQueuedEpisode(episodeId, seasonId);
+                var method = typeof(BaseItemAnalyzerTask).GetMethod(
+                    "AnalyzeItemsAsync",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.NotNull(method);
+
+                var analyzed = await (Task<int>)method!.Invoke(
+                    analyzer,
+                    [plugin, (IReadOnlyList<QueuedEpisode>)[episode], AnalysisMode.Introduction, true, CancellationToken.None])!;
+                Assert.Equal(0, analyzed);
+            }
+
+            // The action is part of the hash, so a mode switched off must still record the new hash.
+            // Without it the season mismatches on every run forever: queued, skipped, never written.
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var state = await db.DbSeasonState.SingleAsync();
+                Assert.Equal(AnalyzerAction.None, state.Action);
+                Assert.Equal(noneHash, state.ConfigHash);
+                Assert.Equal(new[] { episodeId }, state.EpisodeIds);
+            }
+        }
+        finally
+        {
             DeleteSqliteFiles(dbPath);
         }
     }

@@ -15,13 +15,6 @@ public enum AnalysisReason
     None,
 
     /// <summary>
-    /// A plugin configuration save set the force-reanalysis flag, which overrides stored state for
-    /// the rest of the server process. Applies to every saved setting, including settings that do
-    /// not affect analysis output.
-    /// </summary>
-    SettingsSaved,
-
-    /// <summary>
     /// The stored analysis configuration hash no longer matches the computed one. Caused by a changed
     /// setting or by a change in Chromaprint availability, which is folded into the hash for the
     /// Introduction, Credits, and Recap modes.

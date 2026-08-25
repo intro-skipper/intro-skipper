@@ -313,14 +313,11 @@ namespace IntroSkipper.Services
             }
         }
 
+        // Settings that change analysis output are folded into the per-season config hash, so a save
+        // needs no reanalysis trigger of its own. The next run re-analyzes exactly the seasons whose
+        // stored hash no longer matches.
         private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
-        {
-            _config = (PluginConfiguration)e;
-            if (Plugin.Instance is { } plugin)
-            {
-                plugin.AnalyzeAgain = true;
-            }
-        }
+            => _config = (PluginConfiguration)e;
 
         /// <summary>
         /// Start timer to debounce analyzing.
