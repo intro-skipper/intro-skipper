@@ -451,15 +451,28 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // The expected config hash depends on the season-level analyzer action and mode, not on the
         // individual episode, so compute it once per mode instead of once per episode and mode.
-        var hashMatchesByMode = new Dictionary<AnalysisMode, bool>(modes.Count);
+        var stateByMode = new Dictionary<AnalysisMode, ModeCacheState>(modes.Count);
         foreach (var mode in modes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
                 ? savedAction
                 : AnalyzerAction.Default;
             var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
-            hashMatchesByMode[mode] = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
+            // A season-state row is created by the analyzer preference editor as well as by analysis,
+            // so an empty hash means "never analyzed", not "analyzed under a different configuration".
+            var hasStoredHash = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                !string.IsNullOrEmpty(savedHash);
+            var hashMatches = hasStoredHash && string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
+            // Ordered by precedence. The force flag overrides stored state entirely, and a missing
+            // state row is reported instead of the hash comparison it would have lost anyway.
+            var reason = plugin.AnalyzeAgain ? AnalysisReason.SettingsSaved
+                : !hasStoredHash ? AnalysisReason.NoStoredState
+                : !hashMatches ? AnalysisReason.ConfigHashChanged
+                : AnalysisReason.None;
+
+            stateByMode[mode] = new ModeCacheState(reason, action, savedHash ?? string.Empty, expectedHash);
         }
 
         foreach (var candidate in candidates)
@@ -489,7 +502,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    var hashMatches = hashMatchesByMode[mode];
+                    var hashMatches = stateByMode[mode].HashMatches;
 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
@@ -523,8 +536,110 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
+        LogAnalysisReasons(verified, modes, stateByMode, ffmpegValid, plugin.Configuration);
+
         return verified;
     }
+
+    /// <summary>
+    /// Reports why each mode still has episodes to analyze, so a full-library rescan can be traced
+    /// back to its cause. Losing a whole season's stored state is logged at information level, since
+    /// that is the case users need explained. Picking up newly added episodes happens on most runs of
+    /// an active library, so it stays at debug level.
+    /// </summary>
+    /// <param name="verified">Episodes that survived verification, with their analyzed state set.</param>
+    /// <param name="modes">Analysis modes being processed.</param>
+    /// <param name="stateByMode">Stored-state comparison for each mode.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint.</param>
+    /// <param name="config">Plugin configuration.</param>
+    private void LogAnalysisReasons(
+        IReadOnlyList<QueuedEpisode> verified,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyDictionary<AnalysisMode, ModeCacheState> stateByMode,
+        bool ffmpegValid,
+        PluginConfiguration config)
+    {
+        if (verified.Count == 0)
+        {
+            return;
+        }
+
+        var first = verified[0];
+
+        // Analysis skips specials wholesale when the opt-in is off, so these episodes stay unanalyzed
+        // with no stored state. Reporting a reason to analyze them would repeat on every run and never
+        // come true.
+        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, config))
+        {
+            return;
+        }
+
+        foreach (var mode in modes)
+        {
+            var state = stateByMode[mode];
+
+            // The analyzer never runs a mode the user switched off for this season, and already says so
+            // itself. Reporting a reason to analyze it would repeat on every run and never come true.
+            if (state.Action == AnalyzerAction.None)
+            {
+                continue;
+            }
+
+            // AnalysisReason.None means the stored state matched, so the pending episodes are ones the
+            // stored state does not list. Only a hash change means something moved under the user, so
+            // it is the one cause worth reporting by default.
+            var (reason, level) = state.Reason switch
+            {
+                AnalysisReason.None => (AnalysisReason.NotRecorded, LogLevel.Debug),
+                AnalysisReason.SettingsSaved => (AnalysisReason.SettingsSaved, LogLevel.Debug),
+                AnalysisReason.ConfigHashChanged => (AnalysisReason.ConfigHashChanged, LogLevel.Information),
+                _ => (state.Reason, LogLevel.Debug)
+            };
+
+            if (!_logger.IsEnabled(level))
+            {
+                continue;
+            }
+
+            // Counts what the analyzer chain will process, which is every episode NeedsAnalysis()
+            // admits, not just the NotAnalyzed ones that trigger the pass.
+            var pending = verified.Count(e => e.NeedsAnalysis(mode));
+            if (pending == 0 || !verified.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+            {
+                continue;
+            }
+
+            if (reason == AnalysisReason.ConfigHashChanged)
+            {
+                LogSeasonConfigHashChanged(
+                    _logger,
+                    mode,
+                    pending,
+                    verified.Count,
+                    first.SeriesName,
+                    first.SeasonNumber,
+                    state.StoredHash,
+                    state.ExpectedHash,
+                    ChromaprintAffectsMode(mode) ? ffmpegValid.ToString() : "n/a");
+                continue;
+            }
+
+            LogSeasonQueuedForAnalysis(
+                _logger,
+                level,
+                mode,
+                pending,
+                verified.Count,
+                first.SeriesName,
+                first.SeasonNumber,
+                reason);
+        }
+    }
+
+    // Only the Chromaprint-capable modes fold Chromaprint availability into their hash, so naming it
+    // for Preview or Commercial would point at a cause that cannot apply.
+    private static bool ChromaprintAffectsMode(AnalysisMode mode)
+        => mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Plugin instance is null in GetMediaItems()")]
     private static partial void LogPluginInstanceNull(ILogger logger);
@@ -591,4 +706,30 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
+
+    [LoggerMessage(Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: {Reason}")]
+    private static partial void LogSeasonQueuedForAnalysis(ILogger logger, LogLevel level, AnalysisMode mode, int count, int total, string name, int season, AnalysisReason reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (chromaprint available: {ChromaprintAvailable})")]
+    private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable);
+
+    /// <summary>
+    /// Stored analysis state for one mode, compared against the current configuration.
+    /// </summary>
+    /// <param name="Reason">Why the season's stored state cannot be reused, if it cannot.</param>
+    /// <param name="Action">Analyzer action stored for the season, which decides whether the mode runs at all.</param>
+    /// <param name="StoredHash">Hash recorded when the season was last analyzed, empty when none is stored.</param>
+    /// <param name="ExpectedHash">Hash computed from the current configuration.</param>
+    private readonly record struct ModeCacheState(
+        AnalysisReason Reason,
+        AnalyzerAction Action,
+        string StoredHash,
+        string ExpectedHash)
+    {
+        /// <summary>
+        /// Gets a value indicating whether stored analysis state can be reused for this mode. Derived
+        /// from <see cref="Reason"/> so the queue decision and the logged explanation cannot drift.
+        /// </summary>
+        public bool HashMatches => Reason is AnalysisReason.None;
+    }
 }

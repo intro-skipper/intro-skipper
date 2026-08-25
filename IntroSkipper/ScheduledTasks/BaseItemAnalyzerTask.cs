@@ -95,6 +95,7 @@ public partial class BaseItemAnalyzerTask(
             _ffmpegService);
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
@@ -221,7 +222,6 @@ public partial class BaseItemAnalyzerTask(
                 await Plugin.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
-        plugin.AnalyzeAgain = false;
     }
 
     private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
@@ -314,7 +314,7 @@ public partial class BaseItemAnalyzerTask(
         var isMovie = category == QueuedMediaCategory.Movie;
         var isAnime = category == QueuedMediaCategory.AnimeEpisode;
 
-        if (!isMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
+        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, _config))
         {
             return 0;
         }
