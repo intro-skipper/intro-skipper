@@ -82,13 +82,13 @@ public class TestSupportBundle
     [Fact]
     public void ConfigurationReport_ReportsChangedValuesWithDefaults()
     {
-        var config = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, MaximumTimeSkip = 4.25 };
+        var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, MaximumTimeSkip = 4.25 };
         config.SeriesExclusions.Add("Some Show");
 
         var changed = ConfigurationReport.Enumerate(config).Where(s => !s.IsDefault).ToDictionary(s => s.Name);
 
         Assert.Equal(3, changed.Count);
-        Assert.Equal(("true", "false"), (changed["UseAlternativeBlackFrameAnalyzer"].Value, changed["UseAlternativeBlackFrameAnalyzer"].Default));
+        Assert.Equal(("true", "false"), (changed["UseLegacyBlackFrameAnalyzer"].Value, changed["UseLegacyBlackFrameAnalyzer"].Default));
         Assert.Equal(("4.25", "3.5"), (changed["MaximumTimeSkip"].Value, changed["MaximumTimeSkip"].Default));
         Assert.Equal(("[Some Show]", "[]"), (changed["SeriesExclusions"].Value, changed["SeriesExclusions"].Default));
     }
