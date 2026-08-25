@@ -14,10 +14,16 @@ internal static class SegmentChangeHttp
 
     internal static AcceptedResult Accepted(Accepted accepted)
     {
-        var projection = accepted.Projections.Count == 1
-            ? accepted.Projections[0].State.ToString()
-            : string.Join(",", accepted.Projections.Select(value => value.State).Distinct());
-        return new AcceptedResult((string?)null, new SegmentChangeAcceptedResponse(accepted.ChangeId, "Accepted", projection));
+        var projections = accepted.Projections.Select(projection => new SegmentProjectionAcceptedResponse(
+            projection.ItemId,
+            projection.State switch
+            {
+                ProjectionState.Applied => "Applied",
+                ProjectionState.Pending => "Pending",
+                ProjectionState.Skipped => "Skipped",
+                _ => throw new ArgumentOutOfRangeException(nameof(accepted), projection.State, "Unknown projection state.")
+            })).ToList();
+        return new AcceptedResult((string?)null, new SegmentChangeAcceptedResponse(accepted.ChangeId, "Accepted", projections));
     }
 
     internal static ActionResult Rejected(Rejected rejected)

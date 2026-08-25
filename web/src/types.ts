@@ -125,7 +125,10 @@ export type SegmentUpdateRequest = {
 export type SegmentChangeAcceptedResponse = {
     ChangeId: string;
     ChangeStatus: "Accepted";
-    ProjectionStatus: "Pending" | "Skipped";
+    Projections: Array<{
+        ItemId: string;
+        Status: "Applied" | "Pending" | "Skipped";
+    }>;
 };
 
 export type ScanStatus = {
