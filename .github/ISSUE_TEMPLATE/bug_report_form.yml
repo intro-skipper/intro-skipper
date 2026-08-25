@@ -11,6 +11,8 @@ body:
         Jellyfin 10.11 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release.
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
+
+        If a segment is detected at the wrong time, not at all, or where there is none, use the **Detection report** form instead.
       options:
         - label: I use Jellyfin 12.0.0 (or newer) and my filesystem permissions are correct
           required: true
