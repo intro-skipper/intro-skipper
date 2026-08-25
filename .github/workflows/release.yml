@@ -29,10 +29,15 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
 
-      - name: Run update version
-        uses: intro-skipper/intro-skipper-action-ts@main
-        with:
-          task-type: "updateVersion"
+      - name: Bump release version
+        run: |
+          CURRENT_VERSION=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          IFS='.' read -r JELLYFIN_MAJOR JELLYFIN_MINOR RELEASE _PRERELEASE <<< "$CURRENT_VERSION"
+          NEW_FILE_VERSION="${JELLYFIN_MAJOR}.${JELLYFIN_MINOR}.$((RELEASE + 1)).0"
+          sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${NEW_FILE_VERSION}</AssemblyVersion>|" IntroSkipper/IntroSkipper.csproj
+          sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${NEW_FILE_VERSION}</FileVersion>|" IntroSkipper/IntroSkipper.csproj
+          echo "New release version: ${NEW_FILE_VERSION}"
+          echo "NEW_FILE_VERSION=${NEW_FILE_VERSION}" >> $GITHUB_ENV
 
       - name: Embed version info
         run: |
