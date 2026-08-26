@@ -63,18 +63,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds: null, publishQueue: true, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds: null, cancellationToken);
 
     /// <summary>
     /// Gets media items belonging to the specified seasons or movies.
     /// </summary>
-    /// <param name="seasonIds">Season IDs and movie IDs to enqueue.</param>
+    /// <param name="seasonIds">Season IDs and movie IDs to enqueue, or <see langword="null"/> to enqueue everything.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
-        IReadOnlyCollection<Guid> seasonIds,
+        IReadOnlyCollection<Guid>? seasonIds,
         CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds, publishQueue: false, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds, cancellationToken);
 
     // Per-run memo on top of the service's success-only memoization: while ffmpeg is
     // invalid the service re-probes every call, so cache the verdict here to keep an
@@ -92,14 +92,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
-        => await GetMediaItems(includeExcluded, seasonIds: null, publishQueue: !includeExcluded, cancellationToken).ConfigureAwait(false);
+        => await GetMediaItems(includeExcluded, seasonIds: null, cancellationToken).ConfigureAwait(false);
 
     private async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
         bool includeExcluded,
         IReadOnlyCollection<Guid>? seasonIds,
-        bool publishQueue,
         CancellationToken cancellationToken)
     {
+        // Only a run that enumerates the full library with the standard exclusions publishes its
+        // queue to the plugin's global state: a scoped run must not replace the published queue
+        // with a single season, and an excluded-inventory run must not count excluded items.
+        var publishQueue = !includeExcluded && seasonIds is null;
+
         _enumerationFailures = 0;
 
         var plugin = Plugin.Instance;
@@ -234,13 +238,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        List<BaseItem> distinctItems = [.. items.DistinctBy(e => e.Id)];
-
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         var queuedCount = 0;
-        foreach (var item in distinctItems)
+        foreach (var item in items.DistinctBy(e => e.Id))
         {
             try
             {
@@ -283,28 +285,23 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     {
         Guid[] targetIds = [.. seasonIds];
 
-        var episodeQuery = new InternalItemsQuery
-        {
-            ParentId = libraryId,
-            AncestorIds = targetIds,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-            IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var episodeQuery = ScopedQuery(BaseItemKind.Episode);
+        episodeQuery.AncestorIds = targetIds;
 
-        var movieQuery = new InternalItemsQuery
-        {
-            ParentId = libraryId,
-            ItemIds = targetIds,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-            IncludeItemTypes = [BaseItemKind.Movie],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var movieQuery = ScopedQuery(BaseItemKind.Movie);
+        movieQuery.ItemIds = targetIds;
 
         // Match the unscoped path, which treats a null GetItemList result as an empty library.
-        var episodes = _libraryManager.GetItemList(episodeQuery, false) ?? [];
+        // In-season specials returned directly (a requested Specials season) are dropped: they
+        // belong to their AirsBefore/AirsAfter host season, and queueing them without that host
+        // season's episodes would key them under the raw Specials id and compare them only
+        // against other specials, diverging from the full-scan grouping. They are re-added
+        // below exactly when their host season is part of the request.
+        List<BaseItem> episodes =
+        [
+            .. (_libraryManager.GetItemList(episodeQuery, false) ?? [])
+                .Where(item => item is not Episode episode || !IsInSeasonSpecial(episode)),
+        ];
         var movies = _libraryManager.GetItemList(movieQuery, false) ?? [];
 
         // In-season specials are stored beneath their own raw SeasonId, but belong to the season
@@ -322,16 +319,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         if (targetSeasonKeys.Count > 0)
         {
             Guid[] seriesIds = [.. targetSeasonKeys.Select(key => key.SeriesId).Distinct()];
-            var specialQuery = new InternalItemsQuery
-            {
-                ParentId = libraryId,
-                AncestorIds = seriesIds,
-                ParentIndexNumber = 0,
-                OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-                IncludeItemTypes = [BaseItemKind.Episode],
-                Recursive = true,
-                IsVirtualItem = false
-            };
+            var specialQuery = ScopedQuery(BaseItemKind.Episode);
+            specialQuery.AncestorIds = seriesIds;
+            specialQuery.ParentIndexNumber = 0;
 
             specials = (_libraryManager.GetItemList(specialQuery, false) ?? [])
                 .Where(item => item is Episode episode &&
@@ -340,7 +330,23 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         return episodes.Concat(specials).Concat(movies);
+
+        // Scoped queries share the unscoped query's shape and ordering; callers set only the
+        // scoping field (AncestorIds / ItemIds / ParentIndexNumber) that differs per query.
+        InternalItemsQuery ScopedQuery(BaseItemKind kind) => new()
+        {
+            ParentId = libraryId,
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+            IncludeItemTypes = [kind],
+            Recursive = true,
+            IsVirtualItem = false
+        };
     }
+
+    // GetSeasonId's grouping rule: a special stored in Season 0 that airs within another season
+    // belongs to that host season, not to the Specials season it is stored under.
+    private static bool IsInSeasonSpecial(Episode episode)
+        => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
 
     private async Task<bool> QueueEpisode(
         Episode episode,
@@ -507,7 +513,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     private async Task<Guid> GetSeasonId(Episode episode, CancellationToken cancellationToken)
     {
-        if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
+        if (IsInSeasonSpecial(episode))
         {
             foreach (var kvp in _queuedEpisodes)
             {
