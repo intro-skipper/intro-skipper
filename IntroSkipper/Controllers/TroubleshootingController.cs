@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Globalization;
 using System.Net.Mime;
 using System.Runtime.InteropServices;
 using IntroSkipper.Data;
