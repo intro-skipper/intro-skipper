@@ -75,6 +75,11 @@ internal static class EntrypointTestHelpers
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => LibraryManagerProxy.Create(items);
 
+    // ITaskManager stub with no scheduled task workers, for controllers that look up the
+    // detection task's worker state.
+    internal static ITaskManager CreateTaskManager()
+        => TaskManagerProxy.Create();
+
     /// <summary>
     /// Scopes a plugin instance around a single movie library item: the library manager
     /// resolves the movie, the configuration carries the given mirror flag, and the
@@ -92,6 +97,22 @@ internal static class EntrypointTestHelpers
         SetPrivateField(plugin, "_libraryManager", CreateLibraryManager(item));
         SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         return scope;
+    }
+
+    private class TaskManagerProxy : DispatchProxy
+    {
+        public static ITaskManager Create()
+            => Create<ITaskManager, TaskManagerProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == $"get_{nameof(ITaskManager.ScheduledTasks)}")
+            {
+                return Array.Empty<IScheduledTaskWorker>();
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
     }
 
     private class LibraryManagerProxy : DispatchProxy

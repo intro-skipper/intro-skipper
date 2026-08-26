@@ -503,7 +503,8 @@ public sealed class TestVisualizationController
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 database),
             database,
-            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
+            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+            EntrypointTestHelpers.CreateTaskManager());
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)

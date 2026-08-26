@@ -17,6 +17,7 @@ using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -38,11 +39,12 @@ namespace IntroSkipper.Controllers;
 /// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
+/// <param name="taskManager">Scheduled task manager, used to report the detection task's state.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, MediaSegmentEditorService mediaSegmentEditorService, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, MediaSegmentEditorService mediaSegmentEditorService, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
@@ -51,6 +53,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly ITaskManager _taskManager = taskManager;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -324,7 +327,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<ScanStatusResponse> GetScanStatus()
     {
-        return new ScanStatusResponse(ScheduledTaskSemaphore.IsBusy);
+        return new ScanStatusResponse(ScanState.IsRunning(ScanState.FindDetectTask(_taskManager)));
     }
 
     /// <summary>

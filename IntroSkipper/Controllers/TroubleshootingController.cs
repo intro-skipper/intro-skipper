@@ -94,7 +94,7 @@ public partial class TroubleshootingController : ControllerBase
         var plugin = Plugin.Instance;
         var ffmpeg = _ffmpegService.GetCheckResult();
         var settings = ConfigurationReport.Enumerate(plugin.Configuration);
-        var detectTask = _taskManager.ScheduledTasks.FirstOrDefault(t => t.ScheduledTask is DetectSegmentsTask);
+        var detectTask = ScanState.FindDetectTask(_taskManager);
 
         List<SupportBundleSection> sections =
         [
@@ -151,8 +151,8 @@ public partial class TroubleshootingController : ControllerBase
         return string.IsNullOrWhiteSpace(result.ErrorMessage) ? summary : summary + ": " + result.ErrorMessage.ReplaceLineEndings(" ").Trim();
     }
 
-    // Manual season scans hold ScheduledTaskSemaphore without going through the task worker, so the
-    // semaphore decides whether a scan is running; the worker only contributes its progress.
+    // ScanState owns the running definition (shared with the dashboard's ScanStatus endpoint);
+    // the worker only contributes its cancelling state and progress here.
     private static string DescribeScanState(IScheduledTaskWorker? task)
     {
         if (task?.State == TaskState.Cancelling)
@@ -160,7 +160,7 @@ public partial class TroubleshootingController : ControllerBase
             return "cancelling";
         }
 
-        if (!ScheduledTaskSemaphore.IsBusy && task?.State != TaskState.Running)
+        if (!ScanState.IsRunning(task))
         {
             return "no";
         }

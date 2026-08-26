@@ -11,6 +11,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -127,6 +128,18 @@ public sealed class TestVisualizationControllerSeams
         Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
     }
 
+    // The semaphore half of ScanState is covered through the endpoint above; this pins the
+    // worker half, which keeps the endpoint and the support bundle in agreement while the
+    // detection task worker is active outside its semaphore lease.
+    [Fact]
+    public void ScanState_ReportsRunning_WhileDetectTaskWorkerIsActive()
+    {
+        Assert.False(ScanState.IsRunning(null));
+        Assert.False(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Idle)));
+        Assert.True(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Running)));
+        Assert.True(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Cancelling)));
+    }
+
     [Fact]
     public async Task ScanSeason_ReturnsConflict_WhenScanLeaseIsHeld()
     {
@@ -181,7 +194,8 @@ public sealed class TestVisualizationControllerSeams
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 database),
             database,
-            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
+            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+            EntrypointTestHelpers.CreateTaskManager());
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope()
     {
@@ -216,6 +230,28 @@ public sealed class TestVisualizationControllerSeams
         }
 
         Assert.False(ScheduledTaskSemaphore.IsBusy);
+    }
+
+    private class ScheduledTaskWorkerStub : System.Reflection.DispatchProxy
+    {
+        private TaskState _state;
+
+        public static IScheduledTaskWorker Create(TaskState state)
+        {
+            var proxy = Create<IScheduledTaskWorker, ScheduledTaskWorkerStub>();
+            ((ScheduledTaskWorkerStub)(object)proxy)._state = state;
+            return proxy;
+        }
+
+        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == $"get_{nameof(IScheduledTaskWorker.State)}")
+            {
+                return _state;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
     }
 
     private sealed class NoOpMediaSegmentRefresher : IMediaSegmentRefresher
