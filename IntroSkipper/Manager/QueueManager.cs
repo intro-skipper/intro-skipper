@@ -99,10 +99,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         IReadOnlyCollection<Guid>? seasonIds,
         CancellationToken cancellationToken)
     {
-        // Only a run that enumerates the full library with the standard exclusions publishes its
-        // queue to the plugin's global state: a scoped run must not replace the published queue
-        // with a single season, and an excluded-inventory run must not count excluded items.
+        // Only runs with the standard exclusions publish to the plugin's global queue state: a
+        // full enumeration replaces the published queue, a scoped run merges its seasons into it
+        // (so seasons analyzed outside a full scan stay visible to the dashboard endpoints, which
+        // serve from the published queue), and an excluded-inventory run must not count excluded
+        // items so it publishes nothing.
         var publishQueue = !includeExcluded && seasonIds is null;
+        var mergeQueue = !includeExcluded && seasonIds is not null;
 
         _enumerationFailures = 0;
 
@@ -178,6 +181,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 plugin.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
             }
+        }
+        else if (mergeQueue)
+        {
+            foreach (var kvp in _queuedEpisodes)
+            {
+                plugin.QueuedMediaItems[kvp.Key] = kvp.Value;
+            }
+
+            // Recompute wholesale: the merge replaces season entries, so the published totals
+            // must reflect the merged dictionary, not a delta of this run.
+            plugin.TotalSeasons = plugin.QueuedMediaItems.Count;
+            plugin.TotalQueued = plugin.QueuedMediaItems.Sum(kvp => kvp.Value.Count);
         }
 
         return _queuedEpisodes;

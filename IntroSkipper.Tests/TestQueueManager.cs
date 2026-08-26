@@ -72,7 +72,7 @@ public sealed class TestQueueManager
     }
 
     [Fact]
-    public async Task GetMediaItems_WithSeasonIds_DoesNotQueueUnrelatedItems()
+    public async Task GetMediaItems_WithSeasonIds_MergesIntoPublishedQueueWithoutUnrelatedItems()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var existingSeasonId = Guid.NewGuid();
@@ -103,10 +103,16 @@ public sealed class TestQueueManager
         Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
         Assert.DoesNotContain(otherSeasonId, queue.Keys);
         Assert.DoesNotContain(movie.Id, queue.Keys);
+
+        // The scoped result merges into the published queue instead of replacing it: the
+        // pre-existing entry survives, the requested season becomes visible to the dashboard
+        // endpoints, and unrelated items stay out.
         Assert.True(plugin.QueuedMediaItems.ContainsKey(existingSeasonId));
-        Assert.DoesNotContain(targetSeasonId, plugin.QueuedMediaItems.Keys);
-        Assert.Equal(1, plugin.TotalQueued);
-        Assert.Equal(1, plugin.TotalSeasons);
+        Assert.Equal(targetEpisode.Id, Assert.Single(plugin.QueuedMediaItems[targetSeasonId]).EpisodeId);
+        Assert.DoesNotContain(otherSeasonId, plugin.QueuedMediaItems.Keys);
+        Assert.DoesNotContain(movie.Id, plugin.QueuedMediaItems.Keys);
+        Assert.Equal(2, plugin.TotalQueued);
+        Assert.Equal(2, plugin.TotalSeasons);
     }
 
     [Fact]
