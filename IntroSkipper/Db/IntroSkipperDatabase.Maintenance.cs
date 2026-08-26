@@ -56,13 +56,25 @@ public sealed partial class IntroSkipperDatabase
         // Credits-derived previews carry the credits hash (the credits pass produces
         // them), so the credits pass judges their staleness and the preview pass leaves
         // them alone; every other automatic row belongs to its own mode's pass.
+        // A row with an empty hash makes no staleness claim and is kept: restored
+        // tombstones drop their hash on purpose, and legacy imports without a recorded
+        // hash are replaced by re-analysis rather than deleted ahead of it.
+        // The NOT EXISTS guard keeps the facade from ever deleting automatic rows of a
+        // type the user has an active row for — the analyzers skip such items, so
+        // nothing would regenerate the rows (same guard as ResetItemsForReanalysisAsync;
+        // callers additionally pre-filter user-provided items as an optimization).
         return await db.Segments
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                 && s.Source != SegmentSource.User
                 && s.State == SegmentState.Active
+                && s.ConfigHash != string.Empty
                 && s.ConfigHash != configHash
                 && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
-                    || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits)))
+                    || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits))
+                && !db.Segments.Any(u => u.ItemId == s.ItemId
+                    && u.Type == s.Type
+                    && u.Source == SegmentSource.User
+                    && u.State == SegmentState.Active))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -147,6 +159,49 @@ public sealed partial class IntroSkipperDatabase
                 .ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyCollection<Guid>> GetStaleSeasonIdsAsync(IEnumerable<Guid> retainedSeasonIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedSeasonIds);
+
+        var retainedIds = retainedSeasonIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.SeasonStates
+            .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+            .Select(s => s.SeasonId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyCollection<Guid>> GetStaleItemStateIdsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedItemIds);
+
+        var retainedIds = retainedItemIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var staleDisabledIds = await db.DisabledItems
+            .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
+            .Select(e => e.ItemId)
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var staleAnalyzedIds = await db.AnalyzedItems
+            .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
+            .Select(a => a.ItemId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. staleDisabledIds.Union(staleAnalyzedIds)];
     }
 
     /// <inheritdoc/>

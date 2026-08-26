@@ -21,6 +21,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="analyzerFactory">Factory for per-run queue managers.</param>
+/// <param name="libraryManager">Library manager, used to check whether a stale-candidate id still resolves to a server item.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="cacheService">Detection cache service; owns the configuration-hash policy.</param>
@@ -28,6 +29,7 @@ namespace IntroSkipper.ScheduledTasks;
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     AnalyzerTaskFactory analyzerFactory,
+    ILibraryManager libraryManager,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
     IDetectionCacheService cacheService,
@@ -35,6 +37,7 @@ public partial class CleanCacheTask(
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IDetectionCacheService _cacheService = cacheService;
@@ -62,8 +65,9 @@ public partial class CleanCacheTask(
 
     /// <summary>
     /// Cleans the cache of unused rows.
-    /// Clears segment rows that are no longer associated with episodes in the library.
-    /// Clears season rows that are no longer associated with seasons in the library.
+    /// Clears segment, season-state and cache rows of items the server no longer knows.
+    /// Items that still exist but were not enumerated (a provider-disabled library, a
+    /// per-item queue guard) keep all their rows.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -80,9 +84,9 @@ public partial class CleanCacheTask(
             .Select(static episode => episode.EpisodeId)
             .ToHashSet();
 
-        // Every cleanup below deletes rows that are NOT in the enumerated queue, so an
-        // incomplete queue would classify healthy data as stale and mass-delete it (including
-        // the Jellyfin-side media segments). Bail out instead of guessing.
+        // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
+        // incomplete queue would push swathes of healthy data through the stale-candidate
+        // path and lean entirely on the per-id existence check below. Bail out instead.
         if (queueManager.EnumerationFailureCount > 0)
         {
             LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
@@ -97,9 +101,28 @@ public partial class CleanCacheTask(
             return;
         }
 
-        var staleTimestampEpisodeIds = await _database
+        // Absence from the queue only proves an id was not enumerated: the queue skips
+        // provider-disabled libraries, whose rows (user segments, tombstones, analyzer
+        // actions) must survive that reversible toggle. Only ids the server itself no
+        // longer resolves are deleted. Season keys resolve the same way — each is a
+        // real item id (a season's, or the queueing fallback of an episode's own id).
+        var existsById = new Dictionary<Guid, bool>();
+        bool IsGone(Guid id)
+        {
+            if (!existsById.TryGetValue(id, out var exists))
+            {
+                exists = id != Guid.Empty && _libraryManager.GetItemById(id) is not null;
+                existsById[id] = exists;
+            }
+
+            return !exists;
+        }
+
+        var staleTimestampEpisodeIds = (await _database
             .GetStaleTimestampEpisodeIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
-            .ConfigureAwait(false);
+            .ConfigureAwait(false))
+            .Where(IsGone)
+            .ToList();
 
         if (staleTimestampEpisodeIds.Count > 0)
         {
@@ -114,10 +137,12 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
         }
 
-        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
-        var invalidEpisodeIds = await _cacheDatabase
+        // Identify episode IDs in the SQLite cache whose items are gone.
+        var invalidEpisodeIds = (await _cacheDatabase
             .GetStaleItemIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
-            .ConfigureAwait(false);
+            .ConfigureAwait(false))
+            .Where(IsGone)
+            .ToList();
 
         // Log and batch-delete all invalid episode DB rows in a single round-trip.
         foreach (var episodeId in invalidEpisodeIds)
@@ -133,12 +158,16 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
         }
 
-        // Clean up season state by removing items that no longer exist.
-        await _database.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        // Clean up season state by removing seasons that no longer exist.
+        var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        var retainedSeasonIds = queue.Keys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
+        await _database.CleanSeasonStateAsync(retainedSeasonIds, cancellationToken).ConfigureAwait(false);
 
         // Per-item state (disable flags, analysis records) follows the item, not a season
         // key, so it is pruned against the retained item IDs instead.
-        await _database.CleanItemStateAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var staleItemStateIds = await _database.GetStaleItemStateIdsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var retainedItemIds = enabledLibraryEpisodeIds.Concat(staleItemStateIds.Where(id => !IsGone(id))).ToList();
+        await _database.CleanItemStateAsync(retainedItemIds, cancellationToken).ConfigureAwait(false);
 
         // Cache rows whose configuration hash no read path accepts any more are dead weight;
         // hash-based, so independent of the item enumeration above.

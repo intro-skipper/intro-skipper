@@ -60,7 +60,19 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     /// <inheritdoc/>
     public async Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
-        await InitializeAsync().ConfigureAwait(false);
+        try
+        {
+            await InitializeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Rebuild exists to recover from exactly this state — a database whose
+            // migrations fail — so a failed gate must not make it unreachable. The
+            // rebuild migrates the recreated file itself, and the failed attempt was
+            // already reset, so the next operation re-initializes against the result.
+            LogRebuildingWithoutInitialization(_logger, ex);
+        }
+
         using var db = _contextFactory.CreateDbContext();
         await db.RebuildDatabaseAsync(_contextFactory.CreateDbContext, forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
     }
@@ -129,6 +141,9 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; the next database operation will retry")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; proceeding with the requested rebuild, which recreates the schema")]
+    private static partial void LogRebuildingWithoutInitialization(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Legacy database import completed: {Segments} segments ({Skipped} skipped), {SeasonStates} season states")]
     private static partial void LogLegacyImportCompleted(ILogger logger, int segments, int skipped, int seasonStates);

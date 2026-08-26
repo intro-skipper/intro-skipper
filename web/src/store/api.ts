@@ -266,9 +266,11 @@ export async function getStorageUsage(): Promise<LibraryStorage[]> {
     return data.Libraries;
 }
 
-// Database maintenance.
-export function rebuildDatabase(): Promise<Response> {
-    return fetchWithAuth("Intros/RebuildDatabase", "POST");
+// Database maintenance. Without force the server answers 409 when the existing
+// database cannot be read for backup; forcing discards it and rebuilds empty.
+export function rebuildDatabase(options?: { forceCleanOnBackupFailure: boolean }): Promise<Response> {
+    const query = options?.forceCleanOnBackupFailure ? "?forceCleanOnBackupFailure=true" : "";
+    return fetchWithAuth("Intros/RebuildDatabase" + query, "POST");
 }
 
 // Skip button web patch helpers.

@@ -43,7 +43,16 @@ public sealed partial class IntroSkipperDatabase
 
                 var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
                 var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
-                var autoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
+
+                // Credits-derived previews belong to the credits pass and every other
+                // automatic row to its own mode's pass (the attribution rule of
+                // CleanStaleAutomaticSegmentsAsync), so a write replaces only the rows
+                // its own pass produced. Without the split, the Preview pass and the
+                // credits derive would each delete the other's preview row.
+                var derivedWrite = source == SegmentSource.CreditsDerived;
+                var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
+                var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
+                var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
 
                 var intros = mode == AnalysisMode.Credits
                     ? await db.Segments
@@ -78,6 +87,14 @@ public sealed partial class IntroSkipperDatabase
                         && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                     {
                         LogCreditsOverlapWithIntro(_logger, itemId);
+                        continue;
+                    }
+
+                    // An identical range already standing under the other pass keeps that
+                    // pass's row; re-inserting it would violate the unique
+                    // (ItemId, Type, StartTicks, EndTicks) index.
+                    if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                    {
                         continue;
                     }
 
@@ -145,15 +162,47 @@ public sealed partial class IntroSkipperDatabase
         if (exact is not null)
         {
             // Promote an automatic row, revive a tombstone, or return the user row unchanged.
-            PromoteToUser(exact);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return exact;
+            exact.PromoteToUser();
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return exact;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // A concurrent analysis write deleted the row between the read and the
+                // promotion; fall through and insert the user segment fresh.
+                db.ChangeTracker.Clear();
+            }
         }
 
         var row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
         db.Segments.Add(row);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return row;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return row;
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // A concurrent analysis write claimed the exact range between the read and
+            // this insert (analyzers do not take the editor's stripe); resolve like the
+            // up-front exact match — promote the occupant in place.
+            db.ChangeTracker.Clear();
+            var occupant = await db.Segments
+                .FirstOrDefaultAsync(
+                    s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (occupant is null)
+            {
+                throw;
+            }
+
+            occupant.PromoteToUser();
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return occupant;
+        }
     }
 
     /// <inheritdoc/>
@@ -197,7 +246,7 @@ public sealed partial class IntroSkipperDatabase
 
                 if (row is not null)
                 {
-                    PromoteToUser(row);
+                    row.PromoteToUser();
                 }
                 else
                 {
@@ -240,32 +289,43 @@ public sealed partial class IntroSkipperDatabase
                     && s.EndTicks == endTicks,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (occupant is not null)
+
+        // Concurrent analysis writes do not take the editor's stripe, so the row (or the
+        // occupant) can vanish between the reads above and the save. That surfaces as a
+        // zero-row update; report the segment as unknown instead of failing the request.
+        try
         {
-            if (occupant.State != SegmentState.Suppressed)
+            if (occupant is not null)
             {
-                // The user explicitly claims an exactly-occupied active range: like
-                // AddUserSegmentAsync's in-place promotion, the occupant (whose id
-                // Jellyfin already knows) survives as the user segment and the moved
-                // row is absorbed into it.
-                db.Segments.Remove(row);
-                PromoteToUser(occupant);
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                return occupant;
+                if (occupant.State != SegmentState.Suppressed)
+                {
+                    // The user explicitly claims an exactly-occupied active range: like
+                    // AddUserSegmentAsync's in-place promotion, the occupant (whose id
+                    // Jellyfin already knows) survives as the user segment and the moved
+                    // row is absorbed into it.
+                    db.Segments.Remove(row);
+                    occupant.PromoteToUser();
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    return occupant;
+                }
+
+                // The user explicitly reclaims a previously deleted range: absorb the
+                // tombstone so the unique index cannot fire. Its protective purpose is
+                // preserved because the occupying row becomes user-provided, which
+                // analysis never overwrites.
+                db.Segments.Remove(occupant);
             }
 
-            // The user explicitly reclaims a previously deleted range: absorb the
-            // tombstone so the unique index cannot fire. Its protective purpose is
-            // preserved because the occupying row becomes user-provided, which
-            // analysis never overwrites.
-            db.Segments.Remove(occupant);
+            row.StartTicks = startTicks;
+            row.EndTicks = endTicks;
+            row.PromoteToUser();
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return row;
         }
-
-        row.StartTicks = startTicks;
-        row.EndTicks = endTicks;
-        PromoteToUser(row);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return row;
+        catch (DbUpdateConcurrencyException)
+        {
+            return null;
+        }
     }
 
     /// <inheritdoc/>
@@ -327,7 +387,30 @@ public sealed partial class IntroSkipperDatabase
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            // An equivalent row appeared in the meantime — the restore's intent is met.
+            // A row with the same range appeared in the meantime. For an automatic
+            // snapshot the restore's intent is met — but a user snapshot must not
+            // silently degrade to the occupant's provenance (a concurrent analysis
+            // write would leave the range automatic, and a later hash cleanup would
+            // delete it), so hand the occupant to the user.
+            if (deletedSnapshot.Source != SegmentSource.User)
+            {
+                return;
+            }
+
+            db.ChangeTracker.Clear();
+            var occupant = await db.Segments
+                .FirstOrDefaultAsync(
+                    s => s.ItemId == deletedSnapshot.ItemId
+                        && s.Type == deletedSnapshot.Type
+                        && s.StartTicks == deletedSnapshot.StartTicks
+                        && s.EndTicks == deletedSnapshot.EndTicks,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (occupant is not null && occupant.Source != SegmentSource.User)
+            {
+                occupant.PromoteToUser();
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
@@ -346,6 +429,12 @@ public sealed partial class IntroSkipperDatabase
         }
 
         row.State = SegmentState.Active;
+
+        // The restore is recorded human intent, but the row stays automatic by contract.
+        // Drop the analyzer's hash so the hash-driven stale cleanup (which only judges
+        // rows carrying a hash) cannot silently delete what the user explicitly brought
+        // back — nothing would re-detect it, since the item's analysis record is current.
+        row.ConfigHash = string.Empty;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return row;
     }
@@ -418,6 +507,16 @@ public sealed partial class IntroSkipperDatabase
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            // Credits-derived rows are produced by the credits pass, so erasing them must
+            // also reopen that pass for their items — the erased mode's own pass cannot
+            // regenerate them and would just settle the items as NoSegments.
+            var derivedItemIds = await db.Segments
+                .Where(s => s.Type == mode && s.Source == SegmentSource.CreditsDerived)
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+
             await db.Segments
                 .Where(s => s.Type == mode)
                 .ExecuteDeleteAsync(cancellationToken)
@@ -429,20 +528,18 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => a.Type == mode)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            if (derivedItemIds.Length > 0)
+            {
+                await db.AnalyzedItems
+                    .Where(a => a.Type == AnalysisMode.Credits && EF.Parameter(derivedItemIds).Contains(a.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return itemIds;
         }
-    }
-
-    // Hands a row to the user: active (a tombstone is revived), user-sourced, and without
-    // the analyzer's config hash. Provenance and hash move together because ConfigHash
-    // only describes analyzer output and a hash-driven cleanup must never mistake a
-    // user-owned row for it.
-    private static void PromoteToUser(DbSegment row)
-    {
-        row.State = SegmentState.Active;
-        row.Source = SegmentSource.User;
-        row.ConfigHash = string.Empty;
     }
 
     private static void ValidateRange(long startTicks, long endTicks)

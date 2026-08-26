@@ -198,14 +198,28 @@ public partial class SkipIntroController(
     /// <summary>
     /// Rebuilds the database.
     /// </summary>
+    /// <param name="forceCleanOnBackupFailure">
+    /// When <c>true</c>, the rebuild proceeds with an empty database if the existing one
+    /// cannot be read for backup — every stored timestamp is discarded. When <c>false</c>,
+    /// such a rebuild aborts with 409 so no data is lost without explicit consent.
+    /// </param>
     /// <response code="204">Database rebuilt.</response>
+    /// <response code="409">The existing database could not be read for backup; repeat with forceCleanOnBackupFailure=true to discard it and rebuild empty.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/RebuildDatabase")]
-    public async Task<ActionResult> RebuildDatabase()
+    public async Task<ActionResult> RebuildDatabase([FromQuery] bool forceCleanOnBackupFailure = false)
     {
-        // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
-        await _database.RebuildDatabaseAsync().ConfigureAwait(false);
+        try
+        {
+            // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
+            await _database.RebuildDatabaseAsync(forceCleanOnBackupFailure).ConfigureAwait(false);
+        }
+        catch (DatabaseRebuildBackupException)
+        {
+            return Conflict(new { message = "The existing database could not be read for backup. Repeat the request with forceCleanOnBackupFailure=true to discard it and rebuild empty." });
+        }
+
         return NoContent();
     }
 }

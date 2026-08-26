@@ -88,7 +88,18 @@ export const toolsTab: Tab = {
             });
             if (!result) return;
             try {
-                const response = await api.rebuildDatabase();
+                let response = await api.rebuildDatabase();
+                if (response.status === 409) {
+                    // The server refused because the existing database cannot be read
+                    // for backup; rebuilding means starting empty.
+                    const discard = await confirmDialog({
+                        title: "Database Unreadable",
+                        body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
+                        confirmLabel: "Discard and Rebuild",
+                    });
+                    if (!discard) return;
+                    response = await api.rebuildDatabase({ forceCleanOnBackupFailure: true });
+                }
                 if (!response.ok) {
                     window.Dashboard.alert("Failed to rebuild database");
                     return;

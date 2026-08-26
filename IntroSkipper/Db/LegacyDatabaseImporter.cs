@@ -21,8 +21,6 @@ namespace IntroSkipper.Db;
 /// </summary>
 internal static partial class LegacyDatabaseImporter
 {
-    private const int SaveBatchSize = 1000;
-
     /// <summary>
     /// Imports segments, season states and per-item analysis records from the legacy
     /// database into <paramref name="newDb"/>.
@@ -81,24 +79,48 @@ internal static partial class LegacyDatabaseImporter
         var hasUser = columns.Contains("IsUserProvided");
         var hasHash = columns.Contains("ConfigHash");
 
-        // Quadruples already present in the new database. Import and marker commit in
-        // one transaction, so a crash never leaves partial rows; but a failed import is
+        // Rows already present in the new database. Import and marker commit in one
+        // transaction, so a crash never leaves partial rows; but a failed import is
         // swallowed and retried at the next start, and in between the plugin has run
-        // (analysis, user edits) against the marker-less new file.
+        // (analysis, user edits) against the marker-less new file. The retry must not
+        // contradict what that window recorded: `seen` blocks exact duplicates,
+        // `blockers` holds the human intent (tombstones and active user rows) that
+        // gates automatic legacy rows exactly like analysis writes, and
+        // `occupantsByQuad` lets an exact collision with a window-era automatic row
+        // preserve a legacy row's user provenance by promotion.
         var seen = new HashSet<(Guid ItemId, AnalysisMode Type, long StartTicks, long EndTicks)>();
+        var blockers = new Dictionary<(Guid ItemId, AnalysisMode Type), List<(long StartTicks, long EndTicks)>>();
+        var occupantsByQuad = new Dictionary<(Guid ItemId, AnalysisMode Type, long StartTicks, long EndTicks), Guid>();
         var existing = await newDb.Segments
             .AsNoTracking()
-            .Select(s => new { s.ItemId, s.Type, s.StartTicks, s.EndTicks })
+            .Select(s => new { s.Id, s.ItemId, s.Type, s.StartTicks, s.EndTicks, s.State, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         foreach (var row in existing)
         {
             seen.Add((row.ItemId, row.Type, row.StartTicks, row.EndTicks));
+            if (row.State == SegmentState.Suppressed || row.Source == SegmentSource.User)
+            {
+                if (!blockers.TryGetValue((row.ItemId, row.Type), out var ranges))
+                {
+                    ranges = [];
+                    blockers[(row.ItemId, row.Type)] = ranges;
+                }
+
+                ranges.Add((row.StartTicks, row.EndTicks));
+            }
+            else
+            {
+                occupantsByQuad[(row.ItemId, row.Type, row.StartTicks, row.EndTicks)] = row.Id;
+            }
         }
 
         using var command = legacy.CreateCommand();
 
-        // User rows first so they win the exact-duplicate dedupe below.
+        // User rows first so they win the exact-duplicate dedupe below. The `= 1`
+        // normalization matters because repair-era files can hold non-integer values in
+        // the column, and SQLite orders by storage class first (TEXT above INTEGER under
+        // DESC) — a garbage-flagged duplicate must not outrank a genuine user row.
 #pragma warning disable CA2100 // Interpolation only splices compile-time literals selected by column presence.
         command.CommandText =
             $"""
@@ -106,13 +128,14 @@ internal static partial class LegacyDatabaseImporter
                 {(hasUser ? ", \"IsUserProvided\"" : string.Empty)}
                 {(hasHash ? ", \"ConfigHash\"" : string.Empty)}
             FROM "DbSegment"
-            {(hasUser ? "ORDER BY \"IsUserProvided\" DESC" : string.Empty)}
+            {(hasUser ? "ORDER BY (\"IsUserProvided\" = 1) DESC" : string.Empty)}
             """;
 #pragma warning restore CA2100
 
         var imported = 0;
         var skipped = 0;
         var pending = new List<DbSegment>();
+        var promotions = new HashSet<Guid>();
 
         var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using (reader.ConfigureAwait(false))
@@ -144,22 +167,47 @@ internal static partial class LegacyDatabaseImporter
                     continue;
                 }
 
-                if (!seen.Add((itemId, (AnalysisMode)type, startTicks, endTicks)))
+                var mode = (AnalysisMode)type;
+                var userValue = hasUser ? reader.GetValue(userOrdinal) : null;
+                var source = TryToInt64(userValue, out var userFlag) && userFlag != 0
+                    ? SegmentSource.User
+                    : SegmentSource.Unknown;
+
+                // Automatic legacy rows obey the same admission rule as analysis writes:
+                // they must not contradict the human intent (tombstones, user rows) the
+                // retry window recorded. User rows are admitted unconditionally, as at
+                // every other write door.
+                if (source != SegmentSource.User
+                    && blockers.TryGetValue((itemId, mode), out var ranges)
+                    && ranges.Any(r => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, r.StartTicks, r.EndTicks)))
                 {
                     skipped++;
                     continue;
                 }
 
-                var userValue = hasUser ? reader.GetValue(userOrdinal) : null;
-                var source = TryToInt64(userValue, out var userFlag) && userFlag != 0
-                    ? SegmentSource.User
-                    : SegmentSource.Unknown;
+                if (!seen.Add((itemId, mode, startTicks, endTicks)))
+                {
+                    // The exact range already exists. When the legacy row is
+                    // user-provided and the occupant is an automatic row from the retry
+                    // window, the user's provenance must survive: promote the occupant
+                    // instead of silently dropping the flag (a tombstone occupant is
+                    // newer human intent and wins as-is).
+                    if (source == SegmentSource.User
+                        && occupantsByQuad.TryGetValue((itemId, mode, startTicks, endTicks), out var occupantId))
+                    {
+                        promotions.Add(occupantId);
+                    }
+
+                    skipped++;
+                    continue;
+                }
+
                 var configHash = ReadOptionalString(reader, hashOrdinal);
 
-                pending.Add(new DbSegment(itemId, (AnalysisMode)type, startTicks, endTicks, source, configHash));
+                pending.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
                 imported++;
 
-                if (pending.Count >= SaveBatchSize)
+                if (pending.Count >= IntroSkipperDbContext.SaveBatchSize)
                 {
                     await SaveBatchAsync(newDb, newDb.Segments, pending, cancellationToken).ConfigureAwait(false);
                 }
@@ -167,6 +215,22 @@ internal static partial class LegacyDatabaseImporter
         }
 
         await SaveBatchAsync(newDb, newDb.Segments, pending, cancellationToken).ConfigureAwait(false);
+
+        if (promotions.Count > 0)
+        {
+            var occupantIds = promotions.ToArray();
+            var occupants = await newDb.Segments
+                .Where(s => EF.Parameter(occupantIds).Contains(s.Id))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var occupant in occupants)
+            {
+                occupant.PromoteToUser();
+            }
+
+            await newDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            newDb.ChangeTracker.Clear();
+        }
 
         LogSegmentsImported(logger, imported, skipped);
         return (imported, skipped, $"segments: {(hasUser ? "+IsUserProvided" : "-IsUserProvided")} {(hasHash ? "+ConfigHash" : "-ConfigHash")}");
@@ -283,7 +347,7 @@ internal static partial class LegacyDatabaseImporter
                     analyzed.Add(new DbAnalyzedItem(episodeId, mode, configHash));
                     analyzedImported++;
 
-                    if (analyzed.Count >= SaveBatchSize)
+                    if (analyzed.Count >= IntroSkipperDbContext.SaveBatchSize)
                     {
                         await SaveBatchAsync(newDb, newDb.AnalyzedItems, analyzed, cancellationToken).ConfigureAwait(false);
                     }
@@ -298,17 +362,12 @@ internal static partial class LegacyDatabaseImporter
         return (imported, $"seasons: {table}, {analyzedImported} analysis records");
     }
 
+    // Delegates to the context's shared bounded-batch write, then empties the staging
+    // list so the read loop can keep reusing it.
     private static async Task SaveBatchAsync<TEntity>(IntroSkipperDbContext newDb, DbSet<TEntity> set, List<TEntity> pending, CancellationToken cancellationToken)
         where TEntity : class
     {
-        if (pending.Count == 0)
-        {
-            return;
-        }
-
-        set.AddRange(pending);
-        await newDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        newDb.ChangeTracker.Clear();
+        await newDb.SaveBatchAsync(set, pending, cancellationToken).ConfigureAwait(false);
         pending.Clear();
     }
 

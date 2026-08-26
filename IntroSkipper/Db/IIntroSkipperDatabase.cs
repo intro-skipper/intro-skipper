@@ -31,10 +31,15 @@ public interface IIntroSkipperDatabase
     /// accepted subset of <paramref name="segments"/>. A segment is rejected when it is
     /// invalid (end not after start), overlaps a tombstone of the same item and mode,
     /// overlaps an active user segment of the same mode, is an automatic credits segment
-    /// overlapping any active introduction, or exactly duplicates an earlier accepted
-    /// segment of the same batch.
+    /// overlapping any active introduction, exactly matches a row of the other pass, or
+    /// exactly duplicates an earlier accepted segment of the same batch.
+    /// The write only replaces the rows its own pass produced: credits-derived rows
+    /// (<see cref="SegmentSource.CreditsDerived"/>) belong to the credits pass, every
+    /// other automatic row to the mode's own pass — the attribution rule of
+    /// <see cref="CleanStaleAutomaticSegmentsAsync"/> — so the passes sharing the
+    /// Preview mode cannot delete each other's rows.
     /// Automatic rows whose boundaries match an accepted segment exactly are kept in
-    /// place (stable ids); an empty list clears the mode's automatic segments.
+    /// place (stable ids); an empty list clears the pass's automatic segments of the mode.
     /// User segments and tombstones are never touched.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
@@ -43,7 +48,7 @@ public interface IIntroSkipperDatabase
     /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
     /// <param name="configHash">Configuration hash that produced the segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of active automatic segments stored for the mode after the write.</returns>
+    /// <returns>The number of active automatic segments of the writing pass stored for the mode after the write.</returns>
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -89,7 +94,8 @@ public interface IIntroSkipperDatabase
     /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The surviving row (the addressed row, or the exact-range occupant it merged into),
-    /// or <c>null</c> when the id is unknown on the item or suppressed.</returns>
+    /// or <c>null</c> when the id is unknown on the item, suppressed, or was deleted by a
+    /// concurrent write before the update could commit.</returns>
     Task<DbSegment?> UpdateSegmentAsync(Guid itemId, Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -115,7 +121,9 @@ public interface IIntroSkipperDatabase
     Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clears a tombstone, making the suppressed segment active again with its original source.
+    /// Clears a tombstone, making the suppressed segment active again with its original
+    /// source. The row's <see cref="DbSegment.ConfigHash"/> is dropped: the restore is
+    /// recorded human intent, so the hash-driven stale cleanup must not judge the row.
     /// </summary>
     /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
@@ -157,7 +165,9 @@ public interface IIntroSkipperDatabase
     /// Deletes every stored segment of the given analysis mode, tombstones included
     /// (explicit erase is a factory reset), and the mode's analysis records so the next
     /// scan re-detects instead of classifying the erased items as <c>NoSegments</c>.
-    /// Both run in one transaction.
+    /// Items whose erased rows were credits-derived also lose their
+    /// <see cref="AnalysisMode.Credits"/> records, because only the credits pass can
+    /// regenerate those rows. Everything runs in one transaction.
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -195,7 +205,10 @@ public interface IIntroSkipperDatabase
     /// (<see cref="SegmentSource.CreditsDerived"/>, stamped with the credits hash) are
     /// cleaned by the <see cref="AnalysisMode.Credits"/> pass and ignored by the
     /// <see cref="AnalysisMode.Preview"/> pass. User-provided segments and tombstones
-    /// are intentionally preserved.
+    /// are intentionally preserved, and so are rows with an empty hash (restored
+    /// tombstones, legacy imports without a recorded hash — they make no staleness
+    /// claim) and the automatic rows of any type the item holds an active user row for
+    /// (the analyzers skip such items, so nothing would regenerate the rows).
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -301,12 +314,32 @@ public interface IIntroSkipperDatabase
     Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the season-state keys that are not part of <paramref name="retainedSeasonIds"/>,
+    /// so cleanup can decide per key whether the season is gone or merely missing from an
+    /// enumeration that skipped its library.
+    /// </summary>
+    /// <param name="retainedSeasonIds">Season IDs known to still exist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stale season-state keys.</returns>
+    Task<IReadOnlyCollection<Guid>> GetStaleSeasonIdsAsync(IEnumerable<Guid> retainedSeasonIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Removes season-state rows whose seasons no longer exist.
     /// </summary>
     /// <param name="seasonIds">Season IDs that still exist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the item IDs holding per-item state (disable flags or analysis records) that
+    /// are not part of <paramref name="retainedItemIds"/>, so cleanup can decide per item
+    /// whether it is gone or merely missing from an enumeration that skipped its library.
+    /// </summary>
+    /// <param name="retainedItemIds">Item IDs known to still exist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stale per-item-state item IDs.</returns>
+    Task<IReadOnlyCollection<Guid>> GetStaleItemStateIdsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes per-item state (disable flags and analysis records) of items that no
@@ -345,7 +378,9 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Rebuilds the database while attempting to preserve segments, season state,
-    /// analysis records, disabled items and the legacy-import marker.
+    /// analysis records, disabled items and the legacy-import marker. Runs even when
+    /// initialization fails (it recreates the schema itself), so a database whose
+    /// migrations no longer apply can still be recovered.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
@@ -353,5 +388,6 @@ public interface IIntroSkipperDatabase
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
     Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default);
 }

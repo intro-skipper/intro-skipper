@@ -40,7 +40,6 @@ namespace IntroSkipper.Migrations
             modelBuilder.Entity("IntroSkipper.Db.DbDisabledItem", b =>
                 {
                     b.Property<Guid>("ItemId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("SeasonId")

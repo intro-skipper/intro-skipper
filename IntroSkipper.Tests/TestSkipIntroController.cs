@@ -173,6 +173,32 @@ public sealed class TestSkipIntroController
         Assert.Equal([itemId], refresher.RefreshedItemIds);
     }
 
+    [Fact]
+    public async Task RebuildDatabase_UnreadableBackup_Returns409_AndForceRebuildsClean()
+    {
+        var dbPath = CreateTempDbPath();
+        try
+        {
+            // A garbage file makes both initialization and the backup read fail.
+            await File.WriteAllTextAsync(dbPath, "this is not a sqlite database file");
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var controller = CreateController(new FakeJellyfinSegmentStore(), database, DatabaseTestHelpers.CreateTempCacheDbPath());
+
+            // Without force the endpoint reports the unreadable backup as a conflict,
+            // so the dashboard can ask for explicit consent instead of losing data.
+            Assert.IsType<ConflictObjectResult>(await controller.RebuildDatabase());
+
+            // With force the unreadable file is discarded and the rebuild succeeds;
+            // the facade is operational over the recreated database.
+            Assert.IsType<NoContentResult>(await controller.RebuildDatabase(forceCleanOnBackupFailure: true));
+            Assert.Empty(await database.GetSegmentsAsync(Guid.NewGuid()));
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static SkipIntroController CreateController(
         IJellyfinSegmentStore store,
         IntroSkipperDatabase database,

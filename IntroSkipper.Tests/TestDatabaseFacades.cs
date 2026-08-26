@@ -517,6 +517,51 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task ReplaceAutoSegmentsAsync_PreviewPasses_DoNotDeleteEachOthersRows()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // The credits pass derives a preview, then the preview pass stores a chapter
+            // preview with different boundaries. The passes share the Preview mode but
+            // own only their own rows, so neither write may delete the other's.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
+
+            var segments = await database.GetSegmentsAsync(itemId);
+            Assert.Equal(2, segments.Count);
+            Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived);
+            Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+
+            // A re-derive replaces only the derived row; the chapter row stands.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+            segments = await database.GetSegmentsAsync(itemId);
+            Assert.Equal(2, segments.Count);
+            Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived && s.StartTicks == Ticks(1390));
+            Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+
+            // An empty preview-pass write clears only the pass's own (chapter) row.
+            var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash");
+            Assert.Equal(0, stored);
+            var remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+
+            // A chapter preview landing exactly on the derived range leaves the derived
+            // row standing instead of violating the unique quadruple index.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
+            remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly()
     {
         var dbPath = CreateTempDbPath();
@@ -969,7 +1014,7 @@ public sealed class TestDatabaseFacades
             // makes the backup read throw SqliteException ("no such column").
             await DropSegmentsConfigHashColumnAsync(dbPath);
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => database.RebuildDatabaseAsync());
+            var exception = await Assert.ThrowsAsync<DatabaseRebuildBackupException>(() => database.RebuildDatabaseAsync());
             Assert.IsType<SqliteException>(exception.InnerException);
 
             // The aborted rebuild must not have touched the database file: the seeded
@@ -1014,6 +1059,38 @@ public sealed class TestDatabaseFacades
 
             // The facade stays operational over the recreated database.
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(0, 10))], SegmentSource.Chapter);
+            Assert.Single(await database.GetSegmentsAsync(itemId));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_UninitializableDatabase_IsReachableAndRebuildsClean()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            // A garbage file fails MigrateAsync itself, so every initialization attempt
+            // throws — the state the rebuild endpoint exists to recover from.
+            await File.WriteAllTextAsync(dbPath, "this is not a sqlite database file");
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await Assert.ThrowsAsync<SqliteException>(() => database.GetSegmentsAsync(itemId));
+
+            // The rebuild runs despite the failing gate. Without force the unreadable
+            // backup aborts it with the data-loss guidance instead of rethrowing the
+            // initialization failure.
+            var exception = await Assert.ThrowsAsync<DatabaseRebuildBackupException>(() => database.RebuildDatabaseAsync());
+            Assert.IsType<SqliteException>(exception.InnerException);
+
+            await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
+
+            // The facade recovers fully: the reset gate migrates the recreated file on
+            // the next operation.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
             Assert.Single(await database.GetSegmentsAsync(itemId));
         }
         finally

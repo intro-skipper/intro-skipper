@@ -112,6 +112,21 @@ public class DbSegment
         => new(ItemId, new TimeRange(TickConversions.ToSeconds(StartTicks), TickConversions.ToSeconds(EndTicks)));
 
     /// <summary>
+    /// Hands the row to the user: active (a tombstone is revived), user-sourced, and
+    /// without the analyzer's config hash. Provenance and hash move together because
+    /// <see cref="ConfigHash"/> only describes analyzer output and a hash-driven cleanup
+    /// must never mistake a user-owned row for it. Shared by every path that transfers
+    /// ownership (editor promotion, exact-range merges, legacy-import collisions) so the
+    /// transition cannot drift.
+    /// </summary>
+    internal void PromoteToUser()
+    {
+        State = SegmentState.Active;
+        Source = SegmentSource.User;
+        ConfigHash = string.Empty;
+    }
+
+    /// <summary>
     /// Creates a detached copy used to snapshot a row before deletion so it can be
     /// restored verbatim. Memberwise, so every persisted property — including columns
     /// added later — is carried automatically; all properties are value types or

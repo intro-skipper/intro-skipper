@@ -18,6 +18,12 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class IntroSkipperDbContext : DbContext
 {
+    /// <summary>
+    /// Rows per <see cref="SaveBatchAsync"/> flush; shared by the salvage restore and the
+    /// legacy import so the bounded-batch pattern cannot drift between the two bulk paths.
+    /// </summary>
+    internal const int SaveBatchSize = 1000;
+
     // SQLite stores DateTime without a kind; every stored timestamp is UTC, so reads
     // must come back marked as such or comparisons silently use local time.
     private static readonly ValueConverter<DateTime, DateTime> _utcDateTimeConverter =
@@ -167,6 +173,13 @@ public class IntroSkipperDbContext : DbContext
             // One flag per item by construction; the SeasonId index serves the
             // per-season listing (cleanup prunes by item ID).
             entity.HasKey(e => e.ItemId);
+
+            // The key is always a real library item id — never client-generated. Without
+            // this, EF's Guid-PK convention would silently substitute a random id for a
+            // default ItemId instead of surfacing the caller's bug.
+            entity.Property(e => e.ItemId)
+                  .ValueGeneratedNever();
+
             entity.HasIndex(e => e.SeasonId);
         });
 
@@ -210,6 +223,7 @@ public class IntroSkipperDbContext : DbContext
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
     public async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
@@ -251,16 +265,32 @@ public class IntroSkipperDbContext : DbContext
         {
             throw; // Don't swallow cancellation
         }
-        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException)
+        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException or FormatException or InvalidCastException)
         {
+            // FormatException/InvalidCastException cover corrupted TEXT in the
+            // materialized Guid/DateTime columns, which surfaces during row
+            // materialization rather than as a SqliteException.
             if (!forceCleanOnBackupFailure)
             {
-                throw new InvalidOperationException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
+                throw new DatabaseRebuildBackupException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
             }
 
             // Explicit clean-rebuild fallback requested by the caller.
             backupFailed = true;
         }
+
+        // Sanitize the salvage before the old file is destroyed: rebuild targets
+        // corrupted databases, whose readable rows can still violate the fresh schema's
+        // CHECK constraint, unique index or primary keys — and the restore below is
+        // all-or-nothing, so a single such row must not turn a salvageable database
+        // into an empty one.
+        segments = [.. segments
+            .Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)
+            .DistinctBy(s => s.Id)
+            .DistinctBy(s => (s.ItemId, s.Type, s.StartTicks, s.EndTicks))];
+        seasonStates = [.. seasonStates.DistinctBy(s => (s.SeasonId, s.Type))];
+        analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
+        disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
 
         if (backupFailed)
         {
@@ -305,12 +335,32 @@ public class IntroSkipperDbContext : DbContext
         CancellationToken cancellationToken)
         where TEntity : class
     {
-        foreach (var batch in entities.Chunk(1000))
+        foreach (var batch in entities.Chunk(SaveBatchSize))
         {
-            set.AddRange(batch);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            db.ChangeTracker.Clear();
+            await db.SaveBatchAsync(set, batch, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Adds and saves one bounded batch, then clears the change tracker so a large
+    /// data set is never held tracked all at once. No-op for an empty batch.
+    /// </summary>
+    /// <typeparam name="TEntity">Entity type.</typeparam>
+    /// <param name="set">The set to add into.</param>
+    /// <param name="batch">Entities to insert.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task SaveBatchAsync<TEntity>(DbSet<TEntity> set, IReadOnlyCollection<TEntity> batch, CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        if (batch.Count == 0)
+        {
+            return;
+        }
+
+        set.AddRange(batch);
+        await SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        ChangeTracker.Clear();
     }
 
     /// <summary>

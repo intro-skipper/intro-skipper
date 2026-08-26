@@ -154,9 +154,13 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // Project only the consumed columns: the snapshot never reads Id, ConfigHash or
+        // the timestamp columns, and skipping them avoids a per-row Guid parse plus two
+        // DateTime TEXT parses on a query that runs once per season per scan.
         var segments = await db.Segments
             .AsNoTracking()
             .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId) && s.State == SegmentState.Active)
+            .Select(s => new { s.ItemId, s.Type, s.StartTicks, s.EndTicks, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -173,7 +177,9 @@ public sealed partial class IntroSkipperDatabase
                             modeGroup => modeGroup.Key,
                             modeGroup => (IReadOnlyList<Segment>)[.. modeGroup
                                 .OrderBy(s => s.StartTicks)
-                                .Select(s => s.ToSegment())])),
+                                .Select(s => new Segment(
+                                    s.ItemId,
+                                    new TimeRange(TickConversions.ToSeconds(s.StartTicks), TickConversions.ToSeconds(s.EndTicks))))])),
             segments
                 .Where(s => s.Source == SegmentSource.User)
                 .GroupBy(s => s.Type)
