@@ -826,7 +826,7 @@ public sealed class TestSeasonReanalysisReset
         public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
-        public string GetChromaprintLogs() => string.Empty;
+        public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
     }
 
     // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,

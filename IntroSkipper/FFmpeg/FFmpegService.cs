@@ -5,7 +5,6 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -42,10 +41,6 @@ public sealed partial class FFmpegService(
     private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
     private readonly TimeSpan _versionProbeTimeout = DefaultVersionProbeTimeout;
 
-    // Version checks share one in-flight probe, but the support bundle endpoint can read
-    // these logs while that probe writes them, so a concurrent dictionary is required.
-    private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
-
     // Deliberately NOT RetryableInitializationGate: that gate replaces an attempt only
     // when it throws, but this one must also reset on a successful probe whose verdict
     // is false (an incompatible ffmpeg is an expected, re-queryable state), keep success
@@ -53,6 +48,11 @@ public sealed partial class FFmpegService(
     // atomically so the next caller is guaranteed a fresh probe. A Lazy-based attempt
     // can express none of that.
     private readonly Lock _versionProbeLock = new();
+
+    // Replaced atomically by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) and read
+    // concurrently by the support bundle endpoint, so each run publishes a new immutable snapshot.
+    private volatile FFmpegCheckResult _checkResult = FFmpegCheckResult.NotRun;
+
     private Task<bool>? _versionProbeTask;
     private volatile bool _versionProbeSucceeded;
 
@@ -165,6 +165,7 @@ public sealed partial class FFmpegService(
 
     private async Task<bool> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
     {
+        var outputs = new List<FFmpegCheckOutput>();
         try
         {
             // Always log ffmpeg's version information.
@@ -173,11 +174,10 @@ public sealed partial class FFmpegService(
                 "ffmpeg",
                 "version",
                 "Unknown error with FFmpeg version",
+                outputs,
                 cancellationToken).ConfigureAwait(false))
             {
-                _chromaprintLogs["error"] = "unknown_error";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
+                return Fail("unknown_error");
             }
 
             // First, validate that the installed version of ffmpeg supports chromaprint at all.
@@ -186,11 +186,10 @@ public sealed partial class FFmpegService(
                 "chromaprint",
                 "muxer list",
                 "The installed version of ffmpeg does not support chromaprint",
+                outputs,
                 cancellationToken).ConfigureAwait(false))
             {
-                _chromaprintLogs["error"] = "chromaprint_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
+                return Fail("chromaprint_not_supported");
             }
 
             // Second, validate that the Chromaprint muxer understands the "-fp_format raw" option.
@@ -199,11 +198,10 @@ public sealed partial class FFmpegService(
                 "binary raw fingerprint",
                 "chromaprint options",
                 "The installed version of ffmpeg does not support raw binary fingerprints",
+                outputs,
                 cancellationToken).ConfigureAwait(false))
             {
-                _chromaprintLogs["error"] = "fp_format_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
+                return Fail("fp_format_not_supported");
             }
 
             // Third, validate that ffmpeg supports all of the required silencedetect options.
@@ -212,16 +210,15 @@ public sealed partial class FFmpegService(
                 "noise tolerance",
                 "silencedetect options",
                 "The installed version of ffmpeg does not support the silencedetect filter",
+                outputs,
                 cancellationToken).ConfigureAwait(false))
             {
-                _chromaprintLogs["error"] = "silencedetect_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
+                return Fail("silencedetect_not_supported");
             }
 
             LogFfmpegVersionValid(_logger);
 
-            _chromaprintLogs["error"] = "okay";
+            _checkResult = new FFmpegCheckResult("okay", [.. outputs]);
             return true;
         }
         catch (OperationCanceledException)
@@ -231,7 +228,12 @@ public sealed partial class FFmpegService(
         catch (Exception ex)
         {
             LogFfmpegVersionCheckFailed(_logger, ex);
-            _chromaprintLogs["error"] = "unknown_error";
+            return Fail("unknown_error");
+        }
+
+        bool Fail(string status)
+        {
+            _checkResult = new FFmpegCheckResult(status, [.. outputs]);
             WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
             return false;
         }
@@ -545,27 +547,7 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public string GetChromaprintLogs()
-    {
-        // Print the FFmpeg detection status at the top.
-        // Format: "* FFmpeg: `error`"
-        // Append two newlines to separate the bulleted list from the logs
-        var logs = new StringBuilder()
-            .Append("* FFmpeg: `")
-            .Append(_chromaprintLogs.GetValueOrDefault("error", "unknown"))
-            .Append("`\n\n");
-
-        // Always include ffmpeg version information
-        logs.Append(FormatFFmpegLog("version"));
-
-        // Include feature detection logs to verify no warnings
-        foreach (var kvp in _chromaprintLogs.Where(kvp => kvp.Key is not "error" and not "version"))
-        {
-            logs.Append(FormatFFmpegLog(kvp.Key));
-        }
-
-        return logs.ToString();
-    }
+    public FFmpegCheckResult GetCheckResult() => _checkResult;
 
     /// <summary>
     /// Run an FFmpeg command with the provided arguments and validate that the output contains
@@ -573,8 +555,9 @@ public sealed partial class FFmpegService(
     /// </summary>
     /// <param name="arguments">Arguments to pass to FFmpeg.</param>
     /// <param name="mustContain">String that the output must contain. Case-insensitive.</param>
-    /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
+    /// <param name="bundleName">Support bundle name to report FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
+    /// <param name="outputs">Per-run list that receives the captured output, whether or not the requirement is met.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>true on success, false on error.</returns>
     private async Task<bool> CheckFFmpegRequirementAsync(
@@ -582,6 +565,7 @@ public sealed partial class FFmpegService(
         string mustContain,
         string bundleName,
         string errorMessage,
+        List<FFmpegCheckOutput> outputs,
         CancellationToken cancellationToken)
     {
         LogCheckingRequirement(_logger, arguments);
@@ -589,7 +573,7 @@ public sealed partial class FFmpegService(
         var output = Encoding.UTF8.GetString(await GetOutputAsync(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000, cancellationToken).ConfigureAwait(false));
         LogFfmpegOutput(_logger, arguments, output);
 
-        _chromaprintLogs[bundleName] = output;
+        outputs.Add(new FFmpegCheckOutput(bundleName, output));
 
         if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
         {
@@ -847,7 +831,6 @@ public sealed partial class FFmpegService(
                 return null;
             }
 
-            var fallbackStream = SelectAudioStream(audioStreams, preferMostChannels);
             var defaultStream = SelectAudioStream(audioStreams, preferMostChannels: true);
             var candidates = hasLanguagePreference
                 ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
@@ -865,10 +848,12 @@ public sealed partial class FFmpegService(
                 ? "policy=most-channels"
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
+            // Legacy rows were fingerprinted from FFmpeg's default stream (most channels, then
+            // lowest index), so they are only reusable when that is still the effective stream.
             return new AudioStreamSelection(
                 preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
                 cacheVariant,
-                selectedStream.Index == fallbackStream.Index);
+                selectsDefaultMostStream);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -995,29 +980,6 @@ public sealed partial class FFmpegService(
         => preferMostChannels
             ? streams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
             : streams.OrderBy(stream => stream.Index).First();
-
-    private string FormatFFmpegLog(string key)
-    {
-        /* Format:
-        * FFmpeg NAME:
-        * ```
-        * LOGS
-        * ```
-        */
-
-        var formatted = string.Format(CultureInfo.InvariantCulture, "FFmpeg {0}:\n```\n", key);
-        formatted += _chromaprintLogs.GetValueOrDefault(key, "(no output captured)");
-
-        // Ensure the closing triple backtick is on a separate line
-        if (!formatted.EndsWith('\n'))
-        {
-            formatted += "\n";
-        }
-
-        formatted += "```\n\n";
-
-        return formatted;
-    }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Installed version of ffmpeg meets fingerprinting requirements")]
     private static partial void LogFfmpegVersionValid(ILogger logger);

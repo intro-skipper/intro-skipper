@@ -10,6 +10,7 @@ import type {
     LibraryStorage,
     SystemStorageInfo,
     ClearExcludedTimestampsResponse,
+    SupportBundle,
 } from "../types.ts";
 
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
@@ -241,12 +242,16 @@ export async function clearExcludedTimestamps(): Promise<
 }
 
 // Support and storage tools.
-export async function getSupportBundle(): Promise<string> {
-    const response = await fetchWithAuth("IntroSkipper/SupportBundle", "GET");
+export async function getSupportBundle(): Promise<SupportBundle> {
+    const response = await fetchWithAuth("IntroSkipper/SupportBundle/Json", "GET");
     if (!response.ok) {
         throw new Error("Failed to fetch support bundle (HTTP " + response.status + ")");
     }
-    return response.text();
+    const data = (await response.json()) as SupportBundle;
+    if (typeof data?.Markdown !== "string" || !Array.isArray(data.Sections)) {
+        throw new Error("Unexpected support bundle response shape");
+    }
+    return data;
 }
 
 export async function getStorageUsage(): Promise<LibraryStorage[]> {
