@@ -3,6 +3,8 @@
 
 using IntroSkipper.Helper;
 using IntroSkipper.Providers;
+using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Model.MediaSegments;
 
 namespace IntroSkipper.Manager;
 
@@ -32,8 +34,11 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     /// <summary>
     /// Mirrors the plugin database into Jellyfin's media segments for one item: every
     /// active plugin segment is pushed (carrying its plugin row id) and Intro Skipper
-    /// rows no longer present in the plugin database are removed. The lock spans the
-    /// plugin-database read and the Jellyfin replace as one unit, so a write derived
+    /// rows no longer present in the plugin database are removed. When Jellyfin's rows
+    /// already equal the intended push, the replace is skipped, so bulk refreshes over
+    /// unchanged items stay read-only instead of taking one write transaction each
+    /// under Jellyfin's database lock. The lock spans the plugin-database read, the
+    /// mirror comparison, and the Jellyfin replace as one unit, so a write derived
     /// from a stale read can never land after a newer one; distinct items are
     /// serialized only when their ids share a lock stripe.
     /// </summary>
@@ -49,7 +54,11 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
 
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var segments = await segmentDtoFactory.CreateAsync(itemId, cancellationToken).ConfigureAwait(false);
-        await segmentStore.ReplaceSegmentsAsync(itemId, segments, cancellationToken).ConfigureAwait(false);
+        var mirrored = await segmentStore.GetOwnSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        if (!SegmentsMatch(mirrored, segments))
+        {
+            await segmentStore.ReplaceSegmentsAsync(itemId, segments, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -99,5 +108,24 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
             using var stripe = await _lock.AcquireStripeAsync(stripeGroup.Key, cancellationToken).ConfigureAwait(false);
             await segmentStore.DeleteOwnSegmentsAsync(stripeGroup, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // (Id, StartTicks, EndTicks, Type) plus the query-fixed item and provider id is the
+    // entire surface the store writes, so with ids unique per row an equal-count subset
+    // check is an exact row-set match. Any drift — including rows Jellyfin should hold
+    // but does not — fails the match and triggers the full replace, so the skip never
+    // costs the sync its self-healing.
+    private static bool SegmentsMatch(IReadOnlyList<MediaSegmentDto> mirrored, IReadOnlyList<MediaSegmentDto> desired)
+    {
+        if (mirrored.Count != desired.Count)
+        {
+            return false;
+        }
+
+        var mirroredRows = mirrored.Select(RowKey).ToHashSet();
+        return desired.All(segment => mirroredRows.Contains(RowKey(segment)));
+
+        static (Guid Id, long StartTicks, long EndTicks, MediaSegmentType Type) RowKey(MediaSegmentDto segment)
+            => (segment.Id, segment.StartTicks, segment.EndTicks, segment.Type);
     }
 }

@@ -36,8 +36,10 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
         var itemSegments = await _database.GetServableSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         // Stored rows always satisfy end > start and carry a mapped mode (every write
-        // boundary validates); a violation surfaces loudly at the Jellyfin write instead
-        // of being silently dropped here.
+        // boundary validates); a violated invariant fails loudly instead of being
+        // silently dropped: an unmapped mode throws right here in the indexer, a bad
+        // range throws at the Jellyfin write (JellyfinSegmentStore.Map on the push
+        // path, the server's own validation on the provider pull path).
         return [.. itemSegments.Select(segment => new MediaSegmentDto
         {
             Id = segment.Id,

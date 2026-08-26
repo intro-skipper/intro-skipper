@@ -11,8 +11,10 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Model.MediaSegments;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -228,9 +230,19 @@ public sealed class TestVisualizationController
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
         var refresher = new RecordingMediaSegmentRefresher();
-        var store = new FakeJellyfinSegmentStore();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+        // Steady state before the toggle: an automatic segment already mirrored to
+        // Jellyfin. Disabling pushes the empty replace that withdraws it; enabling
+        // pushes it back — each direction a real write, not a skipped no-op sync.
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+        var mirroredRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0], mirroredRow.Id, mirroredRow.StartTicks, mirroredRow.EndTicks)]
+        };
         var controller = CreateController(
             refresher, loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
@@ -294,8 +306,11 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        // A mirrored row makes the disable-sync a real (failing) write instead of a
+        // skipped no-op.
         var store = new FakeJellyfinSegmentStore
         {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0])],
             WriteException = new InvalidOperationException("mirror write failed")
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
@@ -331,6 +346,11 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
+
+        // A stored automatic segment gives the enable-sync rows to push, so it is a
+        // real (failing) write instead of a skipped no-op.
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
         var controller = CreateController(
             new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
@@ -356,8 +376,11 @@ public sealed class TestVisualizationController
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A mirrored row gives each disable-sync something to withdraw, so both are
+        // real writes instead of skipped no-op syncs.
         var store = new FakeJellyfinSegmentStore
         {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0])],
             WriteGate = writeGate,
             WriteEntered = writeEntered,
             BlockedItemId = episodeIds[0]
@@ -406,16 +429,21 @@ public sealed class TestVisualizationController
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var store = new FakeJellyfinSegmentStore
-        {
-            WriteGate = writeGate,
-            WriteEntered = writeEntered,
-            BlockedItemId = episodeIds[0]
-        };
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+
+        // Steady state: the automatic segment is already mirrored, so A's disable-sync
+        // has a row to withdraw and parks in a real write instead of skipping.
+        var introRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0], introRow.Id, introRow.StartTicks, introRow.EndTicks)],
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
+        };
         var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
         var controller = CreateController(
             new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, editorService);
@@ -482,6 +510,21 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
         return episode;
     }
+
+    /// <summary>
+    /// A row already mirrored to Jellyfin. Seeded so a sync whose intended push differs
+    /// (a disable withdrawing it, or a plugin-side change) is a real write rather than
+    /// a skipped no-op; defaults produce a row matching no plugin row.
+    /// </summary>
+    private static MediaSegmentDto CreateMirroredDto(Guid itemId, Guid? id = null, long? startTicks = null, long? endTicks = null)
+        => new()
+        {
+            Id = id ?? Guid.NewGuid(),
+            ItemId = itemId,
+            Type = MediaSegmentType.Intro,
+            StartTicks = startTicks ?? TickConversions.FromSeconds(10),
+            EndTicks = endTicks ?? TickConversions.FromSeconds(20)
+        };
 
     private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
         => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);

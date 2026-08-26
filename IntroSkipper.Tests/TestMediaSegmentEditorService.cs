@@ -67,7 +67,10 @@ public sealed class TestMediaSegmentEditorService
             WriteEntered = writeEntered,
             BlockedItemId = itemId
         };
-        var mirror = DatabaseTestHelpers.CreateMirror(store, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
         // First call enters the critical section and parks inside the store write while
         // holding the lock; wait for the park so the assertions below cannot race the
@@ -87,8 +90,10 @@ public sealed class TestMediaSegmentEditorService
         await first;
         await second;
 
-        Assert.Equal(2, store.WriteCallCount);
-        Assert.Equal(2, store.ReplacedItems.Count);
+        // The first call converged the mirror, so the serialized second call found
+        // nothing left to change and skipped its write.
+        Assert.Equal(1, store.WriteCallCount);
+        Assert.Single(store.ReplacedItems);
     }
 
     [Fact]
@@ -103,10 +108,14 @@ public sealed class TestMediaSegmentEditorService
         };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
 
-        // Warm EF/SQLite initialization before the race: the 1-second completion window
+        // Seeding gives each item a segment to push (an empty-vs-empty sync would skip
+        // the store) and warms EF/SQLite before the race: the 1-second completion window
         // below asserts mirror-stripe independence and must not also absorb the one-time
         // model build + migration, which alone exceeds it on a cold run.
-        await database.GetSegmentsAsync(Guid.NewGuid());
+        await database.ReplaceAutoSegmentsAsync(
+            firstItemId, AnalysisMode.Introduction, [new Segment(firstItemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            secondItemId, AnalysisMode.Introduction, [new Segment(secondItemId, new TimeRange(10, 20))], SegmentSource.Chapter);
         var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
         var first = mirror.SyncItemAsync(firstItemId, CancellationToken.None);
@@ -188,7 +197,13 @@ public sealed class TestMediaSegmentEditorService
             itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-        var store = new FakeJellyfinSegmentStore { MissingSegmentIds = [row.Id] };
+        // The drift scenario: no Jellyfin row under the shared id, but the segment is
+        // still mirrored under a stale id of its own — the row the re-sync must remove.
+        var store = new FakeJellyfinSegmentStore
+        {
+            MissingSegmentIds = [row.Id],
+            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, row.StartTicks, row.EndTicks, Guid.NewGuid(), itemId)]
+        };
         var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
         var deleted = await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None);
@@ -213,9 +228,19 @@ public sealed class TestMediaSegmentEditorService
         // Imported rows are rounded from seconds (1238398 ticks for 0.12383975...);
         // the pre-upgrade mirror row of the same value was truncated to 1238397.
         var pluginRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, 1238398, 500000000);
-        var store = new FakeJellyfinSegmentStore();
-        var service = DatabaseTestHelpers.CreateEditorService(store, database);
         var jellyfinRowId = Guid.NewGuid();
+
+        // Jellyfin holds both the uncorrelated pre-upgrade row and the same segment
+        // mirrored under the plugin row's id — the lingering row the re-sync removes.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                CreateSegment(MediaSegmentType.Intro, 1238397, 500000000, jellyfinRowId, itemId),
+                CreateSegment(MediaSegmentType.Intro, 1238398, 500000000, pluginRow.Id, itemId)
+            ]
+        };
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
         await service.DeleteUncorrelatedSegmentAsync(
             itemId,
@@ -246,7 +271,10 @@ public sealed class TestMediaSegmentEditorService
             WriteEntered = writeEntered,
             BlockedItemId = itemId
         };
-        var mirror = DatabaseTestHelpers.CreateMirror(store, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
         // Park a sync between its plugin-database read and its store replace, holding
         // the item's stripe — the stale-cleanup adversary: if the bulk delete ran now,

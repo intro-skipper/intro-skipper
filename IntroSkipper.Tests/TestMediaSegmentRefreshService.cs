@@ -13,6 +13,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -25,8 +26,11 @@ public sealed class TestMediaSegmentRefreshService
         using var scope = CreatePluginScope();
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The plugin database is empty, so the mirrored row is what makes the sync a
+        // write; an empty-vs-empty sync would skip the store entirely.
         var store = new FakeJellyfinSegmentStore
         {
+            ExistingSegments = [CreateMirroredDto(itemId)],
             WriteEntered = writeEntered,
             WriteGate = writeGate,
             BlockedItemId = itemId
@@ -153,7 +157,9 @@ public sealed class TestMediaSegmentRefreshService
         await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
 
         using var scope = CreatePluginScope();
-        var store = new FakeJellyfinSegmentStore();
+        // A previously mirrored row: the disable-sync must push the empty replace
+        // that deletes it (a mirror with no rows would just skip).
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [CreateMirroredDto(itemId)] };
         var refresher = CreateRefresher(store, itemId, new SegmentDtoFactory(database));
 
         await refresher.RefreshAsync([itemId], CancellationToken.None);
@@ -165,12 +171,59 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task RefreshAsync_SkipsJellyfinWrite_WhenMirrorAlreadyMatches()
+    {
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(100, 160))],
+            SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+
+        using var scope = CreatePluginScope();
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = row.Id,
+                    ItemId = itemId,
+                    Type = MediaSegmentType.Intro,
+                    StartTicks = row.StartTicks,
+                    EndTicks = row.EndTicks
+                }
+            ]
+        };
+        var refresher = CreateRefresher(store, itemId, new SegmentDtoFactory(database));
+
+        // The mirror already holds exactly what the factory would push: the bulk
+        // refresh stays read-only instead of rewriting the unchanged rows.
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
+
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(store.ReplacedItems);
+
+        // Any plugin-side change breaks the match and the next refresh writes again.
+        await database.AddUserSegmentAsync(
+            itemId, AnalysisMode.Credits, TickConversions.FromSeconds(1200), TickConversions.FromSeconds(1260));
+        await refresher.RefreshAsync([itemId], CancellationToken.None);
+
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
+        Assert.Equal(2, pushed.Count);
+    }
+
+    [Fact]
     public async Task RefreshAsync_LogsAndReturnsAfterStoreFailure()
     {
         var itemId = Guid.NewGuid();
         using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore
         {
+            ExistingSegments = [CreateMirroredDto(itemId)],
             WriteException = new InvalidOperationException("boom")
         };
         var refresher = CreateRefresher(store, itemId);
@@ -189,6 +242,7 @@ public sealed class TestMediaSegmentRefreshService
         using var scope = CreatePluginScope();
         var store = new FakeJellyfinSegmentStore
         {
+            ExistingSegments = [CreateMirroredDto(itemId)],
             WriteException = new ThreadInterruptedException()
         };
         var refresher = CreateRefresher(store, itemId);
@@ -204,7 +258,7 @@ public sealed class TestMediaSegmentRefreshService
     {
         var itemId = Guid.NewGuid();
         using var scope = CreatePluginScope();
-        var store = new FakeJellyfinSegmentStore();
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [CreateMirroredDto(itemId)] };
         var refresher = CreateRefresher(store, itemId);
 
         await refresher.RefreshAsync([itemId, Guid.Empty, itemId, Guid.NewGuid()], CancellationToken.None);
@@ -287,4 +341,19 @@ public sealed class TestMediaSegmentRefreshService
         EntrypointTestHelpers.EnsureNonVirtual(item);
         return item;
     }
+
+    /// <summary>
+    /// A previously mirrored Jellyfin row for tests whose plugin database is empty:
+    /// it makes the sync's intended push (nothing) differ from the mirror, so the
+    /// write path under test actually runs instead of skipping as a no-op.
+    /// </summary>
+    private static MediaSegmentDto CreateMirroredDto(Guid itemId)
+        => new()
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            Type = MediaSegmentType.Intro,
+            StartTicks = TickConversions.FromSeconds(100),
+            EndTicks = TickConversions.FromSeconds(160)
+        };
 }

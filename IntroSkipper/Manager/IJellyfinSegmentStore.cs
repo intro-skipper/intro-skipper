@@ -31,6 +31,16 @@ public interface IJellyfinSegmentStore
     Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Reads all of Intro Skipper's segment rows for an item; other providers' rows are
+    /// never returned. Lets sync callers compare the mirrored state against an intended
+    /// push and skip the write when nothing changed.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The item's Intro Skipper segment rows; empty when none exist.</returns>
+    Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Retrieves a segment by item and segment id, regardless of provider.
     /// </summary>
     /// <param name="itemId">The item id that owns the segment.</param>

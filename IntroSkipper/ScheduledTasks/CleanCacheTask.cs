@@ -135,6 +135,16 @@ public partial class CleanCacheTask(
             await _database
                 .EraseItemsAsync(staleTimestampEpisodeIds, cancellationToken)
                 .ConfigureAwait(false);
+
+            // Sweep the mirror again: a sync queued on a stripe during the first cleanup
+            // may have re-read the plugin rows before the erase above and resurrected the
+            // Jellyfin rows. After the erase these items hold no plugin segments, so no
+            // later cleanup run would list them and the resurrected rows would be
+            // permanent. Uncancelable for the same reason: the erase is committed and a
+            // canceled second sweep would leave the same orphans behind.
+            await _mediaSegmentRefresher
+                .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, CancellationToken.None)
+                .ConfigureAwait(false);
         }
 
         // Identify episode IDs in the SQLite cache whose items are gone.

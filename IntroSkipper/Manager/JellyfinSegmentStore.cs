@@ -92,6 +92,21 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            var entities = await OwnSegments(db, itemId)
+                .AsNoTracking()
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return entities.ConvertAll(Map);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

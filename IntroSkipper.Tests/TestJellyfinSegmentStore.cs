@@ -173,6 +173,33 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
+    public async Task GetOwnSegmentsAsync_ReturnsOnlyOwnRowsOfTheItem()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        var own = CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
+        await SeedAsync(
+            db,
+            own,
+            CreateEntity(itemId, MediaSegmentType.Outro, 30, 40, ForeignProviderId),
+            CreateEntity(Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId));
+
+        var rows = await store.GetOwnSegmentsAsync(itemId, CancellationToken.None);
+
+        // Foreign-provider rows and other items' own rows are both excluded, and the
+        // returned DTO carries every field the sync comparison keys on.
+        var dto = Assert.Single(rows);
+        Assert.Equal(own.Id, dto.Id);
+        Assert.Equal(itemId, dto.ItemId);
+        Assert.Equal(MediaSegmentType.Intro, dto.Type);
+        Assert.Equal(10, dto.StartTicks);
+        Assert.Equal(20, dto.EndTicks);
+
+        Assert.Empty(await store.GetOwnSegmentsAsync(Guid.NewGuid(), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task GetSegmentAsync_ReturnsAllFields_AcrossProviders()
     {
         using var db = new TempJellyfinDb();

@@ -286,7 +286,10 @@ public sealed class TestCleanCacheTask
             await CreateTask(libraryManager, database, cacheDatabase, refresher).ExecuteAsync(progress, CancellationToken.None);
 
             Assert.Equal(100, progress.Value);
-            Assert.Equal(1, refresher.RemoveCallCount);
+
+            // Once before the erase (retryable handoff) and once after it (sweeps rows a
+            // concurrently queued sync could have resurrected from the pre-erase read).
+            Assert.Equal(2, refresher.RemoveCallCount);
             Assert.NotNull(cacheDatabase.FindEntry(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Null(cacheDatabase.FindEntry(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
 
