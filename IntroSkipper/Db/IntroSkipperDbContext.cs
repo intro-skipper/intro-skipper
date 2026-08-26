@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.Json;
+using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -283,9 +284,13 @@ public class IntroSkipperDbContext : DbContext
         // corrupted databases, whose readable rows can still violate the fresh schema's
         // CHECK constraint, unique index or primary keys — and the restore below is
         // all-or-nothing, so a single such row must not turn a salvageable database
-        // into an empty one.
+        // into an empty one. Duplicates are collapsed with explicit precedence — user
+        // rows, then tombstones, then automatic rows — so recovery never trades a user's
+        // segment or deletion for an automatic row.
         segments = [.. segments
             .Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)
+            .OrderByDescending(s => s.Source == SegmentSource.User)
+            .ThenByDescending(s => s.State == SegmentState.Suppressed)
             .DistinctBy(s => s.Id)
             .DistinctBy(s => (s.ItemId, s.Type, s.StartTicks, s.EndTicks))];
         seasonStates = [.. seasonStates.DistinctBy(s => (s.SeasonId, s.Type))];

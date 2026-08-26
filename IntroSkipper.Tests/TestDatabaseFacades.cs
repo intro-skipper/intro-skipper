@@ -1001,6 +1001,57 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task RebuildDatabaseAsync_DuplicateRanges_KeepUserRowsAndTombstonesOverAutomaticRows()
+    {
+        var dbPath = CreateTempDbPath();
+        var tombstonedItemId = Guid.NewGuid();
+        var userItemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.InitializeAsync();
+
+            // Repair-era or corrupted files can hold exact-range duplicates the unique
+            // index would normally reject; plant them with the index dropped, automatic
+            // rows first so a first-wins dedupe would keep the wrong row.
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_Segments_ItemId_Type_StartTicks_EndTicks\"");
+                foreach (var (itemId, source, state) in new[]
+                {
+                    (tombstonedItemId, SegmentSource.Chapter, SegmentState.Active),
+                    (tombstonedItemId, SegmentSource.Chapter, SegmentState.Suppressed),
+                    (userItemId, SegmentSource.Chromaprint, SegmentState.Active),
+                    (userItemId, SegmentSource.User, SegmentState.Active),
+                })
+                {
+                    await db.Database.ExecuteSqlAsync(
+                        $"""
+                        INSERT INTO "Segments" ("Id", "ItemId", "Type", "StartTicks", "EndTicks", "Source", "State", "ConfigHash", "CreatedAt", "UpdatedAt")
+                        VALUES ({Guid.NewGuid()}, {itemId}, {(int)AnalysisMode.Introduction}, {Ticks(10)}, {Ticks(20)}, {(int)source}, {(int)state}, '', {DateTime.UtcNow}, {DateTime.UtcNow})
+                        """);
+                }
+            }
+
+            await database.RebuildDatabaseAsync();
+
+            await using var rebuilt = new IntroSkipperDbContext(dbPath);
+            var segments = await rebuilt.Segments.AsNoTracking().ToListAsync();
+            Assert.Equal(2, segments.Count);
+
+            var tombstone = Assert.Single(segments, s => s.ItemId == tombstonedItemId);
+            Assert.Equal(SegmentState.Suppressed, tombstone.State);
+
+            var userRow = Assert.Single(segments, s => s.ItemId == userItemId);
+            Assert.Equal(SegmentSource.User, userRow.Source);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task RebuildDatabaseAsync_BackupFailure_AbortsAndPreservesFile_WithoutForceClean()
     {
         var dbPath = CreateTempDbPath();
