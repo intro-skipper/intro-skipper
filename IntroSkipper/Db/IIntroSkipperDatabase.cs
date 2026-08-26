@@ -40,6 +40,8 @@ public interface IIntroSkipperDatabase
     /// Preview mode cannot delete each other's rows.
     /// Automatic rows whose boundaries match an accepted segment exactly are kept in
     /// place (stable ids); an empty list clears the pass's automatic segments of the mode.
+    /// A non-empty list whose candidates are all rejected leaves the pass's standing rows
+    /// untouched: the rejections record human intent or policy, not stale detection.
     /// User segments and tombstones are never touched.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
@@ -48,7 +50,8 @@ public interface IIntroSkipperDatabase
     /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
     /// <param name="configHash">Configuration hash that produced the segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of active automatic segments of the writing pass stored for the mode after the write.</returns>
+    /// <returns>The number of active automatic segments of the writing pass written or kept by this
+    /// write; 0 for a fully rejected write, whose standing rows are left as they were.</returns>
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -304,9 +307,9 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Returns a snapshot of the season's analyzer actions, the episodes' analysis records
-    /// and their stored active segments, used by queue verification to avoid per-episode
-    /// database lookups. The episode ID set is bound as one JSON parameter, so the episode
-    /// count is unbounded.
+    /// and the modes their active segments cover, used by queue verification to avoid
+    /// per-episode database lookups. The episode ID set is bound as one JSON parameter, so
+    /// the episode count is unbounded.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="episodeIds">Episode IDs in the season.</param>

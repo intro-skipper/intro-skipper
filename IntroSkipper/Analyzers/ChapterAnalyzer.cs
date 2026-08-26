@@ -221,21 +221,28 @@ public partial class ChapterAnalyzer(
                 continue;
             }
 
-            // Check if the next (or previous for Credits) chapter also matches
-            var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
-            if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
+            // A matching neighbour makes the boundary ambiguous (overlapping keyword
+            // expressions), so single-match modes drop the chapter rather than guess.
+            // Multi-match modes keep it: consecutive matching chapters (Sponsor, then
+            // Self-Promotion) are the normal shape of an ad break, and the skip would
+            // discard every member of the run except the last.
+            if (!AllowsMultipleMatches(mode))
             {
-                // Check for possibility of overlapping keywords
-                var overlap = ChapterMatches(
-                    adjacentChapter.Name,
-                    expression,
-                    mode,
-                    enableSponsorBlockChapterDetection);
-
-                if (overlap)
+                // Check if the next (or previous for Credits) chapter also matches
+                var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
+                if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
                 {
-                    LogIgnoringAdjacentMatch(baseMessage);
-                    continue;
+                    var overlap = ChapterMatches(
+                        adjacentChapter.Name,
+                        expression,
+                        mode,
+                        enableSponsorBlockChapterDetection);
+
+                    if (overlap)
+                    {
+                        LogIgnoringAdjacentMatch(baseMessage);
+                        continue;
+                    }
                 }
             }
 

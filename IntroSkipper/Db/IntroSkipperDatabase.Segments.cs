@@ -64,22 +64,26 @@ public sealed partial class IntroSkipperDatabase
                     : [];
 
                 var accepted = new List<DbSegment>();
+                var rejected = 0;
                 foreach (var segment in segments.OrderBy(s => s.Start))
                 {
                     if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                     {
+                        rejected++;
                         continue;
                     }
 
                     if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
                     {
                         LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                        rejected++;
                         continue;
                     }
 
                     if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
                     {
                         LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                        rejected++;
                         continue;
                     }
 
@@ -87,6 +91,7 @@ public sealed partial class IntroSkipperDatabase
                         && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                     {
                         LogCreditsOverlapWithIntro(_logger, itemId);
+                        rejected++;
                         continue;
                     }
 
@@ -104,6 +109,18 @@ public sealed partial class IntroSkipperDatabase
                     }
 
                     accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
+                }
+
+                // A write whose candidates were all rejected by the admission gate must not
+                // clear the pass's standing rows: each rejection records human intent
+                // (tombstone, user row) or policy (credits vs intro), not evidence that the
+                // standing detection went stale - stale rows are
+                // CleanStaleAutomaticSegmentsAsync's job. Candidates satisfied by an exact
+                // other-pass row are not rejections, so the normal replace still runs for
+                // them, and an empty input list still clears the pass's rows as documented.
+                if (accepted.Count == 0 && rejected > 0)
+                {
+                    return 0;
                 }
 
                 // Keep automatic rows whose boundaries are unchanged so their ids stay

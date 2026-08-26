@@ -318,6 +318,24 @@ public sealed class TestCleanCacheTask
         }
     }
 
+    [Fact]
+    public void DetectionCacheHash_CoversEveryCacheEntryTypeAndMode()
+    {
+        var config = new PluginConfiguration();
+
+        // DeleteUnreadableEntriesAsync enumerates every (mode, type) pair through
+        // ConfigHasher.DetectionCache, whose switch throws on an unmapped CacheEntryType
+        // (the compiler cannot flag the gap). This fails at the moment a member is added
+        // without its switch arm, instead of faulting every cache-cleanup run at runtime.
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            foreach (var type in Enum.GetValues<CacheEntryType>())
+            {
+                Assert.False(string.IsNullOrEmpty(ConfigHasher.DetectionCache(config, type, mode)));
+            }
+        }
+    }
+
     private static CleanCacheTask CreateTask(
         ILibraryManager libraryManager,
         IIntroSkipperDatabase database,

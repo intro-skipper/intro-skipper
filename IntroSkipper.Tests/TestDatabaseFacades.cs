@@ -844,8 +844,8 @@ public sealed class TestDatabaseFacades
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
 
             Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(episodeWithSegmentId, AnalysisMode.Introduction)]);
-            Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
-            Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
+            Assert.True(snapshot.SegmentModesByEpisodeId.TryGetValue(episodeWithSegmentId, out var modesWithSegments));
+            Assert.Contains(AnalysisMode.Introduction, modesWithSegments!);
         }
         finally
         {

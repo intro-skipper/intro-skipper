@@ -126,6 +126,42 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
+    public async Task AnalysisWrite_FullyRejected_LeavesStandingRowsUntouched()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ReplaceAutoSegmentsAsync(
+                itemId,
+                AnalysisMode.Introduction,
+                [new Segment(itemId, new TimeRange(10, 60)), new Segment(itemId, new TimeRange(100, 150))],
+                SegmentSource.Chromaprint);
+            var rows = await database.GetSegmentsAsync(itemId);
+            var doomed = rows.Single(r => r.StartTicks == Ticks(100));
+            await database.DeleteSegmentAsync(itemId, doomed.Id);
+
+            // Re-analysis re-derives only a range the tombstone blocks: a fully rejected
+            // write must leave the surviving row standing instead of clearing the mode.
+            var stored = await database.ReplaceAutoSegmentsAsync(
+                itemId,
+                AnalysisMode.Introduction,
+                [new Segment(itemId, new TimeRange(105, 145))],
+                SegmentSource.Chromaprint);
+
+            Assert.Equal(0, stored);
+            var survivor = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Equal(Ticks(10), survivor.StartTicks);
+            Assert.Equal(Ticks(60), survivor.EndTicks);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task UpdateSegmentAsync_ReclaimsTombstonedRange_ByAbsorbingTombstone()
     {
         var dbPath = CreateTempDbPath();

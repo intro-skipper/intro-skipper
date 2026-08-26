@@ -256,6 +256,32 @@ public class TestChapterAnalyzer
         Assert.Null(commercialChapter);
     }
 
+    [Fact]
+    public void TestCommercialKeepsEveryChapterOfConsecutiveMatchingRun()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = new Collection<ChapterInfo>(
+        [
+            CreateChapter("[SponsorBlock]: Sponsor", 0),
+            CreateChapter("[SponsorBlock]: Self Promotion", 30),
+            CreateChapter("Main Episode", 60)
+        ]);
+
+        // Adjacent matching chapters are the normal shape of an ad break: the
+        // single-match ambiguity skip must not swallow the front of the run.
+        var matches = analyzer.FindMatchingChapters(
+            new() { Duration = 2000 },
+            chapters,
+            new Configuration.PluginConfiguration().ChapterAnalyzerCommercialPattern,
+            AnalysisMode.Commercial);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Equal(0, matches[0].Start);
+        Assert.Equal(30, matches[0].End);
+        Assert.Equal(30, matches[1].Start);
+        Assert.Equal(60, matches[1].End);
+    }
+
     [Theory]
     [InlineData("Intro: End", AnalysisMode.Introduction)]
     [InlineData("Credits: End", AnalysisMode.Credits)]

@@ -30,10 +30,11 @@ public sealed partial class FFmpegService(
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Bounds one shared version probe. Generous: the probe is four fast ffmpeg info
-    // queries, each already limited to 60 s of process-exit wait — but the drain phase
-    // has no timeout of its own, and the probe deliberately ignores caller tokens, so
-    // without this lifetime a hung ffmpeg would wedge the gate until a plugin reload.
+    // Bounds one shared version probe. Generous: the probe is four fast ffmpeg info queries,
+    // each capped at 2 s of process-exit wait (see CheckFFmpegRequirementAsync), so ~8 s covers
+    // a healthy run — but the output drain is awaited before that cap applies, and the probe
+    // deliberately ignores caller tokens, so without this lifetime a hung ffmpeg would wedge
+    // the gate until a plugin reload.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
 
     private readonly ILogger<FFmpegService> _logger = logger;
@@ -49,8 +50,9 @@ public sealed partial class FFmpegService(
     // can express none of that.
     private readonly Lock _versionProbeLock = new();
 
-    // Replaced atomically by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) and read
-    // concurrently by the support bundle endpoint, so each run publishes a new immutable snapshot.
+    // Published under _versionProbeLock by the probe attempt whose verdict the gate's waiters
+    // observe (an abandoned timed-out probe cannot write it) and read concurrently by the
+    // support bundle endpoint, so each run publishes a new immutable snapshot.
     private volatile FFmpegCheckResult _checkResult = FFmpegCheckResult.NotRun;
 
     private Task<bool>? _versionProbeTask;
@@ -111,15 +113,38 @@ public sealed partial class FFmpegService(
         // resets, the next call retries, and the abandoned probe's eventual result
         // is discarded.
         using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
-        Task<bool>? probeTask = null;
         try
         {
-            probeTask = (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token);
-            var valid = await probeTask
-                .WaitAsync(probeLifetime.Token)
-                .ConfigureAwait(false);
+            bool valid;
+            FFmpegCheckResult? checkResult = null;
+            if (_versionProbe is not null)
+            {
+                valid = await _versionProbe(probeLifetime.Token)
+                    .WaitAsync(probeLifetime.Token)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                (valid, checkResult) = await ProbeFFmpegVersionAsync(probeLifetime.Token)
+                    .WaitAsync(probeLifetime.Token)
+                    .ConfigureAwait(false);
+            }
+
             lock (_versionProbeLock)
             {
+                // The verdict's side effects are published only by the attempt the gate's
+                // waiters actually observe: an abandoned probe that outran its lifetime
+                // completes into a discarded task and can no longer overwrite the check
+                // result or warning flag of a newer attempt.
+                if (checkResult is not null)
+                {
+                    _checkResult = checkResult;
+                    if (!valid)
+                    {
+                        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
+                    }
+                }
+
                 if (valid)
                 {
                     _versionProbeSucceeded = true;
@@ -140,13 +165,8 @@ public sealed partial class FFmpegService(
             // Exception propagation stays reserved for unexpected probe failures.
             LogFfmpegVersionProbeTimedOut(_logger, _versionProbeTimeout);
 
-            // The abandoned probe finishes in the background; observe its eventual fault
-            // so a timed-out attempt cannot surface as UnobservedTaskException noise.
-            _ = probeTask?.ContinueWith(
-                static t => _ = t.Exception,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+            // The abandoned probe finishes in the background and its result is discarded; an
+            // unobserved fault there is inert (since .NET Core it cannot tear down the process).
             lock (_versionProbeLock)
             {
                 completion.SetResult(false);
@@ -163,7 +183,7 @@ public sealed partial class FFmpegService(
         }
     }
 
-    private async Task<bool> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
+    private async Task<(bool Valid, FFmpegCheckResult Result)> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
     {
         var outputs = new List<FFmpegCheckOutput>();
         try
@@ -218,8 +238,7 @@ public sealed partial class FFmpegService(
 
             LogFfmpegVersionValid(_logger);
 
-            _checkResult = new FFmpegCheckResult("okay", [.. outputs]);
-            return true;
+            return (true, new FFmpegCheckResult("okay", [.. outputs]));
         }
         catch (OperationCanceledException)
         {
@@ -231,12 +250,8 @@ public sealed partial class FFmpegService(
             return Fail("unknown_error");
         }
 
-        bool Fail(string status)
-        {
-            _checkResult = new FFmpegCheckResult(status, [.. outputs]);
-            WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-            return false;
-        }
+        (bool Valid, FFmpegCheckResult Result) Fail(string status)
+            => (false, new FFmpegCheckResult(status, [.. outputs]));
     }
 
     /// <inheritdoc/>
@@ -677,10 +692,7 @@ public sealed partial class FFmpegService(
         }
         catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
-            }
+            LogFfmpegPriorityNotModified(_logger, e.Message);
         }
 
         using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
@@ -703,11 +715,7 @@ public sealed partial class FFmpegService(
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
-            }
-
+            LogFfmpegExitTimeout(_logger, timeout);
             KillProcessTree(process);
         }
 
@@ -741,19 +749,16 @@ public sealed partial class FFmpegService(
         {
             LogFfmpegProcessAlreadyGone(_logger, ex);
         }
-        catch (System.ComponentModel.Win32Exception ex)
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or AggregateException)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("Failed to kill ffmpeg process tree: {Message}", ex.Message);
-            }
+            // Kill(entireProcessTree: true) reports partial failures as an AggregateException, and
+            // this runs from a cancellation-token callback on a timer thread, where an escaping
+            // exception would be unhandled.
+            LogFfmpegKillFailed(_logger, ex.Message);
         }
         catch (NotSupportedException ex)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                _logger.LogWarning("Killing the ffmpeg process tree is not supported on this platform: {Message}", ex.Message);
-            }
+            LogFfmpegKillNotSupported(_logger, ex.Message);
         }
     }
 
@@ -989,6 +994,18 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "FFmpeg version check did not finish within {Timeout}; treating the installed FFmpeg as invalid until a later check succeeds")]
     private static partial void LogFfmpegVersionProbeTimedOut(ILogger logger, TimeSpan timeout);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ffmpeg priority could not be modified. {Message}")]
+    private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ffmpeg did not exit within {TimeoutMs}ms; killing process")]
+    private static partial void LogFfmpegExitTimeout(ILogger logger, int timeoutMs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill ffmpeg process tree: {Message}")]
+    private static partial void LogFfmpegKillFailed(ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Killing the ffmpeg process tree is not supported on this platform: {Message}")]
+    private static partial void LogFfmpegKillNotSupported(ILogger logger, string message);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);

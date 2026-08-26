@@ -263,9 +263,8 @@ public sealed class TestDbSegmentStorage
             Assert.True(snapshot.AnalyzerActionByMode.TryGetValue(AnalysisMode.Introduction, out var analyzerAction));
             Assert.Equal(AnalyzerAction.Chromaprint, analyzerAction);
 
-            Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
-            Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out var introSegments));
-            Assert.Single(introSegments!);
+            Assert.True(snapshot.SegmentModesByEpisodeId.TryGetValue(episodeWithSegmentId, out var modesWithSegments));
+            Assert.Contains(AnalysisMode.Introduction, modesWithSegments!);
         }
         finally
         {
@@ -274,7 +273,7 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
-    public async Task GetSeasonQueueSnapshot_ReportsAllActiveSegmentsPerMode_AndExcludesSuppressed()
+    public async Task GetSeasonQueueSnapshot_ReportsModesWithActiveSegments_AndExcludesSuppressed()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
@@ -288,7 +287,7 @@ public sealed class TestDbSegmentStorage
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 await db.ApplyMigrationsAsync();
-                var suppressed = new DbSegment(episodeId, AnalysisMode.Commercial, TickConversions.FromSeconds(100), TickConversions.FromSeconds(120), SegmentSource.Chapter)
+                var suppressed = new DbSegment(episodeId, AnalysisMode.Preview, TickConversions.FromSeconds(100), TickConversions.FromSeconds(120), SegmentSource.Chapter)
                 {
                     State = SegmentState.Suppressed
                 };
@@ -301,12 +300,10 @@ public sealed class TestDbSegmentStorage
 
             var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
 
-            var commercials = snapshot.SegmentsByEpisodeId[episodeId][AnalysisMode.Commercial];
-            Assert.Equal(2, commercials.Count);
-
-            // Ordered by start; the suppressed row is invisible.
-            Assert.Equal(10, commercials[0].Start);
-            Assert.Equal(40, commercials[1].Start);
+            // A mode whose only rows are tombstones has no active segment and must not be reported.
+            var modes = snapshot.SegmentModesByEpisodeId[episodeId];
+            Assert.Contains(AnalysisMode.Commercial, modes);
+            Assert.DoesNotContain(AnalysisMode.Preview, modes);
 
             Assert.Contains(episodeId, snapshot.UserProvidedByMode[AnalysisMode.Commercial]);
         }

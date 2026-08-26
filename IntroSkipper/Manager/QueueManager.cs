@@ -138,20 +138,31 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // Resolve each requested id to its owning libraries once, so a scoped run queries only
         // the folders that can contain a requested item instead of fanning its queries out to
-        // every enabled library. An id that no longer resolves cannot be found by the scoped
-        // queries either, so it contributes no folder.
+        // every enabled library. The narrowing is an optimization, never a filter: collection-folder
+        // resolution is path-based and can come up empty for an item the scoped queries would still
+        // find (a broken parent chain, a library still being reparented), so a requested id that
+        // resolves to no folder disables the narrowing for the whole run rather than silently
+        // reducing it to zero libraries.
         HashSet<Guid>? scopedLibraryIds = null;
         if (seasonIds is not null)
         {
             scopedLibraryIds = [];
             foreach (var seasonId in seasonIds)
             {
-                if (_libraryManager.GetItemById(seasonId) is { } requestedItem)
+                var resolvedFolders = seasonId != Guid.Empty && _libraryManager.GetItemById(seasonId) is { } requestedItem
+                    ? _libraryManager.GetCollectionFolders(requestedItem)
+                    : null;
+
+                if (resolvedFolders is null or { Count: 0 })
                 {
-                    foreach (var collectionFolder in _libraryManager.GetCollectionFolders(requestedItem))
-                    {
-                        scopedLibraryIds.Add(collectionFolder.Id);
-                    }
+                    LogUnresolvedScopedItemLibrary(_logger, seasonId);
+                    scopedLibraryIds = null;
+                    break;
+                }
+
+                foreach (var collectionFolder in resolvedFolders)
+                {
+                    scopedLibraryIds.Add(collectionFolder.Id);
                 }
             }
         }
@@ -259,15 +270,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     {
         LogConstructingQuery(_logger);
 
-        var query = new InternalItemsQuery
-        {
-            // Order by series name, season, and then episode number so that status updates are logged in order
-            ParentId = id,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
-            IncludeItemTypes = [BaseItemKind.Episode, BaseItemKind.Movie],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var query = BuildLibraryQuery(id, BaseItemKind.Episode, BaseItemKind.Movie);
 
         var items = seasonIds is null
             ? _libraryManager.GetItemList(query, false)
@@ -326,23 +329,34 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     {
         Guid[] targetIds = [.. seasonIds];
 
-        var episodeQuery = ScopedQuery(BaseItemKind.Episode);
+        var episodeQuery = BuildLibraryQuery(libraryId, BaseItemKind.Episode);
         episodeQuery.AncestorIds = targetIds;
 
-        var movieQuery = ScopedQuery(BaseItemKind.Movie);
+        var movieQuery = BuildLibraryQuery(libraryId, BaseItemKind.Movie);
         movieQuery.ItemIds = targetIds;
 
         // Match the unscoped path, which treats a null GetItemList result as an empty library.
-        // In-season specials returned directly (a requested Specials season) are dropped: they
-        // belong to their AirsBefore/AirsAfter host season, and queueing them without that host
+        // In-season specials returned directly (a requested Specials season) are held back: they
+        // belong to their AirsBefore/AirsAfter host season, and queueing them alongside that host
         // season's episodes would key them under the raw Specials id and compare them only
-        // against other specials, diverging from the full-scan grouping. They are re-added
-        // below exactly when their host season is part of the request.
-        List<BaseItem> episodes =
-        [
-            .. (_libraryManager.GetItemList(episodeQuery, false) ?? [])
-                .Where(item => item is not Episode episode || !IsInSeasonSpecial(episode)),
-        ];
+        // against other specials, diverging from the full-scan grouping. Those whose host season
+        // is part of the request come back through the specials query below; the rest are restored
+        // afterwards, since dropping them outright would leave a requested Specials season — the
+        // id Entrypoint enqueues for a newly added special — with nothing to analyze.
+        List<BaseItem> episodes = [];
+        List<Episode> heldBackSpecials = [];
+        foreach (var item in _libraryManager.GetItemList(episodeQuery, false) ?? [])
+        {
+            if (item is Episode episode && IsInSeasonSpecial(episode))
+            {
+                heldBackSpecials.Add(episode);
+            }
+            else
+            {
+                episodes.Add(item);
+            }
+        }
+
         var movies = _libraryManager.GetItemList(movieQuery, false) ?? [];
 
         // In-season specials are stored beneath their own raw SeasonId, but belong to the season
@@ -360,7 +374,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         if (targetSeasonKeys.Count > 0)
         {
             Guid[] seriesIds = [.. targetSeasonKeys.Select(key => key.SeriesId).Distinct()];
-            var specialQuery = ScopedQuery(BaseItemKind.Episode);
+            var specialQuery = BuildLibraryQuery(libraryId, BaseItemKind.Episode);
             specialQuery.AncestorIds = seriesIds;
             specialQuery.ParentIndexNumber = 0;
 
@@ -370,19 +384,33 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
         }
 
-        return episodes.Concat(specials).Concat(movies);
+        // Restore the held-back specials whose host season is not part of this request: nothing
+        // above re-adds them, and GetSeasonId falls back to their raw Specials id, which is the
+        // same grouping a full scan gives them when their host season queues no episodes.
+        var restoredSpecials = heldBackSpecials
+            .Where(episode => episode.AiredSeasonNumber is not int airedSeasonNumber ||
+                !targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
 
-        // Scoped queries share the unscoped query's shape and ordering; callers set only the
-        // scoping field (AncestorIds / ItemIds / ParentIndexNumber) that differs per query.
-        InternalItemsQuery ScopedQuery(BaseItemKind kind) => new()
-        {
-            ParentId = libraryId,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-            IncludeItemTypes = [kind],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        return episodes.Concat(specials).Concat(restoredSpecials).Concat(movies);
     }
+
+    /// <summary>
+    /// Builds the library query shape shared by the unscoped and scoped enumeration paths. Ordering
+    /// by series name, season and episode number keeps status updates logged in order, and scoped
+    /// callers set only the scoping field (AncestorIds / ItemIds / ParentIndexNumber) that differs
+    /// per query, so both paths stay filtered and ordered identically.
+    /// </summary>
+    /// <param name="parentId">Library (collection folder) id to query within.</param>
+    /// <param name="kinds">Item kinds to include.</param>
+    /// <returns>The query.</returns>
+    private static InternalItemsQuery BuildLibraryQuery(Guid parentId, params BaseItemKind[] kinds) => new()
+    {
+        ParentId = parentId,
+        OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+        IncludeItemTypes = kinds,
+        Recursive = true,
+        IsVirtualItem = false
+    };
 
     // GetSeasonId's grouping rule: a special stored in Season 0 that airs within another season
     // belongs to that host season, not to the Specials season it is stored under.
@@ -666,8 +694,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     var hashMatches = snapshot.AnalyzedConfigHashes.TryGetValue((candidate.EpisodeId, mode), out var analyzedHash) &&
                         string.Equals(analyzedHash, expectedHashByMode[mode], StringComparison.Ordinal);
 
-                    if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
-                        hasSegments.TryGetValue(mode, out _))
+                    if (snapshot.SegmentModesByEpisodeId.TryGetValue(candidate.EpisodeId, out var modesWithSegments) &&
+                        modesWithSegments.Contains(mode))
                     {
                         var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
                                              userProvided.Contains(candidate.EpisodeId);
@@ -710,6 +738,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping library {Name}: it contains none of the requested items")]
     private static partial void LogSkippingLibraryNoRequestedItems(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Requested item {ItemId} resolved to no library; querying every enabled library for this run")]
+    private static partial void LogUnresolvedScopedItemLibrary(ILogger logger, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Running enqueue of items in library {Name}")]
     private static partial void LogRunningEnqueueLibrary(ILogger logger, string name);

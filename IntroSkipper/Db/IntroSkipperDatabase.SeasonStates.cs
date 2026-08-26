@@ -154,13 +154,15 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Project only the consumed columns: the snapshot never reads Id, ConfigHash or
-        // the timestamp columns, and skipping them avoids a per-row Guid parse plus two
-        // DateTime TEXT parses on a query that runs once per season per scan.
+        // Project only the consumed columns: queue verification tests mode presence and
+        // user provenance, nothing else, so the tick, Id, ConfigHash and timestamp columns
+        // are all skipped. That avoids a per-row Guid parse plus two DateTime TEXT parses
+        // on a query that runs once per season per scan, and keeps seconds-typed segment
+        // payloads off this internal path (ticks stay internal).
         var segments = await db.Segments
             .AsNoTracking()
             .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId) && s.State == SegmentState.Active)
-            .Select(s => new { s.ItemId, s.Type, s.StartTicks, s.EndTicks, s.Source })
+            .Select(s => new { s.ItemId, s.Type, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -171,15 +173,7 @@ public sealed partial class IntroSkipperDatabase
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, IReadOnlyList<Segment>>)group
-                        .GroupBy(s => s.Type)
-                        .ToDictionary(
-                            modeGroup => modeGroup.Key,
-                            modeGroup => (IReadOnlyList<Segment>)[.. modeGroup
-                                .OrderBy(s => s.StartTicks)
-                                .Select(s => new Segment(
-                                    s.ItemId,
-                                    new TimeRange(TickConversions.ToSeconds(s.StartTicks), TickConversions.ToSeconds(s.EndTicks))))])),
+                    group => (IReadOnlySet<AnalysisMode>)group.Select(s => s.Type).ToHashSet()),
             segments
                 .Where(s => s.Source == SegmentSource.User)
                 .GroupBy(s => s.Type)
