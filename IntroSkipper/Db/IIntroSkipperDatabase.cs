@@ -72,7 +72,8 @@ public interface IIntroSkipperDatabase
     /// the new range survives in place as the user segment (keeping the id Jellyfin
     /// knows), like <see cref="AddUserSegmentAsync"/>; other tombstones are kept. Modes
     /// absent from <paramref name="segmentsByMode"/> are untouched. Exists only for the
-    /// deprecated singular <c>POST Episode/{id}/Timestamps</c> endpoint.
+    /// replace-on-write legacy shims (<c>POST Episode/{id}/Timestamps</c> and the
+    /// non-commercial <c>POST MediaSegmentsApi/{itemId}</c>).
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="segmentsByMode">The user segment to store per mode, in ticks; each end must be after its start.</param>

@@ -21,7 +21,8 @@ using Xunit;
 /// Tests for <see cref="SegmentEditorController.DeleteSegmentAsync"/> validation and rollback behavior:
 /// the plugin DB row is deleted before the Jellyfin-side delete (tombstoning automatic rows,
 /// hard-deleting user rows), so a Jellyfin failure must restore the exact row — via the
-/// shared-id fast path or the exact-ticks fallback for uncorrelated Jellyfin ids.
+/// shared-id fast path or the uncorrelated-id fallback (exact ticks, or the mode's single
+/// active row for non-commercial types).
 /// </summary>
 public sealed class SegmentEditorControllerTests
 {
@@ -203,7 +204,7 @@ public sealed class SegmentEditorControllerTests
     }
 
     [Fact]
-    public async Task DeleteSegment_TombstonesAutomaticSegment_AndSecondDeleteReturnsNotFound()
+    public async Task DeleteSegment_TombstonesAutomaticSegment_AndSecondDeleteSucceedsIdempotently()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
@@ -227,9 +228,170 @@ public sealed class SegmentEditorControllerTests
         Assert.Equal(SegmentSource.Chapter, tombstone.Source);
         Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
 
-        // Deleting the already-suppressed row again reports not-found.
+        // Deleting the already-suppressed row again succeeds idempotently (the plugin
+        // already treats it as deleted) instead of 404ing.
         var second = await controller.DeleteSegmentAsync(row.Id, itemId, "intro", CancellationToken.None);
-        Assert.IsType<NotFoundResult>(second);
+        Assert.IsType<OkResult>(second);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_GhostJellyfinRow_ConvergesMirrorAndSucceeds()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(100, 160))], SegmentSource.Chapter, "cfg-auto");
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.NotNull(await database.DeleteSegmentAsync(itemId, row.Id));
+
+        // Jellyfin re-added the row from a provider read predating the delete (the
+        // mirror's documented race); the user deletes the visible ghost again.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = row.Id,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = row.StartTicks,
+                    EndTicks = row.EndTicks,
+                }
+            ],
+        };
+        var controller = CreateController(store, database);
+
+        var result = await controller.DeleteSegmentAsync(row.Id, itemId, "intro", CancellationToken.None);
+
+        // The delete converges the item's mirror instead of 404ing while the ghost
+        // keeps serving; the tombstone stays so re-analysis cannot re-add the range.
+        Assert.IsType<OkResult>(result);
+        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
+        var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(row.Id, tombstone.Id);
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_DriftedUncorrelatedRow_MatchesSingleActiveRowOfMode()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var itemId = Guid.NewGuid();
+        var jellyfinRowId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(100, 160))], SegmentSource.Chapter, "cfg-auto");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemId], "cfg-auto");
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+
+        // The Jellyfin row drifted from the plugin row (re-analysis while mirroring was
+        // off) beyond the one-tick tolerance: the mode-wide fallback still finds the
+        // item's single active intro, so the delete does not silently undo itself.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = jellyfinRowId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = TickConversions.FromSeconds(102),
+                    EndTicks = TickConversions.FromSeconds(162),
+                }
+            ],
+        };
+        var controller = CreateController(store, database);
+
+        var result = await controller.DeleteSegmentAsync(jellyfinRowId, itemId, "intro", CancellationToken.None);
+
+        Assert.IsType<OkResult>(result);
+        var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(row.Id, tombstone.Id);
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+        Assert.Contains((itemId, jellyfinRowId), store.DeletedSegments);
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
+        Assert.False(snapshot.AnalyzedConfigHashes.ContainsKey((itemId, AnalysisMode.Introduction)));
+    }
+
+    [Fact]
+    public async Task DeleteSegment_DriftedRow_KeepsExactMatching_WhenModeHasMultipleActiveRows()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var itemId = Guid.NewGuid();
+        var jellyfinRowId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.AddUserSegmentAsync(
+            itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(60));
+        await database.AddUserSegmentAsync(
+            itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
+
+        // Two active intros make the mode-wide fallback ambiguous: only the named
+        // Jellyfin row is removed, neither plugin row is guessed at.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = jellyfinRowId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = TickConversions.FromSeconds(200),
+                    EndTicks = TickConversions.FromSeconds(260),
+                }
+            ],
+        };
+        var controller = CreateController(store, database);
+
+        var result = await controller.DeleteSegmentAsync(jellyfinRowId, itemId, "intro", CancellationToken.None);
+
+        Assert.IsType<OkResult>(result);
+        Assert.Equal(2, (await database.GetSegmentsAsync(itemId)).Count);
+        Assert.Equal([(itemId, jellyfinRowId)], store.DeletedSegments);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_DriftedCommercialRow_KeepsExactMatching()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        var itemId = Guid.NewGuid();
+        var jellyfinRowId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var commercial = await database.AddUserSegmentAsync(
+            itemId, AnalysisMode.Commercial, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20));
+
+        // Commercials are excluded from the mode-wide fallback even when the item holds
+        // exactly one: a non-matching range means a different commercial, not drift.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = jellyfinRowId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Commercial,
+                    StartTicks = TickConversions.FromSeconds(30),
+                    EndTicks = TickConversions.FromSeconds(40),
+                }
+            ],
+        };
+        var controller = CreateController(store, database);
+
+        var result = await controller.DeleteSegmentAsync(jellyfinRowId, itemId, "commercial", CancellationToken.None);
+
+        Assert.IsType<OkResult>(result);
+        var survivor = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(commercial.Id, survivor.Id);
+        Assert.Equal(SegmentState.Active, survivor.State);
+        Assert.Equal([(itemId, jellyfinRowId)], store.DeletedSegments);
     }
 
     [Fact]
@@ -372,6 +534,72 @@ public sealed class SegmentEditorControllerTests
         var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
         Assert.Equal(row.Id, Assert.Single(pushed).Id);
+    }
+
+    [Fact]
+    public async Task CreateSegment_NonCommercial_ReplacesStoredSegmentsOfMode()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        // Legacy wire contract: clients edit by re-POSTing a new range, so the second
+        // POST must replace the first row instead of stacking a second intro.
+        foreach (var (start, end) in new[] { (10, 20), (12, 25) })
+        {
+            var response = await controller.CreateSegmentAsync(
+                itemId,
+                "providerId",
+                new MediaSegmentDto
+                {
+                    Id = Guid.NewGuid(),
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = TickConversions.FromSeconds(start),
+                    EndTicks = TickConversions.FromSeconds(end),
+                },
+                CancellationToken.None);
+            Assert.IsType<OkResult>(response.Result);
+        }
+
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(AnalysisMode.Introduction, row.Type);
+        Assert.Equal(TickConversions.FromSeconds(12), row.StartTicks);
+        Assert.Equal(TickConversions.FromSeconds(25), row.EndTicks);
+    }
+
+    [Fact]
+    public async Task CreateSegment_Commercial_AppendsWithoutReplacing()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        // Commercials are inherently many per item: distinct ranges accumulate.
+        foreach (var (start, end) in new[] { (10, 20), (300, 320) })
+        {
+            var response = await controller.CreateSegmentAsync(
+                itemId,
+                "providerId",
+                new MediaSegmentDto
+                {
+                    Id = Guid.NewGuid(),
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Commercial,
+                    StartTicks = TickConversions.FromSeconds(start),
+                    EndTicks = TickConversions.FromSeconds(end),
+                },
+                CancellationToken.None);
+            Assert.IsType<OkResult>(response.Result);
+        }
+
+        var rows = await database.GetSegmentsAsync(itemId);
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal(AnalysisMode.Commercial, r.Type));
     }
 
     private static SegmentEditorController CreateController(

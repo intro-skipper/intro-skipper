@@ -138,20 +138,19 @@ public sealed class TestMediaSegmentEditorService
             Plugin.Instance!,
             "Configuration",
             new IntroSkipper.Configuration.PluginConfiguration { UpdateMediaSegments = false });
-        var store = new FakeJellyfinSegmentStore();
+        var itemId = Guid.NewGuid();
+        var uncorrelated = CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId);
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [uncorrelated] };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var mirror = DatabaseTestHelpers.CreateMirror(store, database);
         var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
         // The mirror flag lives in the mirror and the services, not at call sites:
-        // every write no-ops.
-        var itemId = Guid.NewGuid();
+        // every write no-ops (the dispatch still reads the store to resolve the id).
         await mirror.SyncItemAsync(itemId, CancellationToken.None);
-        await service.DeleteUncorrelatedSegmentAsync(
-            itemId,
-            AnalysisMode.Introduction,
-            CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId),
-            CancellationToken.None);
+        var result = await service.DeleteLegacySegmentAsync(
+            itemId, AnalysisMode.Introduction, uncorrelated.Id, CancellationToken.None);
+        Assert.True(result.IsDeleted);
 
         // The correlated delete still commits the plugin tombstone; the mirror's
         // disabled no-op must not read as drift and trigger a resync.
@@ -220,7 +219,7 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task DeleteUncorrelatedSegmentAsync_MatchesWithinOneTick_TombstonesAndResyncs()
+    public async Task DeleteLegacySegmentAsync_MatchesWithinOneTick_TombstonesAndResyncs()
     {
         using var scope = CreatePluginScope();
         var itemId = Guid.NewGuid();
@@ -242,11 +241,9 @@ public sealed class TestMediaSegmentEditorService
         };
         var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
-        await service.DeleteUncorrelatedSegmentAsync(
-            itemId,
-            AnalysisMode.Introduction,
-            CreateSegment(MediaSegmentType.Intro, 1238397, 500000000, jellyfinRowId, itemId),
-            CancellationToken.None);
+        var result = await service.DeleteLegacySegmentAsync(
+            itemId, AnalysisMode.Introduction, jellyfinRowId, CancellationToken.None);
+        Assert.True(result.IsDeleted);
 
         // The one-tick-off counterpart is the plugin row: deleted (user row, hard delete),
         // the targeted Jellyfin delete hits the uncorrelated id, and because that id is not

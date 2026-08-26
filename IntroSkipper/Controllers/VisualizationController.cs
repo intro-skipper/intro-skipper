@@ -286,11 +286,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         }
         catch (Exception ex)
         {
-            // The service rolls the flag back on a mirror failure, but a failing rollback
-            // is logged there rather than thrown; do not promise a state the response
-            // cannot know.
+            // The failure may be the flag write itself or the mirror resync; the service
+            // rolls the flag back on a mirror failure, but a failing rollback is logged
+            // there rather than thrown — do not promise a state the response cannot know.
             LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-            return Problem("The media segment mirror could not be refreshed; the request was not applied. See the server log for the item's current state.", statusCode: StatusCodes.Status500InternalServerError);
+            return Problem("Setting the item's disable flag failed and the change may be partially applied. See the server log for the item's current state.", statusCode: StatusCodes.Status500InternalServerError);
         }
 
         return NoContent();
@@ -405,6 +405,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to set item {ItemId} disabled={Disabled}; the flag write or the mirror refresh did not complete")]
     private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

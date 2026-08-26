@@ -47,6 +47,18 @@ internal static class TickConversions
             : throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Value is not representable as a non-negative tick count.");
 
     /// <summary>
+    /// Whether a tick range is well-formed: a non-negative start with the end strictly
+    /// after it. The single home of the range invariant for tick-native edges (the
+    /// legacy MediaSegmentsApi shim speaks ticks on the wire); the seconds edge applies
+    /// it through <see cref="TryFromSecondsRange"/>.
+    /// </summary>
+    /// <param name="startTicks">Range start in ticks.</param>
+    /// <param name="endTicks">Range end in ticks.</param>
+    /// <returns><c>false</c> when the start is negative or the range is empty or inverted.</returns>
+    internal static bool IsValidTickRange(long startTicks, long endTicks)
+        => startTicks >= 0 && endTicks > startTicks;
+
+    /// <summary>
     /// Converts a seconds range to a tick range. Succeeds only when both boundaries are
     /// representable and the end is strictly after the start.
     /// </summary>
@@ -59,7 +71,7 @@ internal static class TickConversions
     {
         if (TryFromSeconds(startSeconds, out startTicks)
             && TryFromSeconds(endSeconds, out endTicks)
-            && endTicks > startTicks)
+            && IsValidTickRange(startTicks, endTicks))
         {
             return true;
         }

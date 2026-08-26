@@ -46,14 +46,14 @@ internal static class DatabaseTestHelpers
     /// of the editor-service composition chain.
     /// </summary>
     internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(CreateMirror(store, database), database, NullLogger<MediaSegmentEditorService>.Instance);
+        => new(CreateMirror(store, database), store, database, NullLogger<MediaSegmentEditorService>.Instance);
 
     /// <summary>
     /// Composes the editor controller over the standard editor-service wiring, the
     /// single test home of the controller composition chain.
     /// </summary>
     internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(CreateEditorService(store, database), database, store);
+        => new(CreateEditorService(store, database));
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.

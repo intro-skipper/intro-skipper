@@ -6,7 +6,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
@@ -25,20 +24,13 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
 /// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
-/// <param name="database">Segment database facade.</param>
-/// <param name="segmentStore">Direct store for Jellyfin's media segments, for reads outside the mutation path.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(
-    MediaSegmentEditorService mediaSegmentEditorService,
-    IIntroSkipperDatabase database,
-    IJellyfinSegmentStore segmentStore) : ControllerBase
+public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
 {
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
-    private readonly IIntroSkipperDatabase _database = database;
-    private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -79,7 +71,7 @@ public class SegmentEditorController(
             return NotFound();
         }
 
-        if (segment.StartTicks < 0 || segment.EndTicks <= segment.StartTicks)
+        if (!TickConversions.IsValidTickRange(segment.StartTicks, segment.EndTicks))
         {
             return BadRequest("EndTicks must be after StartTicks and both must be non-negative.");
         }
@@ -91,9 +83,25 @@ public class SegmentEditorController(
             return BadRequest($"Unknown segment type '{segment.Type}'.");
         }
 
-        await _mediaSegmentEditorService
-            .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
-            .ConfigureAwait(false);
+        // Legacy wire contract: a non-commercial POST replaces the mode's stored
+        // segments with the posted one (clients edit by re-POSTing a new range), while
+        // commercials — inherently many per item — are added, deduplicated on an
+        // exact-range collision.
+        if (mode == AnalysisMode.Commercial)
+        {
+            await _mediaSegmentEditorService
+                .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await _mediaSegmentEditorService
+                .ReplaceUserSegmentsAsync(
+                    itemId,
+                    new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)> { [mode] = (segment.StartTicks, segment.EndTicks) },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return Ok();
     }
@@ -106,9 +114,11 @@ public class SegmentEditorController(
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
-    /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// is rejected without mutating either item.
+    /// HTTP 200 on success — including a row the plugin already tombstoned, where the
+    /// delete converges the item's mirror so a re-added Jellyfin row disappears — 400
+    /// when the requested type does not match the segment, or 404 when no segment is
+    /// found. A segment id owned by a different item is rejected without mutating
+    /// either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -129,49 +139,17 @@ public class SegmentEditorController(
             return BadRequest($"Unknown segment type '{type}'.");
         }
 
-        // Fast path: the plugin row shares the Jellyfin row's id.
-        var pluginRow = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
-        if (pluginRow is not null && pluginRow.ItemId == itemId)
+        // The service resolves the id (shared-id plugin row vs uncorrelated Jellyfin
+        // row) under the item's mutation stripe, so the dispatch cannot race a
+        // concurrent mutation.
+        var result = await _mediaSegmentEditorService
+            .DeleteLegacySegmentAsync(itemId, requestedMode, segmentId, cancellationToken)
+            .ConfigureAwait(false);
+        if (result.MismatchedType is { } actualType)
         {
-            if (pluginRow.Type != requestedMode)
-            {
-                return BadRequest($"Segment '{segmentId}' is {AnalysisHelpers.ModeToSegmentType[pluginRow.Type]}, not requested type '{type}'.");
-            }
-
-            // Deletability (unknown, vanished, or suppressed rows → 404) is the cascade's
-            // call, derived from its result exactly like the plural DELETE endpoint.
-            var deleted = await _mediaSegmentEditorService
-                .DeleteSegmentAsync(itemId, segmentId, cancellationToken)
-                .ConfigureAwait(false);
-            if (deleted is null)
-            {
-                return NotFound();
-            }
-        }
-        else
-        {
-            // Fallback for uncorrelated ids: rows Jellyfin materialized before the shared-id
-            // scheme, or foreign-provider rows. The cascade matches the plugin-side
-            // counterpart by exact ticks; without one, only the Jellyfin row is removed
-            // and the state still resets.
-            var existingSegment = await _segmentStore
-                .GetSegmentAsync(itemId, segmentId, cancellationToken)
-                .ConfigureAwait(false);
-            if (existingSegment is null)
-            {
-                return NotFound();
-            }
-
-            if (existingSegment.Type != AnalysisHelpers.ModeToSegmentType[requestedMode])
-            {
-                return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
-            }
-
-            await _mediaSegmentEditorService
-                .DeleteUncorrelatedSegmentAsync(itemId, requestedMode, existingSegment, cancellationToken)
-                .ConfigureAwait(false);
+            return BadRequest($"Segment '{segmentId}' is {actualType}, not requested type '{type}'.");
         }
 
-        return Ok();
+        return result.IsDeleted ? Ok() : NotFound();
     }
 }
