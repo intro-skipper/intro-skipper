@@ -336,9 +336,10 @@ public partial class MediaSegmentEditorService(
     /// it first, or the server stopped preserving provider-supplied ids — logged as a
     /// warning), or the delete targeted an uncorrelated Jellyfin id while the plugin
     /// row, matched by ticks, may still be mirrored under its own id. Once the Jellyfin
-    /// delete has committed the deletes are final: the analysis-record clear runs
-    /// uncancelably, and a failing re-sync propagates without rollback (as with
-    /// create/update, the next sync converges the mirror).
+    /// delete has committed the deletes are final: the analysis-record clear and the
+    /// re-sync run uncancelably (a retried request 404s before reaching either repair),
+    /// and a failing re-sync propagates without rollback (the next sync of the item
+    /// converges the mirror).
     /// </summary>
     private async Task DeleteMirrorRowAndResetStateAsync(Guid itemId, AnalysisMode resetMode, Guid jellyfinSegmentId, DbSegment? deletedPluginRow, CancellationToken cancellationToken)
     {
@@ -377,12 +378,15 @@ public partial class MediaSegmentEditorService(
         // The deletes are committed, so a failure here must NOT restore the plugin row
         // (that would resurrect a segment the user deleted, while the Jellyfin row it
         // shared an id with is already gone). Propagate instead; the next sync of the
-        // item converges any leftover mirrored row.
+        // item converges any leftover mirrored row. Uncancelable for the same reason
+        // as the analysis clear above: a retried request 404s before reaching this
+        // repair, so honoring a cancellation would leave the stale mirrored row
+        // visible until an unrelated sync of the item.
         if (deletedPluginRow is not null
             && outcome != MirrorDeleteOutcome.MirroringDisabled
             && (outcome == MirrorDeleteOutcome.RowNotFound || deletedPluginRow.Id != jellyfinSegmentId))
         {
-            await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await _mirror.SyncItemAsync(itemId, CancellationToken.None).ConfigureAwait(false);
         }
     }
 

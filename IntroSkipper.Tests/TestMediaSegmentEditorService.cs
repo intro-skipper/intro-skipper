@@ -323,6 +323,41 @@ public sealed class TestMediaSegmentEditorService
         Assert.False(snapshot.AnalyzedConfigHashes.ContainsKey((itemId, AnalysisMode.Introduction)));
     }
 
+    [Fact]
+    public async Task DeleteLegacySegmentAsync_CancellationAfterCommittedJellyfinDelete_StillResyncsMirror()
+    {
+        using var scope = CreatePluginScope();
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var pluginRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, 1238398, 500000000);
+        var jellyfinRowId = Guid.NewGuid();
+
+        // Cancel at the exact point where the targeted Jellyfin delete has committed:
+        // a repeated DELETE of the uncorrelated id 404s (its Jellyfin row is gone), so
+        // the resync that removes the row mirrored under the plugin id must complete
+        // despite the cancellation or that row lingers until an unrelated sync.
+        using var cts = new CancellationTokenSource();
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                CreateSegment(MediaSegmentType.Intro, 1238397, 500000000, jellyfinRowId, itemId),
+                CreateSegment(MediaSegmentType.Intro, 1238398, 500000000, pluginRow.Id, itemId)
+            ],
+            DeleteSegmentCallback = () => cts.Cancel()
+        };
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
+
+        var result = await service.DeleteLegacySegmentAsync(
+            itemId, AnalysisMode.Introduction, jellyfinRowId, cts.Token);
+
+        Assert.True(result.IsDeleted);
+        Assert.Equal([(itemId, jellyfinRowId)], store.DeletedSegments);
+        var (syncedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, syncedItemId);
+        Assert.Empty(pushed);
+    }
+
     /// <summary>
     /// Scopes a plugin instance so the mirror policy can read the (default, mirroring
     /// enabled) configuration.
