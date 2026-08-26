@@ -23,18 +23,21 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="analyzerFactory">Factory for per-run queue managers.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
+/// <param name="cacheService">Detection cache service; owns the configuration-hash policy.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     AnalyzerTaskFactory analyzerFactory,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
+    IDetectionCacheService cacheService,
     IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
@@ -137,6 +140,14 @@ public partial class CleanCacheTask(
         // key, so it is pruned against the retained item IDs instead.
         await _database.CleanItemStateAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
+        // Cache rows whose configuration hash no read path accepts any more are dead weight;
+        // hash-based, so independent of the item enumeration above.
+        var unreadableRows = await _cacheService.DeleteUnreadableEntriesAsync(cancellationToken).ConfigureAwait(false);
+        if (unreadableRows > 0)
+        {
+            LogDeletedUnreadableCacheRows(_logger, unreadableRows);
+        }
+
         progress.Report(100);
     }
 
@@ -151,6 +162,9 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
     private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Deleted {Count} detection cache rows that are unreadable under the current configuration")]
+    private static partial void LogDeletedUnreadableCacheRows(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping cache cleanup: {Count} library(ies) or item(s) failed to enumerate, so stale-data detection would over-delete. Check the enumeration errors logged above and re-run the task")]
     private static partial void LogSkippingCleanupEnumerationFailures(ILogger logger, int count);

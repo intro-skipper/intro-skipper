@@ -98,4 +98,17 @@ public interface IDetectionCacheDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes every cache entry whose configuration hash is non-empty, does not start
+    /// with <paramref name="acceptedHashPrefix"/>, and is not in
+    /// <paramref name="acceptedConfigHashes"/>. The accepted set is bound as a single
+    /// JSON parameter (<c>json_each</c>), so its size is unbounded. Best-effort:
+    /// database errors are logged and swallowed (cancellation still propagates).
+    /// </summary>
+    /// <param name="acceptedConfigHashes">Configuration hashes whose entries are kept.</param>
+    /// <param name="acceptedHashPrefix">Hash prefix whose entries are kept.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
+    Task<int> DeleteEntriesWithUnknownConfigHashAsync(IReadOnlyCollection<string> acceptedConfigHashes, string acceptedHashPrefix, CancellationToken cancellationToken = default);
 }

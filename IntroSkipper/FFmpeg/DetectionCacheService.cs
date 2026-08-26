@@ -174,6 +174,30 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         return false;
     }
 
+    /// <inheritdoc/>
+    public async Task<int> DeleteUnreadableEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        var config = Plugin.Instance?.Configuration ?? new();
+
+        // Every hash some read path accepts under the current configuration: the current
+        // hash of each (type, mode) pair plus the legacy pre-stream-selection Chromaprint
+        // hash. Inputs that ignore type or mode collapse in the set.
+        var acceptedHashes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            foreach (var type in Enum.GetValues<CacheEntryType>())
+            {
+                acceptedHashes.Add(ConfigHasher.DetectionCache(config, type, mode));
+            }
+
+            acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
+        }
+
+        return await _cacheDatabase
+            .DeleteEntriesWithUnknownConfigHashAsync(acceptedHashes, ConfigHasher.StreamScopedDetectionCacheHashPrefix, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Serializes and compresses a value using Brotli compression.
     /// </summary>

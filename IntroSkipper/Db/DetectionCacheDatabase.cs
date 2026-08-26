@@ -147,6 +147,23 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         return await DeleteWhereAsync(e => EF.Parameter(ids).Contains(e.ItemId), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task<int> DeleteEntriesWithUnknownConfigHashAsync(IReadOnlyCollection<string> acceptedConfigHashes, string acceptedHashPrefix, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(acceptedConfigHashes);
+        ArgumentException.ThrowIfNullOrEmpty(acceptedHashPrefix);
+
+        var hashes = acceptedConfigHashes.Distinct().ToArray();
+
+        // EF.Parameter binds the accepted set as a single JSON parameter (json_each), so
+        // the delete is one statement regardless of how many hashes are accepted.
+        return await DeleteWhereAsync(
+            e => e.ConfigHash != string.Empty
+                && !e.ConfigHash.StartsWith(acceptedHashPrefix)
+                && !EF.Parameter(hashes).Contains(e.ConfigHash),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Filters the cache table by the full cache key. Start/End are compared with ==
     /// which is safe only because the exact same double values that were written are

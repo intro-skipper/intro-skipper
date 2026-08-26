@@ -13,6 +13,8 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
@@ -179,12 +181,16 @@ public sealed class TestCleanCacheTask
         try
         {
             using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
-            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { UpdateMediaSegments = false });
+            var config = new PluginConfiguration { UpdateMediaSegments = false };
+            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", config);
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
 
-            // Live movie data plus rows for an item that is no longer in any library.
+            // Live movie data plus rows for an item that is no longer in any library. The live
+            // movie's readable cache row carries the current config hash; a second row with a
+            // hash no read path accepts must be cleaned even though its item is still live.
+            var currentHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
             await database.ReplaceAutoSegmentsAsync(
                 movieId,
                 AnalysisMode.Introduction,
@@ -192,7 +198,8 @@ public sealed class TestCleanCacheTask
                 SegmentSource.Chapter);
             await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [movieId], "hash");
             await database.SetAnalyzerActionAsync(movieId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
-            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
+            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, currentHash);
+            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, "orphaned-hash");
             await SeedAsync(database, cacheDatabase, staleEpisodeId);
 
             // Disabled flags follow the item: the live movie's flag carries a stale
@@ -211,6 +218,7 @@ public sealed class TestCleanCacheTask
             Assert.Empty(await database.GetSegmentsAsync(staleEpisodeId));
             Assert.Empty(await cacheDatabase.GetStaleItemIdsAsync(new HashSet<Guid> { movieId }));
             Assert.NotNull(cacheDatabase.FindEntry(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
+            Assert.Null(cacheDatabase.FindEntry(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Null(cacheDatabase.FindEntry(staleEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
 
             await using var db = new IntroSkipperDbContext(dbPath);
@@ -252,6 +260,7 @@ public sealed class TestCleanCacheTask
                 database),
             database,
             cacheDatabase,
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
             mediaSegmentRefresher: mediaSegmentRefresher ?? new RecordingRefresher());
 
     private static MediaBrowser.Controller.Entities.Movies.Movie CreateMovie(Guid id)
