@@ -116,6 +116,38 @@ public sealed class TestQueueManager
     }
 
     [Fact]
+    public async Task GetMediaItems_WithSeasonIds_QueriesOnlyLibrariesOwningARequestedItem()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        InitializePlugin();
+
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episode = CreateEpisode(Guid.NewGuid(), seriesId, seasonId);
+        var owningFolder = NewFolder("Media");
+        var unrelatedFolder = new VirtualFolderInfo { Name = "Other", ItemId = Guid.NewGuid().ToString() };
+        var libraryManager = QueueLibraryManager.Create(
+            [owningFolder, unrelatedFolder],
+            [episode],
+            new Dictionary<Guid, Guid> { [seasonId] = Guid.Parse(owningFolder.ItemId!) });
+        var queueManager = new QueueManager(
+            NullLogger<QueueManager>.Instance,
+            libraryManager,
+            providerManager: null!,
+            fileSystem: null!,
+            ffmpegService: null!,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        var queue = await queueManager.GetMediaItems([seasonId]);
+
+        Assert.Equal(episode.Id, Assert.Single(queue[seasonId]).EpisodeId);
+
+        var fake = (QueueLibraryManager)(object)libraryManager;
+        Assert.Contains(Guid.Parse(owningFolder.ItemId!), fake.QueriedLibraryIds);
+        Assert.DoesNotContain(Guid.Parse(unrelatedFolder.ItemId!), fake.QueriedLibraryIds);
+    }
+
+    [Fact]
     public async Task GetMediaItems_WithSeasonIds_IncludesInSeasonSpecials()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -196,13 +228,18 @@ public sealed class TestQueueManager
     {
         private List<VirtualFolderInfo> _folders = [];
         private List<BaseItem> _items = [];
+        private Dictionary<Guid, Guid> _owningFolderIds = [];
 
-        public static ILibraryManager Create(List<VirtualFolderInfo> folders, List<BaseItem> items)
+        // ParentId of every GetItemList query, so tests can assert which libraries were queried.
+        public List<Guid> QueriedLibraryIds { get; } = [];
+
+        public static ILibraryManager Create(List<VirtualFolderInfo> folders, List<BaseItem> items, Dictionary<Guid, Guid>? owningFolderIds = null)
         {
             var proxy = Create<ILibraryManager, QueueLibraryManager>();
             var fake = (QueueLibraryManager)(object)proxy;
             fake._folders = folders;
             fake._items = items;
+            fake._owningFolderIds = owningFolderIds ?? [];
             return proxy;
         }
 
@@ -212,14 +249,39 @@ public sealed class TestQueueManager
             {
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
                 nameof(ILibraryManager.GetItemList) => GetItems(args),
-                nameof(ILibraryManager.GetItemById) => null,
+                nameof(ILibraryManager.GetItemById) => ResolveItem(args),
+                nameof(ILibraryManager.GetCollectionFolders) => CollectionFoldersFor(args),
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
+        }
+
+        // Season/movie ids requested by scoped runs must resolve to some item; ids without a
+        // backing item resolve to a Season stub, as the season entities are not part of _items.
+        private BaseItem ResolveItem(object?[]? args)
+        {
+            var id = (Guid)args![0]!;
+            return _items.FirstOrDefault(item => item.Id == id) ?? new Season { Id = id };
+        }
+
+        // Owning libraries per requested id; ids without a mapping are owned by every folder,
+        // which preserves the query-every-library behavior for tests that don't care.
+        private List<Folder> CollectionFoldersFor(object?[]? args)
+        {
+            var item = (BaseItem)args![0]!;
+            IEnumerable<Guid> folderIds = _owningFolderIds.TryGetValue(item.Id, out var owner)
+                ? [owner]
+                : _folders.Select(folder => Guid.Parse(folder.ItemId!));
+            return [.. folderIds.Select(id => new Folder { Id = id })];
         }
 
         private List<BaseItem> GetItems(object?[]? args)
         {
             var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
+            if (query is not null)
+            {
+                QueriedLibraryIds.Add(query.ParentId);
+            }
+
             if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
             {
                 return [.. _items.Where(item => item is Episode episode &&

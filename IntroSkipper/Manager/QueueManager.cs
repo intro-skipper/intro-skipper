@@ -136,6 +136,26 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return _queuedEpisodes;
         }
 
+        // Resolve each requested id to its owning libraries once, so a scoped run queries only
+        // the folders that can contain a requested item instead of fanning its queries out to
+        // every enabled library. An id that no longer resolves cannot be found by the scoped
+        // queries either, so it contributes no folder.
+        HashSet<Guid>? scopedLibraryIds = null;
+        if (seasonIds is not null)
+        {
+            scopedLibraryIds = [];
+            foreach (var seasonId in seasonIds)
+            {
+                if (_libraryManager.GetItemById(seasonId) is { } requestedItem)
+                {
+                    foreach (var collectionFolder in _libraryManager.GetCollectionFolders(requestedItem))
+                    {
+                        scopedLibraryIds.Add(collectionFolder.Id);
+                    }
+                }
+            }
+        }
+
         foreach (var folder in virtualFolders)
         {
             // If libraries have been selected for analysis, ensure this library was selected.
@@ -145,13 +165,19 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 continue;
             }
 
-            LogRunningEnqueueLibrary(_logger, folder.Name);
-
             // Some virtual folders don't have a proper item id.
             if (!Guid.TryParse(folder.ItemId, out var folderId))
             {
                 continue;
             }
+
+            if (scopedLibraryIds is not null && !scopedLibraryIds.Contains(folderId))
+            {
+                LogSkippingLibraryNoRequestedItems(_logger, folder.Name);
+                continue;
+            }
+
+            LogRunningEnqueueLibrary(_logger, folder.Name);
 
             try
             {
@@ -681,6 +707,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
     private static partial void LogLibraryDisabled(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping library {Name}: it contains none of the requested items")]
+    private static partial void LogSkippingLibraryNoRequestedItems(ILogger logger, string name);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Running enqueue of items in library {Name}")]
     private static partial void LogRunningEnqueueLibrary(ILogger logger, string name);
