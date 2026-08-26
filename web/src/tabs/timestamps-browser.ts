@@ -26,7 +26,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
     const epList = episodeList();
     const actions = actionBar({
-        onScanComplete: () => refreshEpisodes(),
+        onScanComplete: () => refreshUnlessEditing(),
     });
 
     const panelEl = el("section", { className: "ts-season-panel", id: "timestamps-season-panel" });
@@ -385,6 +385,26 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             // The toggle handler owns the user-facing message; this is only a signal.
             throw new Error("setItemDisabled failed");
         }
+    }
+
+    // Reloads the panel after a scan or erase changed the stored segments.
+    // When an inline editor holds unsaved typed input, the reload is withheld
+    // behind an explicit button so it cannot silently discard those edits.
+    async function refreshUnlessEditing(): Promise<void> {
+        if (epList.hasUnsavedEdits()) {
+            epList.setStatus(
+                "Results changed on the server. An editor has unsaved changes.",
+                "var(--is-warning)",
+                {
+                    label: "Refresh",
+                    onClick: () => {
+                        void refreshEpisodes().catch(console.error);
+                    },
+                },
+            );
+            return;
+        }
+        await refreshEpisodes();
     }
 
     async function refreshEpisodes(): Promise<void> {

@@ -202,7 +202,9 @@ export function actionBar(opts: ActionBarOptions): {
 
             if (status.ok && !status.data?.isRunning) {
                 resetScanButton();
-                statusMessage.show("Scan finished. Results refreshed.", "var(--is-success)");
+                // The onScanComplete callback owns the refresh (and may withhold
+                // it over unsaved edits), so this message must not claim one.
+                statusMessage.show("Scan finished.", "var(--is-success)");
                 await Promise.resolve(opts.onScanComplete());
                 return;
             }

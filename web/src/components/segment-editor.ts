@@ -67,13 +67,19 @@ export function segmentEditor(opts: {
     itemId: string;
     initialSegments: SegmentDto[];
     onChanged: (segments: SegmentDto[]) => void;
-}): { container: HTMLElement; destroy: () => void } {
+}): { container: HTMLElement; isDirty: () => boolean; destroy: () => void } {
     const container = el("div", { className: "ts-segment-editor" });
     const rowsEl = el("div");
     const status = createStatusMessage({ className: "ts-segment-status", display: "block" });
 
     let destroyed = false;
     let busy = false;
+    // Last rendered segment list; used to compute a local fallback view when a
+    // post-mutation reload fails.
+    let current = opts.initialSegments;
+    // Rebuilt alongside the rows; each entry reports whether its row's inputs
+    // differ from the rendered segment (or, for the add row, hold typed input).
+    let dirtyChecks: Array<() => boolean> = [];
 
     function setStatus(msg: string, color = "var(--is-text-muted)"): void {
         if (destroyed) return;
@@ -91,28 +97,50 @@ export function segmentEditor(opts: {
         }
     }
 
-    async function reloadAfterMutation(successMessage: string): Promise<void> {
+    /**
+     * Refreshes rows and pills after a mutation that already succeeded. When
+     * the follow-up GET fails, renders `fallback` (the locally computed result
+     * of the mutation) instead of leaving stale rows whose buttons would act
+     * on segments that no longer exist; the next successful reload self-heals.
+     */
+    async function reloadAfterMutation(
+        successMessage: string,
+        fallback: SegmentDto[],
+        overlap?: { type: SegmentType; start: number; end: number; excludeId?: string },
+    ): Promise<void> {
         const result = await api.getEpisodeSegments(opts.itemId);
         if (destroyed) return;
+        const segments = result.ok ? (result.data ?? []) : fallback;
+        renderRows(segments);
+        opts.onChanged(segments);
         if (result.ok) {
-            const segments = result.data ?? [];
-            renderRows(segments);
-            opts.onChanged(segments);
-            setStatus(successMessage, "var(--is-success)");
+            setStatus(successMessage + overlapWarning(segments, overlap), "var(--is-success)");
         } else {
-            setStatus(result.error ?? "Failed to reload segments", "var(--is-error)");
+            setStatus(
+                successMessage + " Reloading failed; showing the unverified local result.",
+                "var(--is-error)",
+            );
         }
     }
 
-    function overlapWarning(segments: SegmentDto[], type: SegmentType, start: number, end: number, excludeId?: string): string {
+    function overlapWarning(
+        segments: SegmentDto[],
+        overlap?: { type: SegmentType; start: number; end: number; excludeId?: string },
+    ): string {
+        if (!overlap) return "";
         const overlapping = segments.some(
-            (s) => s.Type === type && s.Id !== excludeId && !s.Suppressed && start < s.End && s.Start < end,
+            (s) =>
+                s.Type === overlap.type &&
+                s.Id !== overlap.excludeId &&
+                !s.Suppressed &&
+                overlap.start < s.End &&
+                s.Start < overlap.end,
         );
         // Overlaps are legal in the plural model; surface them as a warning only.
-        return overlapping ? " Warning: overlaps another " + type + " segment." : "";
+        return overlapping ? " Warning: overlaps another " + overlap.type + " segment." : "";
     }
 
-    function buildRow(segment: SegmentDto, segments: SegmentDto[]): HTMLElement {
+    function buildRow(segment: SegmentDto): HTMLElement {
         const row = el("div", { className: "ts-segment-row" + (segment.Suppressed ? " suppressed" : "") });
         const label = MODE_OPTIONS.find((m) => m.value === segment.Type)?.label ?? segment.Type;
         row.append(el("span", { className: "ts-segment-mode" }, label));
@@ -141,7 +169,10 @@ export function segmentEditor(opts: {
                 const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
                 if (destroyed) return;
                 if (response.ok) {
-                    await reloadAfterMutation("Segment restored.");
+                    const next = current.map((s) =>
+                        s.Id === segment.Id ? { ...s, Suppressed: false } : s,
+                    );
+                    await reloadAfterMutation("Segment restored.", next);
                 } else {
                     setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
                 }
@@ -149,6 +180,12 @@ export function segmentEditor(opts: {
             row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
             return row;
         }
+
+        dirtyChecks.push(
+            () =>
+                startInput.value !== formatTimeInput(segment.Start) ||
+                endInput.value !== formatTimeInput(segment.End),
+        );
 
         const saveBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Save");
         const deleteBtn = el("button", { className: "ts-segment-btn danger", type: "button" }, "Delete");
@@ -159,7 +196,15 @@ export function segmentEditor(opts: {
             const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: range.start, End: range.end });
             if (destroyed) return;
             if (result.ok) {
-                await reloadAfterMutation("Segment saved." + overlapWarning(segments, segment.Type, range.start, range.end, segment.Id));
+                const next = current.map((s) =>
+                    s.Id === segment.Id ? { ...s, Start: range.start, End: range.end } : s,
+                );
+                await reloadAfterMutation("Segment saved.", next, {
+                    type: segment.Type,
+                    start: range.start,
+                    end: range.end,
+                    excludeId: segment.Id,
+                });
             } else {
                 errorEl.textContent = result.error ?? "Failed to save segment";
             }
@@ -179,10 +224,14 @@ export function segmentEditor(opts: {
                 const result = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
                 if (destroyed) return;
                 if (result.ok) {
-                    await reloadAfterMutation("Segment deleted.");
+                    // Mirrors the server's delete rule (see confirm text above):
+                    // user segments are removed, automatic ones are tombstoned.
+                    const next = segment.Source === "User"
+                        ? current.filter((s) => s.Id !== segment.Id)
+                        : current.map((s) => (s.Id === segment.Id ? { ...s, Suppressed: true } : s));
+                    await reloadAfterMutation("Segment deleted.", next);
                 } else {
                     setStatus(result.error ?? "Failed to delete segment", "var(--is-error)");
-                    window.Dashboard.alert("Failed to delete segment");
                 }
             });
         });
@@ -191,7 +240,7 @@ export function segmentEditor(opts: {
         return row;
     }
 
-    function buildAddRow(segments: SegmentDto[]): HTMLElement {
+    function buildAddRow(): HTMLElement {
         const row = el("div", { className: "ts-segment-row ts-segment-add-row" });
         const select = el("select", { className: "ts-segment-select" }) as HTMLSelectElement;
         for (const mode of MODE_OPTIONS) {
@@ -206,6 +255,8 @@ export function segmentEditor(opts: {
         const errorEl = el("span", { className: "ts-segment-error" });
         const addBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Add");
 
+        dirtyChecks.push(() => startInput.value.trim() !== "" || endInput.value.trim() !== "");
+
         addBtn.addEventListener("click", () => withBusy(async () => {
             const range = readRange(startInput, endInput, errorEl);
             if (range === null) return;
@@ -213,9 +264,16 @@ export function segmentEditor(opts: {
             const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: range.start, End: range.end });
             if (destroyed) return;
             if (result.ok) {
-                startInput.value = "";
-                endInput.value = "";
-                await reloadAfterMutation("Segment added." + overlapWarning(segments, type, range.start, range.end));
+                // reloadAfterMutation always re-renders, so the add row (and its
+                // inputs) is rebuilt empty either way.
+                const created = result.data;
+                const next = created ? [...current, created] : current;
+                await reloadAfterMutation("Segment added.", next, {
+                    type,
+                    start: range.start,
+                    end: range.end,
+                    excludeId: created?.Id,
+                });
             } else {
                 errorEl.textContent = result.error ?? "Failed to add segment";
             }
@@ -226,12 +284,13 @@ export function segmentEditor(opts: {
     }
 
     function renderRows(segments: SegmentDto[]): void {
+        current = segments;
+        dirtyChecks = [];
         rowsEl.replaceChildren();
-        const sorted = sortSegments(segments);
-        for (const segment of sorted) {
-            rowsEl.append(buildRow(segment, sorted));
+        for (const segment of sortSegments(segments)) {
+            rowsEl.append(buildRow(segment));
         }
-        rowsEl.append(buildAddRow(sorted));
+        rowsEl.append(buildAddRow());
     }
 
     container.append(rowsEl, status.element);
@@ -239,6 +298,12 @@ export function segmentEditor(opts: {
 
     return {
         container,
+        // True while any editable row's inputs differ from the rendered segment
+        // or the add row holds typed input; callers use this to avoid re-renders
+        // that would discard unsaved edits.
+        isDirty() {
+            return !destroyed && dirtyChecks.some((check) => check());
+        },
         destroy() {
             destroyed = true;
             container.replaceChildren();

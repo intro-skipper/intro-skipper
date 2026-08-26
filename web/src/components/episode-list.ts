@@ -20,7 +20,12 @@ export function episodeList(): {
         },
     ) => void;
     clear: () => void;
-    setStatus: (msg: string, color?: string) => void;
+    setStatus: (
+        msg: string,
+        color?: string,
+        action?: { label: string; onClick: () => void },
+    ) => void;
+    hasUnsavedEdits: () => boolean;
     destroy: () => void;
 } {
     const container = el("div");
@@ -49,7 +54,7 @@ export function episodeList(): {
     let currentEpisodes: EpisodeItem[] = [];
     let currentCards: HTMLElement[] = [];
     let filterTimer: ReturnType<typeof setTimeout> | null = null;
-    let editors: Array<{ destroy: () => void }> = [];
+    let editors: Array<{ isDirty: () => boolean; destroy: () => void }> = [];
     let editorCounter = 0;
 
     function ticksToMinutes(ticks: number | null): string {
@@ -109,7 +114,9 @@ export function episodeList(): {
             retryBtn.addEventListener("click", async () => {
                 // Retry only this episode so one failed request does not force a full reload.
                 retryBtn.textContent = "Loading…";
-                retryBtn.style.pointerEvents = "none";
+                // disabled (not pointer-events) so keyboard activation cannot
+                // start a second concurrent retry.
+                retryBtn.disabled = true;
                 const retryResult = await api.getEpisodeSegments(ep.Id);
                 if (retryResult && retryResult.ok) {
                     card.classList.remove("error");
@@ -117,7 +124,7 @@ export function episodeList(): {
                     attachSegmentUi(ep, header, info, retryResult.data ?? []);
                 } else {
                     retryBtn.textContent = "Retry";
-                    retryBtn.style.pointerEvents = "";
+                    retryBtn.disabled = false;
                 }
             });
             errorDiv.append(retryBtn);
@@ -147,7 +154,8 @@ export function episodeList(): {
         const editorId = "ts-segment-editor-" + ++editorCounter;
         const editBtn = el("button", { className: "ts-edit-btn", type: "button" }, "Edit");
         editBtn.setAttribute("aria-expanded", "false");
-        editBtn.setAttribute("aria-controls", editorId);
+        // aria-controls is set once the editor element exists (first toggle);
+        // pointing it at a not-yet-created id would be a broken reference.
         header.append(editBtn);
 
         let editor: ReturnType<typeof segmentEditor> | null = null;
@@ -163,6 +171,7 @@ export function episodeList(): {
                     },
                 });
                 editor.container.id = editorId;
+                editBtn.setAttribute("aria-controls", editorId);
                 info.append(editor.container);
                 editors.push(editor);
                 editBtn.setAttribute("aria-expanded", "true");
@@ -193,6 +202,10 @@ export function episodeList(): {
             const nowDisabled = !toggle.checked;
             try {
                 await onDisabledChange?.(ep.Id, nowDisabled);
+                // Keep the cached set in sync so later card rebuilds within
+                // this render see the toggled state.
+                if (nowDisabled) currentDisabledIds.add(ep.Id);
+                else currentDisabledIds.delete(ep.Id);
                 card.classList.toggle("ts-episode-disabled", nowDisabled);
             } catch {
                 toggle.checked = !toggle.checked;
@@ -311,15 +324,34 @@ export function episodeList(): {
             filterInput.value = "";
         },
 
-        setStatus(msg: string, color = "var(--is-text-muted)") {
+        setStatus(
+            msg: string,
+            color = "var(--is-text-muted)",
+            action?: { label: string; onClick: () => void },
+        ) {
             if (!msg) {
                 statusEl.style.display = "none";
-                statusEl.textContent = "";
+                statusEl.replaceChildren();
                 return;
             }
-            statusEl.textContent = msg;
+            statusEl.replaceChildren(document.createTextNode(msg));
+            if (action) {
+                const actionBtn = el(
+                    "button",
+                    { className: "ts-retry-link", type: "button" },
+                    action.label,
+                );
+                actionBtn.addEventListener("click", action.onClick);
+                statusEl.append(" ", actionBtn);
+            }
             statusEl.style.color = color;
             statusEl.style.display = "block";
+        },
+
+        // True while any live inline editor (expanded or collapsed) holds
+        // unsaved typed input.
+        hasUnsavedEdits() {
+            return editors.some((editor) => editor.isDirty());
         },
 
         destroy() {
