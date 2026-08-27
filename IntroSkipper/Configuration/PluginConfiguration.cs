@@ -395,6 +395,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int IntroStartOffset { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to apply <see cref="IntroStartOffset" /> when the
+    /// intro start is snapped to the beginning of the episode.
+    /// </summary>
+    public bool IncludeIntroStartOffsetWhenSnapping { get; set; }
+
     // ===== Internal algorithm settings =====
 
     /// <summary>
