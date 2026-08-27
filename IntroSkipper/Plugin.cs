@@ -313,7 +313,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = CreateDbContext();
         var segments = await db.DbSegment
             .AsNoTracking()
-            .Where(s => s.ItemId == id)
+            .Where(s => s.ItemId == id && s.End > 0.0 && s.End > s.Start)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -548,7 +548,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .Where(s => batch.Contains(s.ItemId)
                     && s.Type == mode
                     && !s.IsUserProvided
-                    && s.ConfigHash != configHash)
+                    && (s.ConfigHash != configHash || s.End <= 0.0 || s.End <= s.Start))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -722,7 +722,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .ConfigureAwait(false));
         }
 
-        var segments = allSegments;
+        // Invalid rows can exist from older analysis runs where an offset collapsed a segment.
+        // They must not make an episode look analyzed or appear in queue snapshots.
+        var segments = allSegments.Where(s => s.End > 0.0 && s.End > s.Start).ToList();
 
         return new SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),

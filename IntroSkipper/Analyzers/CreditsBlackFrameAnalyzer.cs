@@ -70,6 +70,13 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 }
 
                 credit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!credit.Valid)
+                {
+                    LogNoValidCreditsFound(episode.Name);
+                    episode.SetAnalyzed(mode, EpisodeState.NoSegments);
+                    continue;
+                }
+
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
