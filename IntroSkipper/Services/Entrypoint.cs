@@ -8,6 +8,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
