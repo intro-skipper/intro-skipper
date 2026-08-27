@@ -127,6 +127,7 @@ public partial class ChapterAnalyzer(
             skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
             if (!skipRange.Valid)
             {
+                await Plugin.DeleteAutomaticTimestampAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(mode, EpisodeState.NoSegments);
                 continue;
             }

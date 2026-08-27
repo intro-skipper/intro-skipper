@@ -73,6 +73,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 if (!credit.Valid)
                 {
                     LogNoValidCreditsFound(episode.Name);
+                    await Plugin.DeleteAutomaticTimestampAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
                     episode.SetAnalyzed(mode, EpisodeState.NoSegments);
                     continue;
                 }
