@@ -716,8 +716,8 @@ public sealed class TestDbSegmentStorage
             {
                 await db.Database.EnsureCreatedAsync();
                 db.DbSegment.AddRange(
-                    new DbSegment(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
-                    new DbSegment(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Introduction, true));
+                    new DbSegment(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Commercial),
+                    new DbSegment(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Commercial, true));
                 await db.SaveChangesAsync();
             }
 
@@ -725,7 +725,7 @@ public sealed class TestDbSegmentStorage
             {
                 ConfigurePluginLogger(Plugin.Instance!);
                 EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
-                await Plugin.DeleteAutomaticTimestampAsync(itemId, AnalysisMode.Introduction);
+                await Plugin.DeleteAutomaticTimestampAsync(itemId, AnalysisMode.Commercial);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
