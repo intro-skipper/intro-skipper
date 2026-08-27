@@ -56,7 +56,7 @@ public sealed partial class IntroSkipperDatabase
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                 && s.Type == mode
                 && !s.IsUserProvided
-                && s.ConfigHash != configHash)
+                && (s.ConfigHash != configHash || s.End <= 0.0 || s.End <= s.Start))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

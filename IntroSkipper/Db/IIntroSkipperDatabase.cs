@@ -77,6 +77,15 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Deletes automatic segments for an item and analysis mode while preserving user-provided segments.
+    /// </summary>
+    /// <param name="itemId">Item ID whose automatic segment should be removed.</param>
+    /// <param name="mode">Analysis mode to remove.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task DeleteAutomaticTimestampAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes every stored segment of the given analysis mode.
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>

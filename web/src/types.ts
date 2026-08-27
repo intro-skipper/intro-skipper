@@ -74,6 +74,7 @@ export interface PluginConfig {
     SnapToKeyframe: boolean;
     AdjustIntroBasedOnSilence: boolean;
     AdjustIntroBasedOnChapters: boolean;
+    IncludeIntroStartOffsetWhenSnapping: boolean;
     UseFileTransformationPlugin: boolean;
     AutoSkipIntro: boolean;
     AutoSkipCredits: boolean;

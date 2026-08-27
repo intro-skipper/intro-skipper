@@ -102,7 +102,7 @@ public sealed partial class IntroSkipperDatabase
     {
         var segments = await GetSegmentsAsync(id, cancellationToken).ConfigureAwait(false);
 
-        return ToCanonicalTimestamps(segments);
+        return ToCanonicalTimestamps(segments.Where(IsValid));
     }
 
     /// <summary>
@@ -118,6 +118,8 @@ public sealed partial class IntroSkipperDatabase
             .ToDictionary(
                 group => group.Key,
                 group => group.OrderBy(segment => segment.Start).First().ToSegment());
+
+    private static bool IsValid(DbSegment segment) => segment.End > 0.0 && segment.End > segment.Start;
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -175,6 +177,17 @@ public sealed partial class IntroSkipperDatabase
         }
 
         return entries;
+    }
+
+    /// <inheritdoc/>
+    public async Task DeleteAutomaticTimestampAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        await db.DbSegment
+            .Where(s => s.ItemId == itemId && s.Type == mode && !s.IsUserProvided)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

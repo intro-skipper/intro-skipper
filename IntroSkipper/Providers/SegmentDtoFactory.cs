@@ -40,7 +40,7 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
                 continue;
             }
 
-            if (segment.End <= 0.0)
+            if (segment.End <= 0.0 || segment.End <= segment.Start)
             {
                 continue;
             }

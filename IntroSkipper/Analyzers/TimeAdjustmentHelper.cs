@@ -83,13 +83,16 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
         if (snapToEpisodeStart)
         {
-            // When snapping to episode start, do NOT apply IntroStartOffset
+            // Snap the detected boundary first; IntroStartOffset is applied below so it also
+            // takes effect when the detected intro starts at (or near) the episode start.
             LogSnappingIntroStart(_logger, episode.EpisodeId, episode.Name, _config.EndSnapThreshold);
             adjustedStart = 0;
         }
-        else
+
+        // Apply the configured playback offset after all other start adjustments. Snapped starts
+        // are opt-in because the default behavior is to preserve the episode boundary.
+        if (!snapToEpisodeStart || _config.IncludeIntroStartOffsetWhenSnapping)
         {
-            // Apply configurable start offset only if we are not snapping to the episode start
             adjustedStart = Math.Clamp(adjustedStart + _config.IntroStartOffset, 0, duration);
         }
 
@@ -134,7 +137,11 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
         // Ensure start < end after all adjustments
         if (adjustedStart >= adjustedEnd)
         {
-            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+            LogAdjustedStartAfterEnd(_logger, episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
+
+            // The adjusted range is unusable, so do not restore the original range and silently
+            // discard a configured start offset. Return an invalid segment so callers can ignore it.
+            return new Segment(episode.EpisodeId);
         }
 
         LogAdjustedIntro(_logger, episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
@@ -259,13 +266,13 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0")]
     private static partial void LogNegativeIntroStart(ILogger logger, Guid episodeId, string name, double start);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: Snapping intro start to 0 (within threshold {Threshold}), skipping IntroStartOffset")]
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: Snapping intro start to 0 (within threshold {Threshold})")]
     private static partial void LogSnappingIntroStart(ILogger logger, Guid episodeId, string name, double threshold);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: No suitable silence found for intro end in range {Start}-{End}")]
     private static partial void LogNoSilenceFound(ILogger logger, Guid episodeId, string name, double start, double end);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, reverting to original")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, discarding segment")]
     private static partial void LogAdjustedStartAfterEnd(ILogger logger, Guid episodeId, string name, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name} adjusted intro: {Start} - {End}")]

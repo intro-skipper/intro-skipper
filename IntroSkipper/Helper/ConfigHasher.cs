@@ -177,7 +177,7 @@ public static class ConfigHasher
             $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}",
             $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}",
             $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}",
-            $"|startOffset={config.IntroStartOffset}|endOffset={config.IntroEndOffset}");
+            $"|startOffset={config.IntroStartOffset}|includeStartOffsetWhenSnapping={config.IncludeIntroStartOffsetWhenSnapping}|endOffset={config.IntroEndOffset}");
 
     private static string Invariant(params FormattableString[] parts)
         => string.Concat(parts.Select(FormattableString.Invariant));

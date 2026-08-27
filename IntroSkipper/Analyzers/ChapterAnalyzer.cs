@@ -129,6 +129,12 @@ public partial class ChapterAnalyzer(
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
             skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
+            if (!skipRange.Valid)
+            {
+                await _database.DeleteAutomaticTimestampAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                episode.SetAnalyzed(mode, EpisodeState.NoSegments);
+                continue;
+            }
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await _database.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);

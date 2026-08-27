@@ -8,7 +8,7 @@ body:
     attributes:
       label: Self service debugging
       description: |
-        Jellyfin 10.11 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release.
+        Jellyfin 12 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release.
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
 
@@ -29,7 +29,7 @@ body:
     attributes:
       label: Jellyfin version or container image/tag
       description: The Jellyfin version or container for Docker
-      placeholder: 10.11.11, jellyfin/jellyfin:10.9.9, etc.
+      placeholder: 12.0.0, jellyfin/jellyfin:12.0.z, etc.
     validations:
       required: true
 

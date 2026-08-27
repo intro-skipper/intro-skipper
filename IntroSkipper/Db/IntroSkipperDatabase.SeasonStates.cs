@@ -199,7 +199,9 @@ public sealed partial class IntroSkipperDatabase
 
         var segments = await db.DbSegment
             .AsNoTracking()
-            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId))
+            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId)
+                && s.End > 0.0
+                && s.End > s.Start)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

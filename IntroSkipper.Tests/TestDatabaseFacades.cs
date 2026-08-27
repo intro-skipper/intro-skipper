@@ -242,6 +242,30 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task DeleteAutomaticTimestampAsync_PreservesUserProvidedSegments()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Commercial, isUserProvided: true);
+
+            await database.DeleteAutomaticTimestampAsync(itemId, AnalysisMode.Commercial);
+
+            var remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.True(remaining.IsUserProvided);
+            Assert.Equal(20, remaining.Start);
+            Assert.Equal(30, remaining.End);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task DeleteSegmentsByModeAsync_RemovesOnlyTheGivenMode()
     {
         var dbPath = CreateTempDbPath();

@@ -2,7 +2,7 @@
 
 <div align="center">
     <p>
-        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.11/images/logo.png" />
+        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/12.0/images/logo.png" />
     </p>
     <p>
         Analyzes the audio of television episodes to detect and skip over intros.
@@ -52,9 +52,9 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 ## System requirements
 
 * Jellyfin 12.0.0 (or newer)
-* Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.1-7` or newer
-  * `jellyfin/jellyfin` 10.11.z container: preinstalled
-  * `linuxserver/jellyfin` 10.11.z container: preinstalled
+* Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.3-1` or newer
+  * `jellyfin/jellyfin` 12.z container: preinstalled
+  * `linuxserver/jellyfin` 12.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg7` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
   * Gentoo Linux native installs: enable `xarblu-overlay` and install `media-video/jellyfin-ffmpeg`
@@ -65,7 +65,7 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 
 ## Disclaimer
 
-This plugin is licensed under the [GNU General Public License v3.0](https://github.com/intro-skipper/intro-skipper/blob/10.11/LICENSE).
+This plugin is licensed under the [GNU General Public License v3.0](https://github.com/intro-skipper/intro-skipper/blob/12.0/LICENSE).
 It is provided as-is, without warranty of any kind, express or implied. Use it at your own
 risk. The authors accept no liability for data loss, missed detections,
 false positives, or any other damages arising from its use.

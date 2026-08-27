@@ -10,7 +10,7 @@ body:
       description: |
         Detection needs a working FFmpeg with Chromaprint and an analysis run with your current settings. Rule those out first, see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting).
       options:
-        - label: I use Jellyfin 10.11.11 (or newer) and installed the plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
+        - label: I use Jellyfin 12.0.0 (or newer) and installed the plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
         - label: "The support log below says `FFmpeg: okay`"
           required: true
@@ -28,7 +28,7 @@ body:
   - type: input
     attributes:
       label: Jellyfin version or container image/tag
-      placeholder: 10.11.11, jellyfin/jellyfin:10.11.11, etc.
+      placeholder: 12.0.0, jellyfin/jellyfin:12.0.0, etc.
     validations:
       required: true
 

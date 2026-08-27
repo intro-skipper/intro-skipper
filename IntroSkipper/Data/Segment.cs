@@ -77,9 +77,9 @@ public class Segment
 
     /// <summary>
     /// Gets a value indicating whether this segment is valid or not.
-    /// Invalid results must not be returned through the API.
+    /// Invalid results must not be returned through the API. A segment must have a positive duration.
     /// </summary>
-    public bool Valid => End > 0.0;
+    public bool Valid => End > 0.0 && End > Start;
 
     /// <summary>
     /// Gets the duration of this segment.
