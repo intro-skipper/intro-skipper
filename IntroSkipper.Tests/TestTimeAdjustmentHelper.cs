@@ -80,6 +80,23 @@ public class TestTimeAdjustmentHelper
     }
 
     [Fact]
+    public async Task OffsetThatConsumesSnappedIntro_ReturnsInvalidSegment()
+    {
+        var (helper, cfg) = CreateHelper();
+        cfg.IntroStartOffset = 2;
+        cfg.IncludeIntroStartOffsetWhenSnapping = true;
+
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
+        var original = new Segment(episode.EpisodeId) { Start = 1, End = 2 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
+
+        Assert.False(adjusted.Valid);
+        Assert.Equal(0, adjusted.Start);
+        Assert.Equal(0, adjusted.End);
+    }
+
+    [Fact]
     public async Task StartOffset_IsApplied_When_NotSnapping()
     {
         var (helper, cfg) = CreateHelper();
