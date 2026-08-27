@@ -181,6 +181,27 @@ namespace IntroSkipper.Services
                 return;
             }
 
+            // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A replacement
+            // at the same path retains the Jellyfin item ID, so the normal queue would otherwise
+            // treat the old automatic analysis and fingerprint cache as still valid. Invalidate
+            // only this item before queueing its season for the debounced analysis pass.
+            if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
+                item.Id != Guid.Empty &&
+                Plugin.Instance is not null)
+            {
+                try
+                {
+                    var seasonId = item is Episode episode ? episode.SeasonId : item.Id;
+                    Plugin.ResetItemForReanalysis(seasonId, item.Id, Enum.GetValues<AnalysisMode>());
+                    _cacheService.DeleteForItem(item.Id);
+                    LogMediaItemChanged(_logger, item.Id);
+                }
+                catch (Exception ex)
+                {
+                    LogErrorResettingChangedMediaItem(_logger, ex, item.Id);
+                }
+            }
+
             Guid? id = item switch
             {
                 Episode episode => episode.SeasonId,
@@ -414,6 +435,12 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
         private partial void LogMediaItemRemoved(Guid id);
+
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Media item changed, invalidating automatic analysis and fingerprint cache for {Id}")]
+        private static partial void LogMediaItemChanged(ILogger logger, Guid id);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for changed media item {Id}")]
+        private static partial void LogErrorResettingChangedMediaItem(ILogger logger, Exception ex, Guid id);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
         private partial void LogErrorDeletingFingerprintCache(Exception ex);

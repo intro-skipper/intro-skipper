@@ -55,6 +55,74 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
+    public void OnItemChanged_InvalidatesChangedEpisodeAnalysisAndCache()
+    {
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid() + ".db");
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+
+        var episode = new Episode();
+        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", itemId);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
+        EntrypointTestHelpers.EnsureNonVirtual(episode);
+
+        try
+        {
+            using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                using (var db = Plugin.CreateDbContext())
+                {
+                    db.Database.EnsureCreated();
+                    db.DbSegment.Add(new DbSegment(new Segment(itemId, new TimeRange(0, 30)), AnalysisMode.Introduction));
+                    db.DbSegment.Add(new DbSegment(new Segment(itemId, new TimeRange(120, 150)), AnalysisMode.Credits, isUserProvided: true));
+                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, [itemId]));
+                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, [itemId]));
+                    db.SaveChanges();
+                }
+
+                using (var cacheDb = Plugin.CreateCacheDbContext())
+                {
+                    cacheDb.DetectionCache.Add(new DbDetectionCache(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+                    cacheDb.DetectionCache.Add(new DbDetectionCache(otherId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+                    cacheDb.SaveChanges();
+                }
+
+                var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
+                EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+
+                using (var db = Plugin.CreateDbContext())
+                {
+                    Assert.False(db.DbSegment.Any(s => s.ItemId == itemId && !s.IsUserProvided));
+                    Assert.True(db.DbSegment.Any(s => s.ItemId == itemId && s.IsUserProvided));
+                    Assert.Empty(db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction).EpisodeIds);
+                    Assert.Empty(db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Credits).EpisodeIds);
+                }
+
+                using var verificationCache = Plugin.CreateCacheDbContext();
+                Assert.False(verificationCache.DetectionCache.Any(e => e.ItemId == itemId));
+                Assert.True(verificationCache.DetectionCache.Any(e => e.ItemId == otherId));
+            }
+        }
+        finally
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+            {
+                var path = dbPath + suffix;
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void OnItemChanged_DoesNothing_WhenAutoDetectDisabled()
     {
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
