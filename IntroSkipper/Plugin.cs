@@ -724,7 +724,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Invalid rows can exist from older analysis runs where an offset collapsed a segment.
         // They must not make an episode look analyzed or appear in queue snapshots.
-        var segments = [.. allSegments.Where(s => s.End > 0.0 && s.End > s.Start)];
+        List<DbSegment> segments = [.. allSegments.Where(s => s.End > 0.0 && s.End > s.Start)];
 
         return new SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
