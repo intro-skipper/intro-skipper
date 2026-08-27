@@ -701,6 +701,47 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task DeleteAutomaticTimestampAsync_PreservesUserProvidedSegments()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        var dbPath = Path.Join(tempDir, dbFileName);
+        var itemId = Guid.NewGuid();
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Commercial),
+                    new DbSegment(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Commercial, true));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                ConfigurePluginLogger(Plugin.Instance!);
+                EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
+                await Plugin.DeleteAutomaticTimestampAsync(itemId, AnalysisMode.Commercial);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var remaining = await db.DbSegment.SingleAsync();
+                Assert.True(remaining.IsUserProvided);
+                Assert.Equal(20, remaining.Start);
+                Assert.Equal(30, remaining.End);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static async Task<bool> TableExistsAsync(IntroSkipperDbContext db, string tableName)
     {
         var connection = db.Database.GetDbConnection();

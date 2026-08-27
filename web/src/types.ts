@@ -69,6 +69,7 @@ export interface PluginConfig {
     SnapToKeyframe: boolean;
     AdjustIntroBasedOnSilence: boolean;
     AdjustIntroBasedOnChapters: boolean;
+    IncludeIntroStartOffsetWhenSnapping: boolean;
     UseFileTransformationPlugin: boolean;
 
     // Server-managed flag exposed to the dashboard.
