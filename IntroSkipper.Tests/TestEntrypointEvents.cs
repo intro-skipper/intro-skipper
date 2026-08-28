@@ -55,7 +55,7 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
-    public void OnItemChanged_InvalidatesChangedEpisodeAnalysisAndCache()
+    public void OnItemChanged_QueuesChangedEpisodeForCoordinatedInvalidation()
     {
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -81,8 +81,8 @@ public sealed class TestEntrypointEvents
                     db.Database.EnsureCreated();
                     db.DbSegment.Add(new DbSegment(new Segment(itemId, new TimeRange(0, 30)), AnalysisMode.Introduction));
                     db.DbSegment.Add(new DbSegment(new Segment(itemId, new TimeRange(120, 150)), AnalysisMode.Credits, isUserProvided: true));
-                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, [itemId]));
-                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, [itemId]));
+                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, [itemId], string.Empty, [itemId]));
+                    db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, [itemId], string.Empty, [itemId]));
                     db.SaveChanges();
                 }
 
@@ -96,16 +96,23 @@ public sealed class TestEntrypointEvents
                 var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
                 EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
+                var itemsToReset = EntrypointTestHelpers.GetItemsToReset(entrypoint);
+                Assert.Equal(seasonId, itemsToReset[itemId]);
+
                 using (var db = Plugin.CreateDbContext())
                 {
-                    Assert.False(db.DbSegment.Any(s => s.ItemId == itemId && !s.IsUserProvided));
+                    // Invalidation is deferred until the coordinated analysis pass so an
+                    // already-running analyzer cannot repopulate the old state after the reset.
+                    Assert.True(db.DbSegment.Any(s => s.ItemId == itemId && !s.IsUserProvided));
                     Assert.True(db.DbSegment.Any(s => s.ItemId == itemId && s.IsUserProvided));
-                    Assert.Empty(db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction).EpisodeIds);
-                    Assert.Empty(db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Credits).EpisodeIds);
+                    Assert.Equal(new[] { itemId }, db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction).EpisodeIds);
+                    Assert.Equal(new[] { itemId }, db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Credits).EpisodeIds);
+                    Assert.Equal(new[] { itemId }, db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction).SettledReanalysisEpisodeIds);
+                    Assert.Equal(new[] { itemId }, db.DbSeasonState.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Credits).SettledReanalysisEpisodeIds);
                 }
 
                 using var verificationCache = Plugin.CreateCacheDbContext();
-                Assert.False(verificationCache.DetectionCache.Any(e => e.ItemId == itemId));
+                Assert.True(verificationCache.DetectionCache.Any(e => e.ItemId == itemId));
                 Assert.True(verificationCache.DetectionCache.Any(e => e.ItemId == otherId));
             }
         }

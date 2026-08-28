@@ -43,6 +43,7 @@ namespace IntroSkipper.Services
         private readonly ILoggerFactory _loggerFactory;
         private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
+        private readonly Dictionary<Guid, Guid> _itemsToReset = [];
         private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
@@ -182,27 +183,6 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A replacement
-            // at the same path retains the Jellyfin item ID, so the normal queue would otherwise
-            // treat the old automatic analysis and fingerprint cache as still valid. Invalidate
-            // only this item before queueing its season for the debounced analysis pass.
-            if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
-                item.Id != Guid.Empty &&
-                Plugin.Instance is not null)
-            {
-                try
-                {
-                    var seasonId = item is Episode episode ? episode.SeasonId : item.Id;
-                    Plugin.ResetItemForReanalysis(seasonId, item.Id, Enum.GetValues<AnalysisMode>());
-                    _cacheService.DeleteForItem(item.Id);
-                    LogMediaItemChanged(_logger, item.Id);
-                }
-                catch (Exception ex)
-                {
-                    LogErrorResettingChangedMediaItem(_logger, ex, item.Id);
-                }
-            }
-
             Guid? id = item switch
             {
                 Episode episode => episode.SeasonId,
@@ -216,6 +196,18 @@ namespace IntroSkipper.Services
 
                 lock (_seasonsLock)
                 {
+                    // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A
+                    // replacement at the same path retains the Jellyfin item ID, so the normal
+                    // queue would otherwise treat the old automatic analysis and fingerprint
+                    // cache as still valid. Defer invalidation until the coordinated analysis
+                    // pass, after any currently running analysis has finished writing its state.
+                    if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
+                        item.Id != Guid.Empty &&
+                        Plugin.Instance is not null)
+                    {
+                        _itemsToReset[item.Id] = id.Value;
+                    }
+
                     _seasonsToAnalyze.Add(id.Value);
                 }
 
@@ -326,7 +318,10 @@ namespace IntroSkipper.Services
         {
             if (AutomaticTaskState == TaskState.Running)
             {
-                _analyzeAgain = true;
+                lock (_seasonsLock)
+                {
+                    _analyzeAgain = true;
+                }
             }
             else if (AutomaticTaskState == TaskState.Idle)
             {
@@ -367,35 +362,80 @@ namespace IntroSkipper.Services
                     {
                         LogInitiatingAutomaticAnalysis();
                         HashSet<Guid> seasonIds;
+                        Dictionary<Guid, Guid> itemsToReset;
                         lock (_seasonsLock)
                         {
                             seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+                            itemsToReset = new Dictionary<Guid, Guid>(_itemsToReset);
                             _seasonsToAnalyze.Clear();
+                            _itemsToReset.Clear();
+                            _analyzeAgain = false;
                         }
 
-                        _analyzeAgain = false;
+                        var failedResetSeasonIds = new HashSet<Guid>();
+                        foreach (var (itemId, seasonId) in itemsToReset)
+                        {
+                            try
+                            {
+                                Plugin.ResetItemForReanalysis(seasonId, itemId, Enum.GetValues<AnalysisMode>());
+                                _cacheService.DeleteForItem(itemId);
+                                LogMediaItemChanged(_logger, itemId);
+                            }
+                            catch (Exception ex)
+                            {
+                                lock (_seasonsLock)
+                                {
+                                    _itemsToReset[itemId] = seasonId;
+                                    _seasonsToAnalyze.Add(seasonId);
+                                    _analyzeAgain = true;
+                                }
+
+                                failedResetSeasonIds.Add(seasonId);
+                                LogErrorResettingChangedMediaItem(_logger, ex, itemId);
+                            }
+                        }
+
+                        seasonIds.ExceptWith(failedResetSeasonIds);
 
                         var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentRefresher, _ffmpegService, _cacheService);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
-
-                        if (_analyzeAgain && !cts.IsCancellationRequested)
-                        {
-                            LogAnalyzingEndedNeedsRestart();
-                            _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
-                        }
                     }
                 }
                 finally
                 {
+                    var wasCancelled = cts.IsCancellationRequested;
                     // Null the field BEFORE disposing to prevent other threads
                     // from reading a disposed CancellationTokenSource via Volatile.Read.
                     Interlocked.Exchange(ref _cancellationTokenSource, null);
                     cts.Dispose();
+
+                    // Do this after making the task idle. An item update can arrive between the
+                    // analysis completion check and clearing _cancellationTokenSource; checking
+                    // the queues here closes that race and guarantees another pass is scheduled.
+                    if (!wasCancelled)
+                    {
+                        ScheduleAnalysisIfNeeded();
+                    }
                 }
             }
             finally
             {
                 _analysisSemaphore.Release();
+            }
+        }
+
+        private void ScheduleAnalysisIfNeeded()
+        {
+            bool needsRestart;
+            lock (_seasonsLock)
+            {
+                needsRestart = _analyzeAgain || _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
+            }
+
+            if (needsRestart && AutomaticTaskState == TaskState.Idle)
+            {
+                LogAnalyzingEndedNeedsRestart();
+                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
             }
         }
 

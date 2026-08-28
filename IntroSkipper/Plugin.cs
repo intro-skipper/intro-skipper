@@ -555,9 +555,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             foreach (var state in seasonStates)
             {
                 var episodeIds = state.EpisodeIds.ToList();
+                var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
                 if (episodeIds.Remove(itemId))
                 {
                     db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+                }
+
+                if (settledReanalysisEpisodeIds.Remove(itemId))
+                {
+                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
                 }
             }
 
