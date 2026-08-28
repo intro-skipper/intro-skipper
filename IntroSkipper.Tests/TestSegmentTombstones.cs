@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Providers;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 using static IntroSkipper.Tests.DatabaseTestHelpers;
 
@@ -215,6 +216,78 @@ public sealed class TestSegmentTombstones
             var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
             Assert.Equal(SegmentSource.BlackFrame, restored.Source);
             Assert.Equal(SegmentState.Active, restored.State);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreSegmentAsync_ReArmsClearedAnalysisRecordWithTheRowsHash()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "hash-1");
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemId], "hash-1");
+            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+
+            // The editor's delete cascade tombstones the row and clears the item's
+            // analysis record so re-analysis can look for other segments.
+            await database.DeleteSegmentAsync(itemId, row.Id);
+            await database.ClearItemAnalysisAsync(itemId, AnalysisMode.Introduction);
+
+            // Restoring is the undo of that delete, so the record returns under the
+            // hash the row carried — otherwise the next scan re-analyzes the item and
+            // the pass's replace deletes the row whenever the analyzer no longer emits
+            // its exact boundaries.
+            var restored = await database.RestoreSegmentAsync(itemId, row.Id);
+            Assert.NotNull(restored);
+            Assert.Equal(string.Empty, restored!.ConfigHash);
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
+            Assert.Equal(itemId, record.ItemId);
+            Assert.Equal(AnalysisMode.Introduction, record.Type);
+            Assert.Equal("hash-1", record.ConfigHash);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreSegmentAsync_KeepsANewerAnalysisRecord_AndArmsNothingForAHashlessRow()
+    {
+        var dbPath = CreateTempDbPath();
+        var recordedItemId = Guid.NewGuid();
+        var hashlessItemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // Analysis ran again between the delete and the restore: its record is
+            // newer state and must not be clobbered with the row's older hash.
+            await database.ReplaceAutoSegmentsAsync(recordedItemId, AnalysisMode.Introduction, [new Segment(recordedItemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "hash-old");
+            var recordedRow = Assert.Single(await database.GetSegmentsAsync(recordedItemId));
+            await database.DeleteSegmentAsync(recordedItemId, recordedRow.Id);
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [recordedItemId], "hash-new");
+            Assert.NotNull(await database.RestoreSegmentAsync(recordedItemId, recordedRow.Id));
+
+            // A row that never carried a hash (legacy import) has nothing to re-arm with.
+            await database.ReplaceAutoSegmentsAsync(hashlessItemId, AnalysisMode.Credits, [new Segment(hashlessItemId, new TimeRange(100, 160))], SegmentSource.Unknown);
+            var hashlessRow = Assert.Single(await database.GetSegmentsAsync(hashlessItemId));
+            await database.DeleteSegmentAsync(hashlessItemId, hashlessRow.Id);
+            Assert.NotNull(await database.RestoreSegmentAsync(hashlessItemId, hashlessRow.Id));
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
+            Assert.Equal(recordedItemId, record.ItemId);
+            Assert.Equal("hash-new", record.ConfigHash);
         }
         finally
         {

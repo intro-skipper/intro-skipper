@@ -1471,6 +1471,78 @@ public sealed class TestDatabaseFacades
         return (string)command.ExecuteScalar()!;
     }
 
+    [Fact]
+    public async Task UpdateSegmentAsync_ExactRangeClaimedBetweenReadAndSave_MergesIntoTheClaimant()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        var claimant = new DbSegment(itemId, AnalysisMode.Introduction, Ticks(200), Ticks(260), SegmentSource.Chromaprint, "hash");
+        try
+        {
+            var (database, armHook) = await CreateHookedSegmentDatabaseAsync(dbPath);
+            var row = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(60));
+
+            // Analyzers do not take the editor's stripe: an analysis insert can claim
+            // the exact target range between the occupant read and the save. The update
+            // must resolve it like an up-front occupant — the claimant survives as the
+            // user segment and the moved row is absorbed — instead of surfacing the
+            // unique-index violation as a 500.
+            armHook(async () =>
+            {
+                await using var side = new IntroSkipperDbContext(dbPath);
+                side.Segments.Add(claimant);
+                await side.SaveChangesAsync();
+            });
+
+            var updated = await database.UpdateSegmentAsync(itemId, row.Id, Ticks(200), Ticks(260));
+
+            Assert.NotNull(updated);
+            Assert.Equal(claimant.Id, updated!.Id);
+            Assert.Equal(SegmentSource.User, updated.Source);
+            var survivor = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(claimant.Id, survivor.Id);
+            Assert.Equal(Ticks(200), survivor.StartTicks);
+            Assert.Equal(Ticks(260), survivor.EndTicks);
+            Assert.Equal(SegmentSource.User, survivor.Source);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// Creates a facade whose contexts run a one-shot callback right before their next
+    /// SaveChanges, simulating a concurrent (non-striped) writer landing in the
+    /// read-to-save window of a facade operation.
+    /// </summary>
+    private static async Task<(IntroSkipperDatabase Database, Action<Func<Task>> ArmHook)> CreateHookedSegmentDatabaseAsync(string dbPath)
+    {
+        // Migrations are discovered per context type, so the subclass context cannot
+        // apply them; initialize the schema through a plain facade first.
+        await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).InitializeAsync();
+
+        Func<Task>? hook = null;
+        var database = new IntroSkipperDatabase(
+            new TestDbContextFactory<IntroSkipperDbContext>(
+                () => new BeforeSaveHookContext(dbPath, () => Interlocked.Exchange(ref hook, null))),
+            NullLogger<IntroSkipperDatabase>.Instance);
+        return (database, callback => hook = callback);
+    }
+
+    private sealed class BeforeSaveHookContext(string dbPath, Func<Func<Task>?> takeHook) : IntroSkipperDbContext(dbPath)
+    {
+        public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            if (takeHook() is { } hook)
+            {
+                await hook().ConfigureAwait(false);
+            }
+
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-facades.db");
 

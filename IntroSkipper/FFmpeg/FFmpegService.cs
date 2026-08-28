@@ -167,8 +167,14 @@ public sealed partial class FFmpegService(
 
             // The abandoned probe finishes in the background and its result is discarded; an
             // unobserved fault there is inert (since .NET Core it cannot tear down the process).
+            // This attempt is the one the gate's waiters observe, so it also publishes the
+            // verdict's side effects: without them the support bundle would keep reporting a
+            // stale (possibly "okay") check while every caller receives false, and the
+            // dashboard would show no ffmpeg warning at all.
             lock (_versionProbeLock)
             {
+                _checkResult = new FFmpegCheckResult("timed_out", []);
+                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
                 completion.SetResult(false);
                 _versionProbeTask = null;
             }

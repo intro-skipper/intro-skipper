@@ -343,6 +343,46 @@ public sealed partial class IntroSkipperDatabase
         {
             return null;
         }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // A concurrent analysis write claimed the exact target range after the
+            // occupant read above. Resolve like the up-front occupant path: the new
+            // occupant (whose id Jellyfin already knows) survives as the user segment
+            // and the moved row is absorbed into it.
+            db.ChangeTracker.Clear();
+            var lateOccupant = await db.Segments
+                .FirstOrDefaultAsync(
+                    s => s.Id != segmentId
+                        && s.ItemId == itemId
+                        && s.Type == row.Type
+                        && s.StartTicks == startTicks
+                        && s.EndTicks == endTicks,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (lateOccupant is null)
+            {
+                throw;
+            }
+
+            var movedRow = await db.Segments
+                .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
+                .ConfigureAwait(false);
+            if (movedRow is not null)
+            {
+                db.Segments.Remove(movedRow);
+            }
+
+            lateOccupant.PromoteToUser();
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return lateOccupant;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return null;
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -447,10 +487,25 @@ public sealed partial class IntroSkipperDatabase
 
         row.State = SegmentState.Active;
 
+        // The delete that tombstoned the row also cleared the item's analysis record
+        // (so re-analysis could look for other segments). Restoring is the undo of that
+        // delete, so re-arm the record with the hash the row carried — otherwise the
+        // very next scan re-analyzes the item and the pass's replace silently deletes
+        // the row the user explicitly brought back whenever the analyzer no longer
+        // emits its exact boundaries. Only when absent: a record written since the
+        // delete (analysis ran in between) is newer state and wins.
+        if (row.ConfigHash.Length > 0
+            && !await db.AnalyzedItems
+                .AnyAsync(a => a.ItemId == itemId && a.Type == row.Type, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            db.AnalyzedItems.Add(new DbAnalyzedItem(itemId, row.Type, row.ConfigHash));
+        }
+
         // The restore is recorded human intent, but the row stays automatic by contract.
         // Drop the analyzer's hash so the hash-driven stale cleanup (which only judges
         // rows carrying a hash) cannot silently delete what the user explicitly brought
-        // back — nothing would re-detect it, since the item's analysis record is current.
+        // back.
         row.ConfigHash = string.Empty;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return row;

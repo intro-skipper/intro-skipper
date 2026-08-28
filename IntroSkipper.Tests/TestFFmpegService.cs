@@ -161,6 +161,11 @@ public class TestFFmpegService
         Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.False(await second.WaitAsync(TimeSpan.FromSeconds(10)));
 
+        // The timed-out attempt is the one the waiters observed, so it must also
+        // publish its verdict to the support bundle instead of leaving a stale
+        // (possibly "okay") snapshot contradicting the false every caller received.
+        Assert.Equal("timed_out", ffmpegService.GetCheckResult().Status);
+
         Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
         Assert.Equal(2, probeCount);
     }
