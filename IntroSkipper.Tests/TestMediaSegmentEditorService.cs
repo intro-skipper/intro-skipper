@@ -258,6 +258,35 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
+    public async Task DeleteLegacySegmentAsync_SeveralRowsWithinTolerance_DeletesTheExactMatch()
+    {
+        using var scope = CreatePluginScope();
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        // Two 1-tick-shifted copies of the same boundaries (truncated and rounded eras)
+        // both sit within the tolerance of the named Jellyfin row. The exact match must
+        // win regardless of enumeration order, so the shifted copy survives.
+        var shiftedCopy = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, 1238397, 500000000);
+        var exactCopy = await database.AddUserSegmentAsync(itemId, AnalysisMode.Introduction, 1238398, 500000000);
+        var jellyfinRowId = Guid.NewGuid();
+
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 1238398, 500000000, jellyfinRowId, itemId)]
+        };
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
+
+        var result = await service.DeleteLegacySegmentAsync(
+            itemId, AnalysisMode.Introduction, jellyfinRowId, CancellationToken.None);
+        Assert.True(result.IsDeleted);
+
+        var remaining = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(shiftedCopy.Id, remaining.Id);
+        Assert.Equal([(itemId, jellyfinRowId)], store.DeletedSegments);
+        Assert.NotEqual(exactCopy.Id, remaining.Id);
+    }
+
+    [Fact]
     public async Task DeleteOwnSegments_WaitsForParkedSyncOfSameItem()
     {
         var itemId = Guid.NewGuid();

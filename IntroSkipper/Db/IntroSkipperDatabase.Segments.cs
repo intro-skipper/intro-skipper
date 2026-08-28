@@ -276,8 +276,6 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    private static bool IsValid(DbSegment segment) => segment.End > 0.0 && segment.End > segment.Start;
-
     /// <inheritdoc/>
     public async Task<DbSegment?> UpdateSegmentAsync(
         Guid itemId,
@@ -509,7 +507,23 @@ public sealed partial class IntroSkipperDatabase
         // rows carrying a hash) cannot silently delete what the user explicitly brought
         // back.
         row.ConfigHash = string.Empty;
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // A concurrent analysis wrote the (ItemId, Type) record between the
+            // set-if-absent check and this save; that record is newer state and wins.
+            // Detach the staged re-arm and persist the restore alone.
+            foreach (var entry in db.ChangeTracker.Entries<DbAnalyzedItem>().Where(e => e.State == EntityState.Added).ToList())
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         return row;
     }
 

@@ -297,9 +297,16 @@ public partial class MediaSegmentEditorService(
         // Rows mirrored before the shared-id scheme were converted from seconds by
         // truncation while the legacy import rounds, so the two can sit one tick apart;
         // absorb that here without reintroducing range-level epsilon matching elsewhere.
-        var match = itemRows.FirstOrDefault(s => s.Type == mode
-            && Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) <= UncorrelatedTickTolerance
-            && Math.Abs(s.EndTicks - jellyfinSegment.EndTicks) <= UncorrelatedTickTolerance);
+        // Several rows can sit inside the tolerance (1-tick-shifted copies of the same
+        // boundaries), so the closest one wins — an exact match beats a shifted copy —
+        // with the id as a deterministic tie-break instead of enumeration order.
+        var match = itemRows
+            .Where(s => s.Type == mode
+                && Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) <= UncorrelatedTickTolerance
+                && Math.Abs(s.EndTicks - jellyfinSegment.EndTicks) <= UncorrelatedTickTolerance)
+            .OrderBy(s => Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) + Math.Abs(s.EndTicks - jellyfinSegment.EndTicks))
+            .ThenBy(s => s.Id)
+            .FirstOrDefault();
 
         // A Jellyfin row can drift from its plugin counterpart when re-analysis or edits
         // ran while mirroring was off. The legacy DELETE wire matched mode-wide for
