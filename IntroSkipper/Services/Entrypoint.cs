@@ -373,12 +373,14 @@ namespace IntroSkipper.Services
                         }
 
                         var failedResetSeasonIds = new HashSet<Guid>();
+                        var successfullyResetItemIds = new HashSet<Guid>();
                         foreach (var (itemId, seasonId) in itemsToReset)
                         {
                             try
                             {
                                 Plugin.ResetItemForReanalysis(seasonId, itemId, Enum.GetValues<AnalysisMode>());
                                 _cacheService.DeleteForItem(itemId);
+                                successfullyResetItemIds.Add(itemId);
                                 LogMediaItemChanged(_logger, itemId);
                             }
                             catch (Exception ex)
@@ -393,6 +395,11 @@ namespace IntroSkipper.Services
                                 failedResetSeasonIds.Add(seasonId);
                                 LogErrorResettingChangedMediaItem(_logger, ex, itemId);
                             }
+                        }
+
+                        if (_config.UpdateMediaSegments && successfullyResetItemIds.Count > 0)
+                        {
+                            await _mediaSegmentRefresher.RefreshAsync(successfullyResetItemIds, cts.Token).ConfigureAwait(false);
                         }
 
                         seasonIds.ExceptWith(failedResetSeasonIds);

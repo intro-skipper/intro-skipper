@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.IO;
 using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
