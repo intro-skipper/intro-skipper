@@ -516,6 +516,7 @@ public sealed class TestSeasonReanalysisReset
         var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
         var seasonId = Guid.NewGuid();
         var itemId = Guid.NewGuid();
+        var userItemId = Guid.NewGuid();
 
         try
         {
@@ -526,7 +527,7 @@ public sealed class TestSeasonReanalysisReset
                     new Segment(itemId, new TimeRange(0, 30)),
                     AnalysisMode.Introduction));
                 db.DbSegment.Add(new DbSegment(
-                    new Segment(itemId, new TimeRange(40, 60)),
+                    new Segment(userItemId, new TimeRange(40, 60)),
                     AnalysisMode.Introduction,
                     isUserProvided: true));
                 db.DbSeasonState.Add(new DbSeasonState(
@@ -548,7 +549,7 @@ public sealed class TestSeasonReanalysisReset
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 Assert.False(db.DbSegment.Any(s => s.ItemId == itemId && !s.IsUserProvided));
-                Assert.True(db.DbSegment.Any(s => s.ItemId == itemId && s.IsUserProvided));
+                Assert.True(db.DbSegment.Any(s => s.ItemId == userItemId && s.IsUserProvided));
 
                 var state = db.DbSeasonState.Single();
                 Assert.Empty(state.EpisodeIds);
