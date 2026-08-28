@@ -276,6 +276,8 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
+    private static bool IsValid(DbSegment segment) => segment.End > 0.0 && segment.End > segment.Start;
+
     /// <inheritdoc/>
     public async Task<DbSegment?> UpdateSegmentAsync(
         Guid itemId,

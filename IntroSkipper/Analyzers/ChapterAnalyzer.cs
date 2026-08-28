@@ -145,6 +145,11 @@ public partial class ChapterAnalyzer(
 
             if (adjusted.Count == 0)
             {
+                // Boundary adjustment consumed every match: clear the pass's stale
+                // automatic rows and settle the episode instead of leaving a segment
+                // the adjustment rules no longer produce.
+                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [], SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+                episode.SetAnalyzed(mode, EpisodeState.NoSegments);
                 continue;
             }
 
