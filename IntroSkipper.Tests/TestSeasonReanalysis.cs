@@ -579,8 +579,8 @@ public sealed class TestSeasonReanalysisReset
                 Assert.False(db.DbSegment.Any(s => s.ItemId == itemId));
 
                 var state = db.DbSeasonState.Single();
-                Assert.Equal(new[] { siblingId }, state.EpisodeIds);
-                Assert.Equal(new[] { siblingId }, state.SettledReanalysisEpisodeIds);
+                Assert.Equal([siblingId], state.EpisodeIds);
+                Assert.Equal([siblingId], state.SettledReanalysisEpisodeIds);
             }
         }
         finally

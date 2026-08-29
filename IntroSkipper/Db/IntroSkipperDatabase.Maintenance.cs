@@ -187,12 +187,13 @@ public sealed partial class IntroSkipperDatabase
             // scan in that case; otherwise the item stays cached as analyzed in the season state
             // while its segments were just deleted, and it is never re-analyzed.
             if (seasonId != Guid.Empty &&
-                !seasonStates.Any(s => s.EpisodeIds.Contains(itemId) || s.SettledReanalysisEpisodeIds.Contains(itemId)))
+                modeArray.Any(mode => !seasonStates.Any(s => s.Type == mode &&
+                    (s.EpisodeIds.Contains(itemId) || s.SettledReanalysisEpisodeIds.Contains(itemId)))))
             {
-                seasonStates = await db.DbSeasonState
+                seasonStates.AddRange(await db.DbSeasonState
                     .Where(s => modeArray.Contains(s.Type) && s.SeasonId != seasonId)
                     .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
+                    .ConfigureAwait(false));
             }
 
             foreach (var state in seasonStates)
