@@ -148,6 +148,62 @@ public sealed partial class IntroSkipperDatabase
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Segment deletion and removal from both analyzed-episode sets are committed together so a
+    /// failed reset cannot leave stale state marked as analyzed.
+    /// </remarks>
+    public async Task ResetItemForReanalysisAsync(
+        Guid seasonId,
+        Guid itemId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(modes);
+
+        var modeArray = modes.Distinct().ToArray();
+        if (itemId == Guid.Empty || modeArray.Length == 0)
+        {
+            return;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            await db.DbSegment
+                .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type) && !s.IsUserProvided)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var seasonStates = await db.DbSeasonState
+                .Where(s => modeArray.Contains(s.Type) && (seasonId == Guid.Empty || s.SeasonId == seasonId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                var episodeIds = state.EpisodeIds.ToList();
+                var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
+
+                if (episodeIds.Remove(itemId))
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+                }
+
+                if (settledReanalysisEpisodeIds.Remove(itemId))
+                {
+                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// The segment deletes and the episode-list clear run in a single transaction so a
     /// cancelled reset cannot leave segments deleted while their episodes are still
     /// recorded as analyzed.
