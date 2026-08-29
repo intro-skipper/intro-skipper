@@ -521,6 +521,62 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    /// Clears automatic analysis state for one media item after Jellyfin reports that its file
+    /// changed. User-provided segments are preserved.
+    /// </summary>
+    /// <param name="seasonId">Season containing the item, or <see cref="Guid.Empty"/> when unknown.</param>
+    /// <param name="itemId">Media item identifier.</param>
+    /// <param name="modes">Analysis modes to reset.</param>
+    internal static void ResetItemForReanalysis(Guid seasonId, Guid itemId, IEnumerable<AnalysisMode> modes)
+    {
+        if (itemId == Guid.Empty)
+        {
+            return;
+        }
+
+        AnalysisMode[] modeArray = [.. modes.Distinct()];
+        if (modeArray.Length == 0)
+        {
+            return;
+        }
+
+        using var db = CreateDbContext();
+        using var transaction = db.Database.BeginTransaction();
+        try
+        {
+            db.DbSegment
+                .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type) && !s.IsUserProvided)
+                .ExecuteDelete();
+
+            var seasonStates = db.DbSeasonState
+                .Where(s => modeArray.Contains(s.Type) && (seasonId == Guid.Empty || s.SeasonId == seasonId))
+                .ToList();
+
+            foreach (var state in seasonStates)
+            {
+                var episodeIds = state.EpisodeIds.ToList();
+                var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
+                if (episodeIds.Remove(itemId))
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+                }
+
+                if (settledReanalysisEpisodeIds.Remove(itemId))
+                {
+                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
+                }
+            }
+
+            db.SaveChanges();
+            transaction.Commit();
+        }
+        finally
+        {
+            transaction.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Removes stale automatic segments for the supplied items and mode.
     /// User-provided segments are intentionally preserved.
     /// </summary>
