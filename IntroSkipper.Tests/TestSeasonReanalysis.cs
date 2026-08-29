@@ -539,6 +539,57 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
+    public async Task ResetItemForReanalysis_RemovesItemFromSeasonStateKeyedByResolvedSeasonId()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        // In-season specials are queued under the resolved regular season, so their season-state
+        // rows are keyed by a season id that differs from the raw SeasonId reported with the item
+        // change event.
+        var rawSeasonId = Guid.NewGuid();
+        var resolvedSeasonId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var siblingId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.Add(new DbSegment(
+                    new Segment(itemId, new TimeRange(0, 30)),
+                    AnalysisMode.Introduction));
+                db.DbSeasonState.Add(new DbSeasonState(
+                    resolvedSeasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Chromaprint,
+                    [itemId, siblingId],
+                    "hash",
+                    [itemId, siblingId]));
+                await db.SaveChangesAsync();
+            }
+
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ResetItemForReanalysisAsync(rawSeasonId, itemId, [AnalysisMode.Introduction]);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.False(db.DbSegment.Any(s => s.ItemId == itemId));
+
+                var state = db.DbSeasonState.Single();
+                Assert.Equal(new[] { siblingId }, state.EpisodeIds);
+                Assert.Equal(new[] { siblingId }, state.SettledReanalysisEpisodeIds);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ResetSeasonForReanalysisAsync_DeletesCreditsDerivedAutomaticPreview()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");

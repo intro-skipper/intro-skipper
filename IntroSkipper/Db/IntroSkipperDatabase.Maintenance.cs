@@ -181,6 +181,20 @@ public sealed partial class IntroSkipperDatabase
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            // The queue keys in-season specials (and episodes with unresolved SeasonIds) under a
+            // resolved season id that differs from the raw SeasonId reported with the item change,
+            // so the narrow lookup can miss the rows that actually reference the item. Widen the
+            // scan in that case; otherwise the item stays cached as analyzed in the season state
+            // while its segments were just deleted, and it is never re-analyzed.
+            if (seasonId != Guid.Empty &&
+                !seasonStates.Any(s => s.EpisodeIds.Contains(itemId) || s.SettledReanalysisEpisodeIds.Contains(itemId)))
+            {
+                seasonStates = await db.DbSeasonState
+                    .Where(s => modeArray.Contains(s.Type) && s.SeasonId != seasonId)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             foreach (var state in seasonStates)
             {
                 var episodeIds = state.EpisodeIds.ToList();
