@@ -511,7 +511,7 @@ public sealed class TestSeasonReanalysisReset
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                db.Database.EnsureCreated();
+                await db.Database.EnsureCreatedAsync();
                 db.DbSeasonState.Add(new DbSeasonState(
                     seasonId,
                     AnalysisMode.Introduction,
@@ -519,7 +519,7 @@ public sealed class TestSeasonReanalysisReset
                     [itemId],
                     "hash",
                     [itemId]));
-                db.SaveChanges();
+                await db.SaveChangesAsync();
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
