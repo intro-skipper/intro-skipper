@@ -43,6 +43,7 @@ internal static class EntrypointTestHelpers
             libraryManager: null!,
             taskManager: null!,
             cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
+            database: DatabaseTestHelpers.CreateTempSegmentDatabase(),
             ffmpegService: null!,
             logger: logger,
             analyzerFactory: new AnalyzerTaskFactory(
@@ -53,7 +54,8 @@ internal static class EntrypointTestHelpers
                 mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
                 ffmpegService: null!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
+                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
+            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
@@ -104,6 +106,9 @@ internal static class EntrypointTestHelpers
 
     internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
         => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
+
+    internal static Dictionary<Guid, Guid> GetItemsToReset(Entrypoint entrypoint)
+        => (Dictionary<Guid, Guid>)GetPrivateField(entrypoint, "_itemsToReset");
 
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {

@@ -55,6 +55,28 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
+    public void OnItemChanged_QueuesChangedEpisodeForCoordinatedInvalidation()
+    {
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+
+        var episode = new Episode();
+        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", itemId);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
+        EntrypointTestHelpers.EnsureNonVirtual(episode);
+
+        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+        {
+            var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
+            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+
+            Assert.Equal(seasonId, EntrypointTestHelpers.GetItemsToReset(entrypoint)[itemId]);
+            Assert.Contains(seasonId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        }
+    }
+
+    [Fact]
     public void OnItemChanged_DoesNothing_WhenAutoDetectDisabled()
     {
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);

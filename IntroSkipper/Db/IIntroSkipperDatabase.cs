@@ -173,6 +173,20 @@ public interface IIntroSkipperDatabase
     Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Clears automatic analysis state for one media item while preserving user-provided segments.
+    /// </summary>
+    /// <param name="seasonId">Season containing the item, or <see cref="Guid.Empty"/> when unknown.</param>
+    /// <param name="itemId">Media item ID.</param>
+    /// <param name="modes">Analysis modes to reset.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task ResetItemForReanalysisAsync(
+        Guid seasonId,
+        Guid itemId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the settled-season reanalysis state for all modes in a season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
