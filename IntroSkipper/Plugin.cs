@@ -542,38 +542,32 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         using var db = CreateDbContext();
         using var transaction = db.Database.BeginTransaction();
-        try
+
+        db.DbSegment
+            .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type) && !s.IsUserProvided)
+            .ExecuteDelete();
+
+        var seasonStates = db.DbSeasonState
+            .Where(s => modeArray.Contains(s.Type) && (seasonId == Guid.Empty || s.SeasonId == seasonId))
+            .ToList();
+
+        foreach (var state in seasonStates)
         {
-            db.DbSegment
-                .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type) && !s.IsUserProvided)
-                .ExecuteDelete();
-
-            var seasonStates = db.DbSeasonState
-                .Where(s => modeArray.Contains(s.Type) && (seasonId == Guid.Empty || s.SeasonId == seasonId))
-                .ToList();
-
-            foreach (var state in seasonStates)
+            var episodeIds = state.EpisodeIds.ToList();
+            var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
+            if (episodeIds.Remove(itemId))
             {
-                var episodeIds = state.EpisodeIds.ToList();
-                var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
-                if (episodeIds.Remove(itemId))
-                {
-                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
-                }
-
-                if (settledReanalysisEpisodeIds.Remove(itemId))
-                {
-                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
-                }
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
             }
 
-            db.SaveChanges();
-            transaction.Commit();
+            if (settledReanalysisEpisodeIds.Remove(itemId))
+            {
+                db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
+            }
         }
-        finally
-        {
-            transaction.Dispose();
-        }
+
+        db.SaveChanges();
+        transaction.Commit();
     }
 
     /// <summary>

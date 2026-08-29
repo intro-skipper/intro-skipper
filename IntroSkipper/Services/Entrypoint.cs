@@ -370,6 +370,14 @@ namespace IntroSkipper.Services
             await _analysisSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
+                // A timer callback can already be in flight when StopAsync stops the timer.
+                // Starting a new analysis here would leave shutdown waiting on the semaphore
+                // until it times out, so bail out and keep the queues for the next start.
+                if (_isStopping)
+                {
+                    return;
+                }
+
                 var cts = new CancellationTokenSource();
                 Interlocked.Exchange(ref _cancellationTokenSource, cts);
                 try
