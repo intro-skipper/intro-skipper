@@ -139,8 +139,8 @@ public interface IIntroSkipperDatabase
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CleanStaleAutomaticSegmentsAsync(IEnumerable<Guid> itemIds, AnalysisMode mode, string configHash, CancellationToken cancellationToken = default);
+    /// <returns>The number of segments that were removed.</returns>
+    Task<int> CleanStaleAutomaticSegmentsAsync(IEnumerable<Guid> itemIds, AnalysisMode mode, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Sets the analyzer actions for a season.

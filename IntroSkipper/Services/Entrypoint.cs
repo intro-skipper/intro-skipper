@@ -368,7 +368,24 @@ namespace IntroSkipper.Services
             try
             {
                 var cts = new CancellationTokenSource();
-                Interlocked.Exchange(ref _cancellationTokenSource, cts);
+
+                // A timer callback can already be in flight when StopAsync stops the timer.
+                // Starting a new analysis here would leave shutdown waiting on the semaphore
+                // until it times out, so bail out and keep the queues for the next start.
+                // Checking the flag and publishing the cancellation source under the same
+                // lock StopAsync uses to set the flag guarantees shutdown either sees the
+                // published source and cancels it, or this callback sees the flag and stops.
+                lock (_seasonsLock)
+                {
+                    if (_isStopping)
+                    {
+                        cts.Dispose();
+                        return;
+                    }
+
+                    Interlocked.Exchange(ref _cancellationTokenSource, cts);
+                }
+
                 try
                 {
                     using (await ScheduledTaskSemaphore.AcquireAsync(cts.Token).ConfigureAwait(false))
