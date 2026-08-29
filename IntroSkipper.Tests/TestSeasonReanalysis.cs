@@ -523,7 +523,7 @@ public sealed class TestSeasonReanalysisReset
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ResetItemForReanalysisAsync(seasonId, itemId, [AnalysisMode.Introduction]);
+            await database.ResetItemForReanalysisAsync(itemId, [AnalysisMode.Introduction]);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -539,17 +539,17 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
-    public async Task ResetItemForReanalysis_RemovesItemFromSeasonStateKeyedByResolvedSeasonId()
+    public async Task ResetItemForReanalysis_RemovesItemFromEverySeasonStateReferencingIt()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
-        // In-season specials are queued under the resolved regular season, so their season-state
-        // rows are keyed by a season id that differs from the raw SeasonId reported with the item
-        // change event.
-        var rawSeasonId = Guid.NewGuid();
+        // In-season specials are stored under a resolved queue key that differs from their raw
+        // SeasonId and can vary between scoped and full passes, so the same item can be referenced
+        // by season-state rows keyed under different season ids.
         var resolvedSeasonId = Guid.NewGuid();
+        var rawSeasonId = Guid.NewGuid();
         var itemId = Guid.NewGuid();
         var siblingId = Guid.NewGuid();
 
@@ -568,19 +568,42 @@ public sealed class TestSeasonReanalysisReset
                     [itemId, siblingId],
                     "hash",
                     [itemId, siblingId]));
+                db.DbSeasonState.Add(new DbSeasonState(
+                    rawSeasonId,
+                    AnalysisMode.Credits,
+                    AnalyzerAction.Default,
+                    [itemId],
+                    "credits-hash",
+                    [itemId]));
+                db.DbSeasonState.Add(new DbSeasonState(
+                    rawSeasonId,
+                    AnalysisMode.Recap,
+                    AnalyzerAction.Default,
+                    [itemId],
+                    "recap-hash",
+                    [itemId]));
                 await db.SaveChangesAsync();
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ResetItemForReanalysisAsync(rawSeasonId, itemId, [AnalysisMode.Introduction]);
+            await database.ResetItemForReanalysisAsync(itemId, [AnalysisMode.Introduction, AnalysisMode.Credits]);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 Assert.False(db.DbSegment.Any(s => s.ItemId == itemId));
 
-                var state = db.DbSeasonState.Single();
-                Assert.Equal([siblingId], state.EpisodeIds);
-                Assert.Equal([siblingId], state.SettledReanalysisEpisodeIds);
+                var introState = await db.DbSeasonState.SingleAsync(s => s.Type == AnalysisMode.Introduction);
+                Assert.Equal([siblingId], introState.EpisodeIds);
+                Assert.Equal([siblingId], introState.SettledReanalysisEpisodeIds);
+
+                var creditsState = await db.DbSeasonState.SingleAsync(s => s.Type == AnalysisMode.Credits);
+                Assert.Empty(creditsState.EpisodeIds);
+                Assert.Empty(creditsState.SettledReanalysisEpisodeIds);
+
+                // Modes outside the requested set stay untouched.
+                var recapState = await db.DbSeasonState.SingleAsync(s => s.Type == AnalysisMode.Recap);
+                Assert.Equal([itemId], recapState.EpisodeIds);
+                Assert.Equal([itemId], recapState.SettledReanalysisEpisodeIds);
             }
         }
         finally
