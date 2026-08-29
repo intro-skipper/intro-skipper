@@ -389,14 +389,14 @@ namespace IntroSkipper.Services
                         }
 
                         var failedResetSeasonIds = new HashSet<Guid>();
-                        var successfullyResetItemIds = new HashSet<Guid>();
+                        var successfullyResetItems = new Dictionary<Guid, Guid>();
                         foreach (var (itemId, seasonId) in itemsToReset)
                         {
                             try
                             {
                                 Plugin.ResetItemForReanalysis(seasonId, itemId, Enum.GetValues<AnalysisMode>());
                                 _cacheService.DeleteForItem(itemId);
-                                successfullyResetItemIds.Add(itemId);
+                                successfullyResetItems[itemId] = seasonId;
                                 LogMediaItemChanged(_logger, itemId);
                             }
                             catch (Exception ex)
@@ -413,12 +413,28 @@ namespace IntroSkipper.Services
                             }
                         }
 
-                        if (_config.UpdateMediaSegments && successfullyResetItemIds.Count > 0)
+                        var failedRefreshSeasonIds = new HashSet<Guid>();
+                        if (_config.UpdateMediaSegments && successfullyResetItems.Count > 0)
                         {
-                            await _mediaSegmentRefresher.RefreshAsync(successfullyResetItemIds, cts.Token).ConfigureAwait(false);
+                            try
+                            {
+                                await _mediaSegmentRefresher.RefreshAsync(successfullyResetItems.Keys, cts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                            {
+                                RequeueResetItems(successfullyResetItems);
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                RequeueResetItems(successfullyResetItems);
+                                failedRefreshSeasonIds.UnionWith(successfullyResetItems.Values);
+                                LogErrorRefreshingChangedMediaItems(_logger, ex, successfullyResetItems.Count);
+                            }
                         }
 
                         seasonIds.ExceptWith(failedResetSeasonIds);
+                        seasonIds.ExceptWith(failedRefreshSeasonIds);
 
                         var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentRefresher, _ffmpegService, _cacheService);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
@@ -458,6 +474,20 @@ namespace IntroSkipper.Services
                     LogAnalyzingEndedNeedsRestart();
                     _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
                 }
+            }
+        }
+
+        private void RequeueResetItems(IReadOnlyDictionary<Guid, Guid> itemsToReset)
+        {
+            lock (_seasonsLock)
+            {
+                foreach (var (itemId, seasonId) in itemsToReset)
+                {
+                    _itemsToReset[itemId] = seasonId;
+                    _seasonsToAnalyze.Add(seasonId);
+                }
+
+                _analyzeAgain = true;
             }
         }
 
@@ -504,6 +534,9 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for changed media item {Id}")]
         private static partial void LogErrorResettingChangedMediaItem(ILogger logger, Exception ex, Guid id);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to refresh media segments for {Count} changed media items")]
+        private static partial void LogErrorRefreshingChangedMediaItems(ILogger logger, Exception ex, int count);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
         private partial void LogErrorDeletingFingerprintCache(Exception ex);
