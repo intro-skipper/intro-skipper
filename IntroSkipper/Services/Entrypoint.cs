@@ -49,6 +49,7 @@ namespace IntroSkipper.Services
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;
         private volatile bool _analyzeAgain;
+        private volatile bool _isStopping;
         private static CancellationTokenSource? _cancellationTokenSource;
 
         /// <summary>
@@ -112,6 +113,11 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            lock (_seasonsLock)
+            {
+                _isStopping = false;
+            }
+
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
             _libraryManager.ItemRemoved += OnItemRemoved;
@@ -130,13 +136,18 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StopAsync(CancellationToken cancellationToken)
         {
+            lock (_seasonsLock)
+            {
+                _isStopping = true;
+                _queueTimer.Change(Timeout.Infinite, 0);
+            }
+
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
             _libraryManager.ItemRemoved -= OnItemRemoved;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
-            _queueTimer.Change(Timeout.Infinite, 0);
             await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -316,17 +327,22 @@ namespace IntroSkipper.Services
         /// </summary>
         private void StartTimer(int delay = 60)
         {
-            if (AutomaticTaskState == TaskState.Running)
+            lock (_seasonsLock)
             {
-                lock (_seasonsLock)
+                if (_isStopping)
+                {
+                    return;
+                }
+
+                if (AutomaticTaskState == TaskState.Running)
                 {
                     _analyzeAgain = true;
                 }
-            }
-            else if (AutomaticTaskState == TaskState.Idle)
-            {
-                LogMediaLibraryChanged();
-                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
+                else if (AutomaticTaskState == TaskState.Idle)
+                {
+                    LogMediaLibraryChanged();
+                    _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
+                }
             }
         }
 
@@ -410,19 +426,15 @@ namespace IntroSkipper.Services
                 }
                 finally
                 {
-                    var wasCancelled = cts.IsCancellationRequested;
                     // Null the field BEFORE disposing to prevent other threads
                     // from reading a disposed CancellationTokenSource via Volatile.Read.
                     Interlocked.Exchange(ref _cancellationTokenSource, null);
                     cts.Dispose();
 
-                    // Do this after making the task idle. An item update can arrive between the
-                    // analysis completion check and clearing _cancellationTokenSource; checking
-                    // the queues here closes that race and guarantees another pass is scheduled.
-                    if (!wasCancelled)
-                    {
-                        ScheduleAnalysisIfNeeded();
-                    }
+                    // Do this after making the task idle. An item update can arrive while the
+                    // task is cancelling; checking the queues here ensures that update is not
+                    // stranded. ScheduleAnalysisIfNeeded suppresses this during shutdown.
+                    ScheduleAnalysisIfNeeded();
                 }
             }
             finally
@@ -433,16 +445,19 @@ namespace IntroSkipper.Services
 
         private void ScheduleAnalysisIfNeeded()
         {
-            bool needsRestart;
             lock (_seasonsLock)
             {
-                needsRestart = _analyzeAgain || _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
-            }
+                if (_isStopping)
+                {
+                    return;
+                }
 
-            if (needsRestart && AutomaticTaskState == TaskState.Idle)
-            {
-                LogAnalyzingEndedNeedsRestart();
-                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                var needsRestart = _analyzeAgain || _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
+                if (needsRestart && AutomaticTaskState == TaskState.Idle)
+                {
+                    LogAnalyzingEndedNeedsRestart();
+                    _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                }
             }
         }
 
