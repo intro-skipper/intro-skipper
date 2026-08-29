@@ -36,7 +36,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task CleanStaleAutomaticSegmentsAsync(
+    public async Task<int> CleanStaleAutomaticSegmentsAsync(
         IEnumerable<Guid> itemIds,
         AnalysisMode mode,
         string configHash,
@@ -47,12 +47,12 @@ public sealed partial class IntroSkipperDatabase
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
-            return;
+            return 0;
         }
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.DbSegment
+        return await db.DbSegment
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                 && s.Type == mode
                 && !s.IsUserProvided

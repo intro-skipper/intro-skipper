@@ -688,9 +688,11 @@ public sealed class TestDatabaseFacades
             await database.UpdateTimestampAsync(new Segment(matchingHashItemId, new TimeRange(0, 30)), AnalysisMode.Introduction, configHash: "new-config");
             await database.UpdateTimestampAsync(new Segment(otherModeItemId, new TimeRange(1200, 1260)), AnalysisMode.Credits, configHash: "old-config");
 
-            await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
+            var deleted = await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
 
+            Assert.Equal(1, deleted);
             Assert.Empty(await database.GetSegmentsAsync(staleItemId));
+            Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config"));
 
             await using var db = new IntroSkipperDbContext(dbPath);
             var remaining = await db.DbSegment.AsNoTracking().ToListAsync();

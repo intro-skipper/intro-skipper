@@ -170,7 +170,7 @@ public partial class BaseItemAnalyzerTask(
                 foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();
-                    int analyzed = await AnalyzeItemsAsync(
+                    bool segmentsChanged = await AnalyzeItemsAsync(
                         episodes,
                         mode,
                         ffmpegValid,
@@ -186,7 +186,7 @@ public partial class BaseItemAnalyzerTask(
                         completedSettledModes.Add(mode);
                     }
 
-                    updateMediaSegments = analyzed > 0 || updateMediaSegments;
+                    updateMediaSegments = segmentsChanged || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
@@ -289,8 +289,8 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Number of items successfully analyzed.</returns>
-    private async Task<int> AnalyzeItemsAsync(
+    /// <returns>Whether any stored segments changed, either because items were analyzed or because stale or invalid automatic segments were deleted.</returns>
+    private async Task<bool> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         bool ffmpegValid,
@@ -298,7 +298,7 @@ public partial class BaseItemAnalyzerTask(
     {
         if (!HasUncachedAnalysisWork(items, mode))
         {
-            return 0;
+            return false;
         }
 
         var first = items[0];
@@ -308,7 +308,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (!isMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
-            return 0;
+            return false;
         }
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
@@ -318,7 +318,7 @@ public partial class BaseItemAnalyzerTask(
         if (action == AnalyzerAction.None)
         {
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
-            return 0;
+            return false;
         }
 
         foreach (var item in items)
@@ -326,11 +326,11 @@ public partial class BaseItemAnalyzerTask(
             item.AnalysisConfigHash = configHash;
         }
 
-        await _database.CleanStaleAutomaticSegmentsAsync(
+        var staleSegmentsRemoved = await _database.CleanStaleAutomaticSegmentsAsync(
             items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false) > 0;
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
@@ -405,6 +405,10 @@ public partial class BaseItemAnalyzerTask(
                 break;
         }
 
+        // Analyzers that adjust an existing automatic segment into an unusable range delete it and
+        // mark the episode NoSegments, so a transition into that state means stored segments changed.
+        var preAnalysisStates = items.ToDictionary(e => e.EpisodeId, e => e.GetAnalyzed(mode));
+
         // Execute each analyzer in order. Analyzers skip episodes already
         // marked as analyzed by earlier ones via NeedsAnalysis().
         foreach (var analyzer in analyzers)
@@ -422,7 +426,13 @@ public partial class BaseItemAnalyzerTask(
         // Set the episode IDs for the analyzed items
         await _database.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var analyzed = totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var invalidSegmentsRemoved = items.Any(e =>
+            e.GetAnalyzed(mode) == EpisodeState.NoSegments
+            && preAnalysisStates.TryGetValue(e.EpisodeId, out var previousState)
+            && previousState != EpisodeState.NoSegments);
+
+        return analyzed > 0 || staleSegmentsRemoved || invalidSegmentsRemoved;
     }
 
     /// <summary>
