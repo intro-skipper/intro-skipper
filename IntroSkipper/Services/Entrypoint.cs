@@ -395,7 +395,11 @@ namespace IntroSkipper.Services
                             try
                             {
                                 Plugin.ResetItemForReanalysis(seasonId, itemId, Enum.GetValues<AnalysisMode>());
-                                _cacheService.DeleteForItem(itemId);
+                                if (!_cacheService.DeleteForItem(itemId))
+                                {
+                                    throw new InvalidOperationException($"Unable to delete detection cache for changed media item {itemId:N}.");
+                                }
+
                                 successfullyResetItems[itemId] = seasonId;
                                 LogMediaItemChanged(_logger, itemId);
                             }

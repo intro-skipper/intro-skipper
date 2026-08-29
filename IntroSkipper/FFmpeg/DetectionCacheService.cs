@@ -102,17 +102,19 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <inheritdoc/>
-    public void DeleteForItem(Guid itemId)
+    public bool DeleteForItem(Guid itemId)
     {
         try
         {
             // Delete from the SQLite cache database.
             using var db = Plugin.CreateCacheDbContext();
             db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
+            return true;
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
             LogDetectionCacheDeleteError(_logger, ex, itemId.ToString("N"));
+            return false;
         }
     }
 

@@ -534,7 +534,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return;
         }
 
-        var modeArray = modes.Distinct().ToArray();
+        AnalysisMode[] modeArray = [.. modes.Distinct()];
         if (modeArray.Length == 0)
         {
             return;
