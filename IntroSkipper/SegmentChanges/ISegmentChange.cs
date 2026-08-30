@@ -4,7 +4,7 @@
 namespace IntroSkipper.SegmentChanges;
 
 /// <summary>
-/// Commits authoritative segment changes and durably projects their resulting images.
+/// Commits authoritative segment changes and durably projects them into Jellyfin.
 /// </summary>
 public interface ISegmentChange
 {
@@ -14,7 +14,10 @@ public interface ISegmentChange
     /// <returns>The typed domain and projection outcome.</returns>
     Task<SegmentChangeOutcome> ApplyAsync(SegmentChangeIntent intent, CancellationToken cancellationToken = default);
 
-    /// <summary>Gets aggregate pending and compacted projection state.</summary>
+    /// <summary>
+    /// Gets aggregate projection state. Applied items hold no pending work and are not
+    /// enumerated by the all-items scope; a one-item scope always answers.
+    /// </summary>
     /// <param name="scope">All items or one item.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Aggregate status with per-item details and counts.</returns>

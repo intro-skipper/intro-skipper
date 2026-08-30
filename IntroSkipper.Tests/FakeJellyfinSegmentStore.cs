@@ -122,6 +122,9 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
         => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
 
+    public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
+
     public Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(DeleteSegmentException);

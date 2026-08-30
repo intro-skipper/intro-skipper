@@ -8,6 +8,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
@@ -36,8 +37,12 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade.
-            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
+            // gates; every consumer goes through a facade. The segment facade is
+            // registered once and forwarded to both of its interfaces so the domain
+            // surface and the projection journal share one gate and one instance.
+            serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
+            serviceCollection.AddSingleton<ISegmentProjectionJournal>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
             serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
@@ -73,6 +78,13 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentMirrorPolicyService>();
             serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            // Durable segment changes: the coordinator commits intents through the
+            // facade and retries journaled projection work; hosted for the retry loop.
+            serviceCollection.AddSingleton(TimeProvider.System);
+            serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
+            serviceCollection.AddSingleton<SegmentChange>();
+            serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
