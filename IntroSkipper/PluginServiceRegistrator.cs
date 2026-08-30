@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace IntroSkipper
 {
@@ -62,9 +63,16 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
-            // Singleton: the editor service serializes all interactive mutations per item
-            // on its own striped lock, which only works when every request shares it.
+            // The mutation stripes serialize all interactive mutations per item across
+            // both entry points (editor service and the durable segment-change
+            // coordinator), which only works when every request shares the singleton.
+            serviceCollection.AddSingleton<SegmentMutationLocks>();
             serviceCollection.AddSingleton<MediaSegmentEditorService>();
+            // Live view of the mirroring flag plus its toggle event; hosted so it can
+            // subscribe to plugin configuration changes.
+            serviceCollection.AddSingleton<MediaSegmentMirrorPolicyService>();
+            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {

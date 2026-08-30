@@ -28,8 +28,10 @@ namespace IntroSkipper.Manager;
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentEditorService"/> class.
-/// Must be registered as a singleton so the mutation stripes are shared by all requests.
+/// Must be registered as a singleton so every request shares one instance.
 /// </remarks>
+/// <param name="mutationLocks">The shared per-item mutation stripes; see
+/// <see cref="SegmentMutationLocks"/> for why they live outside this class.</param>
 /// <param name="mirror">The shared locked mirror write path; the editor's only write
 /// path to Jellyfin's media segments.</param>
 /// <param name="segmentStore">Direct store for Jellyfin's media segments; the legacy
@@ -38,6 +40,7 @@ namespace IntroSkipper.Manager;
 /// <param name="database">Segment database facade.</param>
 /// <param name="logger">Application logger.</param>
 public partial class MediaSegmentEditorService(
+    SegmentMutationLocks mutationLocks,
     MediaSegmentMirror mirror,
     IJellyfinSegmentStore segmentStore,
     IIntroSkipperDatabase database,
@@ -47,14 +50,15 @@ public partial class MediaSegmentEditorService(
     // (import) conversion of the same seconds value differs by at most one tick.
     private const long UncorrelatedTickTolerance = 1;
 
-    // Serializes all editor mutations per item, above the mirror's stripes: a concurrent
-    // editor mutation's sync between another request's plugin write and its rollback
-    // would bake the rolled-back state into the mirror. Separate pool from
-    // MediaSegmentMirror's; lock order is always mutation stripe -> mirror stripe.
-    // Non-editor syncs (bulk refreshes) take only mirror stripes, so they can delay,
-    // never deadlock, a mutation. One of them can still interleave between a write and
-    // its rollback and briefly publish the pre-rollback state; the next sync converges it.
-    private readonly StripedAsyncLock _mutationLock = new();
+    // Serializes all interactive mutations per item, above the mirror's stripes: a
+    // concurrent mutation's sync between another request's plugin write and its rollback
+    // would bake the rolled-back state into the mirror. The stripes are the shared
+    // SegmentMutationLocks pool (also taken by the durable segment-change coordinator);
+    // lock order is always mutation stripe -> mirror stripe. Non-editor syncs (bulk
+    // refreshes) take only mirror stripes, so they can delay, never deadlock, a
+    // mutation. One of them can still interleave between a write and its rollback and
+    // briefly publish the pre-rollback state; the next sync converges it.
+    private readonly SegmentMutationLocks _mutationLock = mutationLocks;
 
     private readonly MediaSegmentMirror _mirror = mirror;
     private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
