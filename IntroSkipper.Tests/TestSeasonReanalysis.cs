@@ -609,6 +609,49 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
+    public void ResetItemForReanalysis_RemovesItemFromSettledSeasonState()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var seasonId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                db.Database.EnsureCreated();
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Chromaprint,
+                    [itemId],
+                    "hash",
+                    [itemId]));
+                db.SaveChanges();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
+                Plugin.ResetItemForReanalysis(seasonId, itemId, [AnalysisMode.Introduction]);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var state = db.DbSeasonState.Single();
+                Assert.Empty(state.EpisodeIds);
+                Assert.Empty(state.SettledReanalysisEpisodeIds);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ResetSeasonForReanalysisAsync_DeletesCreditsDerivedAutomaticPreview()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");

@@ -99,6 +99,9 @@ internal static class EntrypointTestHelpers
     internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
         => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
 
+    internal static Dictionary<Guid, Guid> GetItemsToReset(Entrypoint entrypoint)
+        => (Dictionary<Guid, Guid>)GetPrivateField(entrypoint, "_itemsToReset");
+
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {
 #pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.

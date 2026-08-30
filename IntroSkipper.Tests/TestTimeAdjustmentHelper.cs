@@ -33,18 +33,67 @@ public class TestTimeAdjustmentHelper
     }
 
     [Fact]
-    public async Task StartOffset_IsIgnored_When_SnappingToEpisodeStart()
+    public async Task StartOffset_IsApplied_When_SnappingToEpisodeStart()
     {
         var (helper, cfg) = CreateHelper();
         cfg.IntroStartOffset = 2; // user-configured offset
+        cfg.IncludeIntroStartOffsetWhenSnapping = true;
 
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 1.2, End = 10 };
 
         var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
 
+        Assert.Equal(2, adjusted.Start);
+        Assert.Equal(10, adjusted.End);
+    }
+
+    [Fact]
+    public async Task StartOffset_IsApplied_When_IntroStartsAtZero()
+    {
+        var (helper, cfg) = CreateHelper();
+        cfg.IntroStartOffset = 2;
+        cfg.IncludeIntroStartOffsetWhenSnapping = true;
+
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
+        var original = new Segment(episode.EpisodeId) { Start = 0, End = 10 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
+
+        Assert.Equal(2, adjusted.Start);
+        Assert.Equal(10, adjusted.End);
+    }
+
+    [Fact]
+    public async Task StartOffset_IsNotApplied_When_SnappingAndOptionIsDisabled()
+    {
+        var (helper, cfg) = CreateHelper();
+        cfg.IntroStartOffset = 2;
+
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
+        var original = new Segment(episode.EpisodeId) { Start = 0, End = 10 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
+
         Assert.Equal(0, adjusted.Start);
         Assert.Equal(10, adjusted.End);
+    }
+
+    [Fact]
+    public async Task OffsetThatConsumesSnappedIntro_ReturnsInvalidSegment()
+    {
+        var (helper, cfg) = CreateHelper();
+        cfg.IntroStartOffset = 2;
+        cfg.IncludeIntroStartOffsetWhenSnapping = true;
+
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
+        var original = new Segment(episode.EpisodeId) { Start = 1, End = 2 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
+
+        Assert.False(adjusted.Valid);
+        Assert.Equal(0, adjusted.Start);
+        Assert.Equal(0, adjusted.End);
     }
 
     [Fact]

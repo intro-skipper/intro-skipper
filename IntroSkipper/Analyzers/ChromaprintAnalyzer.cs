@@ -177,6 +177,13 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
                 var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!adjustedIntro.Valid)
+                {
+                    await Plugin.DeleteAutomaticTimestampAsync(currentEpisode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                    currentEpisode.SetAnalyzed(mode, EpisodeState.NoSegments);
+                    continue;
+                }
+
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
