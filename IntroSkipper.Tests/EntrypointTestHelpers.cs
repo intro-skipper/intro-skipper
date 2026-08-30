@@ -6,6 +6,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -14,10 +15,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
@@ -39,11 +42,16 @@ internal static class EntrypointTestHelpers
         var logger = loggerFactory.CreateLogger<Entrypoint>();
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
+        // The Entrypoint and its analyzer factory see the same segment database and
+        // refresher, as they do in production DI.
+        var segmentDatabase = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var mediaSegmentRefresher = new FakeMediaSegmentRefresher();
+
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             taskManager: null!,
             cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
-            database: DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            database: segmentDatabase,
             ffmpegService: null!,
             logger: logger,
             analyzerFactory: new AnalyzerTaskFactory(
@@ -51,11 +59,11 @@ internal static class EntrypointTestHelpers
                 libraryManager: null!,
                 providerManager: null!,
                 fileSystem: null!,
-                mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
+                mediaSegmentRefresher: mediaSegmentRefresher,
                 ffmpegService: null!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
-            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
+                database: segmentDatabase),
+            mediaSegmentRefresher: mediaSegmentRefresher);
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
@@ -63,8 +71,6 @@ internal static class EntrypointTestHelpers
 
     private sealed class FakeMediaSegmentRefresher : IMediaSegmentRefresher
     {
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
@@ -75,6 +81,46 @@ internal static class EntrypointTestHelpers
     // and returns null for any other id. Shared by the controller and refresh-service tests.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => LibraryManagerProxy.Create(items);
+
+    // ITaskManager stub with no scheduled task workers, for controllers that look up the
+    // detection task's worker state.
+    internal static ITaskManager CreateTaskManager()
+        => TaskManagerProxy.Create();
+
+    /// <summary>
+    /// Scopes a plugin instance around a single movie library item: the library manager
+    /// resolves the movie, the configuration carries the given mirror flag, and the
+    /// analysis queue is empty. Shared by the controller test suites.
+    /// </summary>
+    internal static PluginInstanceScope CreateMoviePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
+    {
+        var scope = new PluginInstanceScope(CreateTempCacheDir());
+        item = new Movie();
+        SetPropertyOrField(item, "Id", itemId);
+        EnsureNonVirtual(item);
+
+        var plugin = Plugin.Instance!;
+        SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+        SetPrivateField(plugin, "_libraryManager", CreateLibraryManager(item));
+        SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        return scope;
+    }
+
+    private class TaskManagerProxy : DispatchProxy
+    {
+        public static ITaskManager Create()
+            => Create<ITaskManager, TaskManagerProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == $"get_{nameof(ITaskManager.ScheduledTasks)}")
+            {
+                return Array.Empty<IScheduledTaskWorker>();
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
+    }
 
     private class LibraryManagerProxy : DispatchProxy
     {
@@ -250,6 +296,11 @@ internal static class EntrypointTestHelpers
 #pragma warning restore SYSLIB0050
 
             SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
+
+            // A default configuration so code reading Plugin.Instance.Configuration (e.g.
+            // the media-segment mirror gate) sees defaults instead of an uninitialized
+            // lazy loader; tests overwrite it for specific flag values.
+            SetPropertyOrField(plugin, "Configuration", new Configuration.PluginConfiguration());
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);

@@ -84,7 +84,12 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException or DbException)
         {
-            LogDetectionCacheReadError(_logger, ex, $"{itemId:N}-{mode}-{type}");
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                var cacheKey = $"{itemId:N}-{mode}-{type}";
+                LogDetectionCacheReadError(_logger, ex, cacheKey);
+            }
+
             return false;
         }
     }
@@ -149,18 +154,48 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
             // Pre-stream-selection rows are accepted optimistically, like stream-scoped hashes:
             // whether the effective stream still matches is only decided at read time, and a
-            // mismatch there just refingerprints the episode.
+            // mismatch there just refingerprints the episode. The legacy hash comparison runs
+            // last so its SHA-256 is only computed for rows the cheap checks did not settle;
+            // this method is called per episode in the analyzer's queue-filter loop.
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal)
-                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash);
+                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
+                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal);
         }
         catch (DbException ex)
         {
-            LogDetectionCacheReadError(_logger, ex, $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}");
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                var cacheKey = $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}";
+                LogDetectionCacheReadError(_logger, ex, cacheKey);
+            }
         }
 
         return false;
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteUnreadableEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        var config = Plugin.Instance?.Configuration ?? new();
+
+        // Every hash some read path accepts under the current configuration: the current
+        // hash of each (type, mode) pair plus the legacy pre-stream-selection Chromaprint
+        // hash. Inputs that ignore type or mode collapse in the set.
+        var acceptedHashes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            foreach (var type in Enum.GetValues<CacheEntryType>())
+            {
+                acceptedHashes.Add(ConfigHasher.DetectionCache(config, type, mode));
+            }
+
+            acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
+        }
+
+        return await _cacheDatabase
+            .DeleteEntriesWithUnknownConfigHashAsync(acceptedHashes, ConfigHasher.StreamScopedDetectionCacheHashPrefix, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

@@ -63,18 +63,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds: null, publishQueue: true, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds: null, cancellationToken);
 
     /// <summary>
     /// Gets media items belonging to the specified seasons or movies.
     /// </summary>
-    /// <param name="seasonIds">Season IDs and movie IDs to enqueue.</param>
+    /// <param name="seasonIds">Season IDs and movie IDs to enqueue, or <see langword="null"/> to enqueue everything.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
-        IReadOnlyCollection<Guid> seasonIds,
+        IReadOnlyCollection<Guid>? seasonIds,
         CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, seasonIds, publishQueue: false, cancellationToken);
+        => GetMediaItems(includeExcluded: false, seasonIds, cancellationToken);
 
     // Per-run memo on top of the service's success-only memoization: while ffmpeg is
     // invalid the service re-probes every call, so cache the verdict here to keep an
@@ -92,14 +92,21 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
-        => await GetMediaItems(includeExcluded, seasonIds: null, publishQueue: !includeExcluded, cancellationToken).ConfigureAwait(false);
+        => await GetMediaItems(includeExcluded, seasonIds: null, cancellationToken).ConfigureAwait(false);
 
     private async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(
         bool includeExcluded,
         IReadOnlyCollection<Guid>? seasonIds,
-        bool publishQueue,
         CancellationToken cancellationToken)
     {
+        // Only runs with the standard exclusions publish to the plugin's global queue state: a
+        // full enumeration replaces the published queue, a scoped run merges its seasons into it
+        // (so seasons analyzed outside a full scan stay visible to the dashboard endpoints, which
+        // serve from the published queue), and an excluded-inventory run must not count excluded
+        // items so it publishes nothing.
+        var publishQueue = !includeExcluded && seasonIds is null;
+        var mergeQueue = !includeExcluded && seasonIds is not null;
+
         _enumerationFailures = 0;
 
         var plugin = Plugin.Instance;
@@ -129,6 +136,37 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return _queuedEpisodes;
         }
 
+        // Resolve each requested id to its owning libraries once, so a scoped run queries only
+        // the folders that can contain a requested item instead of fanning its queries out to
+        // every enabled library. The narrowing is an optimization, never a filter: collection-folder
+        // resolution is path-based and can come up empty for an item the scoped queries would still
+        // find (a broken parent chain, a library still being reparented), so a requested id that
+        // resolves to no folder disables the narrowing for the whole run rather than silently
+        // reducing it to zero libraries.
+        HashSet<Guid>? scopedLibraryIds = null;
+        if (seasonIds is not null)
+        {
+            scopedLibraryIds = [];
+            foreach (var seasonId in seasonIds)
+            {
+                var resolvedFolders = seasonId != Guid.Empty && _libraryManager.GetItemById(seasonId) is { } requestedItem
+                    ? _libraryManager.GetCollectionFolders(requestedItem)
+                    : null;
+
+                if (resolvedFolders is null or { Count: 0 })
+                {
+                    LogUnresolvedScopedItemLibrary(_logger, seasonId);
+                    scopedLibraryIds = null;
+                    break;
+                }
+
+                foreach (var collectionFolder in resolvedFolders)
+                {
+                    scopedLibraryIds.Add(collectionFolder.Id);
+                }
+            }
+        }
+
         foreach (var folder in virtualFolders)
         {
             // If libraries have been selected for analysis, ensure this library was selected.
@@ -138,13 +176,19 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 continue;
             }
 
-            LogRunningEnqueueLibrary(_logger, folder.Name);
-
             // Some virtual folders don't have a proper item id.
             if (!Guid.TryParse(folder.ItemId, out var folderId))
             {
                 continue;
             }
+
+            if (scopedLibraryIds is not null && !scopedLibraryIds.Contains(folderId))
+            {
+                LogSkippingLibraryNoRequestedItems(_logger, folder.Name);
+                continue;
+            }
+
+            LogRunningEnqueueLibrary(_logger, folder.Name);
 
             try
             {
@@ -174,6 +218,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 plugin.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
             }
+        }
+        else if (mergeQueue)
+        {
+            foreach (var kvp in _queuedEpisodes)
+            {
+                plugin.QueuedMediaItems[kvp.Key] = kvp.Value;
+            }
+
+            // Recompute wholesale: the merge replaces season entries, so the published totals
+            // must reflect the merged dictionary, not a delta of this run.
+            plugin.TotalSeasons = plugin.QueuedMediaItems.Count;
+            plugin.TotalQueued = plugin.QueuedMediaItems.Sum(kvp => kvp.Value.Count);
         }
 
         return _queuedEpisodes;
@@ -214,15 +270,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     {
         LogConstructingQuery(_logger);
 
-        var query = new InternalItemsQuery
-        {
-            // Order by series name, season, and then episode number so that status updates are logged in order
-            ParentId = id,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
-            IncludeItemTypes = [BaseItemKind.Episode, BaseItemKind.Movie],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var query = BuildLibraryQuery(id, BaseItemKind.Episode, BaseItemKind.Movie);
 
         var items = seasonIds is null
             ? _libraryManager.GetItemList(query, false)
@@ -234,13 +282,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        List<BaseItem> distinctItems = [.. items.DistinctBy(e => e.Id)];
-
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         var queuedCount = 0;
-        foreach (var item in distinctItems)
+        foreach (var item in items.DistinctBy(e => e.Id))
         {
             try
             {
@@ -283,28 +329,34 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     {
         Guid[] targetIds = [.. seasonIds];
 
-        var episodeQuery = new InternalItemsQuery
-        {
-            ParentId = libraryId,
-            AncestorIds = targetIds,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-            IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var episodeQuery = BuildLibraryQuery(libraryId, BaseItemKind.Episode);
+        episodeQuery.AncestorIds = targetIds;
 
-        var movieQuery = new InternalItemsQuery
-        {
-            ParentId = libraryId,
-            ItemIds = targetIds,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-            IncludeItemTypes = [BaseItemKind.Movie],
-            Recursive = true,
-            IsVirtualItem = false
-        };
+        var movieQuery = BuildLibraryQuery(libraryId, BaseItemKind.Movie);
+        movieQuery.ItemIds = targetIds;
 
         // Match the unscoped path, which treats a null GetItemList result as an empty library.
-        var episodes = _libraryManager.GetItemList(episodeQuery, false) ?? [];
+        // In-season specials returned directly (a requested Specials season) are held back: they
+        // belong to their AirsBefore/AirsAfter host season, and queueing them alongside that host
+        // season's episodes would key them under the raw Specials id and compare them only
+        // against other specials, diverging from the full-scan grouping. Those whose host season
+        // is part of the request come back through the specials query below; the rest are restored
+        // afterwards, since dropping them outright would leave a requested Specials season — the
+        // id Entrypoint enqueues for a newly added special — with nothing to analyze.
+        List<BaseItem> episodes = [];
+        List<Episode> heldBackSpecials = [];
+        foreach (var item in _libraryManager.GetItemList(episodeQuery, false) ?? [])
+        {
+            if (item is Episode episode && IsInSeasonSpecial(episode))
+            {
+                heldBackSpecials.Add(episode);
+            }
+            else
+            {
+                episodes.Add(item);
+            }
+        }
+
         var movies = _libraryManager.GetItemList(movieQuery, false) ?? [];
 
         // In-season specials are stored beneath their own raw SeasonId, but belong to the season
@@ -322,16 +374,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         if (targetSeasonKeys.Count > 0)
         {
             Guid[] seriesIds = [.. targetSeasonKeys.Select(key => key.SeriesId).Distinct()];
-            var specialQuery = new InternalItemsQuery
-            {
-                ParentId = libraryId,
-                AncestorIds = seriesIds,
-                ParentIndexNumber = 0,
-                OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
-                IncludeItemTypes = [BaseItemKind.Episode],
-                Recursive = true,
-                IsVirtualItem = false
-            };
+            var specialQuery = BuildLibraryQuery(libraryId, BaseItemKind.Episode);
+            specialQuery.AncestorIds = seriesIds;
+            specialQuery.ParentIndexNumber = 0;
 
             specials = (_libraryManager.GetItemList(specialQuery, false) ?? [])
                 .Where(item => item is Episode episode &&
@@ -339,8 +384,38 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
         }
 
-        return episodes.Concat(specials).Concat(movies);
+        // Restore the held-back specials whose host season is not part of this request: nothing
+        // above re-adds them, and GetSeasonId falls back to their raw Specials id, which is the
+        // same grouping a full scan gives them when their host season queues no episodes.
+        var restoredSpecials = heldBackSpecials
+            .Where(episode => episode.AiredSeasonNumber is not int airedSeasonNumber ||
+                !targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
+
+        return episodes.Concat(specials).Concat(restoredSpecials).Concat(movies);
     }
+
+    /// <summary>
+    /// Builds the library query shape shared by the unscoped and scoped enumeration paths. Ordering
+    /// by series name, season and episode number keeps status updates logged in order, and scoped
+    /// callers set only the scoping field (AncestorIds / ItemIds / ParentIndexNumber) that differs
+    /// per query, so both paths stay filtered and ordered identically.
+    /// </summary>
+    /// <param name="parentId">Library (collection folder) id to query within.</param>
+    /// <param name="kinds">Item kinds to include.</param>
+    /// <returns>The query.</returns>
+    private static InternalItemsQuery BuildLibraryQuery(Guid parentId, params BaseItemKind[] kinds) => new()
+    {
+        ParentId = parentId,
+        OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+        IncludeItemTypes = kinds,
+        Recursive = true,
+        IsVirtualItem = false
+    };
+
+    // GetSeasonId's grouping rule: a special stored in Season 0 that airs within another season
+    // belongs to that host season, not to the Specials season it is stored under.
+    private static bool IsInSeasonSpecial(Episode episode)
+        => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
 
     private async Task<bool> QueueEpisode(
         Episode episode,
@@ -507,7 +582,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     private async Task<Guid> GetSeasonId(Episode episode, CancellationToken cancellationToken)
     {
-        if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
+        if (IsInSeasonSpecial(episode))
         {
             foreach (var kvp in _queuedEpisodes)
             {
@@ -575,16 +650,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         // The expected config hash depends on the season-level analyzer action and mode, not on the
-        // individual episode, so compute it once per mode instead of once per episode and mode.
-        var hashMatchesByMode = new Dictionary<AnalysisMode, bool>(modes.Count);
+        // individual episode, so compute it once per mode; each episode then compares its own
+        // analysis record against it.
+        var expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
         foreach (var mode in modes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
                 ? savedAction
                 : AnalyzerAction.Default;
-            var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
-            hashMatchesByMode[mode] = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+            expectedHashByMode[mode] = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
         }
 
         foreach (var candidate in candidates)
@@ -614,10 +688,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    var hashMatches = hashMatchesByMode[mode];
+                    // An analysis record under the current hash settles the episode for the mode
+                    // (Analyzed with segments, NoSegments without); a missing or stale record
+                    // leaves it NotAnalyzed.
+                    var hashMatches = snapshot.AnalyzedConfigHashes.TryGetValue((candidate.EpisodeId, mode), out var analyzedHash) &&
+                        string.Equals(analyzedHash, expectedHashByMode[mode], StringComparison.Ordinal);
 
-                    if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
-                        hasSegments.TryGetValue(mode, out _))
+                    if (snapshot.SegmentModesByEpisodeId.TryGetValue(candidate.EpisodeId, out var modesWithSegments) &&
+                        modesWithSegments.Contains(mode))
                     {
                         var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
                                              userProvided.Contains(candidate.EpisodeId);
@@ -630,9 +708,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain && hashMatches &&
-                             snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
-                             ids.Contains(candidate.EpisodeId))
+                    else if (!plugin.AnalyzeAgain && hashMatches)
                     {
                         candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                     }
@@ -659,6 +735,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
     private static partial void LogLibraryDisabled(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping library {Name}: it contains none of the requested items")]
+    private static partial void LogSkippingLibraryNoRequestedItems(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Requested item {ItemId} resolved to no library; querying every enabled library for this run")]
+    private static partial void LogUnresolvedScopedItemLibrary(ILogger logger, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Running enqueue of items in library {Name}")]
     private static partial void LogRunningEnqueueLibrary(ILogger logger, string name);

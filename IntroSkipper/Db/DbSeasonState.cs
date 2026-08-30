@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Text.Json;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Stores the current per-season state for one analysis mode.
+/// Stores the per-season state of one analysis mode: the analyzer action override and
+/// the episode set present when the settled-season reanalysis last completed. Which
+/// items were analyzed, and under which configuration, is recorded per item in
+/// <see cref="DbAnalyzedItem"/>.
 /// </summary>
 public class DbSeasonState
 {
@@ -17,37 +19,15 @@ public class DbSeasonState
     /// <param name="seasonId">Season ID.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer action.</param>
-    /// <param name="episodeIds">Episode IDs analyzed with the current configuration.</param>
-    public DbSeasonState(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null)
-        : this(seasonId, mode, action, episodeIds, string.Empty)
-    {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DbSeasonState"/> class.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="action">Analyzer action.</param>
-    /// <param name="episodeIds">Episode IDs analyzed with the current configuration.</param>
-    /// <param name="configHash">Configuration hash used when the episode ID set was last analyzed.</param>
     /// <param name="settledReanalysisEpisodeIds">Episode IDs present when the settled-season reanalysis completed.</param>
-    public DbSeasonState(
-        Guid seasonId,
-        AnalysisMode mode,
-        AnalyzerAction action,
-        IEnumerable<Guid>? episodeIds,
-        string configHash,
-        IEnumerable<Guid>? settledReanalysisEpisodeIds = null)
+    public DbSeasonState(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? settledReanalysisEpisodeIds = null)
     {
         SeasonId = seasonId;
         Type = mode;
         Action = action;
 
-        // Materialize eagerly: EF Core tracks these IEnumerable<Guid> properties as
-        // primitive collections, which only accept arrays or IList<Guid> instances.
-        EpisodeIds = episodeIds is null ? [] : [.. episodeIds];
-        ConfigHash = configHash;
+        // Materialize eagerly: EF Core tracks this IEnumerable<Guid> property as a
+        // primitive collection, which only accepts arrays or IList<Guid> instances.
         SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds is null ? [] : [.. settledReanalysisEpisodeIds];
     }
 
@@ -74,20 +54,7 @@ public class DbSeasonState
     public AnalyzerAction Action { get; private set; }
 
     /// <summary>
-    /// Gets the episode IDs analyzed with the current configuration.
-    /// </summary>
-    public IEnumerable<Guid> EpisodeIds { get; private set; } = [];
-
-    /// <summary>
-    /// Gets the configuration hash used when the episode ID set was last analyzed.
-    /// </summary>
-    public string ConfigHash { get; private set; } = string.Empty;
-
-    /// <summary>
     /// Gets the episode IDs present when the settled-season reanalysis completed.
     /// </summary>
     public IEnumerable<Guid> SettledReanalysisEpisodeIds { get; private set; } = [];
-
-    internal static string SerializeEpisodeIds(IEnumerable<Guid> episodeIds)
-        => JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
 }

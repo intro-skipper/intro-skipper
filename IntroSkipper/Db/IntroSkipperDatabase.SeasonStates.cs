@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>.
+/// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>,
+/// plus the queue-verification snapshot that joins season state, analysis records and segments.
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
@@ -18,7 +20,7 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var existingEntries = await db.DbSeasonState
+        var existingEntries = await db.SeasonStates
             .Where(s => s.SeasonId == seasonId)
             .ToDictionaryAsync(s => s.Type, cancellationToken)
             .ConfigureAwait(false);
@@ -31,69 +33,10 @@ public sealed partial class IntroSkipperDatabase
             }
             else
             {
-                db.DbSeasonState.Add(new DbSeasonState(seasonId, mode, action));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, mode, action));
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
-    public async Task SetEpisodeIdsAsync(Guid seasonId, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(episodeIds);
-
-        // EF Core maps IEnumerable<Guid> as a primitive collection and its change tracking
-        // only accepts arrays or IList<Guid>; a lazy enumerable (e.g. the Select projection
-        // passed by BaseItemAnalyzerTask) makes it throw InvalidOperationException.
-        var ids = episodeIds as Guid[] ?? [.. episodeIds];
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        var seasonState = await db.DbSeasonState
-            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (seasonState is null)
-        {
-            seasonState = new DbSeasonState(seasonId, mode, AnalyzerAction.Default, ids, configHash);
-            db.DbSeasonState.Add(seasonState);
-        }
-        else
-        {
-            db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = ids;
-            db.Entry(seasonState).Property(s => s.ConfigHash).CurrentValue = configHash;
-        }
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The read and write share one <see cref="IntroSkipperDbContext"/> to keep the window for
-    /// concurrent overwrites as small as possible, and the write is skipped entirely when the
-    /// ID is not present in the stored list.
-    /// </remarks>
-    public async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        var seasonState = await db.DbSeasonState
-            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (seasonState is null)
-        {
-            return;
-        }
-
-        var currentIds = seasonState.EpisodeIds.ToList();
-        if (!currentIds.Remove(episodeId))
-        {
-            return; // Episode was not in the list — no write needed.
-        }
-
-        db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = currentIds;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -104,7 +47,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var states = await db.DbSeasonState
+        var states = await db.SeasonStates
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
             .Select(s => new
@@ -136,7 +79,9 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        var settledEpisodeIds = DbSeasonState.SerializeEpisodeIds(episodeIds);
+        // Same JSON shape EF writes for the primitive collection, so the raw upsert and
+        // tracked reads agree.
+        var settledEpisodeIds = JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -144,8 +89,8 @@ public sealed partial class IntroSkipperDatabase
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
-                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds})
+                INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
+                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {settledEpisodeIds})
                 ON CONFLICT("SeasonId", "Type") DO UPDATE SET
                     "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds"
                 """,
@@ -158,8 +103,10 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var states = await db.DbSeasonState
+        var states = await db.SeasonStates
+            .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
+            .Select(s => new { s.Type, s.Action })
             .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
             .ConfigureAwait(false);
 
@@ -178,10 +125,13 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var state = await db.DbSeasonState
-            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+        var action = await db.SeasonStates
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId && s.Type == mode)
+            .Select(s => (AnalyzerAction?)s.Action)
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
-        return state?.Action ?? AnalyzerAction.Default;
+        return action ?? AnalyzerAction.Default;
     }
 
     /// <inheritdoc/>
@@ -191,31 +141,41 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
         var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
 
-        var seasonStates = await db.DbSeasonState
+        var analyzerActions = await db.SeasonStates
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
+            .Select(s => new { s.Type, s.Action })
+            .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
+            .ConfigureAwait(false);
+
+        var analyzed = await db.AnalyzedItems
+            .AsNoTracking()
+            .Where(a => EF.Parameter(episodeIdArray).Contains(a.ItemId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var segments = await db.DbSegment
+        // Project only the consumed columns: queue verification tests mode presence and
+        // user provenance, nothing else, so the tick, Id, ConfigHash and timestamp columns
+        // are all skipped. That avoids a per-row Guid parse plus two DateTime TEXT parses
+        // on a query that runs once per season per scan, and keeps seconds-typed segment
+        // payloads off this internal path (ticks stay internal).
+        var segments = await db.Segments
             .AsNoTracking()
-            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId)
-                && s.End > 0.0
-                && s.End > s.Start)
+            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId) && s.State == SegmentState.Active)
+            .Select(s => new { s.ItemId, s.Type, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return new SeasonQueueSnapshot(
-            seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
-            seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
-            seasonStates.ToDictionary(s => s.Type, s => s.Action),
+            analyzed.ToDictionary(a => (a.ItemId, a.Type), a => a.ConfigHash),
+            analyzerActions,
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)ToCanonicalTimestamps(group)),
+                    group => (IReadOnlySet<AnalysisMode>)group.Select(s => s.Type).ToHashSet()),
             segments
-                .Where(s => s.IsUserProvided)
+                .Where(s => s.Source == SegmentSource.User)
                 .GroupBy(s => s.Type)
                 .ToDictionary(
                     group => group.Key,

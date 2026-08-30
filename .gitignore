@@ -22,4 +22,5 @@ docs/agents
 /.cursor
 .agents/
 .omo
+.claude
 CLAUDE.md

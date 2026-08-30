@@ -73,7 +73,11 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
         }
         else
         {
-            LogResultTypeNotRecognized(_logger, context.Result?.GetType().FullName);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                var resultType = context.Result?.GetType().FullName;
+                LogResultTypeNotRecognized(_logger, resultType);
+            }
         }
 
         await next().ConfigureAwait(false);
@@ -175,7 +179,12 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             return filtered.ToList();
         }
 
-        LogSegmentsResponseNotList(_logger, value.GetType().FullName ?? "null");
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            var resultType = value.GetType().FullName ?? "null";
+            LogSegmentsResponseNotList(_logger, resultType);
+        }
+
         return value;
     }
 

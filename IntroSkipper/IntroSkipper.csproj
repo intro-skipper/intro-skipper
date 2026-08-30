@@ -11,13 +11,15 @@
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.Model" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.MediaEncoding.Keyframes" Version="12.0.*-*" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.*-*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <!-- Pinned rather than floating (12.0.*-*): nuget.org also carries a stray 12.0.0-rcrc3
+         package that sorts above every 12.0.0-rcN in prerelease ordering, so the float resolves
+         to RC3-era packages. Bump by hand per RC; at GA 12.0.0 outranks it again. -->
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc6" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0-rc6" />
+    <PackageReference Include="Jellyfin.MediaEncoding.Keyframes" Version="12.0.0-rc6" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0-rc6" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />

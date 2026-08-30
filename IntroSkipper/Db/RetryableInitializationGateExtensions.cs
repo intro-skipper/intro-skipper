@@ -13,6 +13,12 @@ internal static class RetryableInitializationGateExtensions
     /// caller retries. <paramref name="onFirstFailure"/> runs only for the caller that
     /// installed the replacement, so a shared failure is reported exactly once.
     /// </summary>
+    /// <remarks>
+    /// Mirrors <see cref="RetryableInitializationGate{T}.GetValue"/> with one deliberate
+    /// difference: the attempt's task is awaited inside the guarded region, so a fault of
+    /// the asynchronous initialization (not just of the factory) also resets the gate.
+    /// Keep the two envelopes in sync.
+    /// </remarks>
     /// <param name="gate">The initialization gate.</param>
     /// <param name="onFirstFailure">Invoked once per failed attempt with its exception.</param>
     /// <returns>A task that completes when initialization has completed.</returns>

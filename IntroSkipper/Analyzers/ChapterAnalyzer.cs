@@ -108,43 +108,61 @@ public partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var skipRange = !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
-                ? FindMatchingChapter(
+            IReadOnlyList<Segment> matches = !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
+                ? FindMatchingChapters(
                     episode,
                     Plugin.Instance!.GetChapters(episode.EpisodeId),
                     expression,
                     mode,
                     _config.EnableSponsorBlockChapterDetection)
-                : null;
-            if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
+                : [];
+
+            if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
-                skipRange = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                var fallback = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                if (fallback is not null && fallback.Valid)
+                {
+                    matches = [fallback];
+                }
             }
 
-            if (skipRange is null || !skipRange.Valid)
+            if (matches.Count == 0)
             {
                 continue;
             }
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
-            if (!skipRange.Valid)
+            var adjusted = new List<Segment>(matches.Count);
+            foreach (var match in matches)
             {
-                await _database.DeleteAutomaticTimestampAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, false, cancellationToken).ConfigureAwait(false);
+                if (adjustedSegment.Valid)
+                {
+                    adjusted.Add(adjustedSegment);
+                }
+            }
+
+            if (adjusted.Count == 0)
+            {
+                // Boundary adjustment consumed every match: clear the pass's stale
+                // automatic rows and settle the episode instead of leaving a segment
+                // the adjustment rules no longer produce.
+                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [], SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(mode, EpisodeState.NoSegments);
                 continue;
             }
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await _database.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;
     }
 
     /// <summary>
-    /// Searches a list of chapter names for one that matches the provided regular expression.
+    /// Searches a list of chapter names for all that match the provided regular expression,
+    /// in mode-specific scan order (reversed for credits and previews).
     /// Only public to allow for unit testing.
     /// </summary>
     /// <param name="episode">Episode.</param>
@@ -152,18 +170,19 @@ public partial class ChapterAnalyzer(
     /// <param name="expression">Regular expression pattern.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
-    /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
-    public Segment? FindMatchingChapter(
+    /// <returns>All matching skippable time ranges; empty when no chapter matched.</returns>
+    public IReadOnlyList<Segment> FindMatchingChapters(
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
         AnalysisMode mode,
         bool enableSponsorBlockChapterDetection = true)
     {
+        var matches = new List<Segment>();
         var count = chapters.Count;
         if (count == 0)
         {
-            return null;
+            return matches;
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
@@ -207,30 +226,52 @@ public partial class ChapterAnalyzer(
                 continue;
             }
 
-            // Check if the next (or previous for Credits) chapter also matches
-            var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
-            if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
+            // A matching neighbour makes the boundary ambiguous (overlapping keyword
+            // expressions), so single-match modes drop the chapter rather than guess.
+            // Multi-match modes keep it: consecutive matching chapters (Sponsor, then
+            // Self-Promotion) are the normal shape of an ad break, and the skip would
+            // discard every member of the run except the last.
+            if (!AllowsMultipleMatches(mode))
             {
-                // Check for possibility of overlapping keywords
-                var overlap = ChapterMatches(
-                    adjacentChapter.Name,
-                    expression,
-                    mode,
-                    enableSponsorBlockChapterDetection);
-
-                if (overlap)
+                // Check if the next (or previous for Credits) chapter also matches
+                var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
+                if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
                 {
-                    LogIgnoringAdjacentMatch(baseMessage);
-                    continue;
+                    var overlap = ChapterMatches(
+                        adjacentChapter.Name,
+                        expression,
+                        mode,
+                        enableSponsorBlockChapterDetection);
+
+                    if (overlap)
+                    {
+                        LogIgnoringAdjacentMatch(baseMessage);
+                        continue;
+                    }
                 }
             }
 
             LogChapterOk(baseMessage);
-            return new Segment(episode.EpisodeId, currentRange);
+            matches.Add(new Segment(episode.EpisodeId, currentRange));
+            if (!AllowsMultipleMatches(mode))
+            {
+                break;
+            }
         }
 
-        return null;
+        return matches;
     }
+
+    /// <summary>
+    /// Declares per-mode segment multiplicity for chapter analysis. Commercials
+    /// legitimately occur several times per episode; for every other mode a second
+    /// matching chapter is far more likely noise, so scanning stops at the first
+    /// accepted match (in mode-specific scan order). Storage, sync and the API are
+    /// plural for every mode — this is an analyzer-quality policy only.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><c>true</c> when the mode may emit more than one chapter match.</returns>
+    internal static bool AllowsMultipleMatches(AnalysisMode mode) => mode == AnalysisMode.Commercial;
 
     internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {

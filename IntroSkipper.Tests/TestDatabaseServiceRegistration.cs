@@ -39,7 +39,8 @@ public sealed class TestDatabaseServiceRegistration
 
             var database = provider.GetRequiredService<IIntroSkipperDatabase>();
             var episodeId = Guid.NewGuid();
-            await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(10, 60)), AnalysisMode.Introduction);
+            await database.ReplaceAutoSegmentsAsync(
+                episodeId, AnalysisMode.Introduction, [new Segment(episodeId, new TimeRange(10, 60))], SegmentSource.Chapter);
             var stored = Assert.Single(await database.GetSegmentsAsync(episodeId));
             Assert.Equal(episodeId, stored.ItemId);
 

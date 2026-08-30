@@ -6,11 +6,9 @@
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
@@ -25,16 +23,14 @@ namespace IntroSkipper.Controllers;
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentEditorService">Media segment editor service.</param>
-/// <param name="database">Segment database facade.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService, IIntroSkipperDatabase database) : ControllerBase
+public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
 {
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
-    private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -62,6 +58,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <returns>The created segment.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
@@ -69,18 +66,42 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         [FromBody, Required] MediaSegmentDto segment,
         CancellationToken cancellationToken = default)
     {
-        var item = Plugin.Instance!.GetItem(itemId);
-        if (item is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
 
-        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-        var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
+        if (!TickConversions.IsValidTickRange(segment.StartTicks, segment.EndTicks))
+        {
+            return BadRequest("EndTicks must be after StartTicks and both must be non-negative.");
+        }
 
-        await _database.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Unknown is a defined MediaSegmentType with no mode mapping and the default
+        // when the body omits Type; reject it like every other unmapped type.
+        if (AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type) is not { } mode)
+        {
+            return BadRequest($"Unknown segment type '{segment.Type}'.");
+        }
 
-        await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+        // Legacy wire contract: a non-commercial POST replaces the mode's stored
+        // segments with the posted one (clients edit by re-POSTing a new range), while
+        // commercials — inherently many per item — are added, deduplicated on an
+        // exact-range collision.
+        if (mode == AnalysisMode.Commercial)
+        {
+            await _mediaSegmentEditorService
+                .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await _mediaSegmentEditorService
+                .ReplaceUserSegmentsAsync(
+                    itemId,
+                    new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)> { [mode] = (segment.StartTicks, segment.EndTicks) },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return Ok();
     }
@@ -93,9 +114,11 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
-    /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// is rejected without mutating either item.
+    /// HTTP 200 on success — including a row the plugin already tombstoned, where the
+    /// delete converges the item's mirror so a re-added Jellyfin row disappears — 400
+    /// when the requested type does not match the segment, or 404 when no segment is
+    /// found. A segment id owned by a different item is rejected without mutating
+    /// either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -107,117 +130,26 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        AnalysisMode mode = type.ToLowerInvariant() switch
+        // "credits" is a legacy wire alias for the Outro segment type.
+        AnalysisMode? parsedMode = type.Equals("credits", StringComparison.OrdinalIgnoreCase)
+            ? AnalysisMode.Credits
+            : AnalysisHelpers.TryParseSegmentTypeName(type);
+        if (parsedMode is not { } requestedMode)
         {
-            "intro" => AnalysisMode.Introduction,
-            "recap" => AnalysisMode.Recap,
-            "preview" => AnalysisMode.Preview,
-            "outro" or "credits" => AnalysisMode.Credits,
-            "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
-        };
+            return BadRequest($"Unknown segment type '{type}'.");
+        }
 
-        var existingSegment = await _mediaSegmentEditorService
-            .GetSegmentByIdAsync(segmentId, cancellationToken)
+        // The service resolves the id (shared-id plugin row vs uncorrelated Jellyfin
+        // row) under the item's mutation stripe, so the dispatch cannot race a
+        // concurrent mutation.
+        var result = await _mediaSegmentEditorService
+            .DeleteLegacySegmentAsync(itemId, requestedMode, segmentId, cancellationToken)
             .ConfigureAwait(false);
-        if (existingSegment is not null && existingSegment.ItemId != itemId)
+        if (result.MismatchedType is { } actualType)
         {
-            return BadRequest($"Segment '{segmentId}' does not belong to item '{itemId}'.");
+            return BadRequest($"Segment '{segmentId}' is {actualType}, not requested type '{type}'.");
         }
 
-        if (existingSegment is not null
-            && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[mode])
-        {
-            return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
-        }
-
-        Segment? dbSegment = null;
-        if (existingSegment is not null)
-        {
-            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
-            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
-            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
-        }
-
-        if (dbSegment is null && mode == AnalysisMode.Commercial)
-        {
-            return NotFound();
-        }
-
-        // Non-commercial modes have exactly one row per item and mode, so delete that
-        // unambiguous counterpart even if Jellyfin's reported range has drifted. Commercial
-        // rows still require the facade's exact epsilon match.
-        var deleteSegment = mode == AnalysisMode.Commercial ? dbSegment : null;
-        var deletedRows = await _database.DeleteTimestampAsync(itemId, mode, deleteSegment, cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Jellyfin delete failed — restore the deleted plugin DB rows (including their
-            // user-provided flag and config hash, so the restored rows are not treated as
-            // stale) to avoid an orphaned Jellyfin segment. When the plugin DB had no matching
-            // row, fall back to the Jellyfin-reported range so the still-existing Jellyfin
-            // segment keeps a plugin-side counterpart. Rollback is deliberately uncancelable
-            // once the plugin delete has completed.
-            if (deletedRows.Count > 0)
-            {
-                foreach (var row in deletedRows)
-                {
-                    await _database.UpdateTimestampAsync(row.ToSegment(), mode, isUserProvided: row.IsUserProvided, configHash: row.ConfigHash, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-            else if (dbSegment is not null)
-            {
-                await _database.UpdateTimestampAsync(dbSegment, mode, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            }
-
-            throw;
-        }
-
-        // Jellyfin delete succeeded — remove the episode from the season's analyzed-state list so
-        // that the episode returns to NotAnalyzed and can be re-processed by the next analysis run.
-        var deletedItem = Plugin.Instance!.GetItem(itemId);
-        if (deletedItem is not null)
-        {
-            await _database.RemoveEpisodeIdAsync(ResolveSeasonStateKey(deletedItem), mode, itemId, cancellationToken).ConfigureAwait(false);
-        }
-
-        return Ok();
-    }
-
-    /// <summary>
-    /// Resolves the season-state key for an item. Season states are keyed by the analysis
-    /// queue's season key, which differs from the item's own SeasonId for in-season specials
-    /// (grouped with the season they air within) and for episodes whose SeasonId could not be
-    /// resolved. Prefer the queue key when the item is present in the cached queue.
-    /// </summary>
-    /// <param name="item">The item whose season-state key to resolve.</param>
-    /// <returns>The season-state key.</returns>
-    private static Guid ResolveSeasonStateKey(BaseItem item)
-    {
-        var queue = Plugin.Instance!.QueuedMediaItems;
-
-        // Nearly every episode is queued under its own season, so check that bucket
-        // before falling back to a scan of the whole queue for in-season specials
-        // grouped under another season's key.
-        if (item is Episode episode
-            && queue.TryGetValue(episode.SeasonId, out var seasonEpisodes)
-            && seasonEpisodes.Any(e => e.EpisodeId == item.Id))
-        {
-            return episode.SeasonId;
-        }
-
-        foreach (var (seasonId, episodes) in queue)
-        {
-            if (episodes.Any(e => e.EpisodeId == item.Id))
-            {
-                return seasonId;
-            }
-        }
-
-        return item is Episode fallbackEpisode ? fallbackEpisode.SeasonId : item.Id;
+        return result.IsDeleted ? Ok() : NotFound();
     }
 }

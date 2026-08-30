@@ -31,43 +31,33 @@ public interface IJellyfinSegmentStore
     Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Atomically replaces every segment of the given segment's type for an item —
-    /// regardless of provider — with the given Intro Skipper-owned segment.
+    /// Reads all of Intro Skipper's segment rows for an item; other providers' rows are
+    /// never returned. Lets sync callers compare the mirrored state against an intended
+    /// push and skip the write when nothing changed.
     /// </summary>
     /// <param name="itemId">The item id.</param>
-    /// <param name="segment">The segment to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
+    /// <returns>The item's Intro Skipper segment rows; empty when none exist.</returns>
+    Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Creates the given segment unless an identical entry (same type, start and end ticks,
-    /// any provider) already exists for the item.
+    /// Retrieves a segment by item and segment id, regardless of provider.
     /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="segment">The segment to persist.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Retrieves a segment by id, regardless of item or provider.
-    /// </summary>
+    /// <param name="itemId">The item id that owns the segment.</param>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    Task<MediaSegmentDto?> GetSegmentByIdAsync(Guid segmentId, CancellationToken cancellationToken);
+    Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a segment by id when it belongs to the given item, regardless of provider.
     /// A segment id owned by a different item is left untouched, and an unknown id is a
     /// no-op so callers can clean up plugin-side rows whose Jellyfin row is already gone.
-    /// The item scoping is a silent backstop; callers that must report a cross-item
-    /// mismatch resolve ownership first via <see cref="GetSegmentByIdAsync"/>.
     /// </summary>
     /// <param name="itemId">The item id that must own the segment.</param>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
+    /// <returns>The number of rows deleted: 0 when no row matched the item and segment id.
+    /// Callers use a 0 for a row they expected to exist as a drift signal.</returns>
+    Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 }

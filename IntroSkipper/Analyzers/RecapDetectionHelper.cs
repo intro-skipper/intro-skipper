@@ -28,12 +28,17 @@ internal static class RecapDetectionHelper
         CancellationToken cancellationToken)
     {
         var maximumBoundary = Math.Min(episode.Duration, config.MaximumRecapDetectionDuration);
-        var timestamps = await database.GetTimestampsAsync(
+        var segments = await database.GetSegmentsAsync(
             episode.EpisodeId,
-            cancellationToken).ConfigureAwait(false);
-        if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // A recap must end before the earliest stored introduction begins.
+        foreach (var segment in segments)
         {
-            maximumBoundary = Math.Min(maximumBoundary, intro.Start);
+            if (segment.Type == AnalysisMode.Introduction)
+            {
+                maximumBoundary = Math.Min(maximumBoundary, TickConversions.ToSeconds(segment.StartTicks));
+            }
         }
 
         return maximumBoundary;

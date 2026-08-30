@@ -2,28 +2,30 @@ import { el } from "./dom.ts";
 import { formatTime } from "../utils.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
-import type { EpisodeItem, TimestampMap, ApiResult } from "../types.ts";
+import { MODE_OPTIONS, segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
+import type { EpisodeItem, SegmentDto, ApiResult } from "../types.ts";
 
 /** Delay before filtering the episode list (ms). */
 const FILTER_DEBOUNCE_MS = 120;
-
-const TIMESTAMP_MODES: ReadonlyArray<{ key: string; label: string }> = [
-    { key: "Introduction", label: "Intro" },
-    { key: "Credits", label: "Credits" },
-    { key: "Recap", label: "Recap" },
-    { key: "Preview", label: "Preview" },
-    { key: "Commercial", label: "Commercial" },
-];
 
 export function episodeList(): {
     container: HTMLElement;
     render: (
         episodes: EpisodeItem[],
-        timestamps: Array<ApiResult<TimestampMap> | null>,
+        segments: Array<ApiResult<SegmentDto[]> | null>,
         isMovie?: boolean,
+        disable?: {
+            ids: string[];
+            onChange: (itemId: string, disabled: boolean) => Promise<void>;
+        },
     ) => void;
     clear: () => void;
-    setStatus: (msg: string, color?: string) => void;
+    setStatus: (
+        msg: string,
+        color?: string,
+        action?: { label: string; onClick: () => void },
+    ) => void;
+    hasUnsavedEdits: () => boolean;
     destroy: () => void;
 } {
     const container = el("div");
@@ -32,7 +34,7 @@ export function episodeList(): {
     const filterInput = el("input", {
         className: "ts-filter-input",
         type: "text",
-        placeholder: "Filter episodes\u2026",
+        placeholder: "Filter episodes…",
         name: "episode-filter",
     });
     filterInput.setAttribute("aria-label", "Filter episodes by name");
@@ -52,18 +54,22 @@ export function episodeList(): {
     let currentEpisodes: EpisodeItem[] = [];
     let currentCards: HTMLElement[] = [];
     let filterTimer: ReturnType<typeof setTimeout> | null = null;
+    let editors: Array<{ isDirty: () => boolean; destroy: () => void }> = [];
+    let editorCounter = 0;
 
     function ticksToMinutes(ticks: number | null): string {
         if (!ticks) return "";
         const minutes = Math.round(ticks / 10_000_000 / 60);
-        return minutes + "\u00A0min";
+        return minutes + " min";
     }
 
     let isMovieView = false;
+    let currentDisabledIds = new Set<string>();
+    let onDisabledChange: ((itemId: string, disabled: boolean) => Promise<void>) | null = null;
 
     function buildCard(
         ep: EpisodeItem,
-        result: ApiResult<TimestampMap> | null,
+        result: ApiResult<SegmentDto[]> | null,
         index: number,
     ): HTMLElement {
         const card = el("div", { className: "ts-episode-card" });
@@ -93,55 +99,145 @@ export function episodeList(): {
         if (runtime) {
             header.append(el("span", { className: "ts-episode-runtime" }, runtime));
         }
+        if (onDisabledChange) {
+            attachDisableToggle(ep, card, header);
+        }
         info.append(header);
 
         if (!result || !result.ok) {
             card.classList.add("error");
             const errorDiv = el("div", { className: "ts-episode-error" });
-            errorDiv.append(document.createTextNode("Failed to load timestamps"));
+            errorDiv.append(document.createTextNode("Failed to load segments"));
 
             const retryBtn = el("button", { className: "ts-retry-link", type: "button" }, "Retry");
-            retryBtn.setAttribute("aria-label", "Retry loading timestamps for " + ep.Name);
+            retryBtn.setAttribute("aria-label", "Retry loading segments for " + ep.Name);
             retryBtn.addEventListener("click", async () => {
                 // Retry only this episode so one failed request does not force a full reload.
-                retryBtn.textContent = "Loading\u2026";
-                retryBtn.style.pointerEvents = "none";
-                const retryResult = await api.getEpisodeTimestamps(ep.Id);
+                retryBtn.textContent = "Loading…";
+                // disabled (not pointer-events) so keyboard activation cannot
+                // start a second concurrent retry.
+                retryBtn.disabled = true;
+                const retryResult = await api.getEpisodeSegments(ep.Id);
                 if (retryResult && retryResult.ok) {
                     card.classList.remove("error");
                     info.removeChild(errorDiv);
-                    info.append(buildTimestampPills(retryResult.data ?? {}));
+                    attachSegmentUi(ep, header, info, retryResult.data ?? []);
                 } else {
                     retryBtn.textContent = "Retry";
-                    retryBtn.style.pointerEvents = "";
+                    retryBtn.disabled = false;
                 }
             });
             errorDiv.append(retryBtn);
             info.append(errorDiv);
         } else {
-            info.append(buildTimestampPills(result.data ?? {}));
+            attachSegmentUi(ep, header, info, result.data ?? []);
         }
 
         card.append(info);
         return card;
     }
 
-    function buildTimestampPills(ts: Record<string, { Start: number; End: number }>): HTMLElement {
+    /**
+     * Renders the segment pill row plus a lazily-created inline editor toggled by
+     * an Edit button in the header. Mutations refresh the pills in place — no
+     * full-season reload.
+     */
+    function attachSegmentUi(
+        ep: EpisodeItem,
+        header: HTMLElement,
+        info: HTMLElement,
+        segments: SegmentDto[],
+    ): void {
+        let pillsRow = buildSegmentPills(segments);
+        info.append(pillsRow);
+
+        const editorId = "ts-segment-editor-" + ++editorCounter;
+        const editBtn = el("button", { className: "ts-edit-btn", type: "button" }, "Edit");
+        editBtn.setAttribute("aria-expanded", "false");
+        // aria-controls is set once the editor element exists (first toggle);
+        // pointing it at a not-yet-created id would be a broken reference.
+        header.append(editBtn);
+
+        let editor: ReturnType<typeof segmentEditor> | null = null;
+        editBtn.addEventListener("click", () => {
+            if (!editor) {
+                editor = segmentEditor({
+                    itemId: ep.Id,
+                    initialSegments: segments,
+                    onChanged: (next) => {
+                        const fresh = buildSegmentPills(next);
+                        pillsRow.replaceWith(fresh);
+                        pillsRow = fresh;
+                    },
+                });
+                editor.container.id = editorId;
+                editBtn.setAttribute("aria-controls", editorId);
+                info.append(editor.container);
+                editors.push(editor);
+                editBtn.setAttribute("aria-expanded", "true");
+                return;
+            }
+
+            const visible = editor.container.style.display !== "none";
+            editor.container.style.display = visible ? "none" : "";
+            editBtn.setAttribute("aria-expanded", String(!visible));
+        });
+    }
+
+    /**
+     * Pill switch controlling whether the item's automatic segments reach
+     * Jellyfin. Checked means enabled; disabled items keep their stored
+     * segments and dim the card.
+     */
+    function attachDisableToggle(ep: EpisodeItem, card: HTMLElement, header: HTMLElement): void {
+        const toggle = el("input", { className: "ts-episode-disable-toggle", type: "checkbox" });
+        const disabled = currentDisabledIds.has(ep.Id);
+        toggle.checked = !disabled;
+        toggle.setAttribute("aria-label", "Enable media segments for " + ep.Name);
+        toggle.title = "Turn off to hide this item's detected segments from Jellyfin";
+        card.classList.toggle("ts-episode-disabled", disabled);
+
+        toggle.addEventListener("change", async () => {
+            toggle.disabled = true;
+            const nowDisabled = !toggle.checked;
+            try {
+                await onDisabledChange?.(ep.Id, nowDisabled);
+                // Keep the cached set in sync so later card rebuilds within
+                // this render see the toggled state.
+                if (nowDisabled) currentDisabledIds.add(ep.Id);
+                else currentDisabledIds.delete(ep.Id);
+                card.classList.toggle("ts-episode-disabled", nowDisabled);
+            } catch {
+                toggle.checked = !toggle.checked;
+                window.Dashboard.alert("Failed to update media-segment setting");
+            } finally {
+                toggle.disabled = false;
+            }
+        });
+
+        header.append(toggle);
+    }
+
+    function buildSegmentPills(segments: SegmentDto[]): HTMLElement {
         const row = el("div", { className: "ts-episode-timestamps" });
-        for (const mode of TIMESTAMP_MODES) {
-            const seg = ts[mode.key];
-            if (seg && (seg.Start !== 0 || seg.End !== 0)) {
+        const active = sortSegments(segments.filter((s) => !s.Suppressed));
+        for (const mode of MODE_OPTIONS) {
+            const ofMode = active.filter((s) => s.Type === mode.value);
+            if (ofMode.length === 0) {
                 row.append(
-                    el(
-                        "span",
-                        { className: "ts-timestamp-pill" },
-                        mode.label + " " + formatTime(seg.Start) + " \u2013 " + formatTime(seg.End),
-                    ),
+                    el("span", { className: "ts-timestamp-missing" }, mode.label + " –"),
                 );
-            } else {
-                row.append(
-                    el("span", { className: "ts-timestamp-missing" }, mode.label + " \u2013"),
+                continue;
+            }
+
+            for (const seg of ofMode) {
+                const pill = el(
+                    "span",
+                    { className: "ts-timestamp-pill" + (seg.Source === "User" ? " user" : "") },
+                    mode.label + " " + formatTime(seg.Start) + " – " + formatTime(seg.End),
                 );
+                pill.append(el("span", { className: "ts-pill-source" }, sourceBadgeText(seg)));
+                row.append(pill);
             }
         }
         return row;
@@ -174,17 +270,28 @@ export function episodeList(): {
 
     filterInput.addEventListener("input", handleFilterInput);
 
+    function destroyEditors(): void {
+        for (const editor of editors) {
+            editor.destroy();
+        }
+        editors = [];
+    }
+
     return {
         container,
 
         render(
             episodes: EpisodeItem[],
-            timestamps: Array<ApiResult<TimestampMap> | null>,
+            segments: Array<ApiResult<SegmentDto[]> | null>,
             isMovie = false,
+            disable?: { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> },
         ) {
             isMovieView = isMovie;
+            currentDisabledIds = new Set(disable?.ids);
+            onDisabledChange = disable?.onChange ?? null;
             currentEpisodes = episodes;
             listEl.replaceChildren();
+            destroyEditors();
             currentCards = [];
             if (filterTimer) clearTimeout(filterTimer);
             filterInput.value = "";
@@ -196,7 +303,7 @@ export function episodeList(): {
             }
 
             for (let i = 0; i < episodes.length; i++) {
-                const card = buildCard(episodes[i], timestamps[i] ?? null, i);
+                const card = buildCard(episodes[i], segments[i] ?? null, i);
                 currentCards.push(card);
                 listEl.append(card);
             }
@@ -207,22 +314,44 @@ export function episodeList(): {
 
         clear() {
             listEl.replaceChildren();
+            destroyEditors();
             currentCards = [];
             currentEpisodes = [];
+            currentDisabledIds = new Set();
+            onDisabledChange = null;
             if (filterTimer) clearTimeout(filterTimer);
             countEl.textContent = "";
             filterInput.value = "";
         },
 
-        setStatus(msg: string, color = "var(--is-text-muted)") {
+        setStatus(
+            msg: string,
+            color = "var(--is-text-muted)",
+            action?: { label: string; onClick: () => void },
+        ) {
             if (!msg) {
                 statusEl.style.display = "none";
-                statusEl.textContent = "";
+                statusEl.replaceChildren();
                 return;
             }
-            statusEl.textContent = msg;
+            statusEl.replaceChildren(document.createTextNode(msg));
+            if (action) {
+                const actionBtn = el(
+                    "button",
+                    { className: "ts-retry-link", type: "button" },
+                    action.label,
+                );
+                actionBtn.addEventListener("click", action.onClick);
+                statusEl.append(" ", actionBtn);
+            }
             statusEl.style.color = color;
             statusEl.style.display = "block";
+        },
+
+        // True while any live inline editor (expanded or collapsed) holds
+        // unsaved typed input.
+        hasUnsavedEdits() {
+            return editors.some((editor) => editor.isDirty());
         },
 
         destroy() {
@@ -230,6 +359,7 @@ export function episodeList(): {
                 clearTimeout(filterTimer);
                 filterTimer = null;
             }
+            destroyEditors();
             filterInput.removeEventListener("input", handleFilterInput);
         },
     };

@@ -66,4 +66,16 @@ public interface IDetectionCacheService
     /// <remarks>Stream-scoped entries are considered present here; the fingerprint read validates the exact stream and configuration before reuse.</remarks>
     /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode);
+
+    /// <summary>
+    /// Deletes cache rows whose configuration hash no read path can accept under the current
+    /// plugin configuration: superseded hash inputs (e.g. the token-suffixed legacy hash an
+    /// intermediate release wrote) and hashes of settings values that have since changed.
+    /// Rows with an empty hash and stream-scoped rows are kept, mirroring the optimistic
+    /// acceptance of the read paths. A row deleted here would be refingerprinted anyway;
+    /// the cost of a false delete is one recomputation, never lost analysis results.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
+    Task<int> DeleteUnreadableEntriesAsync(CancellationToken cancellationToken = default);
 }

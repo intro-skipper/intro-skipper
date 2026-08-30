@@ -92,79 +92,31 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(segment);
-
-        var entity = Map(segment, itemId);
-        var type = entity.Type;
-
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
-            await RunWriteTransactionAsync(
-                db,
-                async () =>
-                {
-                    // The editor owns "the" segment of a type: existing entries of the
-                    // same type are removed regardless of which provider created them.
-                    await db.MediaSegments
-                        .Where(existing => existing.ItemId == itemId && existing.Type == type)
-                        .ExecuteDeleteAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                    db.MediaSegments.Add(entity);
-                    await SaveExactlyAsync(db, itemId, nameof(ReplaceTypeAsync), 1, cancellationToken).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(segment);
-
-        var entity = Map(segment, itemId);
-        var type = entity.Type;
-        var startTicks = entity.StartTicks;
-        var endTicks = entity.EndTicks;
-
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
-            // Read-before-write on purpose: transactions here must start with a write so
-            // SQLite takes its reserved lock immediately. The tiny check-then-insert
-            // window matches the previous IMediaSegmentManager-based behavior and is
-            // serialized in-process by the editor's per-item lock.
-            var exists = await db.MediaSegments
+            var entities = await OwnSegments(db, itemId)
                 .AsNoTracking()
-                .AnyAsync(
-                    existing => existing.ItemId == itemId
-                        && existing.Type == type
-                        && existing.StartTicks == startTicks
-                        && existing.EndTicks == endTicks,
-                    cancellationToken)
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            if (exists)
-            {
-                return;
-            }
-
-            db.MediaSegments.Add(entity);
-            await SaveExactlyAsync(db, itemId, nameof(CreateCommercialIfAbsentAsync), 1, cancellationToken).ConfigureAwait(false);
+            return entities.ConvertAll(Map);
         }
     }
 
     /// <inheritdoc />
-    public async Task<MediaSegmentDto?> GetSegmentByIdAsync(Guid segmentId, CancellationToken cancellationToken)
+    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
             var entity = await db.MediaSegments
                 .AsNoTracking()
-                .FirstOrDefaultAsync(segment => segment.Id == segmentId, cancellationToken)
+                .FirstOrDefaultAsync(
+                    segment => segment.ItemId == itemId && segment.Id == segmentId,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             return entity is null ? null : Map(entity);
@@ -172,7 +124,7 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public async Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
@@ -181,7 +133,7 @@ public sealed partial class JellyfinSegmentStore(
             // users remove any of the item's segments by id. It is scoped to the item,
             // unlike IMediaSegmentManager, so a caller holding a stale or mismatched
             // segment id can never delete another item's segment.
-            await db.MediaSegments
+            return await db.MediaSegments
                 .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -238,7 +190,10 @@ public sealed partial class JellyfinSegmentStore(
 
     private static MediaSegment Map(MediaSegmentDto segment, Guid itemId)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(segment.EndTicks, segment.StartTicks);
+        // The plugin database enforces end > start (CK_Segments_Range); this backstop
+        // keeps a violated invariant loud at the Jellyfin write choke point instead of
+        // letting a bad DTO from any other source reach the server.
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(segment.EndTicks, segment.StartTicks);
 
         return new MediaSegment
         {

@@ -16,7 +16,6 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class DetectionCacheDbContext : DbContext
 {
-    private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private readonly string? _dbPath;
 
     /// <summary>
@@ -56,9 +55,7 @@ public class DetectionCacheDbContext : DbContext
     {
         if (!optionsBuilder.IsConfigured)
         {
-            optionsBuilder
-                .UseSqlite($"Data Source={_dbPath}")
-                .AddInterceptors(_pragmaInterceptor);
+            SqlitePragmas.Configure(optionsBuilder, _dbPath!);
         }
     }
 

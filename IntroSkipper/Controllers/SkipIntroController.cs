@@ -10,10 +10,9 @@
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -26,10 +25,12 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
+    MediaSegmentEditorService editorService,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
+    private readonly MediaSegmentEditorService _editorService = editorService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
@@ -37,6 +38,12 @@ public partial class SkipIntroController(
     /// <summary>
     /// Updates the timestamps for the provided episode.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Each provided slot
+    /// replaces every stored segment of its mode with the single user segment; all slots
+    /// commit in one transaction. A failed Jellyfin mirror update is reported as an error
+    /// (the stored segments stay committed and the next sync converges the mirror).
+    /// </remarks>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
@@ -48,8 +55,7 @@ public partial class SkipIntroController(
     public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
-        var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem is not Episode and not Movie)
+        if (MediaItemHelper.FindSupported(id) is null)
         {
             return NotFound();
         }
@@ -68,19 +74,17 @@ public partial class SkipIntroController(
             (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
+        var segmentsByMode = new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)>();
         foreach (var (mode, segment) in segmentTypes)
         {
-            if (segment.Valid)
+            // An empty or degenerate slot (end not after start) is skipped, not stored.
+            if (TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
             {
-                segment.EpisodeId = id;
-                await _database.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                segmentsByMode[mode] = (startTicks, endTicks);
             }
         }
 
-        if (Plugin.Instance.Configuration.UpdateMediaSegments)
-        {
-            await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
-        }
+        await _editorService.ReplaceUserSegmentsAsync(id, segmentsByMode, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }
@@ -88,6 +92,12 @@ public partial class SkipIntroController(
     /// <summary>
     /// Gets the timestamps for the provided episode.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
+    /// </remarks>
     /// <param name="id">Episode ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Sucess.</response>
@@ -98,14 +108,14 @@ public partial class SkipIntroController(
     public async Task<ActionResult<TimeStamps>> GetTimestamps([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
         // only get return content for episodes
-        var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem is not Episode and not Movie)
+        if (MediaItemHelper.FindSupported(id) is null)
         {
             return NotFound();
         }
 
         var times = new TimeStamps();
-        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = LegacyTimestampMapper.ToCanonical(
+            await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -138,6 +148,12 @@ public partial class SkipIntroController(
     /// <summary>
     /// Gets a dictionary of all skippable segments.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
+    /// </remarks>
     /// <param name="id">Media ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Skippable segments dictionary.</response>
@@ -145,39 +161,14 @@ public partial class SkipIntroController(
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
-        var result = new Dictionary<AnalysisMode, Segment>();
-
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
-        {
-            result[AnalysisMode.Introduction] = introSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-        {
-            result[AnalysisMode.Credits] = creditSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
-        {
-            result[AnalysisMode.Recap] = recapSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
-        {
-            result[AnalysisMode.Preview] = previewSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
-        {
-            result[AnalysisMode.Commercial] = commercialSegment;
-        }
-
-        return result;
+        return LegacyTimestampMapper.ToCanonical(
+            await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
-    /// Erases all previously discovered introduction timestamps.
+    /// Erases all previously discovered timestamps of a mode: the stored segments
+    /// (tombstones included), the mode's analyzed-episode lists so the next scan
+    /// re-detects, and the affected items' Jellyfin mirrors.
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
@@ -188,7 +179,7 @@ public partial class SkipIntroController(
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -198,20 +189,37 @@ public partial class SkipIntroController(
             await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
+        // The items keep their other modes' segments, so converge (not wipe) their mirrors.
+        await _mediaSegmentRefresher.RefreshAsync(itemIds, cancellationToken).ConfigureAwait(false);
+
         return NoContent();
     }
 
     /// <summary>
     /// Rebuilds the database.
     /// </summary>
+    /// <param name="forceCleanOnBackupFailure">
+    /// When <c>true</c>, the rebuild proceeds with an empty database if the existing one
+    /// cannot be read for backup — every stored timestamp is discarded. When <c>false</c>,
+    /// such a rebuild aborts with 409 so no data is lost without explicit consent.
+    /// </param>
     /// <response code="204">Database rebuilt.</response>
+    /// <response code="409">The existing database could not be read for backup; repeat with forceCleanOnBackupFailure=true to discard it and rebuild empty.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/RebuildDatabase")]
-    public async Task<ActionResult> RebuildDatabase()
+    public async Task<ActionResult> RebuildDatabase([FromQuery] bool forceCleanOnBackupFailure = false)
     {
-        // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
-        await _database.RebuildDatabaseAsync().ConfigureAwait(false);
+        try
+        {
+            // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
+            await _database.RebuildDatabaseAsync(forceCleanOnBackupFailure).ConfigureAwait(false);
+        }
+        catch (DatabaseRebuildBackupException)
+        {
+            return Conflict(new { message = "The existing database could not be read for backup. Repeat the request with forceCleanOnBackupFailure=true to discard it and rebuild empty." });
+        }
+
         return NoContent();
     }
 }

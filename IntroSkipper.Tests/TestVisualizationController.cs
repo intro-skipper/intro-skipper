@@ -11,7 +11,11 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
-using MediaBrowser.Controller.Entities;
+using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Model.MediaSegments;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -23,7 +27,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestVisualizationController
 {
     [Fact]
-    public async Task EraseSeasonAsync_AwaitsDirectMediaSegmentRefresh_BeforeReturningNoContent()
+    public async Task EraseSeasonAsync_AwaitsMirrorDelete_BeforeReturningNoContent()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -47,20 +51,21 @@ public sealed class TestVisualizationController
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
         Assert.False(actionTask.IsCompleted);
-        Assert.Equal(episodeIds.OrderBy(id => id), refresher.LastItemIds.OrderBy(id => id));
+        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
 
         refresher.Completion.SetResult();
         var result = await actionTask;
 
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+
+        // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
+        Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
     }
 
     [Fact]
-    public async Task EraseSeasonAsync_DoesNotRefresh_WhenUpdateMediaSegmentsDisabled()
+    public async Task EraseSeasonAsync_AlwaysDelegatesRefresh_TheServiceOwnsTheMirrorFlag()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -68,17 +73,16 @@ public sealed class TestVisualizationController
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
-        var refresher = new RecordingMediaSegmentRefresher
-        {
-            Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
-        };
+        var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var result = await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
+        // The controller no longer gates on UpdateMediaSegments: it always delegates,
+        // and MediaSegmentRefreshService itself owns the mirror flag.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal(0, refresher.CollectionCallCount);
+        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
     }
 
     [Fact]
@@ -111,9 +115,10 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+
+        // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
+        Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
     }
 
     [Fact]
@@ -145,15 +150,18 @@ public sealed class TestVisualizationController
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
-        Assert.Equal(1, response.RemovedSegments);
+
+        // The excluded episode's active segment plus its tombstone: clearing excluded
+        // items is a full erase, so suppressed rows are deleted (and counted) too.
+        Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(1, response.RemovedCacheEntries);
-        Assert.Equal([excludedId], refresher.LastItemIds);
+        Assert.Equal([excludedId], refresher.RemovedItemIds);
 
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
-        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
+        Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
 
         using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
         Assert.False(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
@@ -197,24 +205,336 @@ public sealed class TestVisualizationController
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
-        Assert.Equal(1, response.RemovedSegments);
+
+        // Active segment + tombstone of the excluded episode (see SeedSeasonAsync).
+        Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(0, response.RemovedCacheEntries);
 
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
-        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
+        Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
     }
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
+    [Fact]
+    public async Task DisabledItems_PutGetDelete_RoundTripsAndRefreshes()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+        // Steady state before the toggle: an automatic segment already mirrored to
+        // Jellyfin. Disabling pushes the empty replace that withdraws it; enabling
+        // pushes it back — each direction a real write, not a skipped no-op sync.
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+        var mirroredRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0], mirroredRow.Id, mirroredRow.StartTicks, mirroredRow.EndTicks)]
+        };
+        var controller = CreateController(
+            refresher, loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+
+        var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(putResult);
+        Assert.Equal(episodeIds[0], Assert.Single(store.ReplacedItems).ItemId);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+
+        var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(getResult.Result);
+        var ids = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(ok.Value);
+        Assert.Equal([episodeIds[0]], ids);
+
+        var deleteResult = await controller.EnableItem(episodeIds[0], CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(deleteResult);
+
+        // Both directions resync the item's mirror through the editor service; the
+        // refresher (the bulk/lenient path) is not involved in the disable flow.
+        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal(0, refresher.CollectionCallCount);
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RejectUnknownItem()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var store = new FakeJellyfinSegmentStore();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+
+        var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(unknown);
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RefreshFailureRollsBackDisable_AndReports500()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        // A mirrored row makes the disable-sync a real (failing) write instead of a
+        // skipped no-op.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0])],
+            WriteException = new InvalidOperationException("mirror write failed")
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+
+        var result = await controller.DisableItem(episodeIds[0], CancellationToken.None);
+
+        // The mirror kept its old rows, so the response must not be a success and
+        // the flag write must be rolled back.
+        var problem = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RefreshFailureRollsBackEnable_AndReports500()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteException = new InvalidOperationException("mirror write failed")
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
+
+        // A stored automatic segment gives the enable-sync rows to push, so it is a
+        // real (failing) write instead of a skipped no-op.
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+
+        var result = await controller.EnableItem(episodeIds[0], CancellationToken.None);
+
+        // Jellyfin still withholds the rows, so the stored flag must stay disabled.
+        var problem = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_ConcurrentMutationSerializesBehindFailingRollback()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // A mirrored row gives each disable-sync something to withdraw, so both are
+        // real writes instead of skipped no-op syncs.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0])],
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.InitializeAsync();
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
+
+        // Request A writes the flag, then parks inside its strict mirror write.
+        var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        await writeEntered.Task;
+
+        // Request B mutates the same item while A is in flight. It must serialize
+        // behind A's whole mutation instead of observing A's uncommitted flag: if it
+        // ran now it would see `previous == true` and no-op, and A's rollback would
+        // then silently clobber B's "successful" disable.
+        var requestB = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
+        Assert.Equal(1, store.WriteCallCount);
+
+        // A's mirror write now fails; the rollback must complete before B proceeds.
+        writeGate.SetException(new InvalidOperationException("mirror write failed"));
+
+        var problem = Assert.IsType<ObjectResult>(await requestA);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<NoContentResult>(await requestB);
+
+        // B reported success after A's rollback, so the item must end up disabled.
+        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_ConcurrentSegmentCreateSerializesBehindFailingRollback()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+
+        // Steady state: the automatic segment is already mirrored, so A's disable-sync
+        // has a row to withdraw and parks in a real write instead of skipping.
+        var introRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateMirroredDto(episodeIds[0], introRow.Id, introRow.StartTicks, introRow.EndTicks)],
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
+        };
+        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, editorService);
+        var segmentsController = new SegmentsController(database, editorService);
+
+        // Request A writes the disable flag, then parks inside its strict mirror write.
+        var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        await writeEntered.Task;
+
+        // A segment create for the same item must serialize behind A's whole mutation:
+        // syncing now would read A's uncommitted disabled flag and strip the automatic
+        // rows, a state A's rollback would leave baked into the mirror.
+        var requestB = segmentsController.CreateSegment(
+            episodeIds[0], new CreateSegmentRequest(AnalysisMode.Commercial, 100, 120), CancellationToken.None);
+        Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
+        Assert.Equal(1, store.WriteCallCount);
+
+        // A's mirror write now fails and rolls the flag back; only then does B proceed.
+        writeGate.SetException(new InvalidOperationException("mirror write failed"));
+
+        var problem = Assert.IsType<ObjectResult>(await requestA);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<CreatedAtActionResult>((await requestB).Result);
+
+        // B's sync ran after the rollback: the flag is enabled again, so the final
+        // mirror push carries the automatic segment alongside the new user segment.
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal(2, store.WriteCallCount);
+        var finalPush = store.ReplacedItems[^1];
+        Assert.Equal(episodeIds[0], finalPush.ItemId);
+        Assert.Equal(2, finalPush.Segments.Count);
+    }
+
+    [Fact]
+    public async Task DisabledItems_MovieUsesItsOwnIdAsSeasonKey()
+    {
+        var movieId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(Guid.NewGuid(), Guid.NewGuid(), [Guid.NewGuid(), Guid.NewGuid()], updateMediaSegments: true);
+        var movie = new Movie();
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", movieId);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(movie));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var result = await controller.DisableItem(movieId, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+
+        // The server records the movie's own ID as its season key, which is what
+        // the dashboard's movie view lists by.
+        Assert.Equal([movieId], await database.GetDisabledItemIdsAsync(movieId));
+    }
+
+    private static Episode CreateEpisodeItem(Guid episodeId, Guid seasonId)
+    {
+        var episode = new Episode();
+        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
+        return episode;
+    }
+
+    /// <summary>
+    /// A row already mirrored to Jellyfin. Seeded so a sync whose intended push differs
+    /// (a disable withdrawing it, or a plugin-side change) is a real write rather than
+    /// a skipped no-op; defaults produce a row matching no plugin row.
+    /// </summary>
+    private static MediaSegmentDto CreateMirroredDto(Guid itemId, Guid? id = null, long? startTicks = null, long? endTicks = null)
+        => new()
+        {
+            Id = id ?? Guid.NewGuid(),
+            ItemId = itemId,
+            Type = MediaSegmentType.Intro,
+            StartTicks = startTicks ?? TickConversions.FromSeconds(10),
+            EndTicks = endTicks ?? TickConversions.FromSeconds(20)
+        };
+
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
         => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath)
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, MediaSegmentEditorService? editorService = null)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
             refresher,
+            editorService ?? DatabaseTestHelpers.CreateEditorService(new FakeJellyfinSegmentStore(), database),
             libraryManager: null!,
             new AnalyzerTaskFactory(
                 loggerFactory,
@@ -226,7 +546,8 @@ public sealed class TestVisualizationController
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 database),
             database,
-            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
+            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+            EntrypointTestHelpers.CreateTaskManager());
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
@@ -253,13 +574,24 @@ public sealed class TestVisualizationController
     private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
-        await db.Database.EnsureCreatedAsync();
-        db.DbSegment.AddRange(
-            new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction),
-            new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
-        db.DbSeasonState.AddRange(
-            new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
-            new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
+        await db.ApplyMigrationsAsync();
+        db.Segments.AddRange(
+            new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),
+            new DbSegment(episodeIds[1], AnalysisMode.Introduction, TickConversions.FromSeconds(30), TickConversions.FromSeconds(40), SegmentSource.Chapter),
+            // Tombstone (user-deleted automatic segment) on the first episode: season erase and
+            // clear-excluded are full erases, so they must delete suppressed rows too.
+            new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(50), TickConversions.FromSeconds(60), SegmentSource.Chapter)
+            {
+                State = SegmentState.Suppressed,
+            });
+        db.SeasonStates.AddRange(
+            new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default),
+            new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default));
+        db.AnalyzedItems.AddRange(episodeIds.SelectMany(id => new[]
+        {
+            new DbAnalyzedItem(id, AnalysisMode.Introduction, "hash"),
+            new DbAnalyzedItem(id, AnalysisMode.Credits, "hash")
+        }));
         await db.SaveChangesAsync();
     }
 
@@ -273,11 +605,7 @@ public sealed class TestVisualizationController
     }
 
     private static string CreateTempDbPath()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "visualization-controller");
-        Directory.CreateDirectory(tempDir);
-        return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-    }
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-visualization-controller.db");
 
     private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
     {
@@ -285,22 +613,18 @@ public sealed class TestVisualizationController
 
         public int CollectionCallCount { get; private set; }
 
-        public IReadOnlyList<Guid> LastItemIds { get; private set; } = [];
-
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
-        {
-            LastItemIds = [item.Id];
-            return Completion?.Task ?? Task.CompletedTask;
-        }
+        public IReadOnlyList<Guid> RemovedItemIds { get; private set; } = [];
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             CollectionCallCount++;
-            LastItemIds = [.. itemIds];
             return Completion?.Task ?? Task.CompletedTask;
         }
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-            => RefreshAsync(itemIds, cancellationToken);
+        {
+            RemovedItemIds = [.. itemIds];
+            return Completion?.Task ?? Task.CompletedTask;
+        }
     }
 }

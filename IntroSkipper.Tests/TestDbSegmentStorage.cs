@@ -10,22 +10,22 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IntroSkipper.Tests;
 
 public sealed class TestDbSegmentStorage
 {
-    [Fact]
-    public void AllowsMultipleCommercialSegments()
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Recap)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void AllowsMultipleSegmentsPerItemAndType_ForEveryMode(AnalysisMode mode)
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
 
@@ -33,33 +33,30 @@ public sealed class TestDbSegmentStorage
         {
             db.Database.EnsureCreated();
 
-            var firstSegment = new DbSegment(
-                new Segment(itemId, new TimeRange(0, 10)),
-                AnalysisMode.Commercial);
-            var secondSegment = new DbSegment(
-                new Segment(itemId, new TimeRange(20, 30)),
-                AnalysisMode.Commercial);
-
-            db.DbSegment.AddRange(firstSegment, secondSegment);
+            db.Segments.AddRange(
+                new DbSegment(itemId, mode, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter),
+                new DbSegment(itemId, mode, TickConversions.FromSeconds(20), TickConversions.FromSeconds(30), SegmentSource.Chapter),
+                new DbSegment(itemId, mode, TickConversions.FromSeconds(40), TickConversions.FromSeconds(50), SegmentSource.User));
             db.SaveChanges();
         }
 
         using (var db = new IntroSkipperDbContext(options))
         {
-            var count = db.DbSegment.Count(segment => segment.ItemId == itemId && segment.Type == AnalysisMode.Commercial);
-            Assert.Equal(2, count);
+            var count = db.Segments.Count(segment => segment.ItemId == itemId && segment.Type == mode);
+            Assert.Equal(3, count);
         }
     }
 
-    [Fact]
-    public void NonCommercialUniqueIndexPreventsInsertingDuplicateForSameItemAndType()
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Recap)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void UniqueIndex_RejectsExactDuplicateRange_ForEveryMode(AnalysisMode mode)
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
 
@@ -67,33 +64,25 @@ public sealed class TestDbSegmentStorage
         {
             db.Database.EnsureCreated();
 
-            db.DbSegment.Add(new DbSegment(
-                new Segment(itemId, new TimeRange(0, 10)),
-                AnalysisMode.Introduction));
+            db.Segments.Add(new DbSegment(itemId, mode, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter));
             db.SaveChanges();
         }
 
         using (var db = new IntroSkipperDbContext(options))
         {
-            // Attempting to insert a second Introduction segment for the same item must
-            // violate the non-commercial unique index and throw a DbUpdateException.
-            db.DbSegment.Add(new DbSegment(
-                new Segment(itemId, new TimeRange(5, 15)),
-                AnalysisMode.Introduction));
+            // Inserting the exact same (item, type, start, end) quadruple must violate
+            // the uniform unique index and throw a DbUpdateException.
+            db.Segments.Add(new DbSegment(itemId, mode, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.User));
 
             Assert.Throws<DbUpdateException>(() => db.SaveChanges());
         }
     }
 
     [Fact]
-    public void NonCommercialUniqueIndexAllowsSameModeForDifferentItems()
+    public void UniqueIndex_AllowsSameRangeForDifferentItems()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemIdA = Guid.NewGuid();
         var itemIdB = Guid.NewGuid();
@@ -102,50 +91,93 @@ public sealed class TestDbSegmentStorage
         {
             db.Database.EnsureCreated();
 
-            db.DbSegment.AddRange(
-                new DbSegment(new Segment(itemIdA, new TimeRange(0, 10)), AnalysisMode.Introduction),
-                new DbSegment(new Segment(itemIdB, new TimeRange(0, 10)), AnalysisMode.Introduction));
+            db.Segments.AddRange(
+                new DbSegment(itemIdA, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter),
+                new DbSegment(itemIdB, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter));
 
-            // No exception — different items may have the same mode.
+            // No exception — different items may store the same range.
             db.SaveChanges();
         }
 
         using (var db = new IntroSkipperDbContext(options))
         {
-            Assert.Equal(1, db.DbSegment.Count(s => s.ItemId == itemIdA && s.Type == AnalysisMode.Introduction));
-            Assert.Equal(1, db.DbSegment.Count(s => s.ItemId == itemIdB && s.Type == AnalysisMode.Introduction));
+            Assert.Equal(1, db.Segments.Count(s => s.ItemId == itemIdA && s.Type == AnalysisMode.Introduction));
+            Assert.Equal(1, db.Segments.Count(s => s.ItemId == itemIdB && s.Type == AnalysisMode.Introduction));
         }
     }
 
     [Fact]
-    public void UserProvidedFlagIsPreservedOnDbSegment()
+    public void SegmentRow_RoundTripsAllColumns()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
+        Guid segmentId;
 
         using (var db = new IntroSkipperDbContext(options))
         {
             db.Database.EnsureCreated();
 
-            db.DbSegment.Add(new DbSegment(
-                new Segment(itemId, new TimeRange(10, 60)),
-                AnalysisMode.Introduction,
-                isUserProvided: true));
+            var row = new DbSegment(itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(60), SegmentSource.User, "hash");
+            segmentId = row.Id;
+            Assert.NotEqual(Guid.Empty, segmentId);
+
+            db.Segments.Add(row);
             db.SaveChanges();
         }
 
         using (var db = new IntroSkipperDbContext(options))
         {
-            var segment = db.DbSegment
-                .Single(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction);
+            var segment = db.Segments.Single(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction);
 
-            Assert.True(segment.IsUserProvided);
+            Assert.Equal(segmentId, segment.Id);
+            Assert.Equal(TickConversions.FromSeconds(10), segment.StartTicks);
+            Assert.Equal(TickConversions.FromSeconds(60), segment.EndTicks);
+            Assert.Equal(SegmentSource.User, segment.Source);
+            Assert.Equal(SegmentState.Active, segment.State);
+            Assert.Equal("hash", segment.ConfigHash);
+        }
+    }
+
+    [Fact]
+    public void SaveChanges_StampsCreatedAndUpdatedTimestamps()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        var options = CreateInMemoryOptions(connection);
+
+        var itemId = Guid.NewGuid();
+        var before = DateTime.UtcNow;
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+            db.Segments.Add(new DbSegment(itemId, AnalysisMode.Introduction, 0, 100, SegmentSource.Chapter));
+            db.SaveChanges();
+        }
+
+        var afterInsert = DateTime.UtcNow;
+        DateTime createdAt;
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            var segment = db.Segments.Single(s => s.ItemId == itemId);
+            createdAt = segment.CreatedAt;
+
+            Assert.InRange(segment.CreatedAt, before, afterInsert);
+            Assert.InRange(segment.UpdatedAt, before, afterInsert);
+            Assert.Equal(DateTimeKind.Utc, segment.CreatedAt.Kind);
+
+            // Modifying the row refreshes UpdatedAt but keeps CreatedAt.
+            segment.State = SegmentState.Suppressed;
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            var segment = db.Segments.Single(s => s.ItemId == itemId);
+            Assert.Equal(createdAt, segment.CreatedAt);
+            Assert.True(segment.UpdatedAt >= segment.CreatedAt);
         }
     }
 
@@ -169,10 +201,10 @@ public sealed class TestDbSegmentStorage
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.Database.EnsureCreatedAsync();
-                db.DbSegment.AddRange(
-                    new DbSegment(new Segment(retainedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
-                    new DbSegment(new Segment(staleItemId, new TimeRange(20, 30)), AnalysisMode.Introduction));
+                await db.ApplyMigrationsAsync();
+                db.Segments.AddRange(
+                    new DbSegment(retainedItemId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter),
+                    new DbSegment(staleItemId, AnalysisMode.Introduction, TickConversions.FromSeconds(20), TickConversions.FromSeconds(30), SegmentSource.Chapter));
                 await db.SaveChangesAsync();
             }
 
@@ -183,13 +215,13 @@ public sealed class TestDbSegmentStorage
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                Assert.Equal(2, db.DbSegment.Count());
+                Assert.Equal(2, db.Segments.Count());
             }
 
-            await database.DeleteSegmentsForItemsAsync(staleEpisodeIds);
+            await database.EraseItemsAsync(staleEpisodeIds);
 
             using var cleanedDb = new IntroSkipperDbContext(dbPath);
-            var itemId = Assert.Single(cleanedDb.DbSegment.Select(segment => segment.ItemId));
+            var itemId = Assert.Single(cleanedDb.Segments.Select(segment => segment.ItemId));
             Assert.Equal(retainedItemId, itemId);
         }
         finally
@@ -218,30 +250,21 @@ public sealed class TestDbSegmentStorage
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.Database.EnsureCreatedAsync();
-                db.DbSegment.Add(new DbSegment(
-                    new Segment(episodeWithSegmentId, new TimeRange(0, 30)),
-                    AnalysisMode.Introduction));
-                db.DbSeasonState.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Chromaprint,
-                    [episodeWithSegmentId],
-                    "snapshot-config"));
+                await db.ApplyMigrationsAsync();
+                db.Segments.Add(new DbSegment(episodeWithSegmentId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(30), SegmentSource.Chromaprint));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Chromaprint));
+                db.AnalyzedItems.Add(new DbAnalyzedItem(episodeWithSegmentId, AnalysisMode.Introduction, "snapshot-config"));
                 await db.SaveChangesAsync();
             }
 
             // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
             var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
-            Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
-            Assert.Contains(episodeWithSegmentId, analyzedIds!);
-            Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));
-            Assert.Equal("snapshot-config", configHash);
+            Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(episodeWithSegmentId, AnalysisMode.Introduction)]);
             Assert.True(snapshot.AnalyzerActionByMode.TryGetValue(AnalysisMode.Introduction, out var analyzerAction));
             Assert.Equal(AnalyzerAction.Chromaprint, analyzerAction);
 
-            Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
-            Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
+            Assert.True(snapshot.SegmentModesByEpisodeId.TryGetValue(episodeWithSegmentId, out var modesWithSegments));
+            Assert.Contains(AnalysisMode.Introduction, modesWithSegments!);
         }
         finally
         {
@@ -250,7 +273,7 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
-    public async Task EnsureConfigHashColumns_AddsMissingColumnsForLegacySchema()
+    public async Task GetSeasonQueueSnapshot_ReportsModesWithActiveSegments_AndExcludesSuppressed()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
@@ -261,300 +284,28 @@ public sealed class TestDbSegmentStorage
 
         try
         {
-            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    """
-                    CREATE TABLE "DbSeasonInfo" (
-                        "SeasonId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Action" INTEGER NOT NULL DEFAULT 0,
-                        "EpisodeIds" TEXT NOT NULL,
-                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
-                    );
-                    CREATE TABLE "DbSegment" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment" PRIMARY KEY AUTOINCREMENT,
-                        "ItemId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Start" REAL NOT NULL DEFAULT 0.0,
-                        "End" REAL NOT NULL DEFAULT 0.0,
-                        "IsUserProvided" INTEGER NOT NULL DEFAULT 0
-                    );
-                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds")
-                    VALUES ($seasonId, $type, $action, $episodeIds);
-                    INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End", "IsUserProvided")
-                    VALUES ($itemId, $segmentType, $start, $end, $isUserProvided);
-                    """;
-                command.Parameters.AddWithValue("$seasonId", seasonId.ToString());
-                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Default);
-                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
-                command.Parameters.AddWithValue("$itemId", episodeId.ToString());
-                command.Parameters.AddWithValue("$segmentType", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$start", 0.0);
-                command.Parameters.AddWithValue("$end", 30.0);
-                command.Parameters.AddWithValue("$isUserProvided", false);
-                await command.ExecuteNonQueryAsync();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                db.EnsureConfigHashColumns();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                var seasonState = await db.DbSeasonState.SingleAsync();
-                var segment = await db.DbSegment.SingleAsync();
-
-                Assert.Equal(string.Empty, seasonState.ConfigHash);
-                Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Equal(string.Empty, segment.ConfigHash);
-            }
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task EnsureLegacySchemaCompatibility_UpgradesInitialSchemaWithoutDataLoss()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(tempDir);
-        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-
-        var seasonId = Guid.NewGuid();
-        var episodeId = Guid.NewGuid();
-
-        try
-        {
-            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    """
-                    CREATE TABLE "DbSeasonInfo" (
-                        "SeasonId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Action" INTEGER NOT NULL DEFAULT 0,
-                        "EpisodeIds" TEXT NOT NULL,
-                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
-                    );
-                    CREATE TABLE "DbSegment" (
-                        "ItemId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Start" REAL NOT NULL DEFAULT 0.0,
-                        "End" REAL NOT NULL DEFAULT 0.0,
-                        CONSTRAINT "PK_DbSegment" PRIMARY KEY ("ItemId", "Type")
-                    );
-                    CREATE INDEX "IX_DbSeasonInfo_SeasonId" ON "DbSeasonInfo" ("SeasonId");
-                    CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
-                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds")
-                    VALUES ($seasonId, $type, $action, $episodeIds);
-                    INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End")
-                    VALUES ($itemId, $segmentType, $start, $end);
-                    """;
-                command.Parameters.AddWithValue("$seasonId", seasonId.ToString());
-                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Default);
-                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
-                command.Parameters.AddWithValue("$itemId", episodeId.ToString());
-                command.Parameters.AddWithValue("$segmentType", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$start", 0.0);
-                command.Parameters.AddWithValue("$end", 30.0);
-                await command.ExecuteNonQueryAsync();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                db.EnsureLegacySchemaCompatibility();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
-                Assert.Empty(pendingMigrations);
-
-                var seasonState = await db.DbSeasonState.SingleAsync();
-                var segment = await db.DbSegment.SingleAsync();
-
-                Assert.Equal(seasonId, seasonState.SeasonId);
-                Assert.Equal(AnalysisMode.Introduction, seasonState.Type);
-                Assert.Equal(AnalyzerAction.Default, seasonState.Action);
-                Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
-                Assert.Equal(string.Empty, seasonState.ConfigHash);
-                Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Equal(string.Empty, segment.ConfigHash);
-                Assert.False(segment.IsUserProvided);
-                Assert.True(segment.Id > 0);
-                Assert.Equal(episodeId, segment.ItemId);
-                Assert.Equal(AnalysisMode.Introduction, segment.Type);
-            }
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task EnsureLegacySchemaCompatibility_MigratesSeasonInfoToSeasonState()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(tempDir);
-        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-
-        var seasonId = Guid.NewGuid();
-        var seasonWithoutReanalysisId = Guid.NewGuid();
-        var episodeId = Guid.NewGuid();
-        var episodeWithoutReanalysisId = Guid.NewGuid();
-
-        try
-        {
-            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    """
-                    CREATE TABLE "DbSeasonInfo" (
-                        "SeasonId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Action" INTEGER NOT NULL DEFAULT 0,
-                        "EpisodeIds" TEXT NOT NULL,
-                        "ConfigHash" TEXT NOT NULL DEFAULT '',
-                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
-                    );
-                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash")
-                    VALUES ($seasonId, $introType, $action, $episodeIds, $configHash),
-                           ($seasonWithoutReanalysisId, $introType, $action, $episodeWithoutReanalysisIds, $configHash);
-                    """;
-                command.Parameters.AddWithValue("$seasonId", seasonId.ToString());
-                command.Parameters.AddWithValue("$seasonWithoutReanalysisId", seasonWithoutReanalysisId.ToString());
-                command.Parameters.AddWithValue("$introType", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Chromaprint);
-                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
-                command.Parameters.AddWithValue("$episodeWithoutReanalysisIds", $"[\"{episodeWithoutReanalysisId}\"]");
-                command.Parameters.AddWithValue("$configHash", "intro-config");
-                await command.ExecuteNonQueryAsync();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                db.EnsureLegacySchemaCompatibility();
-            }
-
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                var states = await db.DbSeasonState.OrderBy(s => s.SeasonId).ThenBy(s => s.Type).ToListAsync();
-                Assert.Equal(2, states.Count);
-
-                var introduction = states.Single(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
-                Assert.Equal(seasonId, introduction.SeasonId);
-                Assert.Equal(AnalyzerAction.Chromaprint, introduction.Action);
-                Assert.Equal(new[] { episodeId }, introduction.EpisodeIds);
-                Assert.Equal("intro-config", introduction.ConfigHash);
-                Assert.Empty(introduction.SettledReanalysisEpisodeIds);
-
-                var noReanalysis = states.Single(s => s.SeasonId == seasonWithoutReanalysisId);
-                Assert.Equal(AnalysisMode.Introduction, noReanalysis.Type);
-                Assert.Equal(new[] { episodeWithoutReanalysisId }, noReanalysis.EpisodeIds);
-                Assert.Empty(noReanalysis.SettledReanalysisEpisodeIds);
-
-                Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
-            }
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task ApplyMigrations_PreservesSeasonInfoRowsFromPreviousMigration()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(tempDir);
-        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-
-        var seasonId = Guid.NewGuid();
-        var episodeId = Guid.NewGuid();
-
-        try
-        {
-            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
-            {
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    """
-                    CREATE TABLE "DbSeasonInfo" (
-                        "SeasonId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Action" INTEGER NOT NULL DEFAULT 0,
-                        "EpisodeIds" TEXT NOT NULL,
-                        "ConfigHash" TEXT NOT NULL DEFAULT '',
-                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
-                    );
-                    CREATE INDEX "IX_DbSeasonInfo_SeasonId" ON "DbSeasonInfo" ("SeasonId");
-                    CREATE TABLE "DbSegment" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment" PRIMARY KEY AUTOINCREMENT,
-                        "ItemId" TEXT NOT NULL,
-                        "Type" INTEGER NOT NULL,
-                        "Start" REAL NOT NULL DEFAULT 0.0,
-                        "End" REAL NOT NULL DEFAULT 0.0,
-                        "IsUserProvided" INTEGER NOT NULL DEFAULT 0,
-                        "ConfigHash" TEXT NOT NULL DEFAULT ''
-                    );
-                    CREATE TABLE "__EFMigrationsHistory" (
-                        "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
-                        "ProductVersion" TEXT NOT NULL
-                    );
-                    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-                    VALUES
-                        ('20241116153434_InitialCreate', '9.0.11'),
-                        ('20260309205737_AddIsUserProvided', '9.0.11'),
-                        ('20260314184512_AddDbSegmentIdentity', '9.0.11'),
-                        ('20260316060001_AddNonCommercialUniqueIndex', '9.0.11'),
-                        ('20260519073000_AddConfigHashes', '9.0.11');
-                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash")
-                    VALUES ($seasonId, $type, $action, $episodeIds, $configHash);
-                    """;
-                command.Parameters.AddWithValue("$seasonId", seasonId.ToString());
-                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
-                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Chromaprint);
-                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
-                command.Parameters.AddWithValue("$configHash", "intro-config");
-                await command.ExecuteNonQueryAsync();
-            }
-
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 await db.ApplyMigrationsAsync();
+                var suppressed = new DbSegment(episodeId, AnalysisMode.Preview, TickConversions.FromSeconds(100), TickConversions.FromSeconds(120), SegmentSource.Chapter)
+                {
+                    State = SegmentState.Suppressed
+                };
+                db.Segments.AddRange(
+                    new DbSegment(episodeId, AnalysisMode.Commercial, TickConversions.FromSeconds(40), TickConversions.FromSeconds(60), SegmentSource.Chapter),
+                    new DbSegment(episodeId, AnalysisMode.Commercial, TickConversions.FromSeconds(10), TickConversions.FromSeconds(30), SegmentSource.User),
+                    suppressed);
+                await db.SaveChangesAsync();
             }
 
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
-                Assert.Empty(pendingMigrations);
+            var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
 
-                var states = await db.DbSeasonState.OrderBy(s => s.Type).ToListAsync();
-                Assert.Single(states);
+            // A mode whose only rows are tombstones has no active segment and must not be reported.
+            var modes = snapshot.SegmentModesByEpisodeId[episodeId];
+            Assert.Contains(AnalysisMode.Commercial, modes);
+            Assert.DoesNotContain(AnalysisMode.Preview, modes);
 
-                var seasonState = states.Single(s => s.Type == AnalysisMode.Introduction);
-                Assert.Equal(seasonId, seasonState.SeasonId);
-                Assert.Equal(AnalyzerAction.Chromaprint, seasonState.Action);
-                Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
-                Assert.Equal("intro-config", seasonState.ConfigHash);
-                Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-
-                Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
-            }
+            Assert.Contains(episodeId, snapshot.UserProvidedByMode[AnalysisMode.Commercial]);
         }
         finally
         {
@@ -562,6 +313,29 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task Segments_RejectDegenerateRange_AtTheDatabase()
+    {
+        var dbPath = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
+
+        try
+        {
+            using var db = new IntroSkipperDbContext(dbPath);
+            await db.ApplyMigrationsAsync();
+
+            // Every facade write validates the range; the CHECK constraint is the backstop
+            // for paths that do not (raw SQL, a future bug), so a degenerate row can never
+            // reach the Jellyfin mirror.
+            db.Segments.Add(new DbSegment(Guid.NewGuid(), AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(10), SegmentSource.Chapter));
+
+            var exception = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+            Assert.IsType<SqliteException>(exception.InnerException);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
 
     [Fact]
     public async Task ApplyMigrations_CreatesCurrentSchemaFromEmptyDatabase()
@@ -582,31 +356,28 @@ public sealed class TestDbSegmentStorage
                 var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
                 Assert.Empty(pendingMigrations);
 
-                db.DbSeasonState.Add(new DbSeasonState(
-                    seasonId,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Default,
-                    [episodeId],
-                    "season-config"));
-                db.DbSegment.Add(new DbSegment(
-                    new Segment(episodeId, new TimeRange(0, 30)),
-                    AnalysisMode.Introduction,
-                    false,
-                    "segment-config"));
+                // The whole v2 schema comes from one baseline migration; anything added
+                // after the first release lands as a plain EF migration on top.
+                var appliedMigration = Assert.Single(await db.Database.GetAppliedMigrationsAsync());
+                Assert.EndsWith("_InitialCreate", appliedMigration, StringComparison.Ordinal);
+
+                db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
+                db.AnalyzedItems.Add(new DbAnalyzedItem(episodeId, AnalysisMode.Introduction, "season-config"));
+                db.Segments.Add(new DbSegment(episodeId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(30), SegmentSource.Chapter, "segment-config"));
                 await db.SaveChangesAsync();
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                var seasonState = await db.DbSeasonState.SingleAsync();
-                var segment = await db.DbSegment.SingleAsync();
+                var seasonState = await db.SeasonStates.SingleAsync();
+                var analyzed = await db.AnalyzedItems.SingleAsync();
+                var segment = await db.Segments.SingleAsync();
 
-                Assert.Equal("season-config", seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
+                Assert.Equal(episodeId, analyzed.ItemId);
+                Assert.Equal("season-config", analyzed.ConfigHash);
                 Assert.Equal("segment-config", segment.ConfigHash);
-                Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
-                Assert.True(segment.Id > 0);
+                Assert.NotEqual(Guid.Empty, segment.Id);
             }
         }
         finally
@@ -619,17 +390,12 @@ public sealed class TestDbSegmentStorage
     [InlineData(60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
     [InlineData(1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted
     [InlineData(60.0, 1440.0, true, 1)]    // overlapping, user-provided → accepted
-    public async Task UpdateTimestampAsync_CreditsOverlapGuard(
+    public async Task ReplaceAutoSegmentsAsync_CreditsOverlapGuard(
         double creditsStart, double creditsEnd, bool isUserProvided, int expectedCount)
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
-        if (Path.IsPathRooted(dbFileName))
-        {
-            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
-        }
-        var dbPath = Path.Join(tempDir, dbFileName);
-        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
         var itemId = Guid.NewGuid();
 
@@ -637,20 +403,26 @@ public sealed class TestDbSegmentStorage
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.Database.EnsureCreatedAsync();
+                await db.ApplyMigrationsAsync();
                 // Store an intro: 0–90 s.
-                db.DbSegment.Add(new DbSegment(
-                    new Segment(itemId, new TimeRange(0, 90)),
-                    AnalysisMode.Introduction));
+                db.Segments.Add(new DbSegment(itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(0), TickConversions.FromSeconds(90), SegmentSource.Chromaprint));
                 await db.SaveChangesAsync();
             }
 
-            var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
-            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            if (isUserProvided)
+            {
+                await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, TickConversions.FromSeconds(creditsStart), TickConversions.FromSeconds(creditsEnd));
+            }
+            else
+            {
+                var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
+                await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [credits], SegmentSource.BlackFrame);
+            }
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                var count = db.DbSegment.Count(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits);
+                var count = db.Segments.Count(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits);
                 Assert.Equal(expectedCount, count);
             }
         }
@@ -660,32 +432,18 @@ public sealed class TestDbSegmentStorage
         }
     }
 
-    private static async Task<bool> TableExistsAsync(IntroSkipperDbContext db, string tableName)
+    /// <summary>
+    /// Opens the shared in-memory connection (the database lives while it stays open;
+    /// the caller owns disposal) and builds context options over it.
+    /// </summary>
+    /// <param name="connection">Unopened in-memory SQLite connection.</param>
+    /// <returns>Context options bound to the connection.</returns>
+    private static DbContextOptions<IntroSkipperDbContext> CreateInMemoryOptions(SqliteConnection connection)
     {
-        var connection = db.Database.GetDbConnection();
-        var wasOpen = connection.State == System.Data.ConnectionState.Open;
-        if (!wasOpen)
-        {
-            await db.Database.OpenConnectionAsync();
-        }
-
-        try
-        {
-            await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = "$name";
-            parameter.Value = tableName;
-            command.Parameters.Add(parameter);
-            return await command.ExecuteScalarAsync() is not null;
-        }
-        finally
-        {
-            if (!wasOpen)
-            {
-                await db.Database.CloseConnectionAsync();
-            }
-        }
+        connection.Open();
+        return new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
     }
 
     private static void DeleteSqliteFiles(string dbPath)

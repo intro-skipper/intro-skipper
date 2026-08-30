@@ -5,8 +5,12 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
+using IntroSkipper.Controllers;
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Manager;
+using IntroSkipper.Providers;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -29,6 +33,32 @@ internal static class DatabaseTestHelpers
     /// <returns>The segment database facade.</returns>
     internal static IntroSkipperDatabase CreateTempSegmentDatabase()
         => CreateSegmentDatabase(CreateTempDbPath(Guid.NewGuid().ToString("N") + ".db"));
+
+    /// <summary>
+    /// Composes the standard mirror over a store and database, the single test home of
+    /// the mirror wiring so constructor changes touch one place.
+    /// </summary>
+    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
+        => new(store, new SegmentDtoFactory(database));
+
+    /// <summary>
+    /// Composes the editor service with its standard mirror wiring, the single test home
+    /// of the editor-service composition chain.
+    /// </summary>
+    internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
+        => new(CreateMirror(store, database), store, database, NullLogger<MediaSegmentEditorService>.Instance);
+
+    /// <summary>
+    /// Composes the editor controller over the standard editor-service wiring, the
+    /// single test home of the controller composition chain.
+    /// </summary>
+    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
+        => new(CreateEditorService(store, database));
+
+    /// <summary>
+    /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.
+    /// </summary>
+    internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
         => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);

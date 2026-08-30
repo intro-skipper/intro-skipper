@@ -7,31 +7,28 @@ using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Plugin database.
+/// Plugin segment database (<c>introskipper-v2.db</c>). The schema is owned by EF
+/// migrations (a single baseline; later changes are plain migrations on top); data from
+/// the legacy <c>introskipper.db</c> is carried over once by <see cref="LegacyDatabaseImporter"/>.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
-/// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
-    private const int CommercialType = (int)AnalysisMode.Commercial;
+    /// <summary>
+    /// Rows per <see cref="SaveBatchAsync"/> flush; shared by the salvage restore and the
+    /// legacy import so the bounded-batch pattern cannot drift between the two bulk paths.
+    /// </summary>
+    internal const int SaveBatchSize = 1000;
 
-    private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
-    private static readonly string[] _currentMigrationIds =
-    [
-        "20241116153434_InitialCreate",
-        "20260309205737_AddIsUserProvided",
-        "20260314184512_AddDbSegmentIdentity",
-        "20260316060001_AddNonCommercialUniqueIndex",
-        "20260519073000_AddConfigHashes",
-        "20260613185809_ReplaceSeasonInfoWithSeasonState"
-    ];
+    // SQLite stores DateTime without a kind; every stored timestamp is UTC, so reads
+    // must come back marked as such or comparisons silently use local time.
+    private static readonly ValueConverter<DateTime, DateTime> _utcDateTimeConverter =
+        new(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
     private readonly string? _dbPath;
 
@@ -42,8 +39,11 @@ public class IntroSkipperDbContext : DbContext
     public IntroSkipperDbContext(string dbPath)
     {
         _dbPath = dbPath;
-        DbSegment = Set<DbSegment>();
-        DbSeasonState = Set<DbSeasonState>();
+        Segments = Set<DbSegment>();
+        SeasonStates = Set<DbSeasonState>();
+        AnalyzedItems = Set<DbAnalyzedItem>();
+        ImportHistory = Set<DbImportRecord>();
+        DisabledItems = Set<DbDisabledItem>();
     }
 
     /// <summary>
@@ -60,28 +60,45 @@ public class IntroSkipperDbContext : DbContext
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
         _dbPath = null;
-        DbSegment = Set<DbSegment>();
-        DbSeasonState = Set<DbSeasonState>();
+        Segments = Set<DbSegment>();
+        SeasonStates = Set<DbSeasonState>();
+        AnalyzedItems = Set<DbAnalyzedItem>();
+        ImportHistory = Set<DbImportRecord>();
+        DisabledItems = Set<DbDisabledItem>();
     }
 
     /// <summary>
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the segments.
     /// </summary>
-    public DbSet<DbSegment> DbSegment { get; set; }
+    public DbSet<DbSegment> Segments { get; set; }
 
     /// <summary>
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season state.
     /// </summary>
-    public DbSet<DbSeasonState> DbSeasonState { get; set; }
+    public DbSet<DbSeasonState> SeasonStates { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the per-item analysis records.
+    /// </summary>
+    public DbSet<DbAnalyzedItem> AnalyzedItems { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
+    /// </summary>
+    public DbSet<DbImportRecord> ImportHistory { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
+    /// segments are withheld from Jellyfin.
+    /// </summary>
+    public DbSet<DbDisabledItem> DisabledItems { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (!optionsBuilder.IsConfigured)
         {
-            optionsBuilder
-                .UseSqlite($"Data Source={_dbPath}")
-                .AddInterceptors(_pragmaInterceptor);
+            SqlitePragmas.Configure(optionsBuilder, _dbPath!);
         }
     }
 
@@ -90,68 +107,84 @@ public class IntroSkipperDbContext : DbContext
     {
         modelBuilder.Entity<DbSegment>(entity =>
         {
-            entity.ToTable("DbSegment");
+            // The range invariant is the database's, not only the facade's: no write path
+            // (raw SQL, a future bug) can store a row that would fail every later mirror
+            // sync of its item at the Jellyfin write boundary.
+            entity.ToTable("Segments", table => table.HasCheckConstraint(
+                "CK_Segments_Range",
+                "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0"));
             entity.HasKey(s => s.Id);
 
+            // Ids are always supplied by the plugin (Guid v7) so they can be shared
+            // with Jellyfin's MediaSegments rows.
             entity.Property(e => e.Id)
-                  .ValueGeneratedOnAdd();
+                  .ValueGeneratedNever();
 
-            entity.HasIndex(e => e.ItemId);
-            entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
-                .HasDatabaseName("IX_DbSegment_Commercial_Unique")
-                .HasFilter($"Type = {CommercialType}")
-                .IsUnique();
-            entity.HasIndex(e => new { e.ItemId, e.Type })
-                .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter($"Type != {CommercialType}")
-                .IsUnique();
-
-            entity.Property(e => e.Start)
-                  .HasDefaultValue(0.0)
-                  .IsRequired();
-
-            entity.Property(e => e.End)
-                  .HasDefaultValue(0.0)
-                  .IsRequired();
-
-            entity.Property(e => e.IsUserProvided)
-                  .HasDefaultValue(false)
-                  .IsRequired();
+            // One uniform uniqueness rule for every mode: exact duplicates of the same
+            // range are rejected, any number of distinct segments per (item, type) is fine.
+            // The ItemId prefix also serves the per-item lookup, so no extra index.
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.StartTicks, e.EndTicks })
+                  .HasDatabaseName("IX_Segments_ItemId_Type_StartTicks_EndTicks")
+                  .IsUnique();
 
             entity.Property(e => e.ConfigHash)
-                  .HasDefaultValue(string.Empty)
                   .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                  .HasConversion(_utcDateTimeConverter);
+
+            entity.Property(e => e.UpdatedAt)
+                  .HasConversion(_utcDateTimeConverter);
         });
 
         modelBuilder.Entity<DbSeasonState>(entity =>
         {
-            entity.ToTable("DbSeasonState");
+            entity.ToTable("SeasonStates");
             entity.HasKey(s => new { s.SeasonId, s.Type });
+        });
 
-            entity.HasIndex(e => e.SeasonId);
+        modelBuilder.Entity<DbAnalyzedItem>(entity =>
+        {
+            entity.ToTable("AnalyzedItems");
 
-            entity.Property(e => e.Action)
-                  .HasDefaultValue(AnalyzerAction.Default)
-                  .IsRequired();
+            // One record per item and mode; the ItemId prefix serves the per-season
+            // snapshot (ItemId IN ...) and the per-item clears.
+            entity.HasKey(e => new { e.ItemId, e.Type });
 
             entity.Property(e => e.ConfigHash)
-                  .HasDefaultValue(string.Empty)
-                  .IsRequired();
-
-            entity.Property(e => e.SettledReanalysisEpisodeIds)
-                  .HasDefaultValueSql("'[]'")
                   .IsRequired();
         });
-        base.OnModelCreating(modelBuilder);
-    }
 
-    /// <summary>
-    /// Applies any pending migrations to the database.
-    /// Uses synchronous EF Core APIs to avoid sync-over-async deadlock risks.
-    /// </summary>
-    public void ApplyMigrations()
-    {
-        Database.Migrate();
+        modelBuilder.Entity<DbImportRecord>(entity =>
+        {
+            entity.ToTable("ImportHistory");
+            entity.HasKey(r => r.Id);
+
+            entity.Property(r => r.ImportedAt)
+                  .HasConversion(_utcDateTimeConverter);
+
+            entity.Property(r => r.Notes)
+                  .IsRequired();
+        });
+
+        modelBuilder.Entity<DbDisabledItem>(entity =>
+        {
+            entity.ToTable("DisabledItems");
+
+            // One flag per item by construction; the SeasonId index serves the
+            // per-season listing (cleanup prunes by item ID).
+            entity.HasKey(e => e.ItemId);
+
+            // The key is always a real library item id — never client-generated. Without
+            // this, EF's Guid-PK convention would silently substitute a random id for a
+            // default ItemId instead of surfacing the caller's bug.
+            entity.Property(e => e.ItemId)
+                  .ValueGeneratedNever();
+
+            entity.HasIndex(e => e.SeasonId);
+        });
+
+        base.OnModelCreating(modelBuilder);
     }
 
     /// <summary>
@@ -164,45 +197,25 @@ public class IntroSkipperDbContext : DbContext
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Ensures legacy databases contain the ConfigHash columns expected by the current model.
-    /// </summary>
-    public void EnsureConfigHashColumns()
+    /// <inheritdoc/>
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        EnsureLegacySchemaCompatibility();
+        StampSegmentTimestamps();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    /// <inheritdoc/>
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        StampSegmentTimestamps();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     /// <summary>
-    /// Ensures legacy databases have the current schema shape without dropping existing data.
-    /// </summary>
-    public void EnsureLegacySchemaCompatibility()
-    {
-        var connection = Database.GetDbConnection();
-        var wasOpen = connection.State == System.Data.ConnectionState.Open;
-        if (!wasOpen)
-        {
-            Database.OpenConnection();
-        }
-
-        try
-        {
-            using var transaction = Database.BeginTransaction();
-            EnsureDbSegmentSchema();
-            EnsureDbSeasonStateSchema();
-            EnsureMigrationHistoryForCurrentSchema();
-            transaction.Commit();
-        }
-        finally
-        {
-            if (!wasOpen)
-            {
-                Database.CloseConnection();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Asynchronously rebuilds the database while attempting to preserve valid segments and season state.
+    /// Asynchronously rebuilds the database while attempting to preserve segments,
+    /// season state, analysis records, disabled items and the legacy-import marker. When no marker exists
+    /// (the legacy import never succeeded) none is written, so the next start retries the
+    /// import; the importer skips rows the restored data already holds.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
     /// <param name="forceCleanOnBackupFailure">
@@ -211,10 +224,14 @@ public class IntroSkipperDbContext : DbContext
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
     public async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
+        var analyzedItems = new List<DbAnalyzedItem>();
+        var importRecords = new List<DbImportRecord>();
+        var disabledItems = new List<DbDisabledItem>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -230,9 +247,12 @@ public class IntroSkipperDbContext : DbContext
 
             try
             {
-                segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                segments = [.. segments.Where(s => s.ToSegment().Valid)];
-                seasonStates = await db.DbSeasonState.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                // Suppressed rows are salvaged too: tombstones are user intent.
+                segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -246,16 +266,36 @@ public class IntroSkipperDbContext : DbContext
         {
             throw; // Don't swallow cancellation
         }
-        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException)
+        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException or FormatException or InvalidCastException)
         {
+            // FormatException/InvalidCastException cover corrupted TEXT in the
+            // materialized Guid/DateTime columns, which surfaces during row
+            // materialization rather than as a SqliteException.
             if (!forceCleanOnBackupFailure)
             {
-                throw new InvalidOperationException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
+                throw new DatabaseRebuildBackupException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
             }
 
             // Explicit clean-rebuild fallback requested by the caller.
             backupFailed = true;
         }
+
+        // Sanitize the salvage before the old file is destroyed: rebuild targets
+        // corrupted databases, whose readable rows can still violate the fresh schema's
+        // CHECK constraint, unique index or primary keys — and the restore below is
+        // all-or-nothing, so a single such row must not turn a salvageable database
+        // into an empty one. Duplicates are collapsed with explicit precedence — user
+        // rows, then tombstones, then automatic rows — so recovery never trades a user's
+        // segment or deletion for an automatic row.
+        segments = [.. segments
+            .Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)
+            .OrderByDescending(s => s.Source == SegmentSource.User)
+            .ThenByDescending(s => s.State == SegmentState.Suppressed)
+            .DistinctBy(s => s.Id)
+            .DistinctBy(s => (s.ItemId, s.Type, s.StartTicks, s.EndTicks))];
+        seasonStates = [.. seasonStates.DistinctBy(s => (s.SeasonId, s.Type))];
+        analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
+        disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
 
         if (backupFailed)
         {
@@ -268,21 +308,93 @@ public class IntroSkipperDbContext : DbContext
 
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
-        // Restore whatever data was salvaged
-        if (segments.Count > 0 || seasonStates.Count > 0)
+        // Auto-increment keys must not be restored verbatim into the fresh table.
+        foreach (var record in importRecords)
         {
-            using var db = contextFactory();
-            if (segments.Count > 0)
-            {
-                db.DbSegment.AddRange(segments);
-            }
+            record.Id = 0;
+        }
 
-            if (seasonStates.Count > 0)
+        using (var db = contextFactory())
+        {
+            // Restore in bounded batches with a cleared tracker (the importer's pattern)
+            // so a large library's snapshot is not also held in the change tracker all at
+            // once; the explicit transaction keeps the restore all-or-nothing.
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
             {
-                db.DbSeasonState.AddRange(seasonStates);
-            }
+                await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
 
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task AddInBatchesAsync<TEntity>(
+        IntroSkipperDbContext db,
+        DbSet<TEntity> set,
+        List<TEntity> entities,
+        CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        foreach (var batch in entities.Chunk(SaveBatchSize))
+        {
+            await db.SaveBatchAsync(set, batch, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Adds and saves one bounded batch, then clears the change tracker so a large
+    /// data set is never held tracked all at once. No-op for an empty batch.
+    /// </summary>
+    /// <typeparam name="TEntity">Entity type.</typeparam>
+    /// <param name="set">The set to add into.</param>
+    /// <param name="batch">Entities to insert.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task SaveBatchAsync<TEntity>(DbSet<TEntity> set, IReadOnlyCollection<TEntity> batch, CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        if (batch.Count == 0)
+        {
+            return;
+        }
+
+        set.AddRange(batch);
+        await SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        ChangeTracker.Clear();
+    }
+
+    /// <summary>
+    /// Stamps <see cref="DbSegment.CreatedAt"/>/<see cref="DbSegment.UpdatedAt"/> on tracked
+    /// writes. Inserted rows only receive values when unset so restored snapshots keep their
+    /// original timestamps. <c>ExecuteUpdate</c>/<c>ExecuteDelete</c> bypass the change
+    /// tracker and therefore this stamping; segment writes must stay tracked.
+    /// </summary>
+    private void StampSegmentTimestamps()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var entry in ChangeTracker.Entries<DbSegment>())
+        {
+            if (entry.State == EntityState.Added)
+            {
+                if (entry.Entity.CreatedAt == default)
+                {
+                    entry.Entity.CreatedAt = now;
+                }
+
+                if (entry.Entity.UpdatedAt == default)
+                {
+                    entry.Entity.UpdatedAt = now;
+                }
+            }
+            else if (entry.State == EntityState.Modified)
+            {
+                entry.Entity.UpdatedAt = now;
+            }
         }
     }
 
@@ -321,7 +433,7 @@ public class IntroSkipperDbContext : DbContext
         }
     }
 
-    private string? GetDatabaseFilePath()
+    internal string? GetDatabaseFilePath()
     {
         if (!string.IsNullOrEmpty(_dbPath))
         {
@@ -336,271 +448,5 @@ public class IntroSkipperDbContext : DbContext
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
-    }
-
-    private void EnsureConfigHashColumn(string tableName)
-    {
-        if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
-        {
-            return;
-        }
-
-        switch (tableName)
-        {
-            case "DbSegment":
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
-                break;
-            case "DbSeasonInfo":
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
-        }
-    }
-
-    private void EnsureDbSegmentSchema()
-    {
-        if (!TableExists("DbSegment"))
-        {
-            return;
-        }
-
-        if (!ColumnExists("DbSegment", "IsUserProvided"))
-        {
-            Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"IsUserProvided\" INTEGER NOT NULL DEFAULT 0");
-        }
-
-        EnsureConfigHashColumn("DbSegment");
-
-        if (!ColumnExists("DbSegment", "Id"))
-        {
-            RebuildDbSegmentWithIdentity();
-        }
-
-        EnsureDbSegmentIndexes();
-    }
-
-    private void EnsureDbSeasonStateSchema()
-    {
-        if (TableExists("DbSeasonState"))
-        {
-            Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
-
-            if (!ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds"))
-            {
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonState\" ADD COLUMN \"SettledReanalysisEpisodeIds\" TEXT NOT NULL DEFAULT '[]'");
-            }
-
-            return;
-        }
-
-        if (!TableExists("DbSeasonInfo"))
-        {
-            return;
-        }
-
-        EnsureConfigHashColumn("DbSeasonInfo");
-        Database.ExecuteSqlRaw(
-            """
-            CREATE TABLE "DbSeasonState" (
-                "SeasonId" TEXT NOT NULL,
-                "Type" INTEGER NOT NULL,
-                "Action" INTEGER NOT NULL DEFAULT 0,
-                "EpisodeIds" TEXT NOT NULL,
-                "ConfigHash" TEXT NOT NULL DEFAULT '',
-                "SettledReanalysisEpisodeIds" TEXT NOT NULL DEFAULT '[]',
-                CONSTRAINT "PK_DbSeasonState" PRIMARY KEY ("SeasonId", "Type")
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            """
-            INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
-            SELECT "SeasonId", "Type", "Action", "EpisodeIds", COALESCE("ConfigHash", ''), '[]'
-            FROM "DbSeasonInfo"
-            """);
-
-        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
-        Database.ExecuteSqlRaw("DROP TABLE \"DbSeasonInfo\"");
-    }
-
-    private void RebuildDbSegmentWithIdentity()
-    {
-        Database.ExecuteSqlRaw(
-            """
-            CREATE TABLE "DbSegment_Temp" (
-                "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY AUTOINCREMENT,
-                "ItemId" TEXT NOT NULL,
-                "Type" INTEGER NOT NULL,
-                "Start" REAL NOT NULL DEFAULT 0.0,
-                "End" REAL NOT NULL DEFAULT 0.0,
-                "IsUserProvided" INTEGER NOT NULL DEFAULT 0,
-                "ConfigHash" TEXT NOT NULL DEFAULT ''
-            );
-            INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End", "IsUserProvided", "ConfigHash")
-            SELECT "ItemId", "Type", "Start", "End", COALESCE("IsUserProvided", 0), COALESCE("ConfigHash", '')
-            FROM "DbSegment";
-            DROP TABLE "DbSegment";
-            ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
-            """);
-    }
-
-    private void EnsureDbSegmentIndexes()
-    {
-        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSegment_ItemId\" ON \"DbSegment\" (\"ItemId\")");
-        Database.ExecuteSqlRaw(
-            $$"""
-            DELETE FROM "DbSegment"
-            WHERE "Type" = {{CommercialType}}
-            AND "Id" NOT IN (
-                SELECT MAX("Id")
-                FROM "DbSegment"
-                WHERE "Type" = {{CommercialType}}
-                GROUP BY "ItemId", "Type", "Start", "End"
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                WHERE "Type" = {{CommercialType}}
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            DELETE FROM "DbSegment"
-            WHERE "Type" != {{CommercialType}}
-            AND "Id" NOT IN (
-                SELECT MAX("Id")
-                FROM "DbSegment"
-                WHERE "Type" != {{CommercialType}}
-                GROUP BY "ItemId", "Type"
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
-                WHERE "Type" != {{CommercialType}}
-            """);
-    }
-
-    private void EnsureMigrationHistoryForCurrentSchema()
-    {
-        if (!CurrentSchemaExists())
-        {
-            return;
-        }
-
-        Database.ExecuteSqlRaw(
-            """
-            CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
-                "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
-                "ProductVersion" TEXT NOT NULL
-            )
-            """);
-
-        foreach (var migrationId in _currentMigrationIds)
-        {
-            InsertMigrationHistoryRecord(migrationId);
-        }
-    }
-
-    private bool CurrentSchemaExists()
-    {
-        return TableExists("DbSegment")
-            && ColumnExists("DbSegment", "Id")
-            && ColumnExists("DbSegment", "ItemId")
-            && ColumnExists("DbSegment", "Type")
-            && ColumnExists("DbSegment", "Start")
-            && ColumnExists("DbSegment", "End")
-            && ColumnExists("DbSegment", "IsUserProvided")
-            && ColumnExists("DbSegment", "ConfigHash")
-            && IndexExists("DbSegment", "IX_DbSegment_ItemId")
-            && IndexExists("DbSegment", "IX_DbSegment_Commercial_Unique")
-            && IndexExists("DbSegment", "IX_DbSegment_NonCommercial_Unique")
-            && TableExists("DbSeasonState")
-            && ColumnExists("DbSeasonState", "SeasonId")
-            && ColumnExists("DbSeasonState", "Type")
-            && ColumnExists("DbSeasonState", "Action")
-            && ColumnExists("DbSeasonState", "EpisodeIds")
-            && ColumnExists("DbSeasonState", "ConfigHash")
-            && ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds")
-            && IndexExists("DbSeasonState", "IX_DbSeasonState_SeasonId");
-    }
-
-    private void InsertMigrationHistoryRecord(string migrationId)
-    {
-        using var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText =
-            """
-            INSERT OR IGNORE INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-            VALUES ($migrationId, $productVersion)
-            """;
-        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
-
-        var migrationParameter = command.CreateParameter();
-        migrationParameter.ParameterName = "$migrationId";
-        migrationParameter.Value = migrationId;
-        command.Parameters.Add(migrationParameter);
-
-        var productVersionParameter = command.CreateParameter();
-        productVersionParameter.ParameterName = "$productVersion";
-        productVersionParameter.Value = "9.0.11";
-        command.Parameters.Add(productVersionParameter);
-
-        command.ExecuteNonQuery();
-    }
-
-    private bool IndexExists(string tableName, string indexName)
-    {
-        using var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'index' AND tbl_name = $tableName AND name = $indexName LIMIT 1";
-        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
-
-        var tableParameter = command.CreateParameter();
-        tableParameter.ParameterName = "$tableName";
-        tableParameter.Value = tableName;
-        command.Parameters.Add(tableParameter);
-
-        var indexParameter = command.CreateParameter();
-        indexParameter.ParameterName = "$indexName";
-        indexParameter.Value = indexName;
-        command.Parameters.Add(indexParameter);
-
-        return command.ExecuteScalar() is not null;
-    }
-
-    private bool TableExists(string tableName)
-    {
-        using var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
-        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
-
-        var parameter = command.CreateParameter();
-        parameter.ParameterName = "$name";
-        parameter.Value = tableName;
-        command.Parameters.Add(parameter);
-
-        return command.ExecuteScalar() is not null;
-    }
-
-    private bool ColumnExists(string tableName, string columnName)
-    {
-        using var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName COLLATE NOCASE LIMIT 1";
-        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
-
-        var tableParameter = command.CreateParameter();
-        tableParameter.ParameterName = "$tableName";
-        tableParameter.Value = tableName;
-        command.Parameters.Add(tableParameter);
-
-        var columnParameter = command.CreateParameter();
-        columnParameter.ParameterName = "$columnName";
-        columnParameter.Value = columnName;
-        command.Parameters.Add(columnParameter);
-
-        return command.ExecuteScalar() is not null;
     }
 }

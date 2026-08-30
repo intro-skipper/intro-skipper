@@ -8,90 +8,130 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// All times are measured in seconds relative to the beginning of the media file.
+/// One stored segment. Boundaries are measured in ticks (100 ns) relative to the
+/// beginning of the media file, matching Jellyfin's <c>MediaSegment</c>; the
+/// segment's <see cref="Id"/> is reused as the Jellyfin row id on sync so both
+/// databases address the same segment by the same Guid.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="DbSegment"/> class.
-/// </remarks>
 public class DbSegment
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="DbSegment"/> class.
+    /// Initializes a new instance of the <see cref="DbSegment"/> class with a
+    /// freshly generated time-ordered id.
     /// </summary>
-    /// <param name="segment">The segment to initialize the instance with.</param>
-    /// <param name="type">The type of analysis that was used to determine this segment.</param>
-    /// <param name="isUserProvided">Whether this segment was provided by the user via the segment editor.</param>
-    public DbSegment(Segment segment, AnalysisMode type, bool isUserProvided = false)
-        : this(segment, type, isUserProvided, string.Empty)
+    /// <param name="itemId">Item (episode or movie) id.</param>
+    /// <param name="type">Analysis mode the segment belongs to.</param>
+    /// <param name="startTicks">Start time in ticks.</param>
+    /// <param name="endTicks">End time in ticks.</param>
+    /// <param name="source">Origin of the segment.</param>
+    /// <param name="configHash">Configuration hash that produced the segment.</param>
+    public DbSegment(Guid itemId, AnalysisMode type, long startTicks, long endTicks, SegmentSource source, string configHash = "")
     {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DbSegment"/> class.
-    /// </summary>
-    /// <param name="segment">The segment to initialize the instance with.</param>
-    /// <param name="type">The type of analysis that was used to determine this segment.</param>
-    /// <param name="isUserProvided">Whether this segment was provided by the user via the segment editor.</param>
-    /// <param name="configHash">Configuration hash that produced this segment.</param>
-    public DbSegment(Segment segment, AnalysisMode type, bool isUserProvided, string configHash)
-    {
-        ItemId = segment.EpisodeId;
-        Start = segment.Start;
-        End = segment.End;
+        Id = Guid.CreateVersion7();
+        ItemId = itemId;
         Type = type;
-        IsUserProvided = isUserProvided;
+        StartTicks = startTicks;
+        EndTicks = endTicks;
+        Source = source;
+        State = SegmentState.Active;
         ConfigHash = configHash;
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DbSegment"/> class.
+    /// EF materialization only — <see cref="Id"/> stays <see cref="Guid.Empty"/>.
     /// </summary>
     public DbSegment()
     {
     }
 
     /// <summary>
-    /// Gets or sets the unique identifier for the segment.
+    /// Gets or sets the unique identifier. Client-generated (never by the database)
+    /// and pushed as Jellyfin's <c>MediaSegment.Id</c> when the segment is synced.
     /// </summary>
-    public long Id { get; set; }
+    public Guid Id { get; set; }
 
     /// <summary>
-    /// Gets or sets the episode id.
+    /// Gets or sets the item (episode or movie) id.
     /// </summary>
     public Guid ItemId { get; set; }
 
     /// <summary>
-    /// Gets or sets the start time.
+    /// Gets or sets the analysis mode the segment belongs to.
     /// </summary>
-    public double Start { get; set; }
+    public AnalysisMode Type { get; set; }
 
     /// <summary>
-    /// Gets or sets the end time.
+    /// Gets or sets the start time in ticks.
     /// </summary>
-    public double End { get; set; }
+    public long StartTicks { get; set; }
 
     /// <summary>
-    /// Gets the type of analysis that was used to determine this segment.
+    /// Gets or sets the end time in ticks.
     /// </summary>
-    public AnalysisMode Type { get; private set; }
+    public long EndTicks { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether this segment was provided by the user via the segment editor,
-    /// and must not be overwritten by automatic analysis.
+    /// Gets or sets the origin of the segment.
     /// </summary>
-    public bool IsUserProvided { get; set; }
+    public SegmentSource Source { get; set; }
 
     /// <summary>
-    /// Gets or sets the configuration hash that produced this segment.
+    /// Gets or sets the lifecycle state. <see cref="SegmentState.Suppressed"/> rows are
+    /// tombstones: hidden from normal reads, never synced to Jellyfin, and they block
+    /// re-insertion of overlapping automatic segments.
+    /// </summary>
+    public SegmentState State { get; set; }
+
+    /// <summary>
+    /// Gets or sets the configuration hash that produced this segment. Empty for
+    /// user-provided rows (a promoted row drops it). Legacy-imported automatic rows keep
+    /// the hash the legacy plugin recorded (same <c>ConfigHasher</c> format), so an
+    /// unchanged configuration does not wipe them on the first analysis after import.
     /// </summary>
     public string ConfigHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// Converts the instance to a <see cref="Segment"/> object.
+    /// Gets or sets the UTC creation time. Stamped by
+    /// <see cref="IntroSkipperDbContext"/> on insert when unset, so restored
+    /// snapshots keep their original value.
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC time of the last modification. Stamped by
+    /// <see cref="IntroSkipperDbContext"/> on every tracked update.
+    /// </summary>
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Converts the boundaries to a seconds-based <see cref="Segment"/>.
     /// </summary>
     /// <returns>A <see cref="Segment"/> object.</returns>
     internal Segment ToSegment()
+        => new(ItemId, new TimeRange(TickConversions.ToSeconds(StartTicks), TickConversions.ToSeconds(EndTicks)));
+
+    /// <summary>
+    /// Hands the row to the user: active (a tombstone is revived), user-sourced, and
+    /// without the analyzer's config hash. Provenance and hash move together because
+    /// <see cref="ConfigHash"/> only describes analyzer output and a hash-driven cleanup
+    /// must never mistake a user-owned row for it. Shared by every path that transfers
+    /// ownership (editor promotion, exact-range merges, legacy-import collisions) so the
+    /// transition cannot drift.
+    /// </summary>
+    internal void PromoteToUser()
     {
-        return new Segment(ItemId, new TimeRange(Start, End));
+        State = SegmentState.Active;
+        Source = SegmentSource.User;
+        ConfigHash = string.Empty;
     }
+
+    /// <summary>
+    /// Creates a detached copy used to snapshot a row before deletion so it can be
+    /// restored verbatim. Memberwise, so every persisted property — including columns
+    /// added later — is carried automatically; all properties are value types or
+    /// immutable strings, making the shallow copy exact.
+    /// </summary>
+    /// <returns>An untracked copy of this segment.</returns>
+    internal DbSegment Clone() => (DbSegment)MemberwiseClone();
 }

@@ -13,22 +13,38 @@ using MediaBrowser.Model.MediaSegments;
 
 /// <summary>
 /// Hand-rolled <see cref="IJellyfinSegmentStore"/> fake: records calls, serves
-/// <see cref="ExistingSegments"/> lookups, and optionally throws or parks write calls
-/// for <see cref="BlockedItemId"/> on <see cref="WriteGate"/> after recording them.
+/// <see cref="ExistingSegments"/> lookups, and optionally throws or parks the first
+/// write for <see cref="BlockedItemId"/> on <see cref="WriteGate"/> after recording it.
+/// Releasing the gate with SetException fails exactly that write; later writes succeed.
+/// <see cref="GetOwnSegmentsAsync"/> serves live per-item mirror state — seeded from
+/// <see cref="ExistingSegments"/>, updated by successful writes — so the mirror's
+/// skip-when-unchanged comparison sees what a real store would.
 /// </summary>
 internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 {
+    private readonly object _mirrorLock = new();
     private int _writeCount;
+    private int _gatedWriteParked;
+    private Dictionary<Guid, List<MediaSegmentDto>>? _mirrorRows;
 
     /// <summary>
-    /// Gets the segments served by <see cref="GetSegmentByIdAsync"/>, matched by segment
-    /// id exactly like the production store.
+    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
+    /// segment id exactly like the production store. Also the seed of the live mirror
+    /// state served by <see cref="GetOwnSegmentsAsync"/> (the fake treats every seeded
+    /// row as Intro Skipper's own).
     /// </summary>
     public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
 
     public Exception? WriteException { get; init; }
 
     public Exception? DeleteSegmentException { get; init; }
+
+    /// <summary>
+    /// Gets a callback invoked after a successful <see cref="DeleteSegmentAsync"/> is
+    /// recorded, e.g. to cancel a token at the exact point where the Jellyfin delete
+    /// has already committed.
+    /// </summary>
+    public Action? DeleteSegmentCallback { get; init; }
 
     public Exception? DeleteOwnException { get; init; }
 
@@ -45,13 +61,16 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public Guid? BlockedItemId { get; init; }
 
+    /// <summary>
+    /// Gets the segment ids <see cref="DeleteSegmentAsync"/> reports as not found
+    /// (returning 0 deleted rows, the drift signal). Every other delete reports one
+    /// deleted row, simulating a correlated Jellyfin row.
+    /// </summary>
+    public IReadOnlyList<Guid> MissingSegmentIds { get; init; } = [];
+
     public int WriteCallCount => _writeCount;
 
     public List<(Guid ItemId, IReadOnlyList<MediaSegmentDto> Segments)> ReplacedItems { get; } = [];
-
-    public List<(Guid ItemId, MediaSegmentDto Segment)> ReplacedTypes { get; } = [];
-
-    public List<(Guid ItemId, MediaSegmentDto Segment)> CreatedCommercials { get; } = [];
 
     public List<(Guid ItemId, Guid SegmentId)> DeletedSegments { get; } = [];
 
@@ -67,52 +86,69 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
         await WaitIfGatedAsync(itemId);
         ThrowIfConfigured(WriteException);
-    }
 
-    public async Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _writeCount);
-        lock (ReplacedTypes)
+        // Only a successful write commits, like the production store's transaction.
+        lock (_mirrorLock)
         {
-            ReplacedTypes.Add((itemId, segment));
+            MirrorRows[itemId] = [.. segments];
         }
-
-        await WaitIfGatedAsync(itemId);
-        ThrowIfConfigured(WriteException);
-    }
-
-    public async Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _writeCount);
-        lock (CreatedCommercials)
-        {
-            CreatedCommercials.Add((itemId, segment));
-        }
-
-        await WaitIfGatedAsync(itemId);
-        ThrowIfConfigured(WriteException);
     }
 
     public Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(DeleteOwnException);
-        DeletedOwnItemIds.AddRange(itemIds);
+        var ids = itemIds.ToList();
+        DeletedOwnItemIds.AddRange(ids);
+        lock (_mirrorLock)
+        {
+            foreach (var itemId in ids)
+            {
+                MirrorRows.Remove(itemId);
+            }
+        }
+
         return Task.CompletedTask;
     }
 
-    public Task<MediaSegmentDto?> GetSegmentByIdAsync(Guid segmentId, CancellationToken cancellationToken)
-        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
+    public Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        lock (_mirrorLock)
+        {
+            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(
+                MirrorRows.TryGetValue(itemId, out var rows) ? [.. rows] : []);
+        }
+    }
 
-    public Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
+
+    public Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(DeleteSegmentException);
         DeletedSegments.Add((itemId, segmentId));
-        return Task.CompletedTask;
+        lock (_mirrorLock)
+        {
+            if (MirrorRows.TryGetValue(itemId, out var rows))
+            {
+                rows.RemoveAll(segment => segment.Id == segmentId);
+            }
+        }
+
+        DeleteSegmentCallback?.Invoke();
+        return Task.FromResult(MissingSegmentIds.Contains(segmentId) ? 0 : 1);
     }
+
+    // Lazy so the init-only seed is complete before the first grouping; access only
+    // under _mirrorLock.
+    private Dictionary<Guid, List<MediaSegmentDto>> MirrorRows =>
+        _mirrorRows ??= ExistingSegments
+            .GroupBy(segment => segment.ItemId)
+            .ToDictionary(group => group.Key, group => group.ToList());
 
     private async Task WaitIfGatedAsync(Guid itemId)
     {
-        if (WriteGate is not null && itemId == BlockedItemId)
+        if (WriteGate is not null && itemId == BlockedItemId
+            && Interlocked.Exchange(ref _gatedWriteParked, 1) == 0)
         {
             WriteEntered?.TrySetResult();
             await WriteGate.Task;

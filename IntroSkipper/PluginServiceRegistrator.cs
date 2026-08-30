@@ -24,8 +24,6 @@ namespace IntroSkipper
     /// </summary>
     public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
-        private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
-
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
@@ -33,11 +31,9 @@ namespace IntroSkipper
             // for pooling to matter, and pooling would forbid the string-path constructor
             // that the design-time factory, the rebuild flow and the tests rely on.
             serviceCollection.AddDbContextFactory<IntroSkipperDbContext>((serviceProvider, options) =>
-                options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetSegmentDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
-                    .AddInterceptors(_pragmaInterceptor));
+                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetSegmentDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
-                options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
-                    .AddInterceptors(_pragmaInterceptor));
+                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
@@ -60,9 +56,15 @@ namespace IntroSkipper
             // Jellyfin-initiated runs converge to the same data.
             serviceCollection.AddSingleton<SegmentDtoFactory>();
             serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
+            // Every plugin write into Jellyfin's MediaSegments table goes through the
+            // mirror: per-item locked syncs and targeted deletes, plus a bulk cleanup
+            // that takes each lock stripe in turn.
+            serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
-            serviceCollection.AddTransient<MediaSegmentEditorService>();
+            // Singleton: the editor service serializes all interactive mutations per item
+            // on its own striped lock, which only works when every request shares it.
+            serviceCollection.AddSingleton<MediaSegmentEditorService>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {

@@ -13,19 +13,23 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="CleanCacheTask"/>. The cleanup task deletes every row that is NOT in
-/// the enumerated library queue, so these tests pin the guards that keep an incomplete or
-/// empty enumeration from mass-deleting healthy data.
+/// Tests for <see cref="CleanCacheTask"/>. The cleanup task deletes the rows of ids that are
+/// absent from the enumerated library queue AND no longer resolve on the server, so these
+/// tests pin the guards that keep an incomplete or empty enumeration — including a library
+/// whose media segment provider is disabled — from mass-deleting healthy data.
 /// </summary>
 public sealed class TestCleanCacheTask
 {
@@ -179,16 +183,31 @@ public sealed class TestCleanCacheTask
         try
         {
             using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
-            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { UpdateMediaSegments = false });
+            var config = new PluginConfiguration { UpdateMediaSegments = false };
+            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", config);
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
 
-            // Live movie data plus rows for an item that is no longer in any library.
-            await database.UpdateTimestampAsync(new Segment(movieId, new TimeRange(10, 40)), AnalysisMode.Introduction);
-            await database.SetEpisodeIdsAsync(movieId, AnalysisMode.Introduction, [movieId], "hash");
-            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
+            // Live movie data plus rows for an item that is no longer in any library. The live
+            // movie's readable cache row carries the current config hash; a second row with a
+            // hash no read path accepts must be cleaned even though its item is still live.
+            var currentHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
+            await database.ReplaceAutoSegmentsAsync(
+                movieId,
+                AnalysisMode.Introduction,
+                [new Segment(movieId, new TimeRange(10, 40))],
+                SegmentSource.Chapter);
+            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [movieId], "hash");
+            await database.SetAnalyzerActionAsync(movieId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
+            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, currentHash);
+            cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, "orphaned-hash");
             await SeedAsync(database, cacheDatabase, staleEpisodeId);
+
+            // Disabled flags follow the item: the live movie's flag carries a stale
+            // season key (drift) and must survive; the stale episode's flag must go.
+            await database.SetItemDisabledAsync(Guid.NewGuid(), movieId, disabled: true);
+            await database.SetItemDisabledAsync(staleEpisodeId, staleEpisodeId, disabled: true);
 
             var libraryManager = FakeLibraryManager.Create([NewFolder("Movies")], _ => [CreateMovie(movieId)]);
 
@@ -201,18 +220,119 @@ public sealed class TestCleanCacheTask
             Assert.Empty(await database.GetSegmentsAsync(staleEpisodeId));
             Assert.Empty(await cacheDatabase.GetStaleItemIdsAsync(new HashSet<Guid> { movieId }));
             Assert.NotNull(cacheDatabase.FindEntry(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
+            Assert.Null(cacheDatabase.FindEntry(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Null(cacheDatabase.FindEntry(staleEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
 
             await using var db = new IntroSkipperDbContext(dbPath);
             Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                db.DbSeasonState, s => s.SeasonId == movieId));
+                db.SeasonStates, s => s.SeasonId == movieId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                db.DbSeasonState, s => s.SeasonId == staleEpisodeId));
+                db.SeasonStates, s => s.SeasonId == staleEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.DisabledItems, e => e.ItemId == movieId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.DisabledItems, e => e.ItemId == staleEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == movieId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == staleEpisodeId));
         }
         finally
         {
             DeleteSqliteFiles(dbPath);
             DeleteSqliteFiles(cacheDbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RetainsRows_OfItemsInProviderDisabledLibraries()
+    {
+        var (dbPath, cacheDbPath) = CreateTempDbPaths();
+        var movieId = Guid.NewGuid();
+        var disabledLibraryEpisodeId = Guid.NewGuid();
+        var goneEpisodeId = Guid.NewGuid();
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
+            var config = new PluginConfiguration { UpdateMediaSegments = false };
+            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", config);
+
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+            await SeedAsync(database, cacheDatabase, disabledLibraryEpisodeId);
+            await SeedAsync(database, cacheDatabase, goneEpisodeId);
+            await database.SetItemDisabledAsync(disabledLibraryEpisodeId, disabledLibraryEpisodeId, disabled: true);
+
+            // Rows carrying the current config hash survive the final unreadable-hash
+            // sweep, so their fate isolates the item-based cache cleanup under test.
+            var currentHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
+            cacheDatabase.Upsert(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, currentHash);
+            cacheDatabase.Upsert(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, currentHash);
+
+            // One enabled library with a live movie; a second library has the plugin's
+            // provider disabled, so the queue never enumerates its episode. The episode
+            // still resolves on the server, so all its rows must survive the reversible
+            // toggle, while the id the server no longer knows is cleaned everywhere.
+            var moviesFolder = NewFolder("Movies");
+            var disabledFolder = NewFolder("Anime");
+            disabledFolder.LibraryOptions = new LibraryOptions { DisabledMediaSegmentProviders = [Plugin.Instance!.Name] };
+            var libraryManager = FakeLibraryManager.Create(
+                [moviesFolder, disabledFolder],
+                _ => [CreateMovie(movieId)],
+                getItemById: id => id == disabledLibraryEpisodeId ? CreateMovie(id) : null);
+
+            var progress = new RecordingProgress();
+            var refresher = new RecordingRefresher();
+            await CreateTask(libraryManager, database, cacheDatabase, refresher).ExecuteAsync(progress, CancellationToken.None);
+
+            Assert.Equal(100, progress.Value);
+
+            // Once before the erase (retryable handoff) and once after it (sweeps rows a
+            // concurrently queued sync could have resurrected from the pre-erase read).
+            Assert.Equal(2, refresher.RemoveCallCount);
+            Assert.NotNull(cacheDatabase.FindEntry(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+            Assert.Null(cacheDatabase.FindEntry(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+
+            // The facade's servable read filters disabled items, so assert row survival
+            // against the raw context.
+            await using var db = new IntroSkipperDbContext(dbPath);
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.Segments, s => s.ItemId == disabledLibraryEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.SeasonStates, s => s.SeasonId == disabledLibraryEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == disabledLibraryEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.DisabledItems, e => e.ItemId == disabledLibraryEpisodeId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.Segments, s => s.ItemId == goneEpisodeId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.SeasonStates, s => s.SeasonId == goneEpisodeId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.AnalyzedItems, a => a.ItemId == goneEpisodeId));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+            DeleteSqliteFiles(cacheDbPath);
+        }
+    }
+
+    [Fact]
+    public void DetectionCacheHash_CoversEveryCacheEntryTypeAndMode()
+    {
+        var config = new PluginConfiguration();
+
+        // DeleteUnreadableEntriesAsync enumerates every (mode, type) pair through
+        // ConfigHasher.DetectionCache, whose switch throws on an unmapped CacheEntryType
+        // (the compiler cannot flag the gap). This fails at the moment a member is added
+        // without its switch arm, instead of faulting every cache-cleanup run at runtime.
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            foreach (var type in Enum.GetValues<CacheEntryType>())
+            {
+                Assert.False(string.IsNullOrEmpty(ConfigHasher.DetectionCache(config, type, mode)));
+            }
         }
     }
 
@@ -232,9 +352,11 @@ public sealed class TestCleanCacheTask
                 ffmpegService: null!,
                 cacheService: null!,
                 database),
+            libraryManager,
             database,
             cacheDatabase,
-            mediaSegmentRefresher: mediaSegmentRefresher ?? null!);
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
+            mediaSegmentRefresher: mediaSegmentRefresher ?? new RecordingRefresher());
 
     private static MediaBrowser.Controller.Entities.Movies.Movie CreateMovie(Guid id)
         => new()
@@ -246,8 +368,13 @@ public sealed class TestCleanCacheTask
 
     private static async Task SeedAsync(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
-        await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(5, 65)), AnalysisMode.Introduction);
-        await database.SetEpisodeIdsAsync(episodeId, AnalysisMode.Introduction, [episodeId], "hash");
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Introduction,
+            [new Segment(episodeId, new TimeRange(5, 65))],
+            SegmentSource.Chapter);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeId], "hash");
+        await database.SetAnalyzerActionAsync(episodeId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
         cacheDatabase.Upsert(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
     }
 
@@ -258,7 +385,7 @@ public sealed class TestCleanCacheTask
 
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-            db.DbSeasonState, s => s.SeasonId == episodeId));
+            db.SeasonStates, s => s.SeasonId == episodeId));
     }
 
     private static VirtualFolderInfo NewFolder(string name)
@@ -286,8 +413,6 @@ public sealed class TestCleanCacheTask
     {
         public int RemoveCallCount { get; private set; }
 
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
@@ -298,19 +423,25 @@ public sealed class TestCleanCacheTask
     }
 
     // ILibraryManager stub for the queue-building path: returns the configured virtual
-    // folders and delegates GetItemList to the configured behavior (which may throw to
-    // simulate a failed library enumeration).
+    // folders, delegates GetItemList to the configured behavior (which may throw to
+    // simulate a failed library enumeration), and answers GetItemById from the configured
+    // resolver (null for every id by default — "the server does not know this item").
     private class FakeLibraryManager : DispatchProxy
     {
         private List<VirtualFolderInfo> _folders = [];
         private Func<Guid, List<BaseItem>> _getItemList = _ => [];
+        private Func<Guid, BaseItem?> _getItemById = _ => null;
 
-        public static ILibraryManager Create(List<VirtualFolderInfo> folders, Func<Guid, List<BaseItem>> getItemList)
+        public static ILibraryManager Create(
+            List<VirtualFolderInfo> folders,
+            Func<Guid, List<BaseItem>> getItemList,
+            Func<Guid, BaseItem?>? getItemById = null)
         {
             var proxy = Create<ILibraryManager, FakeLibraryManager>();
             var fake = (FakeLibraryManager)(object)proxy;
             fake._folders = folders;
             fake._getItemList = getItemList;
+            fake._getItemById = getItemById ?? (_ => null);
             return proxy;
         }
 
@@ -320,7 +451,7 @@ public sealed class TestCleanCacheTask
             {
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
                 nameof(ILibraryManager.GetItemList) => _getItemList(ExtractParentId(args)).ToList(),
-                nameof(ILibraryManager.GetItemById) => null,
+                nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
         }

@@ -115,12 +115,26 @@ export const informationTab: Tab = {
         appendTabContent(supportContainer, supportHead, supportStatusEl, supportSections);
 
         let markdown = "";
+        let manualCopyArea: HTMLTextAreaElement | undefined;
         copyButtonEl.addEventListener("click", async () => {
             if (!markdown) return;
-            const copied = await copyText(markdown);
-            window.Dashboard.alert(
-                copied ? "Support bundle copied to clipboard" : "Could not copy to clipboard",
-            );
+            if (await copyText(markdown)) {
+                manualCopyArea?.remove();
+                manualCopyArea = undefined;
+                window.Dashboard.alert("Support bundle copied to clipboard");
+                return;
+            }
+            // No clipboard API and execCommand failed: show the Markdown selected in a
+            // textarea so the user can still copy it manually.
+            if (!manualCopyArea) {
+                manualCopyArea = el("textarea", { readonly: "", rows: "12" });
+                manualCopyArea.setAttribute("aria-labelledby", supportTitle.id);
+                supportHead.after(manualCopyArea);
+            }
+            manualCopyArea.value = markdown;
+            manualCopyArea.focus();
+            manualCopyArea.setSelectionRange(0, markdown.length);
+            window.Dashboard.alert("Press Ctrl+C to copy support bundle");
         });
 
         async function loadSupportBundle(): Promise<void> {

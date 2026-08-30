@@ -17,6 +17,7 @@ using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -33,22 +34,26 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service; owns the disable-flag mutation end-to-end.</param>
 /// <param name="libraryManager">libraryManager.</param>
 /// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
+/// <param name="taskManager">Scheduled task manager, used to report the detection task's state.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, MediaSegmentEditorService mediaSegmentEditorService, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly ITaskManager _taskManager = taskManager;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -126,7 +131,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         try
         {
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await _database.ClearSeasonAnalysisAsync(seasonId, episodeIds, cancellationToken).ConfigureAwait(false);
+            await _database.EraseItemsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             if (eraseCache)
             {
@@ -135,10 +140,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
-            if (Plugin.Instance.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-            }
+            // Every plugin row of these items is gone, so the mirror converges to a plain
+            // delete; a failure surfaces as the 500 below instead of a logged 204.
+            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -174,12 +178,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
             }
 
-            var excludedIdsBySeason = excludedItems
-                .GroupBy(e => e.SeasonId)
-                .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(e => e.EpisodeId).ToHashSet());
-
             var removedSegments = await _database
-                .RemoveItemsFromAnalysisAsync(excludedIdsBySeason, cancellationToken)
+                .EraseItemsAsync(excludedIds, cancellationToken)
                 .ConfigureAwait(false);
 
             // Best-effort cache cleanup (the facade logs and swallows database errors),
@@ -189,10 +189,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .DeleteForItemsAsync(excludedIds, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            if (plugin.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(excludedIds, cancellationToken).ConfigureAwait(false);
-            }
+            // As in EraseSeasonAsync: no plugin rows remain for these items, so their
+            // mirrors converge to a plain delete.
+            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }
@@ -218,6 +217,81 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
         await _database.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Returns the IDs of the items recorded under the given season-state key whose
+    /// automatic segments are withheld from Jellyfin. A key with no recorded
+    /// disabled items yields an empty set rather than an error.
+    /// </summary>
+    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    [HttpGet("DisabledItems/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        return Ok(await _database.GetDisabledItemIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Withholds the item's automatic segments from Jellyfin. Analysis and stored
+    /// segments are unaffected; user-provided segments keep syncing.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpPut("DisabledItems/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public Task<ActionResult> DisableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(itemId, disabled: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Restores the item's automatic segments to Jellyfin without re-analysis.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpDelete("DisabledItems/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public Task<ActionResult> EnableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(itemId, disabled: false, cancellationToken);
+    }
+
+    private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
+    {
+        if (MediaItemHelper.FindSupported(itemId) is not { } item)
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            // The editor service owns the whole mutation as one per-item linearized
+            // unit: flag write, strict mirror resync, and flag rollback on failure.
+            await _mediaSegmentEditorService.SetItemDisabledAsync(item, disabled, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The failure may be the flag write itself or the mirror resync; the service
+            // rolls the flag back on a mirror failure, but a failing rollback is logged
+            // there rather than thrown — do not promise a state the response cannot know.
+            LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
+            return Problem("Setting the item's disable flag failed and the change may be partially applied. See the server log for the item's current state.", statusCode: StatusCodes.Status500InternalServerError);
+        }
 
         return NoContent();
     }
@@ -253,7 +327,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<ScanStatusResponse> GetScanStatus()
     {
-        return new ScanStatusResponse(ScheduledTaskSemaphore.IsBusy);
+        return new ScanStatusResponse(ScanState.IsRunning(ScanState.FindDetectTask(_taskManager)));
     }
 
     /// <summary>
@@ -330,4 +404,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to set item {ItemId} disabled={Disabled}; the flag write or the mirror refresh did not complete")]
+    private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

@@ -99,12 +99,29 @@ export type AnalyzerActions = {
     Commercial?: string;
 };
 
-export type TimestampSegment = {
+// One stored segment as returned by the plural segments API. The Id is shared with
+// the Jellyfin media segment row; boundaries are seconds.
+export type SegmentType = "Introduction" | "Credits" | "Recap" | "Preview" | "Commercial";
+
+export type SegmentDto = {
+    Id: string;
+    Type: SegmentType;
+    Start: number;
+    End: number;
+    Source: string;
+    Suppressed: boolean;
+};
+
+export type SegmentCreateRequest = {
+    Type: SegmentType;
     Start: number;
     End: number;
 };
 
-export type TimestampMap = Record<string, TimestampSegment>;
+export type SegmentUpdateRequest = {
+    Start: number;
+    End: number;
+};
 
 export type ScanStatus = {
     isRunning: boolean;

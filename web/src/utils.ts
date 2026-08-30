@@ -12,6 +12,53 @@ export function formatTime(totalSeconds: number): string {
     return parts.join(" ");
 }
 
+/**
+ * Parses a time input into seconds. Accepts plain seconds ("95", "95.5"),
+ * minutes:seconds ("1:35.5") and hours:minutes:seconds ("1:02:03.250").
+ * Returns null for malformed or negative input.
+ */
+export function parseTimeInput(value: string): number | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const parts = trimmed.split(":");
+    if (parts.length > 3) return null;
+
+    let seconds = 0;
+    for (const [index, part] of parts.entries()) {
+        // Only the last component may carry a fraction; the rest are integers.
+        const pattern = index === parts.length - 1 ? /^\d+(\.\d+)?$/ : /^\d+$/;
+        if (!pattern.test(part)) return null;
+        const component = Number(part);
+        // Base-60 positions (seconds, and minutes in h:mm:ss) must stay < 60.
+        if (index > 0 && component >= 60) return null;
+        seconds = seconds * 60 + component;
+    }
+
+    return Number.isFinite(seconds) ? seconds : null;
+}
+
+/**
+ * Canonical editable form of a time: "m:ss[.fff]" (fraction only when
+ * non-zero, trailing zeros trimmed) with an hours prefix when needed;
+ * round-trips through parseTimeInput.
+ */
+export function formatTimeInput(totalSeconds: number): string {
+    // Round to milliseconds FIRST so 119.9996 becomes 2:00 rather than 1:60.
+    let ms = Math.round(totalSeconds * 1000);
+    const hours = Math.floor(ms / 3_600_000);
+    ms -= hours * 3_600_000;
+    const minutes = Math.floor(ms / 60_000);
+    ms -= minutes * 60_000;
+    const seconds = ms / 1000;
+    const secondsText = (seconds < 10 ? "0" : "") + String(seconds);
+
+    if (hours > 0) {
+        return hours + ":" + String(minutes).padStart(2, "0") + ":" + secondsText;
+    }
+    return minutes + ":" + secondsText;
+}
+
 export async function mapWithConcurrency<T, R>(
     items: T[],
     limit: number,

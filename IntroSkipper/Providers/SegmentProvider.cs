@@ -4,9 +4,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
@@ -40,10 +39,10 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
-            await _database.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await _database.EraseItemsAsync([itemId], cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>
-        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
+        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(MediaItemHelper.IsSupported(item));
     }
 }

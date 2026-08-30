@@ -179,13 +179,13 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
                 var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 if (!adjustedIntro.Valid)
                 {
-                    await _database.DeleteAutomaticTimestampAsync(currentEpisode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                    await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                     currentEpisode.SetAnalyzed(mode, EpisodeState.NoSegments);
                     continue;
                 }
 
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await _database.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [adjustedIntro], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             }
         }
 

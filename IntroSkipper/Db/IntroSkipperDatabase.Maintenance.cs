@@ -8,7 +8,7 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Bulk maintenance operations of <see cref="IntroSkipperDatabase"/> spanning
-/// segments and season state.
+/// segments, analysis records and season state.
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
@@ -27,7 +27,7 @@ public sealed partial class IntroSkipperDatabase
         // EF.Parameter forces the single-JSON-parameter json_each translation on SQLite,
         // so the retained set is one bound parameter regardless of its size — no
         // 32,766-variable limit and no chunking (verified by a 33,000-ID test).
-        return await db.DbSegment
+        return await db.Segments
             .Where(s => !EF.Parameter(enabledIds).Contains(s.ItemId))
             .Select(s => s.ItemId)
             .Distinct()
@@ -52,95 +52,58 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        return await db.DbSegment
+
+        // Credits-derived previews carry the credits hash (the credits pass produces
+        // them), so the credits pass judges their staleness and the preview pass leaves
+        // them alone; every other automatic row belongs to its own mode's pass.
+        // A row with an empty hash makes no staleness claim and is kept: restored
+        // tombstones drop their hash on purpose, and legacy imports without a recorded
+        // hash are replaced by re-analysis rather than deleted ahead of it.
+        // The NOT EXISTS guard keeps the facade from ever deleting automatic rows of a
+        // type the user has an active row for — the analyzers skip such items, so
+        // nothing would regenerate the rows (same guard as ResetItemsForReanalysisAsync;
+        // callers additionally pre-filter user-provided items as an optimization).
+        return await db.Segments
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
-                && s.Type == mode
-                && !s.IsUserProvided
-                && (s.ConfigHash != configHash || s.End <= 0.0 || s.End <= s.Start))
+                && s.Source != SegmentSource.User
+                && s.State == SegmentState.Active
+                && s.ConfigHash != string.Empty
+                && s.ConfigHash != configHash
+                && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
+                    || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits))
+                && !db.Segments.Any(u => u.ItemId == s.ItemId
+                    && u.Type == s.Type
+                    && u.Source == SegmentSource.User
+                    && u.State == SegmentState.Active))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public async Task ClearSeasonAnalysisAsync(
-        Guid seasonId,
-        IReadOnlyCollection<Guid> itemIds,
-        CancellationToken cancellationToken = default)
+    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
         var ids = itemIds.Distinct().ToArray();
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
-        {
-            if (ids.Length > 0)
-            {
-                await db.DbSegment
-                    .Where(s => EF.Parameter(ids).Contains(s.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc/>
-    public async Task<int> RemoveItemsFromAnalysisAsync(
-        IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(itemIdsBySeason);
-
-        if (itemIdsBySeason.Count == 0)
+        if (ids.Length == 0)
         {
             return 0;
         }
 
-        var itemIds = itemIdsBySeason.Values
-            .SelectMany(static ids => ids)
-            .Distinct()
-            .ToArray();
-        var seasonIds = itemIdsBySeason.Keys.ToArray();
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var removedSegments = itemIds.Length == 0
-                ? 0
-                : await db.DbSegment
-                    .Where(s => EF.Parameter(itemIds).Contains(s.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-            var seasonStates = await db.DbSeasonState
-                .Where(s => EF.Parameter(seasonIds).Contains(s.SeasonId))
-                .ToListAsync(cancellationToken)
+            var removedSegments = await db.Segments
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                var currentIds = state.EpisodeIds.ToList();
-                if (currentIds.RemoveAll(itemIdsBySeason[state.SeasonId].Contains) > 0)
-                {
-                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-                }
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await db.AnalyzedItems
+                .Where(a => EF.Parameter(ids).Contains(a.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removedSegments;
         }
@@ -148,85 +111,22 @@ public sealed partial class IntroSkipperDatabase
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Segment deletion and removal from both analyzed-episode sets are committed together so a
-    /// failed reset cannot leave stale state marked as analyzed.
+    /// The segment deletes and the analysis-record deletes run in a single transaction so a
+    /// cancelled reset cannot leave segments deleted while their items are still recorded
+    /// as analyzed. Automatic rows of an item that also holds an active user row of the
+    /// same mode are kept: the queue classifies such an item as <c>UserProvided</c> for
+    /// that mode and the analyzers skip it, so nothing would regenerate the rows (the same
+    /// rule as <see cref="CleanStaleAutomaticSegmentsAsync"/>'s callers).
     /// </remarks>
-    public async Task ResetItemForReanalysisAsync(
-        Guid itemId,
+    public async Task ResetItemsForReanalysisAsync(
+        IEnumerable<Guid> itemIds,
         IReadOnlyCollection<AnalysisMode> modes,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(itemIds);
         ArgumentNullException.ThrowIfNull(modes);
 
-        var modeArray = modes.Distinct().ToArray();
-        if (itemId == Guid.Empty || modeArray.Length == 0)
-        {
-            return;
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
-        {
-            await db.DbSegment
-                .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type) && !s.IsUserProvided)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            // No single season id reliably locates the rows referencing an item (see #936), so
-            // match on the episode-id lists themselves. NOCASE is required because EF writes
-            // uppercase GUID JSON while SerializeEpisodeIds and migrated rows are lowercase.
-            var itemIdText = itemId.ToString();
-            var seasonStates = await db.DbSeasonState
-                .FromSqlInterpolated(
-                    $"""
-                    SELECT * FROM "DbSeasonState"
-                    WHERE EXISTS (SELECT 1 FROM json_each("EpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
-                       OR EXISTS (SELECT 1 FROM json_each("SettledReanalysisEpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
-                    """)
-                .Where(s => modeArray.Contains(s.Type))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                var episodeIds = state.EpisodeIds.ToList();
-                var settledReanalysisEpisodeIds = state.SettledReanalysisEpisodeIds.ToList();
-
-                if (episodeIds.Remove(itemId))
-                {
-                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
-                }
-
-                if (settledReanalysisEpisodeIds.Remove(itemId))
-                {
-                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledReanalysisEpisodeIds;
-                }
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// The segment deletes and the episode-list clear run in a single transaction so a
-    /// cancelled reset cannot leave segments deleted while their episodes are still
-    /// recorded as analyzed.
-    /// </remarks>
-    public async Task ResetSeasonForReanalysisAsync(
-        Guid seasonId,
-        IEnumerable<Guid> episodeIds,
-        IReadOnlyCollection<AnalysisMode> modes,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(episodeIds);
-        ArgumentNullException.ThrowIfNull(modes);
-
-        var ids = episodeIds.Distinct().ToArray();
+        var ids = itemIds.Distinct().ToArray();
         var modeArray = modes.ToArray();
         if (ids.Length == 0 || modeArray.Length == 0)
         {
@@ -239,22 +139,69 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await db.DbSegment
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
+            await db.Segments
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                    && modeArray.Contains(s.Type)
+                    && s.Source != SegmentSource.User
+                    && s.State == SegmentState.Active
+                    && !db.Segments.Any(u => u.ItemId == s.ItemId
+                        && u.Type == s.Type
+                        && u.Source == SegmentSource.User
+                        && u.State == SegmentState.Active))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
-            // Committing this together with the deletes guarantees the episodes are re-analyzed (either
-            // on this pass or a later one) instead of being stranded as NoSegments.
-            await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
-                .ExecuteUpdateAsync(
-                    setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
-                    cancellationToken)
+            // Without their records the items are NotAnalyzed on this pass (or a later
+            // one) instead of being stranded as NoSegments.
+            await db.AnalyzedItems
+                .Where(a => EF.Parameter(ids).Contains(a.ItemId) && modeArray.Contains(a.Type))
+                .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyCollection<Guid>> GetStaleSeasonIdsAsync(IEnumerable<Guid> retainedSeasonIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedSeasonIds);
+
+        var retainedIds = retainedSeasonIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.SeasonStates
+            .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+            .Select(s => s.SeasonId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyCollection<Guid>> GetStaleItemStateIdsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedItemIds);
+
+        var retainedIds = retainedItemIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var staleDisabledIds = await db.DisabledItems
+            .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
+            .Select(e => e.ItemId)
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var staleAnalyzedIds = await db.AnalyzedItems
+            .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
+            .Select(a => a.ItemId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. staleDisabledIds.Union(staleAnalyzedIds)];
     }
 
     /// <inheritdoc/>
@@ -269,8 +216,32 @@ public sealed partial class IntroSkipperDatabase
 
         // Single NOT-IN delete; EF.Parameter binds the retained set as one JSON
         // parameter, so this is safe for arbitrarily large libraries.
-        await db.DbSeasonState
+        await db.SeasonStates
             .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task CleanItemStateAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedItemIds);
+
+        var retainedIds = retainedItemIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        // Both tables are pruned by item ID, never by a season key: the disable row's key
+        // is mutable metadata that goes stale when an item moves season keys, so the flag
+        // must follow the item. EF.Parameter binds the retained set as one JSON
+        // parameter, so this is safe for arbitrarily large libraries.
+        await db.DisabledItems
+            .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.AnalyzedItems
+            .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

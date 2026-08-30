@@ -14,6 +14,12 @@ namespace IntroSkipper.Helper;
 public static class ConfigHasher
 {
     /// <summary>
+    /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
+    /// Frozen: rows carrying it are already on disk.
+    /// </summary>
+    public const string StreamScopedDetectionCacheHashPrefix = "audio-stream-v1|";
+
+    /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
@@ -118,7 +124,7 @@ public static class ConfigHasher
 
         var hash = ComputeHash(input);
         return type == CacheEntryType.Chromaprint && !string.IsNullOrWhiteSpace(audioStreamIdentity)
-            ? FormattableString.Invariant($"audio-stream-v1|{audioStreamIdentity}|{hash}")
+            ? StreamScopedDetectionCacheHashPrefix + FormattableString.Invariant($"{audioStreamIdentity}|{hash}")
             : hash;
     }
 
@@ -152,7 +158,7 @@ public static class ConfigHasher
     /// <param name="cacheHash">Cache hash to inspect.</param>
     /// <returns><see langword="true"/> when the hash includes an audio stream identity.</returns>
     public static bool IsStreamScopedDetectionCacheHash(string? cacheHash)
-        => cacheHash?.StartsWith("audio-stream-v1|", StringComparison.Ordinal) == true;
+        => cacheHash?.StartsWith(StreamScopedDetectionCacheHashPrefix, StringComparison.Ordinal) == true;
 
     // DetectNonBlackCredits only affects output when the default analyzer is active; including it
     // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which

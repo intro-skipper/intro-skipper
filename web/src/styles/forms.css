@@ -734,6 +734,154 @@ a {
     color: var(--is-text-muted);
 }
 
+.ts-timestamp-pill.user {
+    background: rgba(33, 150, 243, 0.15);
+    color: var(--is-accent);
+    border: 1px solid rgba(33, 150, 243, 0.4);
+}
+
+.ts-pill-source {
+    margin-left: 6px;
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+.ts-edit-btn {
+    margin-left: auto;
+    padding: 2px 10px;
+    font-size: 0.8em;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ts-edit-btn:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 1px;
+}
+
+/* The toggle owns the single auto margin when both are present; Edit then
+   follows at a fixed gap instead of splitting the free space with it. */
+.ts-episode-disable-toggle ~ .ts-edit-btn {
+    margin-left: 8px;
+}
+
+/* Pill switch controlling whether an item's automatic segments reach Jellyfin.
+   Checked means enabled; the switch sits right-aligned before the Edit button. */
+.ts-episode-disable-toggle {
+    appearance: none;
+    width: 34px;
+    height: 18px;
+    margin: 0 0 0 auto;
+    align-self: center;
+    flex-shrink: 0;
+    border: 1px solid var(--is-text-muted);
+    border-radius: 999px;
+    background: var(--is-surface);
+    position: relative;
+    cursor: pointer;
+}
+
+.ts-episode-disable-toggle::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--is-text-muted);
+    transition: transform 0.15s ease;
+}
+
+.ts-episode-disable-toggle:checked {
+    border-color: var(--is-accent);
+    background: var(--is-accent);
+}
+
+.ts-episode-disable-toggle:checked::after {
+    transform: translateX(16px);
+    background: var(--is-text);
+}
+
+.ts-episode-disable-toggle:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+.ts-episode-card.ts-episode-disabled {
+    opacity: 0.6;
+}
+
+.ts-segment-editor {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.25));
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ts-segment-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.85em;
+}
+
+.ts-segment-row.suppressed {
+    opacity: 0.6;
+}
+
+.ts-segment-mode {
+    min-width: 72px;
+    font-weight: 500;
+}
+
+.ts-segment-input {
+    width: 7.5em;
+    padding: 2px 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ts-segment-select {
+    min-width: 72px;
+    padding: 2px 4px;
+}
+
+.ts-segment-btn {
+    padding: 2px 10px;
+    font-size: 0.9em;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ts-segment-btn.danger {
+    color: var(--is-error);
+    border-color: var(--is-error);
+}
+
+.ts-segment-error {
+    color: var(--is-error);
+    font-size: 0.9em;
+}
+
+.ts-segment-hint {
+    color: var(--is-text-muted);
+    font-size: 0.9em;
+}
+
+.ts-segment-status {
+    font-size: 0.85em;
+}
+
 .ts-episode-error {
     font-size: 0.8em;
     color: var(--is-error);

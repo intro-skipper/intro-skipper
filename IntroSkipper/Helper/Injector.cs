@@ -4,6 +4,7 @@
 
 using System.Globalization;
 using System.Text.RegularExpressions;
+using IntroSkipper.Data;
 
 namespace IntroSkipper.Helper
 {
@@ -50,11 +51,6 @@ namespace IntroSkipper.Helper
         /// Number of milliseconds per second.
         /// </summary>
         private const int MillisecondsPerSecond = 1000;
-
-        /// <summary>
-        /// Ticks per second (Jellyfin uses 100-nanosecond tick intervals).
-        /// </summary>
-        private const long TicksPerSecond = 10_000_000L;
 
         /// <summary>
         /// Maximum safe number of seconds that can be converted to milliseconds without overflow.
@@ -122,8 +118,8 @@ namespace IntroSkipper.Helper
             // Hide skip button N seconds before segment end and block all re-show paths
             if (config.SkipButtonVisibleSeconds > 0)
             {
-                var thresholdTicks = ((long)config.SkipButtonVisibleSeconds * TicksPerSecond).ToString(CultureInfo.InvariantCulture);
-                var floorTicks = ((long)hideDelayMs * TicksPerSecond / MillisecondsPerSecond).ToString(CultureInfo.InvariantCulture);
+                var thresholdTicks = TickConversions.FromSeconds(config.SkipButtonVisibleSeconds).ToString(CultureInfo.InvariantCulture);
+                var floorTicks = ((long)hideDelayMs * TimeSpan.TicksPerMillisecond).ToString(CultureInfo.InvariantCulture);
                 var cutoff = $"Math.max(this.currentSegment.StartTicks+{floorTicks},this.currentSegment.EndTicks-{thresholdTicks})";
                 updated = ReplaceSegmentBoundsCheck(updated, cutoff);
                 updated = InjectShowSkipButtonGuard(updated, cutoff);

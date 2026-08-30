@@ -75,7 +75,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 if (!credit.Valid)
                 {
                     LogNoValidCreditsFound(episode.Name);
-                    await _database.DeleteAutomaticTimestampAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                    await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                     episode.SetAnalyzed(mode, EpisodeState.NoSegments);
                     continue;
                 }
@@ -83,7 +83,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await _database.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [credit], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
