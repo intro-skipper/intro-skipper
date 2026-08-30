@@ -409,7 +409,6 @@ namespace IntroSkipper.Services
                             try
                             {
                                 await _database.ResetItemForReanalysisAsync(
-                                    seasonId,
                                     itemId,
                                     Enum.GetValues<AnalysisMode>(),
                                     cts.Token).ConfigureAwait(false);

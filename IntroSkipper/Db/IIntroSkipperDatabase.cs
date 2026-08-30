@@ -174,14 +174,14 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Clears automatic analysis state for one media item while preserving user-provided segments.
+    /// The item is removed from every season-state row that references it, because the resolved
+    /// queue key an item is stored under can differ from its raw SeasonId.
     /// </summary>
-    /// <param name="seasonId">Season containing the item, or <see cref="Guid.Empty"/> when unknown.</param>
     /// <param name="itemId">Media item ID.</param>
     /// <param name="modes">Analysis modes to reset.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task ResetItemForReanalysisAsync(
-        Guid seasonId,
         Guid itemId,
         IReadOnlyCollection<AnalysisMode> modes,
         CancellationToken cancellationToken = default);
