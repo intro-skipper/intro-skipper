@@ -9,6 +9,10 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Segment (<see cref="DbSegment"/>) operations of <see cref="IntroSkipperDatabase"/>.
+/// The user-mutation semantics live in <c>*CoreAsync</c> methods that operate on a
+/// caller-owned context, so a caller composing several mutations (or a mutation plus
+/// bookkeeping) into one transaction reuses exactly the same implementation as the
+/// public single-shot methods.
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
@@ -169,7 +173,23 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
+        return await AddUserSegmentCoreAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Core of <see cref="AddUserSegmentAsync"/> on a caller-owned context. Saves its own
+    /// changes — the concurrency recovery needs the save boundaries. Inside a caller's
+    /// transaction a failed save rolls back to EF's automatic savepoint, not the whole
+    /// transaction, so the recovery paths behave exactly as they do stand-alone.
+    /// </summary>
+    private static async Task<DbSegment> AddUserSegmentCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        AnalysisMode mode,
+        long startTicks,
+        long endTicks,
+        CancellationToken cancellationToken)
+    {
         var exact = await db.Segments
             .FirstOrDefaultAsync(
                 s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
@@ -243,36 +263,48 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var modes = segmentsByMode.Keys.ToArray();
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var existing = await db.Segments
-                .Where(s => s.ItemId == itemId && modes.Contains(s.Type))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
-            {
-                // A row with exactly the new range survives in place (keeping the id
-                // Jellyfin knows): an active row is promoted, a tombstone revived; either
-                // way it cannot collide with itself on the unique index. Only the mode's
-                // other active rows go.
-                var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
-                db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && s != row));
-
-                if (row is not null)
-                {
-                    row.PromoteToUser();
-                }
-                else
-                {
-                    db.Segments.Add(new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User));
-                }
-            }
-
+            await ReplaceUserSegmentsCoreAsync(db, itemId, segmentsByMode, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Core of <see cref="ReplaceUserSegmentsAsync"/> on a caller-owned context and
+    /// transaction. Stages the changes without saving; the caller saves and commits.
+    /// </summary>
+    private static async Task ReplaceUserSegmentsCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode,
+        CancellationToken cancellationToken)
+    {
+        var modes = segmentsByMode.Keys.ToArray();
+        var existing = await db.Segments
+            .Where(s => s.ItemId == itemId && modes.Contains(s.Type))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
+        {
+            // A row with exactly the new range survives in place (keeping the id
+            // Jellyfin knows): an active row is promoted, a tombstone revived; either
+            // way it cannot collide with itself on the unique index. Only the mode's
+            // other active rows go.
+            var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
+            db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && s != row));
+
+            if (row is not null)
+            {
+                row.PromoteToUser();
+            }
+            else
+            {
+                db.Segments.Add(new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User));
+            }
         }
     }
 
@@ -288,7 +320,23 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
+        return await UpdateSegmentCoreAsync(db, itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Core of <see cref="UpdateSegmentAsync"/> on a caller-owned context. Saves its own
+    /// changes — the concurrency recovery needs the save boundaries (see
+    /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
+    /// transaction).
+    /// </summary>
+    private static async Task<DbSegment?> UpdateSegmentCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        Guid segmentId,
+        long startTicks,
+        long endTicks,
+        CancellationToken cancellationToken)
+    {
         var row = await db.Segments
             .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
@@ -391,6 +439,25 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
+        var snapshot = await DeleteSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        if (snapshot is not null)
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Core of <see cref="DeleteSegmentAsync"/> on a caller-owned context. Stages the
+    /// delete (tombstone or removal) without saving; the caller saves and commits.
+    /// </summary>
+    private static async Task<DbSegment?> DeleteSegmentCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        Guid segmentId,
+        CancellationToken cancellationToken)
+    {
         var row = await db.Segments
             .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
@@ -409,7 +476,6 @@ public sealed partial class IntroSkipperDatabase
             row.State = SegmentState.Suppressed;
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return snapshot;
     }
 
@@ -476,7 +542,21 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
+        return await RestoreSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Core of <see cref="RestoreSegmentAsync"/> on a caller-owned context. Saves its own
+    /// changes — the concurrency recovery needs the save boundary (see
+    /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
+    /// transaction).
+    /// </summary>
+    private static async Task<DbSegment?> RestoreSegmentCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        Guid segmentId,
+        CancellationToken cancellationToken)
+    {
         var row = await db.Segments
             .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
