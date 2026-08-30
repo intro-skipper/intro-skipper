@@ -44,12 +44,12 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     /// </summary>
     /// <param name="itemId">The id of the media item to synchronize.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
+    /// <returns>Whether the item converged or mirroring is disabled.</returns>
+    public async Task<MirrorSyncOutcome> SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
     {
         if (!MediaSegmentMirrorPolicy.Enabled)
         {
-            return;
+            return MirrorSyncOutcome.MirroringDisabled;
         }
 
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
@@ -59,6 +59,8 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
         {
             await segmentStore.ReplaceSegmentsAsync(itemId, segments, cancellationToken).ConfigureAwait(false);
         }
+
+        return MirrorSyncOutcome.Synced;
     }
 
     /// <summary>
@@ -79,6 +81,32 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
 
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var rowsDeleted = await segmentStore.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        return rowsDeleted > 0 ? MirrorDeleteOutcome.Deleted : MirrorDeleteOutcome.RowNotFound;
+    }
+
+    /// <summary>
+    /// Deletes one journaled foreign row under the item's lock, only while it still
+    /// matches its validated shape: type and boundaries travel inside the delete
+    /// statement itself, so no concurrent rewrite of the row under its stable id can
+    /// slip between a check and the delete.
+    /// </summary>
+    /// <param name="itemId">The item id that must own the segment.</param>
+    /// <param name="segmentId">The segment id.</param>
+    /// <param name="type">The type the row carried when the delete was validated.</param>
+    /// <param name="startTicks">The start ticks the row carried when the delete was validated.</param>
+    /// <param name="endTicks">The end ticks the row carried when the delete was validated.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>What happened to the row; <see cref="MirrorDeleteOutcome.RowNotFound"/>
+    /// covers both a vanished row and one that no longer matches its validated shape.</returns>
+    public async Task<MirrorDeleteOutcome> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
+    {
+        if (!MediaSegmentMirrorPolicy.Enabled)
+        {
+            return MirrorDeleteOutcome.MirroringDisabled;
+        }
+
+        using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var rowsDeleted = await segmentStore.DeleteValidatedSegmentAsync(itemId, segmentId, type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
         return rowsDeleted > 0 ? MirrorDeleteOutcome.Deleted : MirrorDeleteOutcome.RowNotFound;
     }
 

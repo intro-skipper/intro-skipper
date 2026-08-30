@@ -33,10 +33,11 @@ public interface IIntroSkipperDatabase
     /// bookkeeping, and the durable projection journal — a per-item queue marker plus
     /// any journaled foreign-row delete — so a committed change can never lose its
     /// projection to a crash. Invalid intents and unowned external targets return
-    /// <see cref="Rejected"/>; intents that already hold return <see cref="Ignored"/>;
-    /// neither journals work. Callers must serialize calls per item (the coordinator's
-    /// mutation stripe); concurrent first-time enqueues for one item can otherwise
-    /// fail on the queue's primary key.
+    /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
+    /// <see cref="Ignored"/> but still journal a re-projection: re-asserting held
+    /// state is how a diverged mirror heals on retry. Callers must serialize calls
+    /// per item (the coordinator's mutation stripe); concurrent first-time enqueues
+    /// for one item can otherwise fail on the queue's primary key.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
     /// <param name="externalTarget">The resolved Jellyfin row for

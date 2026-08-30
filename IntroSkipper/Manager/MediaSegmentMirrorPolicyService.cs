@@ -14,7 +14,11 @@ namespace IntroSkipper.Manager;
 /// </summary>
 internal sealed class MediaSegmentMirrorPolicyService : IHostedService, IMediaSegmentMirrorPolicy
 {
-    private bool _lastSeen = MediaSegmentMirrorPolicy.Enabled;
+    // int for Interlocked: configuration saves arrive on arbitrary request threads,
+    // and a plain read-compare-set could let two rapid opposite saves swallow the
+    // enable transition entirely (the enable handler seeing stale state and
+    // returning). The atomic exchange makes every observed flip raise exactly once.
+    private int _lastSeen = MediaSegmentMirrorPolicy.Enabled ? 1 : 0;
 
     /// <inheritdoc />
     public event EventHandler<bool>? EnabledChanged;
@@ -27,7 +31,7 @@ internal sealed class MediaSegmentMirrorPolicyService : IHostedService, IMediaSe
     {
         if (Plugin.Instance is { } plugin)
         {
-            _lastSeen = plugin.Configuration.UpdateMediaSegments;
+            Interlocked.Exchange(ref _lastSeen, plugin.Configuration.UpdateMediaSegments ? 1 : 0);
             plugin.ConfigurationChanged += OnConfigurationChanged;
         }
 
@@ -48,12 +52,9 @@ internal sealed class MediaSegmentMirrorPolicyService : IHostedService, IMediaSe
     private void OnConfigurationChanged(object? sender, BasePluginConfiguration configuration)
     {
         var enabled = ((Configuration.PluginConfiguration)configuration).UpdateMediaSegments;
-        if (_lastSeen == enabled)
+        if (Interlocked.Exchange(ref _lastSeen, enabled ? 1 : 0) != (enabled ? 1 : 0))
         {
-            return;
+            EnabledChanged?.Invoke(this, enabled);
         }
-
-        _lastSeen = enabled;
-        EnabledChanged?.Invoke(this, enabled);
     }
 }

@@ -376,29 +376,80 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
-    public async Task EnableNudge_ReplaysBackoffArmedWork()
+    public async Task DisabledMidApply_IsSkippedWithoutArmingBackoff()
     {
+        var adapter = new RecordingProjectionAdapter { MirroringDisabledRemaining = 1 };
+        var service = CreateService(adapter);
         var itemId = Guid.NewGuid();
-        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 3 };
-        var policy = new FakeMirrorPolicy();
-        var service = CreateService(adapter, policy);
 
-        // Three failures arm a 20s backoff — longer than this test waits, so only a
-        // forced replay can apply the work.
-        await service.ApplyAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20));
-        await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId));
-        await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId));
-        Assert.Equal(3, adapter.Attempts.Count);
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
 
-        policy.SetEnabled(false);
-        await service.StartAsync(CancellationToken.None);
-        policy.SetEnabled(true);
-        var applied = await adapter.Applied.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        await service.StopAsync(CancellationToken.None);
+        // A toggle mid-apply is an outcome, not a failure: no backoff, no attempt
+        // count, no failure text — the work stays immediately due for the enable
+        // replay instead of waiting out a backoff the toggle never earned.
+        Assert.Equal(ProjectionState.Skipped, outcome.Projection);
+        await using (var db = CreateContext())
+        {
+            var queued = Assert.Single(await db.ProjectionQueue.ToListAsync());
+            Assert.Equal(0, queued.AttemptCount);
+            Assert.Null(queued.Failure);
+            Assert.Null(queued.NextAttemptAt);
+        }
 
-        Assert.Equal(itemId, applied.ItemId);
+        Assert.Equal(1, (await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId))).RetriedCount);
+        await using var verify = CreateContext();
+        Assert.Empty(await verify.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
+    public async Task IgnoredIntent_StillConvergesMirror()
+    {
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+        var itemId = Guid.NewGuid();
+        Assert.IsType<Accepted>(await service.ApplyAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
+
+        // Re-asserting held state must re-project, so a diverged mirror (a ghost or
+        // missing Jellyfin row) heals when the user retries instead of staying
+        // unreachable behind the idempotence check.
+        Assert.IsType<Ignored>(await service.ApplyAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
+
+        Assert.Equal(2, adapter.Applies.Count);
         await using var db = CreateContext();
         Assert.Empty(await db.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ExternalDelete_OfTombstonedSharedIdRow_LeavesOtherSegmentsAlone()
+    {
+        var itemId = Guid.NewGuid();
+        var tombstone = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter)
+        {
+            State = SegmentState.Suppressed
+        };
+        var userRow = new DbSegment(itemId, AnalysisMode.Introduction, 50, 60, SegmentSource.User);
+        await SeedAsync(tombstone, userRow);
+        var adapter = new RecordingProjectionAdapter
+        {
+            ExternalTarget = new ExternalSegmentTarget(tombstone.Id, itemId, MediaSegmentType.Intro, 10, 20)
+        };
+        var service = CreateService(adapter);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new DeleteExternalSegmentIntent(itemId, tombstone.Id, MediaSegmentType.Intro)));
+
+        // The suppressed shared-id row means the plugin already treats the segment as
+        // deleted: the journaled op only removes the lingering ghost row, and no
+        // fallback may hard-delete the user's own (sole active) segment of the mode.
+        Assert.Empty(outcome.AffectedValues);
+        Assert.Equal(tombstone.Id, Assert.Single(Assert.Single(adapter.Applies).ExternalOperations).ExternalSegmentId);
+        await using var db = CreateContext();
+        var rows = await db.Segments.OrderBy(row => row.StartTicks).ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(SegmentState.Suppressed, rows[0].State);
+        Assert.Equal(SegmentSource.User, rows[1].Source);
+        Assert.Equal(SegmentState.Active, rows[1].State);
     }
 
     [Fact]
@@ -649,6 +700,8 @@ public sealed class TestSegmentChange : IDisposable
 
         public List<AppliedProjection> Applies { get; } = [];
 
+        public int MirroringDisabledRemaining { get; set; }
+
         public Task<ExternalSegmentTarget?> ResolveExternalTargetAsync(Guid itemId, Guid externalSegmentId, CancellationToken cancellationToken)
         {
             if (ResolveException is not null)
@@ -659,7 +712,7 @@ public sealed class TestSegmentChange : IDisposable
             return Task.FromResult(ExternalTargets.TryGetValue(externalSegmentId, out var target) ? target : ExternalTarget);
         }
 
-        public async Task ApplyAsync(Guid itemId, IReadOnlyList<ProjectedExternalOperation> externalOperations, CancellationToken cancellationToken)
+        public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<ProjectedExternalOperation> externalOperations, CancellationToken cancellationToken)
         {
             // Snapshot what the real adapter would push: the item's current servable
             // image (the disable filter applied), read through the facade.
@@ -668,6 +721,11 @@ public sealed class TestSegmentChange : IDisposable
                 : await Database.GetServableSegmentsAsync(itemId, cancellationToken);
             var snapshot = new AppliedProjection(itemId, image, [.. externalOperations]);
             Attempts.Add(snapshot);
+            if (MirroringDisabledRemaining-- > 0)
+            {
+                return ProjectionApplyOutcome.MirroringDisabled;
+            }
+
             if (FailuresRemaining-- > 0 || FailingItems.Contains(itemId))
             {
                 throw new InvalidOperationException("synthetic projection failure");
@@ -675,6 +733,7 @@ public sealed class TestSegmentChange : IDisposable
 
             Applies.Add(snapshot);
             Applied.TrySetResult(snapshot);
+            return ProjectionApplyOutcome.Applied;
         }
     }
 }

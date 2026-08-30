@@ -8,7 +8,13 @@ namespace IntroSkipper.SegmentChanges;
 /// </summary>
 public interface ISegmentChange
 {
-    /// <summary>Applies one closed segment-change intent.</summary>
+    /// <summary>
+    /// Applies one closed segment-change intent. Once the intent is accepted the
+    /// outcome reports the committed change even when the immediate projection could
+    /// not run (cancellation included — the projection then reports
+    /// <see cref="ProjectionState.Pending"/> and the retry worker owns the journaled
+    /// work); only a failure to commit throws.
+    /// </summary>
     /// <param name="intent">Closed domain intent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The typed domain and projection outcome.</returns>

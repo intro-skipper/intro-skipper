@@ -35,13 +35,10 @@ internal sealed partial class SegmentChange(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
     // Wakes the retry loop when mirroring turns on; capacity 1 because one wake-up
-    // covers any number of missed transitions.
+    // covers any number of missed transitions. Skipped-while-disabled work never
+    // carries backoff (a disabled mirror is an outcome, not a failure), so the plain
+    // due pass the nudge triggers replays all of it immediately.
     private readonly SemaphoreSlim _nudge = new(0, 1);
-
-    // Set with the nudge: the enable replay must force work whose backoff has not
-    // elapsed (a disable mid-apply arms backoff), or the replays-on-enable contract
-    // silently waits the backoff out.
-    private int _replayAll;
 
     /// <inheritdoc />
     public async Task<SegmentChangeOutcome> ApplyAsync(SegmentChangeIntent intent, CancellationToken cancellationToken = default)
@@ -63,13 +60,16 @@ internal sealed partial class SegmentChange(
             result = await database.ApplyChangeAsync(intent, externalTarget, cancellationToken).ConfigureAwait(false);
         }
 
-        if (result.Outcome is not null)
+        if (result.Outcome is Rejected)
         {
             return result.Outcome;
         }
 
-        var projected = await ProjectItemAsync(intent.ItemId, force: true, cancellationToken).ConfigureAwait(false);
-        return new Accepted(result.Affected, projected);
+        // Accepted and Ignored both project: an Ignored intent re-asserts state the
+        // plugin database already holds, and re-projecting it is how a diverged
+        // mirror (a ghost or missing Jellyfin row) heals on retry.
+        var projected = await ProjectCommittedItemAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
+        return result.Outcome ?? new Accepted(result.Affected, projected);
     }
 
     /// <inheritdoc />
@@ -140,14 +140,7 @@ internal sealed partial class SegmentChange(
             {
                 try
                 {
-                    if (Interlocked.Exchange(ref _replayAll, 0) == 1)
-                    {
-                        await RetryProjectionAsync(ProjectionScope.All, stoppingToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await RetryDueAsync(stoppingToken).ConfigureAwait(false);
-                    }
+                    await RetryDueAsync(stoppingToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -180,7 +173,6 @@ internal sealed partial class SegmentChange(
             return;
         }
 
-        Interlocked.Exchange(ref _replayAll, 1);
         try
         {
             _nudge.Release();
@@ -244,7 +236,13 @@ internal sealed partial class SegmentChange(
         try
         {
             var operations = work.Operations.Select(o => new ProjectedExternalOperation(o.ExternalSegmentId, o.ExpectedType, o.StartTicks, o.EndTicks)).ToList();
-            await adapter.ApplyAsync(itemId, operations, cancellationToken).ConfigureAwait(false);
+            if (await adapter.ApplyAsync(itemId, operations, cancellationToken).ConfigureAwait(false) == ProjectionApplyOutcome.MirroringDisabled)
+            {
+                // Not a failure: the work stays exactly as journaled — no backoff, no
+                // attempt count, no failure text — immediately due for the enable
+                // replay the nudge triggers.
+                return ProjectionState.Skipped;
+            }
 
             // Uncancelable: the apply is done; abandoning the bookkeeping would only
             // schedule a redundant (idempotent) re-sync.
@@ -265,6 +263,29 @@ internal sealed partial class SegmentChange(
         }
     }
 
+    /// <summary>
+    /// The immediate projection of a committed change. Shielded: the mutation is
+    /// durably committed and the work journaled, so nothing that goes wrong here —
+    /// cancellation (a client disconnect), a journal read error — may surface as a
+    /// failure of the accepted change. The retry loop owns the work from there.
+    /// </summary>
+    private async Task<ProjectionState> ProjectCommittedItemAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ProjectItemAsync(itemId, force: true, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return ProjectionState.Pending;
+        }
+        catch (Exception ex)
+        {
+            LogImmediateProjectionFailed(logger, ex, itemId);
+            return ProjectionState.Pending;
+        }
+    }
+
     private static string Sanitize(Exception exception)
     {
         var value = exception.Message.Replace('\r', ' ').Replace('\n', ' ').Trim();
@@ -273,6 +294,9 @@ internal sealed partial class SegmentChange(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Projection failed for item {ItemId}; the work remains pending.")]
     private static partial void LogProjectionFailed(ILogger logger, Exception exception, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Immediate projection of a committed change for item {ItemId} did not run; the retry loop owns the journaled work.")]
+    private static partial void LogImmediateProjectionFailed(ILogger logger, Exception exception, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Segment projection recovery cycle failed; pending work will be retried.")]
     private static partial void LogRecoveryCycleFailed(ILogger logger, Exception exception);

@@ -27,7 +27,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, database) = Create(policy: null, new MediaSegmentDto
+        var (adapter, store, database) = Create(new MediaSegmentDto
         {
             Id = foreignId,
             ItemId = itemId,
@@ -37,8 +37,9 @@ public sealed class TestJellyfinSegmentProjectionAdapter
         });
         var own = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40, CancellationToken.None);
 
-        await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
 
+        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
         Assert.Contains((itemId, foreignId), store.DeletedSegments);
         var (replacedItem, replaced) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItem);
@@ -50,7 +51,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, _) = Create(policy: null, new MediaSegmentDto
+        var (adapter, store, _) = Create(new MediaSegmentDto
         {
             Id = foreignId,
             ItemId = itemId,
@@ -59,9 +60,10 @@ public sealed class TestJellyfinSegmentProjectionAdapter
             EndTicks = 20
         });
 
-        await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
 
         // The row changed hands since validation: dropped, not deleted, not retried.
+        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
         Assert.Empty(store.DeletedSegments);
     }
 
@@ -70,7 +72,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, _) = Create(policy: null, new MediaSegmentDto
+        var (adapter, store, _) = Create(new MediaSegmentDto
         {
             Id = foreignId,
             ItemId = itemId,
@@ -79,9 +81,11 @@ public sealed class TestJellyfinSegmentProjectionAdapter
             EndTicks = 200
         });
 
-        // Validated at 10..20; the row moved under its stable id since then.
-        await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        // Validated at 10..20; the row moved under its stable id since then. The
+        // predicate travels inside the delete, so no timing can slip past it.
+        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
 
+        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
         Assert.Empty(store.DeletedSegments);
     }
 
@@ -89,22 +93,12 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     public async Task Apply_MissingForeignRowIsIdempotentSuccess()
     {
         var itemId = Guid.NewGuid();
-        var (adapter, store, _) = Create(policy: null);
+        var (adapter, store, _) = Create();
 
-        await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(Guid.NewGuid(), MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(Guid.NewGuid(), MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
 
+        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
         Assert.Empty(store.DeletedSegments);
-    }
-
-    [Fact]
-    public async Task Apply_ThrowsWhenMirroringIsDisabled()
-    {
-        // A disable landing mid-apply makes the sync a silent no-op; the adapter must
-        // fail so the queued work stays pending for the enable replay.
-        var (adapter, _, _) = Create(new FakeMirrorPolicy { Enabled = false });
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.ApplyAsync(Guid.NewGuid(), [], CancellationToken.None));
     }
 
     [Fact]
@@ -112,7 +106,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var otherItemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
-        var (adapter, _, _) = Create(policy: null, new MediaSegmentDto
+        var (adapter, _, _) = Create(new MediaSegmentDto
         {
             Id = segmentId,
             ItemId = otherItemId,
@@ -128,14 +122,13 @@ public sealed class TestJellyfinSegmentProjectionAdapter
         Assert.Null(await adapter.ResolveExternalTargetAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
     }
 
-    private static (JellyfinSegmentProjectionAdapter Adapter, FakeJellyfinSegmentStore Store, IIntroSkipperDatabase Database) Create(FakeMirrorPolicy? policy = null, params MediaSegmentDto[] existingSegments)
+    private static (JellyfinSegmentProjectionAdapter Adapter, FakeJellyfinSegmentStore Store, IIntroSkipperDatabase Database) Create(params MediaSegmentDto[] existingSegments)
     {
         var store = new FakeJellyfinSegmentStore { ExistingSegments = [.. existingSegments] };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var adapter = new JellyfinSegmentProjectionAdapter(
             store,
             DatabaseTestHelpers.CreateMirror(store, database),
-            policy ?? new FakeMirrorPolicy(),
             NullLogger<JellyfinSegmentProjectionAdapter>.Instance);
         return (adapter, store, database);
     }

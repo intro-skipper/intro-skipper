@@ -32,13 +32,18 @@ public sealed partial class IntroSkipperDatabase
         await using (transaction.ConfigureAwait(false))
         {
             var result = await MutateAsync(db, intent, externalTarget, cancellationToken).ConfigureAwait(false);
-            if (result.Outcome is not null)
+            if (result.Outcome is Rejected)
             {
-                // Every Ignored/Rejected outcome is decided before a core persists a
-                // mutation, so disposing the transaction unwinds nothing that matters.
+                // Every outcome is decided before a core persists a mutation, so
+                // disposing the transaction unwinds nothing that matters.
                 return result;
             }
 
+            // Accepted and Ignored both journal: an Ignored intent re-asserts state
+            // the plugin database already holds, and re-projecting that state is how
+            // a diverged mirror (a ghost or missing Jellyfin row) heals when the
+            // user retries — the legacy editor synced idempotent requests for the
+            // same reason.
             await EnqueueProjectionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -219,20 +224,30 @@ public sealed partial class IntroSkipperDatabase
                 {
                     // Validate guaranteed the target and its ownership. The plugin
                     // counterpart is matched like the editor's legacy delete dispatch:
-                    // the shared id first, then the uncorrelated rule (1-tick
-                    // tolerance, non-commercial mode-wide fallback) — without it, a
-                    // pre-shared-id row sitting one tick off would stay active and the
-                    // very sync this change journals would resurrect the deleted
+                    // the shared id first — resolved state-agnostically, so a
+                    // suppressed shared-id row means the plugin already treats the
+                    // segment as deleted and the journaled op merely removes the
+                    // lingering ghost row, with no fallback allowed to claim another
+                    // (possibly user) segment — then the uncorrelated rule (1-tick
+                    // tolerance, non-commercial mode-wide fallback), without which a
+                    // pre-shared-id row sitting one tick off would stay active and
+                    // the very sync this change journals would resurrect the deleted
                     // segment. The journaled operation removes the foreign row either
                     // way, carrying the validated boundaries for the apply-time guard.
                     var target = externalTarget!;
                     var mode = AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType)!.Value;
                     var itemRows = await db.Segments.AsNoTracking()
-                        .Where(s => s.ItemId == value.ItemId && s.State == SegmentState.Active)
+                        .Where(s => s.ItemId == value.ItemId)
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
-                    var match = itemRows.Find(s => s.Id == value.ExternalSegmentId && s.Type == mode)
-                        ?? UncorrelatedSegmentMatcher.Find(itemRows, mode, target.StartTicks, target.EndTicks);
+                    var sharedIdRow = itemRows.Find(s => s.Id == value.ExternalSegmentId);
+                    var match = sharedIdRow is not null
+                        ? (sharedIdRow.State == SegmentState.Active && sharedIdRow.Type == mode ? sharedIdRow : null)
+                        : UncorrelatedSegmentMatcher.Find(
+                            [.. itemRows.Where(s => s.State == SegmentState.Active)],
+                            mode,
+                            target.StartTicks,
+                            target.EndTicks);
 
                     var affected = new List<SegmentValue>();
                     if (match is not null && await DeleteSegmentCoreAsync(db, value.ItemId, match.Id, cancellationToken).ConfigureAwait(false) is { } snapshot)
