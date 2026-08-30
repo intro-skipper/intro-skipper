@@ -483,6 +483,16 @@ public sealed partial class IntroSkipperDatabase
             return null;
         }
 
+        return StageDelete(db, row);
+    }
+
+    /// <summary>
+    /// Stages the delete of one active tracked row — the single home of the delete
+    /// rule: automatic rows tombstone (so re-analysis cannot resurrect the range),
+    /// user rows go for good. Returns a pre-delete snapshot; nothing is saved.
+    /// </summary>
+    private static DbSegment StageDelete(IntroSkipperDbContext db, DbSegment row)
+    {
         var snapshot = row.Clone();
         if (row.Source == SegmentSource.User)
         {

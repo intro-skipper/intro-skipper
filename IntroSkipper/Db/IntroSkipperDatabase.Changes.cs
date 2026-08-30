@@ -74,7 +74,6 @@ public sealed partial class IntroSkipperDatabase
     private static Rejected? Validate(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget)
     {
         static bool ValidMode(AnalysisMode mode) => AnalysisHelpers.IsSupported(mode);
-        static bool ValidRange(long start, long end) => start >= 0 && end > start;
 
         if (intent.ItemId == Guid.Empty)
         {
@@ -83,16 +82,16 @@ public sealed partial class IntroSkipperDatabase
 
         return intent switch
         {
-            AddUserSegmentIntent value when !ValidMode(value.Mode) || !ValidRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
-            ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !ValidRange(range.StartTicks, range.EndTicks)) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
-            UpdateSegmentIntent value when value.SegmentId == Guid.Empty || !ValidRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid segment ID or tick range."),
+            AddUserSegmentIntent value when !ValidMode(value.Mode) || !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
+            ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !TickConversions.IsValidTickRange(range.StartTicks, range.EndTicks)) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
+            UpdateSegmentIntent value when value.SegmentId == Guid.Empty || !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid segment ID or tick range."),
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid external segment ID or type."),
             DeleteExternalSegmentIntent when externalTarget is null => new(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found."),
             DeleteExternalSegmentIntent value when externalTarget.ItemId != value.ItemId => new(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item."),
             DeleteExternalSegmentIntent value when externalTarget.Type != value.ExpectedType => new(SegmentChangeRejectedReason.ExternalTypeMismatch, "External segment type does not match the expected type."),
-            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !ValidRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
+            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !TickConversions.IsValidTickRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
             SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
@@ -126,6 +125,36 @@ public sealed partial class IntroSkipperDatabase
             case ReplaceUserSegmentsForModeIntent value:
                 {
                     var requested = value.Segments.Select(range => (range.StartTicks, range.EndTicks)).Distinct().ToList();
+                    if (requested.Count == 0)
+                    {
+                        // An empty set is the mode-wide delete, with delete semantics:
+                        // automatic rows tombstone (so re-analysis cannot resurrect
+                        // them), user rows go for good, and the mode's analysis record
+                        // clears so the next scan may look for other segments — even
+                        // when only the record is left to clear. Ignored only when
+                        // neither exists.
+                        var activeRows = await db.Segments
+                            .Where(s => s.ItemId == value.ItemId && s.Type == value.Mode && s.State == SegmentState.Active)
+                            .ToListAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        var hasAnalysisRecord = await db.AnalyzedItems
+                            .AnyAsync(a => a.ItemId == value.ItemId && a.Type == value.Mode, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (activeRows.Count == 0 && !hasAnalysisRecord)
+                        {
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The mode already has no active segments.");
+                        }
+
+                        var affected = new List<SegmentValue>();
+                        foreach (var row in activeRows)
+                        {
+                            affected.Add(ToDeletedValue(StageDelete(db, row)));
+                        }
+
+                        await ClearItemAnalysisCoreAsync(db, value.ItemId, value.Mode, cancellationToken).ConfigureAwait(false);
+                        return new MutationResult(null, affected);
+                    }
+
                     var active = await db.Segments.AsNoTracking()
                         .Where(s => s.ItemId == value.ItemId && s.Type == value.Mode && s.State == SegmentState.Active)
                         .ToListAsync(cancellationToken)
@@ -133,34 +162,6 @@ public sealed partial class IntroSkipperDatabase
                     if (active.Count == requested.Count && active.All(row => row.Source == SegmentSource.User && requested.Contains((row.StartTicks, row.EndTicks))))
                     {
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
-                    }
-
-                    if (requested.Count == 0)
-                    {
-                        // An empty set is the mode-wide delete, with delete semantics:
-                        // automatic rows tombstone (so re-analysis cannot resurrect
-                        // them), user rows go for good, and the mode's analysis record
-                        // clears so the next scan may look for other segments.
-                        var affected = new List<SegmentValue>();
-                        foreach (var row in await db.Segments
-                            .Where(s => s.ItemId == value.ItemId && s.Type == value.Mode && s.State == SegmentState.Active)
-                            .ToListAsync(cancellationToken)
-                            .ConfigureAwait(false))
-                        {
-                            if (row.Source == SegmentSource.User)
-                            {
-                                db.Segments.Remove(row);
-                            }
-                            else
-                            {
-                                row.State = SegmentState.Suppressed;
-                            }
-
-                            affected.Add(ToDeletedValue(row));
-                        }
-
-                        await ClearItemAnalysisCoreAsync(db, value.ItemId, value.Mode, cancellationToken).ConfigureAwait(false);
-                        return new MutationResult(null, affected);
                     }
 
                     var survivors = await ReplaceUserSegmentsCoreAsync(
@@ -216,16 +217,24 @@ public sealed partial class IntroSkipperDatabase
 
             case DeleteExternalSegmentIntent value:
                 {
-                    // Validate guaranteed the target and its ownership. Only an exact
-                    // counterpart (same mode and boundaries) is deleted locally; the
-                    // journaled operation removes the foreign row either way.
+                    // Validate guaranteed the target and its ownership. The plugin
+                    // counterpart is matched like the editor's legacy delete dispatch:
+                    // the shared id first, then the uncorrelated rule (1-tick
+                    // tolerance, non-commercial mode-wide fallback) — without it, a
+                    // pre-shared-id row sitting one tick off would stay active and the
+                    // very sync this change journals would resurrect the deleted
+                    // segment. The journaled operation removes the foreign row either
+                    // way, carrying the validated boundaries for the apply-time guard.
+                    var target = externalTarget!;
                     var mode = AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType)!.Value;
-                    var affected = new List<SegmentValue>();
-                    var match = await db.Segments.AsNoTracking()
-                        .FirstOrDefaultAsync(
-                            s => s.ItemId == value.ItemId && s.Type == mode && s.StartTicks == externalTarget!.StartTicks && s.EndTicks == externalTarget.EndTicks && s.State == SegmentState.Active,
-                            cancellationToken)
+                    var itemRows = await db.Segments.AsNoTracking()
+                        .Where(s => s.ItemId == value.ItemId && s.State == SegmentState.Active)
+                        .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
+                    var match = itemRows.Find(s => s.Id == value.ExternalSegmentId && s.Type == mode)
+                        ?? UncorrelatedSegmentMatcher.Find(itemRows, mode, target.StartTicks, target.EndTicks);
+
+                    var affected = new List<SegmentValue>();
                     if (match is not null && await DeleteSegmentCoreAsync(db, value.ItemId, match.Id, cancellationToken).ConfigureAwait(false) is { } snapshot)
                     {
                         affected.Add(ToDeletedValue(snapshot));
@@ -236,7 +245,9 @@ public sealed partial class IntroSkipperDatabase
                     {
                         ItemId = value.ItemId,
                         ExternalSegmentId = value.ExternalSegmentId,
-                        ExpectedType = value.ExpectedType
+                        ExpectedType = value.ExpectedType,
+                        StartTicks = target.StartTicks,
+                        EndTicks = target.EndTicks
                     });
                     return new MutationResult(null, affected);
                 }

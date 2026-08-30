@@ -34,4 +34,17 @@ public class DbProjectionExternalOperation
     /// A row found under the ID with another type is not deleted.
     /// </summary>
     public MediaSegmentType ExpectedType { get; set; }
+
+    /// <summary>
+    /// Gets or sets the start ticks the row carried when the delete was validated.
+    /// An apply can run long after validation (backoff, mirroring off); a row whose
+    /// boundaries changed under the stable ID since then is not deleted.
+    /// </summary>
+    public long StartTicks { get; set; }
+
+    /// <summary>
+    /// Gets or sets the end ticks the row carried when the delete was validated;
+    /// see <see cref="StartTicks"/>.
+    /// </summary>
+    public long EndTicks { get; set; }
 }

@@ -19,7 +19,9 @@ namespace IntroSkipper.Migrations
                         .Annotation("Sqlite:Autoincrement", true),
                     ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
                     ExternalSegmentId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ExpectedType = table.Column<int>(type: "INTEGER", nullable: false)
+                    ExpectedType = table.Column<int>(type: "INTEGER", nullable: false),
+                    StartTicks = table.Column<long>(type: "INTEGER", nullable: false),
+                    EndTicks = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {

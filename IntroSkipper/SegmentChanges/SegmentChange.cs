@@ -38,6 +38,11 @@ internal sealed partial class SegmentChange(
     // covers any number of missed transitions.
     private readonly SemaphoreSlim _nudge = new(0, 1);
 
+    // Set with the nudge: the enable replay must force work whose backoff has not
+    // elapsed (a disable mid-apply arms backoff), or the replays-on-enable contract
+    // silently waits the backoff out.
+    private int _replayAll;
+
     /// <inheritdoc />
     public async Task<SegmentChangeOutcome> ApplyAsync(SegmentChangeIntent intent, CancellationToken cancellationToken = default)
     {
@@ -135,7 +140,14 @@ internal sealed partial class SegmentChange(
             {
                 try
                 {
-                    await RetryDueAsync(stoppingToken).ConfigureAwait(false);
+                    if (Interlocked.Exchange(ref _replayAll, 0) == 1)
+                    {
+                        await RetryProjectionAsync(ProjectionScope.All, stoppingToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await RetryDueAsync(stoppingToken).ConfigureAwait(false);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -168,6 +180,7 @@ internal sealed partial class SegmentChange(
             return;
         }
 
+        Interlocked.Exchange(ref _replayAll, 1);
         try
         {
             _nudge.Release();
@@ -201,13 +214,16 @@ internal sealed partial class SegmentChange(
 
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
-    /// then the mirror convergence, then the version-guarded completion. Needs no lock
-    /// of its own — the adapter serializes on the mirror's per-item stripes, every
-    /// step is idempotent, and the completion deletes the queue row only at the
-    /// version it projected, so concurrent applies and enqueues cannot lose work.
+    /// then the mirror convergence, then the version-guarded completion — all under
+    /// the shared mutation stripe, for the same reason the editor holds it across its
+    /// write-plus-sync: a projection interleaving between another mutation's write and
+    /// its rollback would bake the rolled-back state into the mirror. Every step is
+    /// idempotent, and the completion deletes the queue row only at the version it
+    /// projected, so concurrent enqueues cannot lose work.
     /// </summary>
     private async Task<ProjectionState> ProjectItemAsync(Guid itemId, bool force, CancellationToken cancellationToken)
     {
+        using var stripe = await mutationLocks.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var work = await journal.ReadProjectionWorkAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (work is null)
         {
@@ -227,7 +243,7 @@ internal sealed partial class SegmentChange(
 
         try
         {
-            var operations = work.Operations.Select(o => new ProjectedExternalOperation(o.ExternalSegmentId, o.ExpectedType)).ToList();
+            var operations = work.Operations.Select(o => new ProjectedExternalOperation(o.ExternalSegmentId, o.ExpectedType, o.StartTicks, o.EndTicks)).ToList();
             await adapter.ApplyAsync(itemId, operations, cancellationToken).ConfigureAwait(false);
 
             // Uncancelable: the apply is done; abandoning the bookkeeping would only

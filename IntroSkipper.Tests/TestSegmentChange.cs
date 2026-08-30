@@ -330,6 +330,78 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task ExternalDelete_MatchesCounterpartWithinOneTick()
+    {
+        // A row mirrored before the shared-id scheme can sit one tick from its plugin
+        // counterpart; the exact-match miss would resurrect the segment on the very
+        // sync this change journals.
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        var counterpart = new DbSegment(itemId, AnalysisMode.Introduction, 11, 21, SegmentSource.Chapter);
+        await SeedAsync(counterpart);
+        var adapter = new RecordingProjectionAdapter
+        {
+            ExternalTarget = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20)
+        };
+        var service = CreateService(adapter);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new DeleteExternalSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        Assert.Equal(counterpart.Id, Assert.Single(outcome.AffectedValues).Id);
+        await using var db = CreateContext();
+        Assert.Equal(SegmentState.Suppressed, Assert.Single(await db.Segments.ToListAsync()).State);
+    }
+
+    [Fact]
+    public async Task EmptyReplace_OnEmptyMode_ClearsStaleAnalysisRecord()
+    {
+        var itemId = Guid.NewGuid();
+        await SeedAnalyzedItemAsync(new DbAnalyzedItem(itemId, AnalysisMode.Commercial, "stale"));
+        var service = CreateService(new RecordingProjectionAdapter());
+
+        // No active rows, but the stale record must still clear so re-detection runs.
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new ReplaceUserSegmentsForModeIntent(itemId, AnalysisMode.Commercial, [])));
+        Assert.Empty(first.AffectedValues);
+
+        await using (var db = CreateContext())
+        {
+            Assert.Empty(await db.AnalyzedItems.ToListAsync());
+        }
+
+        // With neither rows nor a record left, the same request is a true no-op.
+        Assert.IsType<Ignored>(await service.ApplyAsync(
+            new ReplaceUserSegmentsForModeIntent(itemId, AnalysisMode.Commercial, [])));
+    }
+
+    [Fact]
+    public async Task EnableNudge_ReplaysBackoffArmedWork()
+    {
+        var itemId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 3 };
+        var policy = new FakeMirrorPolicy();
+        var service = CreateService(adapter, policy);
+
+        // Three failures arm a 20s backoff — longer than this test waits, so only a
+        // forced replay can apply the work.
+        await service.ApplyAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20));
+        await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId));
+        await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId));
+        Assert.Equal(3, adapter.Attempts.Count);
+
+        policy.SetEnabled(false);
+        await service.StartAsync(CancellationToken.None);
+        policy.SetEnabled(true);
+        var applied = await adapter.Applied.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(itemId, applied.ItemId);
+        await using var db = CreateContext();
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
     public async Task ExternalResolutionInfrastructureFailure_PropagatesWithoutMutation()
     {
         await using (var db = CreateContext())
@@ -376,7 +448,7 @@ public sealed class TestSegmentChange : IDisposable
     public async Task DisabledProjection_IsSkippedThenAppliedOnEnable()
     {
         var adapter = new RecordingProjectionAdapter();
-        var policy = new TestMirrorPolicy { Enabled = false };
+        var policy = new FakeMirrorPolicy { Enabled = false };
         var service = CreateService(adapter, policy);
         var itemId = Guid.NewGuid();
 
@@ -406,7 +478,7 @@ public sealed class TestSegmentChange : IDisposable
         var adapter = new RecordingProjectionAdapter();
         adapter.ExternalTargets[firstId] = new ExternalSegmentTarget(firstId, itemId, MediaSegmentType.Intro, 10, 20);
         adapter.ExternalTargets[secondId] = new ExternalSegmentTarget(secondId, itemId, MediaSegmentType.Outro, 30, 40);
-        var policy = new TestMirrorPolicy { Enabled = false };
+        var policy = new FakeMirrorPolicy { Enabled = false };
         var service = CreateService(adapter, policy);
 
         await service.ApplyAsync(new DeleteExternalSegmentIntent(itemId, firstId, MediaSegmentType.Intro));
@@ -509,7 +581,7 @@ public sealed class TestSegmentChange : IDisposable
     /// <inheritdoc />
     public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
 
-    private SegmentChange CreateService(RecordingProjectionAdapter adapter, TestMirrorPolicy? policy = null)
+    private SegmentChange CreateService(RecordingProjectionAdapter adapter, FakeMirrorPolicy? policy = null)
     {
         var database = CreateDatabase();
         adapter.Database = database;
@@ -517,7 +589,7 @@ public sealed class TestSegmentChange : IDisposable
             database,
             database,
             adapter,
-            policy ?? new TestMirrorPolicy(),
+            policy ?? new FakeMirrorPolicy(),
             new SegmentMutationLocks(),
             TimeProvider.System,
             NullLogger<SegmentChange>.Instance);
@@ -556,19 +628,6 @@ public sealed class TestSegmentChange : IDisposable
 
     /// <summary>One recorded adapter apply: the item's servable image at apply time plus the journaled operations.</summary>
     private sealed record AppliedProjection(Guid ItemId, IReadOnlyList<DbSegment> Segments, IReadOnlyList<ProjectedExternalOperation> ExternalOperations);
-
-    private sealed class TestMirrorPolicy : IMediaSegmentMirrorPolicy
-    {
-        public event EventHandler<bool>? EnabledChanged;
-
-        public bool Enabled { get; set; } = true;
-
-        internal void SetEnabled(bool enabled)
-        {
-            Enabled = enabled;
-            EnabledChanged?.Invoke(this, enabled);
-        }
-    }
 
     private sealed class RecordingProjectionAdapter : ISegmentProjectionAdapter
     {

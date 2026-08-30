@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace IntroSkipper
@@ -80,7 +81,10 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
             // Durable segment changes: the coordinator commits intents through the
             // facade and retries journaled projection work; hosted for the retry loop.
-            serviceCollection.AddSingleton(TimeProvider.System);
+            // TryAdd: the service collection is Jellyfin's shared server-wide
+            // container, so an unconditional registration would claim (or cede to a
+            // later plugin) the global TimeProvider slot for every consumer.
+            serviceCollection.TryAddSingleton(TimeProvider.System);
             serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
             serviceCollection.AddSingleton<SegmentChange>();
             serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());

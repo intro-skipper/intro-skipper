@@ -3,7 +3,7 @@
 
 namespace IntroSkipper.SegmentChanges;
 
-/// <summary>Atomically writes user timestamps and analyzed state for several modes.</summary>
+/// <summary>Atomically writes user timestamps for several modes.</summary>
 /// <param name="ItemId">Item ID.</param>
 /// <param name="Timestamps">Unique mode timestamps.</param>
 public sealed record WriteUserTimestampsIntent(Guid ItemId, IReadOnlyList<UserTimestamp> Timestamps) : SegmentChangeIntent(ItemId);

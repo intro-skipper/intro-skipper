@@ -46,10 +46,6 @@ public partial class MediaSegmentEditorService(
     IIntroSkipperDatabase database,
     ILogger<MediaSegmentEditorService> logger)
 {
-    // See DeleteUncorrelatedSegmentCoreAsync: truncated (pre-upgrade mirror) vs rounded
-    // (import) conversion of the same seconds value differs by at most one tick.
-    private const long UncorrelatedTickTolerance = 1;
-
     // Serializes all interactive mutations per item, above the mirror's stripes: a
     // concurrent mutation's sync between another request's plugin write and its rollback
     // would bake the rolled-back state into the mirror. The stripes are the shared
@@ -288,42 +284,17 @@ public partial class MediaSegmentEditorService(
     /// <summary>
     /// Deletes a Jellyfin segment row with no shared plugin id (rows predating the
     /// shared-id scheme, or foreign-provider rows) under the caller-held mutation stripe.
-    /// The plugin counterpart is matched by mode and ticks (one tick of tolerance, see
-    /// <see cref="UncorrelatedTickTolerance"/>), falling back for non-commercial modes to
-    /// the item's single active row of the mode; without a counterpart, only the Jellyfin
-    /// delete and state reset run. A matched counterpart may already be mirrored under
-    /// its own id, so the item's mirror is re-synced after the targeted delete.
+    /// The plugin counterpart is matched by the shared
+    /// <see cref="UncorrelatedSegmentMatcher"/> rule (one tick of tolerance, closest
+    /// wins, non-commercial mode-wide fallback); without a counterpart, only the
+    /// Jellyfin delete and state reset run. A matched counterpart may already be
+    /// mirrored under its own id, so the item's mirror is re-synced after the targeted
+    /// delete.
     /// </summary>
     private async Task DeleteUncorrelatedSegmentCoreAsync(Guid itemId, AnalysisMode mode, MediaSegmentDto jellyfinSegment, CancellationToken cancellationToken)
     {
         var itemRows = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        // Rows mirrored before the shared-id scheme were converted from seconds by
-        // truncation while the legacy import rounds, so the two can sit one tick apart;
-        // absorb that here without reintroducing range-level epsilon matching elsewhere.
-        // Several rows can sit inside the tolerance (1-tick-shifted copies of the same
-        // boundaries), so the closest one wins — an exact match beats a shifted copy —
-        // with the id as a deterministic tie-break instead of enumeration order.
-        var match = itemRows
-            .Where(s => s.Type == mode
-                && Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) <= UncorrelatedTickTolerance
-                && Math.Abs(s.EndTicks - jellyfinSegment.EndTicks) <= UncorrelatedTickTolerance)
-            .OrderBy(s => Math.Abs(s.StartTicks - jellyfinSegment.StartTicks) + Math.Abs(s.EndTicks - jellyfinSegment.EndTicks))
-            .ThenBy(s => s.Id)
-            .FirstOrDefault();
-
-        // A Jellyfin row can drift from its plugin counterpart when re-analysis or edits
-        // ran while mirroring was off. The legacy DELETE wire matched mode-wide for
-        // non-commercial types, so honor that where it is unambiguous — exactly one
-        // active row of the mode; commercials (many per item) keep exact matching.
-        if (match is null && mode != AnalysisMode.Commercial)
-        {
-            var modeRows = itemRows.Where(s => s.Type == mode).ToList();
-            if (modeRows.Count == 1)
-            {
-                match = modeRows[0];
-            }
-        }
+        var match = UncorrelatedSegmentMatcher.Find(itemRows, mode, jellyfinSegment.StartTicks, jellyfinSegment.EndTicks);
 
         DbSegment? deleted = null;
         if (match is not null)

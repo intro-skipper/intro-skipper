@@ -85,6 +85,9 @@ namespace IntroSkipper.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<long>("EndTicks")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("ExpectedType")
                         .HasColumnType("INTEGER");
 
@@ -93,6 +96,9 @@ namespace IntroSkipper.Migrations
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("TEXT");
+
+                    b.Property<long>("StartTicks")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
