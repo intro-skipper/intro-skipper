@@ -539,6 +539,49 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
+    public async Task ResetItemForReanalysis_RemovesItemStoredWithLowercaseGuidJson()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var seasonId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var siblingId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+
+                // RecordSettleReanalysisAsync and rows migrated from DbSeasonInfo store episode-id
+                // JSON with lowercase GUIDs, while EF's primitive-collection mapping writes
+                // uppercase. The reset must find the item regardless of the stored casing.
+                var lowercaseJson = System.Text.Json.JsonSerializer.Serialize(new[] { itemId, siblingId });
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                    INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                    VALUES ({seasonId}, {(int)AnalysisMode.Introduction}, {(int)AnalyzerAction.Chromaprint}, {lowercaseJson}, {"hash"}, {lowercaseJson})
+                    """);
+            }
+
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ResetItemForReanalysisAsync(itemId, [AnalysisMode.Introduction]);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var state = db.DbSeasonState.Single();
+                Assert.Equal([siblingId], state.EpisodeIds);
+                Assert.Equal([siblingId], state.SettledReanalysisEpisodeIds);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ResetItemForReanalysis_RemovesItemReferencedOnlyInSettledReanalysisSet()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");

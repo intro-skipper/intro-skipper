@@ -179,12 +179,20 @@ public sealed partial class IntroSkipperDatabase
             // SeasonId reported with the item change (in-season specials, unresolved-SeasonId
             // fallbacks) and can even vary between scoped and full passes for the same item, so no
             // single season id reliably locates the rows that reference the item. Match on the
-            // episode-id lists themselves instead (translated to json_each lookups by SQLite);
-            // otherwise the item stays cached as analyzed under another key while its segments
-            // were just deleted, and it is never re-analyzed.
+            // episode-id lists themselves instead; otherwise the item stays cached as analyzed
+            // under another key while its segments were just deleted, and it is never re-analyzed.
+            // The json_each lookups compare with NOCASE because the stored GUID casing is mixed:
+            // EF's primitive-collection mapping writes uppercase, while SerializeEpisodeIds
+            // (RecordSettleReanalysisAsync) and rows migrated from DbSeasonInfo are lowercase.
+            var itemIdText = itemId.ToString();
             var seasonStates = await db.DbSeasonState
-                .Where(s => modeArray.Contains(s.Type)
-                    && (s.EpisodeIds.Contains(itemId) || s.SettledReanalysisEpisodeIds.Contains(itemId)))
+                .FromSqlInterpolated(
+                    $"""
+                    SELECT * FROM "DbSeasonState"
+                    WHERE EXISTS (SELECT 1 FROM json_each("EpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
+                       OR EXISTS (SELECT 1 FROM json_each("SettledReanalysisEpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
+                    """)
+                .Where(s => modeArray.Contains(s.Type))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
