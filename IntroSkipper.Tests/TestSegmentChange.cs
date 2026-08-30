@@ -126,6 +126,11 @@ public sealed class TestSegmentChange : IDisposable
         adapter.ExternalTarget = adapter.ExternalTarget with { ItemId = itemId };
         Assert.IsType<Rejected>(await service.ApplyAsync(
             new DeleteExternalSegmentIntent(itemId, adapter.ExternalTarget.Id, MediaSegmentType.Outro)));
+
+        // A resolution that does not correspond to the requested id (the facade is a
+        // public API and must not trust the caller's pairing) is rejected too.
+        Assert.IsType<Rejected>(await service.ApplyAsync(
+            new DeleteExternalSegmentIntent(itemId, Guid.NewGuid(), MediaSegmentType.Intro)));
         await using var db = CreateContext();
         await db.ApplyMigrationsAsync();
         Assert.Empty(await db.ProjectionQueue.ToListAsync());
