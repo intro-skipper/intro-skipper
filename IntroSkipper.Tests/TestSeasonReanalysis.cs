@@ -554,9 +554,8 @@ public sealed class TestSeasonReanalysisReset
             {
                 await db.Database.EnsureCreatedAsync();
 
-                // RecordSettleReanalysisAsync and rows migrated from DbSeasonInfo store episode-id
-                // JSON with lowercase GUIDs, while EF's primitive-collection mapping writes
-                // uppercase. The reset must find the item regardless of the stored casing.
+                // RecordSettleReanalysisAsync and migrated rows store lowercase GUID JSON;
+                // the reset must find the item regardless of the stored casing.
                 Guid[] lowercaseIds = [itemId, siblingId];
                 var lowercaseJson = System.Text.Json.JsonSerializer.Serialize(lowercaseIds);
                 await db.Database.ExecuteSqlInterpolatedAsync(
