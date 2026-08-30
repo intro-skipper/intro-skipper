@@ -30,6 +30,9 @@ public class IntroSkipperDbContext : DbContext
     private static readonly ValueConverter<DateTime, DateTime> _utcDateTimeConverter =
         new(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
+    private static readonly ValueConverter<DateTime?, DateTime?> _utcNullableDateTimeConverter =
+        new(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+
     private readonly string? _dbPath;
 
     /// <summary>
@@ -44,6 +47,8 @@ public class IntroSkipperDbContext : DbContext
         AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
+        ProjectionQueue = Set<DbProjectionQueueItem>();
+        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
     }
 
     /// <summary>
@@ -65,6 +70,8 @@ public class IntroSkipperDbContext : DbContext
         AnalyzedItems = Set<DbAnalyzedItem>();
         ImportHistory = Set<DbImportRecord>();
         DisabledItems = Set<DbDisabledItem>();
+        ProjectionQueue = Set<DbProjectionQueueItem>();
+        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
     }
 
     /// <summary>
@@ -92,6 +99,18 @@ public class IntroSkipperDbContext : DbContext
     /// segments are withheld from Jellyfin.
     /// </summary>
     public DbSet<DbDisabledItem> DisabledItems { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the pending projection
+    /// markers (one per item with work outstanding).
+    /// </summary>
+    public DbSet<DbProjectionQueueItem> ProjectionQueue { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the durable foreign-row
+    /// deletes awaiting projection.
+    /// </summary>
+    public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -184,6 +203,31 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.SeasonId);
         });
 
+        modelBuilder.Entity<DbProjectionQueueItem>(entity =>
+        {
+            entity.ToTable("ProjectionQueue");
+
+            // One marker per item; the key is always a real library item id.
+            entity.HasKey(e => e.ItemId);
+            entity.Property(e => e.ItemId)
+                  .ValueGeneratedNever();
+
+            // Serves the due-work scan (NextAttemptAt IS NULL OR <= now).
+            entity.HasIndex(e => e.NextAttemptAt);
+
+            entity.Property(e => e.NextAttemptAt)
+                  .HasConversion(_utcNullableDateTimeConverter);
+        });
+
+        modelBuilder.Entity<DbProjectionExternalOperation>(entity =>
+        {
+            entity.ToTable("ProjectionExternalOperations");
+            entity.HasKey(e => e.Id);
+
+            // Serves the per-item FIFO read during projection.
+            entity.HasIndex(e => e.ItemId);
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 
@@ -232,6 +276,8 @@ public class IntroSkipperDbContext : DbContext
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
         var disabledItems = new List<DbDisabledItem>();
+        var projectionQueue = new List<DbProjectionQueueItem>();
+        var projectionExternalOperations = new List<DbProjectionExternalOperation>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -247,12 +293,16 @@ public class IntroSkipperDbContext : DbContext
 
             try
             {
-                // Suppressed rows are salvaged too: tombstones are user intent.
+                // Suppressed rows are salvaged too: tombstones are user intent. So is
+                // pending projection work: markers and journaled foreign-row deletes
+                // record durable obligations toward Jellyfin.
                 segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -296,6 +346,7 @@ public class IntroSkipperDbContext : DbContext
         seasonStates = [.. seasonStates.DistinctBy(s => (s.SeasonId, s.Type))];
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
+        projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
 
         if (backupFailed)
         {
@@ -308,10 +359,17 @@ public class IntroSkipperDbContext : DbContext
 
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
-        // Auto-increment keys must not be restored verbatim into the fresh table.
+        // Auto-increment keys must not be restored verbatim into the fresh table. The
+        // external operations were read ordered by Id, so re-insertion in list order
+        // preserves their FIFO semantics under fresh keys.
         foreach (var record in importRecords)
         {
             record.Id = 0;
+        }
+
+        foreach (var operation in projectionExternalOperations)
+        {
+            operation.Id = 0;
         }
 
         using (var db = contextFactory())
@@ -327,6 +385,8 @@ public class IntroSkipperDbContext : DbContext
                 await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }

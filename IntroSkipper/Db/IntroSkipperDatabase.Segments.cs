@@ -263,10 +263,14 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
+        var byMode = segmentsByMode.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<(long StartTicks, long EndTicks)>)new[] { pair.Value });
+
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await ReplaceUserSegmentsCoreAsync(db, itemId, segmentsByMode, cancellationToken).ConfigureAwait(false);
+            await ReplaceUserSegmentsCoreAsync(db, itemId, byMode, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -274,12 +278,18 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Core of <see cref="ReplaceUserSegmentsAsync"/> on a caller-owned context and
-    /// transaction. Stages the changes without saving; the caller saves and commits.
+    /// transaction, generalized to a complete range set per mode. For each mode, a row
+    /// occupying exactly a requested range survives in place — keeping the id Jellyfin
+    /// knows: an active row is promoted, a tombstone revived; either way it cannot
+    /// collide with itself on the unique index. The mode's other active rows are
+    /// removed and requested ranges without an occupant are inserted as user rows.
+    /// Stages the changes without saving; the caller saves and commits.
     /// </summary>
-    private static async Task ReplaceUserSegmentsCoreAsync(
+    /// <returns>The surviving user rows, in request order per mode.</returns>
+    private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsCoreAsync(
         IntroSkipperDbContext db,
         Guid itemId,
-        IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode,
+        IReadOnlyDictionary<AnalysisMode, IReadOnlyList<(long StartTicks, long EndTicks)>> segmentsByMode,
         CancellationToken cancellationToken)
     {
         var modes = segmentsByMode.Keys.ToArray();
@@ -288,24 +298,31 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
+        var survivors = new List<DbSegment>();
+        foreach (var (mode, ranges) in segmentsByMode)
         {
-            // A row with exactly the new range survives in place (keeping the id
-            // Jellyfin knows): an active row is promoted, a tombstone revived; either
-            // way it cannot collide with itself on the unique index. Only the mode's
-            // other active rows go.
-            var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
-            db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && s != row));
+            var kept = new List<DbSegment>();
+            foreach (var (startTicks, endTicks) in ranges.Distinct())
+            {
+                var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
+                if (row is not null)
+                {
+                    row.PromoteToUser();
+                }
+                else
+                {
+                    row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
+                    db.Segments.Add(row);
+                }
 
-            if (row is not null)
-            {
-                row.PromoteToUser();
+                kept.Add(row);
             }
-            else
-            {
-                db.Segments.Add(new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User));
-            }
+
+            db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && !kept.Contains(s)));
+            survivors.AddRange(kept);
         }
+
+        return survivors;
     }
 
     /// <inheritdoc/>

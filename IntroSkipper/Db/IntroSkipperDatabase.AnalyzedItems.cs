@@ -48,6 +48,15 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
+        await ClearItemAnalysisCoreAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Core of <see cref="ClearItemAnalysisAsync"/> on a caller-owned context. The
+    /// delete executes immediately (not staged), scoped by any ambient transaction.
+    /// </summary>
+    private static async Task ClearItemAnalysisCoreAsync(IntroSkipperDbContext db, Guid itemId, AnalysisMode mode, CancellationToken cancellationToken)
+    {
         await db.AnalyzedItems
             .Where(a => a.ItemId == itemId && a.Type == mode)
             .ExecuteDeleteAsync(cancellationToken)
