@@ -200,7 +200,7 @@ namespace IntroSkipper.Services
 
             if (id.HasValue)
             {
-                var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+                var delay = itemChangeEventArgs.UpdateReason == ItemUpdateType.None ? 120 : 60;
 
                 lock (_seasonsLock)
                 {
@@ -210,8 +210,7 @@ namespace IntroSkipper.Services
                     // cache as still valid. Defer invalidation until the coordinated analysis
                     // pass, after any currently running analysis has finished writing its state.
                     if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
-                        item.Id != Guid.Empty &&
-                        Plugin.Instance is not null)
+                        item.Id != Guid.Empty)
                     {
                         _itemsToReset[item.Id] = id.Value;
                     }
@@ -432,7 +431,11 @@ namespace IntroSkipper.Services
                         }
 
                         var failedRefreshSeasonIds = new HashSet<Guid>();
-                        if (_config.UpdateMediaSegments && successfullyResetItems.Count > 0)
+
+                        // Not gated on UpdateMediaSegments: the refresher no-ops itself via
+                        // MediaSegmentMirrorPolicy, which reads live config instead of this
+                        // class's snapshot.
+                        if (successfullyResetItems.Count > 0)
                         {
                             try
                             {

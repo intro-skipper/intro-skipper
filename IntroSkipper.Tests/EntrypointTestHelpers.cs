@@ -42,11 +42,16 @@ internal static class EntrypointTestHelpers
         var logger = loggerFactory.CreateLogger<Entrypoint>();
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
+        // The Entrypoint and its analyzer factory see the same segment database and
+        // refresher, as they do in production DI.
+        var segmentDatabase = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var mediaSegmentRefresher = new FakeMediaSegmentRefresher();
+
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             taskManager: null!,
             cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
-            database: DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            database: segmentDatabase,
             ffmpegService: null!,
             logger: logger,
             analyzerFactory: new AnalyzerTaskFactory(
@@ -54,11 +59,11 @@ internal static class EntrypointTestHelpers
                 libraryManager: null!,
                 providerManager: null!,
                 fileSystem: null!,
-                mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
+                mediaSegmentRefresher: mediaSegmentRefresher,
                 ffmpegService: null!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
-            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
+                database: segmentDatabase),
+            mediaSegmentRefresher: mediaSegmentRefresher);
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
