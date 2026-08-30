@@ -175,13 +175,17 @@ public sealed partial class IntroSkipperDatabase
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // Season-state rows are keyed by the resolved queue key, which can differ from the raw
-            // SeasonId reported with the item change (in-season specials, unresolved-SeasonId
-            // fallbacks) and can even vary between scoped and full passes for the same item, so no
-            // single season id reliably locates the rows that reference the item. Scan all rows for
-            // the requested modes instead; otherwise the item stays cached as analyzed under another
-            // key while its segments were just deleted, and it is never re-analyzed.
+            // No single season id reliably locates the rows referencing an item (see #936), so
+            // match on the episode-id lists themselves. NOCASE is required because EF writes
+            // uppercase GUID JSON while SerializeEpisodeIds and migrated rows are lowercase.
+            var itemIdText = itemId.ToString();
             var seasonStates = await db.DbSeasonState
+                .FromSqlInterpolated(
+                    $"""
+                    SELECT * FROM "DbSeasonState"
+                    WHERE EXISTS (SELECT 1 FROM json_each("EpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
+                       OR EXISTS (SELECT 1 FROM json_each("SettledReanalysisEpisodeIds") WHERE "value" = {itemIdText} COLLATE NOCASE)
+                    """)
                 .Where(s => modeArray.Contains(s.Type))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
