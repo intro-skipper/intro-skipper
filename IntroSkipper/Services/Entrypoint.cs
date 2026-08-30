@@ -8,6 +8,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
@@ -36,15 +37,19 @@ namespace IntroSkipper.Services
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IDetectionCacheDatabase _cacheDatabase;
+        private readonly IIntroSkipperDatabase _database;
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly AnalyzerTaskFactory _analyzerFactory;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
+        private readonly Dictionary<Guid, Guid> _itemsToReset = [];
         private readonly Lock _seasonsLock = new();
+        private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;
         private volatile bool _analyzeAgain;
+        private volatile bool _isStopping;
         private static CancellationTokenSource? _cancellationTokenSource;
 
         /// <summary>
@@ -53,23 +58,29 @@ namespace IntroSkipper.Services
         /// <param name="libraryManager">Library manager.</param>
         /// <param name="taskManager">Task manager.</param>
         /// <param name="cacheDatabase">Detection cache database facade.</param>
+        /// <param name="database">Segment database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+        /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             IDetectionCacheDatabase cacheDatabase,
+            IIntroSkipperDatabase database,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
-            AnalyzerTaskFactory analyzerFactory)
+            AnalyzerTaskFactory analyzerFactory,
+            IMediaSegmentRefresher mediaSegmentRefresher)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
             _cacheDatabase = cacheDatabase;
+            _database = database;
             _ffmpegService = ffmpegService;
             _logger = logger;
             _analyzerFactory = analyzerFactory;
+            _mediaSegmentRefresher = mediaSegmentRefresher;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -99,6 +110,11 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            lock (_seasonsLock)
+            {
+                _isStopping = false;
+            }
+
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
             _libraryManager.ItemRemoved += OnItemRemoved;
@@ -117,13 +133,18 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StopAsync(CancellationToken cancellationToken)
         {
+            lock (_seasonsLock)
+            {
+                _isStopping = true;
+                _queueTimer.Change(Timeout.Infinite, 0);
+            }
+
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
             _libraryManager.ItemRemoved -= OnItemRemoved;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
-            _queueTimer.Change(Timeout.Infinite, 0);
             await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -183,6 +204,18 @@ namespace IntroSkipper.Services
 
                 lock (_seasonsLock)
                 {
+                    // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A
+                    // replacement at the same path retains the Jellyfin item ID, so the normal
+                    // queue would otherwise treat the old automatic analysis and fingerprint
+                    // cache as still valid. Defer invalidation until the coordinated analysis
+                    // pass, after any currently running analysis has finished writing its state.
+                    if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
+                        item.Id != Guid.Empty &&
+                        Plugin.Instance is not null)
+                    {
+                        _itemsToReset[item.Id] = id.Value;
+                    }
+
                     _seasonsToAnalyze.Add(id.Value);
                 }
 
@@ -291,14 +324,22 @@ namespace IntroSkipper.Services
         /// </summary>
         private void StartTimer(int delay = 60)
         {
-            if (AutomaticTaskState == TaskState.Running)
+            lock (_seasonsLock)
             {
-                _analyzeAgain = true;
-            }
-            else if (AutomaticTaskState == TaskState.Idle)
-            {
-                LogMediaLibraryChanged();
-                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
+                if (_isStopping)
+                {
+                    return;
+                }
+
+                if (AutomaticTaskState == TaskState.Running)
+                {
+                    _analyzeAgain = true;
+                }
+                else if (AutomaticTaskState == TaskState.Idle)
+                {
+                    LogMediaLibraryChanged();
+                    _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
+                }
             }
         }
 
@@ -327,29 +368,94 @@ namespace IntroSkipper.Services
             try
             {
                 var cts = new CancellationTokenSource();
-                Interlocked.Exchange(ref _cancellationTokenSource, cts);
+
+                // A timer callback can already be in flight when StopAsync stops the timer.
+                // Starting a new analysis here would leave shutdown waiting on the semaphore
+                // until it times out, so bail out and keep the queues for the next start.
+                // Checking the flag and publishing the cancellation source under the same
+                // lock StopAsync uses to set the flag guarantees shutdown either sees the
+                // published source and cancels it, or this callback sees the flag and stops.
+                lock (_seasonsLock)
+                {
+                    if (_isStopping)
+                    {
+                        cts.Dispose();
+                        return;
+                    }
+
+                    Interlocked.Exchange(ref _cancellationTokenSource, cts);
+                }
+
                 try
                 {
                     using (await ScheduledTaskSemaphore.AcquireAsync(cts.Token).ConfigureAwait(false))
                     {
                         LogInitiatingAutomaticAnalysis();
                         HashSet<Guid> seasonIds;
+                        Dictionary<Guid, Guid> itemsToReset;
                         lock (_seasonsLock)
                         {
                             seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+                            itemsToReset = new Dictionary<Guid, Guid>(_itemsToReset);
                             _seasonsToAnalyze.Clear();
+                            _itemsToReset.Clear();
+                            _analyzeAgain = false;
                         }
 
-                        _analyzeAgain = false;
+                        var failedResetSeasonIds = new HashSet<Guid>();
+                        var successfullyResetItems = new Dictionary<Guid, Guid>();
+                        foreach (var (itemId, seasonId) in itemsToReset)
+                        {
+                            try
+                            {
+                                await _database.ResetItemsForReanalysisAsync(
+                                    [itemId],
+                                    Enum.GetValues<AnalysisMode>(),
+                                    cts.Token).ConfigureAwait(false);
+                                _cacheDatabase.DeleteForItem(itemId);
+
+                                successfullyResetItems[itemId] = seasonId;
+                                LogMediaItemChanged(_logger, itemId);
+                            }
+                            catch (Exception ex)
+                            {
+                                lock (_seasonsLock)
+                                {
+                                    _itemsToReset[itemId] = seasonId;
+                                    _seasonsToAnalyze.Add(seasonId);
+                                    _analyzeAgain = true;
+                                }
+
+                                failedResetSeasonIds.Add(seasonId);
+                                LogErrorResettingChangedMediaItem(_logger, ex, itemId);
+                            }
+                        }
+
+                        var failedRefreshSeasonIds = new HashSet<Guid>();
+                        if (_config.UpdateMediaSegments && successfullyResetItems.Count > 0)
+                        {
+                            try
+                            {
+                                await _mediaSegmentRefresher.RefreshAsync(successfullyResetItems.Keys, cts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+                            {
+                                RequeueResetItems(successfullyResetItems);
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                RequeueResetItems(successfullyResetItems);
+                                failedRefreshSeasonIds.UnionWith(successfullyResetItems.Values);
+                                LogErrorRefreshingChangedMediaItems(_logger, ex, successfullyResetItems.Count);
+                            }
+                        }
+
+                        seasonIds.ExceptWith(failedResetSeasonIds);
+                        seasonIds.ExceptWith(failedRefreshSeasonIds);
 
                         var analyzer = _analyzerFactory.CreateAnalyzerTask();
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
-
-                        if (_analyzeAgain && !cts.IsCancellationRequested)
-                        {
-                            LogAnalyzingEndedNeedsRestart();
-                            _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
-                        }
                     }
                 }
                 finally
@@ -358,11 +464,48 @@ namespace IntroSkipper.Services
                     // from reading a disposed CancellationTokenSource via Volatile.Read.
                     Interlocked.Exchange(ref _cancellationTokenSource, null);
                     cts.Dispose();
+
+                    // Do this after making the task idle. An item update can arrive while the
+                    // task is cancelling; checking the queues here ensures that update is not
+                    // stranded. ScheduleAnalysisIfNeeded suppresses this during shutdown.
+                    ScheduleAnalysisIfNeeded();
                 }
             }
             finally
             {
                 _analysisSemaphore.Release();
+            }
+        }
+
+        private void ScheduleAnalysisIfNeeded()
+        {
+            lock (_seasonsLock)
+            {
+                if (_isStopping)
+                {
+                    return;
+                }
+
+                var needsRestart = _analyzeAgain || _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
+                if (needsRestart && AutomaticTaskState == TaskState.Idle)
+                {
+                    LogAnalyzingEndedNeedsRestart();
+                    _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                }
+            }
+        }
+
+        private void RequeueResetItems(IReadOnlyDictionary<Guid, Guid> itemsToReset)
+        {
+            lock (_seasonsLock)
+            {
+                foreach (var (itemId, seasonId) in itemsToReset)
+                {
+                    _itemsToReset[itemId] = seasonId;
+                    _seasonsToAnalyze.Add(seasonId);
+                }
+
+                _analyzeAgain = true;
             }
         }
 
@@ -403,6 +546,15 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
         private partial void LogMediaItemRemoved(Guid id);
+
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Media item changed, invalidating automatic analysis and fingerprint cache for {Id}")]
+        private static partial void LogMediaItemChanged(ILogger logger, Guid id);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for changed media item {Id}")]
+        private static partial void LogErrorResettingChangedMediaItem(ILogger logger, Exception ex, Guid id);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to refresh media segments for {Count} changed media items")]
+        private static partial void LogErrorRefreshingChangedMediaItems(ILogger logger, Exception ex, int count);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
         private partial void LogErrorDeletingFingerprintCache(Exception ex);

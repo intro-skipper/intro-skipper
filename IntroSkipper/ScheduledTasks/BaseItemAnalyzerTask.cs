@@ -288,8 +288,9 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true"/> when the pass changed stored segments — an item was
-    /// analyzed, or stale automatic rows were removed before the analyzers ran — so the
-    /// caller converges the Jellyfin mirror.</returns>
+    /// analyzed, stale automatic rows were removed before the analyzers ran, an analyzer
+    /// deleted a segment it adjusted into an unusable range, or a derived preview was
+    /// written — so the caller converges the Jellyfin mirror.</returns>
     private async Task<bool> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
@@ -407,6 +408,10 @@ public partial class BaseItemAnalyzerTask(
                 break;
         }
 
+        // Analyzers that adjust an existing automatic segment into an unusable range delete it and
+        // mark the episode NoSegments, so a transition into that state means stored segments changed.
+        var preAnalysisStates = items.ToDictionary(e => e.EpisodeId, e => e.GetAnalyzed(mode));
+
         // Execute each analyzer in order. Analyzers skip episodes already
         // marked as analyzed by earlier ones via NeedsAnalysis().
         foreach (var analyzer in analyzers)
@@ -428,7 +433,12 @@ public partial class BaseItemAnalyzerTask(
         await _database.MarkItemsAnalyzedAsync(mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
         var analyzed = totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
-        return analyzed > 0 || staleRemoved > 0 || previewsWritten;
+        var invalidSegmentsRemoved = items.Any(e =>
+            e.GetAnalyzed(mode) == EpisodeState.NoSegments
+            && preAnalysisStates.TryGetValue(e.EpisodeId, out var previousState)
+            && previousState != EpisodeState.NoSegments);
+
+        return analyzed > 0 || staleRemoved > 0 || previewsWritten || invalidSegmentsRemoved;
     }
 
     /// <summary>

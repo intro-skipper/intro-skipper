@@ -924,9 +924,11 @@ public sealed class TestDatabaseFacades
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(tombstonedItemId));
             await database.DeleteSegmentAsync(tombstonedItemId, tombstoned.Id);
 
-            await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
+            var deleted = await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
 
+            Assert.Equal(1, deleted);
             Assert.Empty(await database.GetSegmentsAsync(staleItemId));
+            Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config"));
 
             await using var db = new IntroSkipperDbContext(dbPath);
             var remaining = await db.Segments.AsNoTracking().ToListAsync();
