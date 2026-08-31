@@ -271,6 +271,42 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task EditorDelete_PendingJournaledDelete_IsIgnored_AndClaimsNoFurtherSegment()
+    {
+        var itemId = Guid.NewGuid();
+
+        // Two active user intros; the first delete of the uncorrelated Jellyfin row
+        // hard-deletes its tick-matched counterpart and leaves the foreign-row
+        // delete journaled (the immediate projection fails). A repeated delete of
+        // the same row — a double-click, a retry, or a request that resolved before
+        // the first one's projection ran — must not let the mode-wide fallback
+        // claim the surviving intro the user never addressed.
+        var claimed = new DbSegment(itemId, AnalysisMode.Introduction, 1000, 2000, SegmentSource.User);
+        var survivor = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.User);
+        await SeedAsync(claimed, survivor);
+        var jellyfinRowId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        adapter.ExternalTargets[jellyfinRowId] = new ExternalSegmentTarget(jellyfinRowId, itemId, MediaSegmentType.Intro, 1000, 2000);
+        var service = CreateService(adapter);
+
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, jellyfinRowId, MediaSegmentType.Intro)));
+        Assert.Equal(ProjectionState.Pending, first.Projection);
+
+        var second = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, jellyfinRowId, MediaSegmentType.Intro)));
+
+        // The retry's re-projection then converged: the journaled delete ran exactly
+        // once, and the surviving intro was never touched.
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, second.Reason);
+        var applied = Assert.Single(adapter.Applies);
+        Assert.Equal(jellyfinRowId, Assert.Single(applied.ExternalOperations).ExternalSegmentId);
+        await using var db = CreateContext();
+        Assert.Equal(survivor.Id, Assert.Single(await db.Segments.ToListAsync()).Id);
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
     public async Task EditorDelete_UncorrelatedResolutionMismatches_RejectBeforeCommit()
     {
         var itemId = Guid.NewGuid();

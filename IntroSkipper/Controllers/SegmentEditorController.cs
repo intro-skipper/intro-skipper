@@ -94,16 +94,11 @@ public class SegmentEditorController(ISegmentChange segmentChange) : ControllerB
             ? new AddUserSegmentIntent(itemId, mode, segment.StartTicks, segment.EndTicks)
             : new ReplaceUserSegmentsForModeIntent(itemId, mode, [new SegmentRange(segment.StartTicks, segment.EndTicks)]);
         var outcome = await _segmentChange.ApplyAsync(intent, cancellationToken).ConfigureAwait(false);
-        ActionResult result = outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } => Ok(),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => Ok(),
             // The posted image is already stored; an idempotent re-POST succeeds.
-            Ignored => Ok(),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
-        return result;
+            onIgnored: _ => Ok());
     }
 
     /// <summary>
@@ -147,15 +142,11 @@ public class SegmentEditorController(ISegmentChange segmentChange) : ControllerB
         var outcome = await _segmentChange
             .ApplyAsync(new EditorDeleteSegmentIntent(itemId, segmentId, AnalysisHelpers.ModeToSegmentType[requestedMode]), cancellationToken)
             .ConfigureAwait(false);
-        return outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } => Ok(),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => Ok(),
             // The plugin already treats the row as deleted; the journaled
-            // re-projection removes any ghost Jellyfin row.
-            Ignored => Ok(),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
+            // re-projection (or the still-pending journaled delete) converges Jellyfin.
+            onIgnored: _ => Ok());
     }
 }

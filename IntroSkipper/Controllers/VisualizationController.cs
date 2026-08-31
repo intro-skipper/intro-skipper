@@ -282,8 +282,15 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        // The row's season key is a server-side pruning detail; callers only name the item.
+        // The row's season key is a server-side pruning detail; callers only name the
+        // item. An episode Jellyfin resolved no season for reports Guid.Empty — fall
+        // back to the item's own id (the movie convention) so the toggle keeps
+        // working: cleanup prunes by item id, the key only serves the listing.
         var seasonKey = SeasonStateKeyResolver.Resolve(item);
+        if (seasonKey == Guid.Empty)
+        {
+            seasonKey = itemId;
+        }
 
         try
         {
@@ -293,16 +300,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             var outcome = await _segmentChange
                 .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
                 .ConfigureAwait(false);
-            return outcome switch
-            {
-                Accepted { Projection: ProjectionState.Applied } => NoContent(),
-                Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+            return SegmentChangeHttp.Map(
+                outcome,
+                onApplied: _ => NoContent(),
                 // The flag already has the requested value; an idempotent toggle
                 // succeeds (its journaled re-projection still heals a diverged mirror).
-                Ignored => NoContent(),
-                Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-                _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-            };
+                onIgnored: _ => NoContent());
         }
         catch (OperationCanceledException)
         {

@@ -275,6 +275,34 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
+    public async Task DisabledItems_EpisodeWithoutSeason_FallsBackToItsOwnKey()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var orphanId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+
+        // The episode is not in the cached queue and Jellyfin resolved no season for
+        // it, so SeasonStateKeyResolver's last resort reports Guid.Empty.
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(orphanId, Guid.Empty)));
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(loggerFactory, database, pluginScope.CacheDbPath);
+
+        var result = await controller.DisableItem(orphanId, CancellationToken.None);
+
+        // The toggle records the item's own id as its key (the movie convention)
+        // instead of rejecting the intent over the empty season key.
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal([orphanId], await database.GetDisabledItemIdsAsync(orphanId));
+    }
+
+    [Fact]
     public async Task DisabledItems_RejectUnknownItem()
     {
         var seriesId = Guid.NewGuid();

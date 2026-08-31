@@ -121,7 +121,8 @@ public sealed partial class IntroSkipperDatabase
         {
             AddUserSegmentIntent value when !ValidMode(value.Mode) || !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
             ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !TickConversions.IsValidTickRange(range.StartTicks, range.EndTicks)) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
-            UpdateSegmentIntent value when value.SegmentId == Guid.Empty || !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid segment ID or tick range."),
+            UpdateSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
+            UpdateSegmentIntent value when !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid tick range."),
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid external segment ID or type."),
@@ -129,7 +130,8 @@ public sealed partial class IntroSkipperDatabase
             DeleteExternalSegmentIntent value when externalTarget.Id != value.ExternalSegmentId => new(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External target does not correspond to the requested segment ID."),
             DeleteExternalSegmentIntent value when externalTarget.ItemId != value.ItemId => new(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item."),
             DeleteExternalSegmentIntent value when externalTarget.Type != value.ExpectedType => new(SegmentChangeRejectedReason.ExternalTypeMismatch, "External segment type does not match the expected type."),
-            EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment ID or type."),
+            EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
+            EditorDeleteSegmentIntent value when AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment type."),
             WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !TickConversions.IsValidTickRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
             SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
@@ -387,6 +389,23 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         var sharedIdRow = itemRows.Find(s => s.Id == externalSegmentId);
+
+        // A pending journaled delete of this uncorrelated row means a concurrent or
+        // retried request already recorded this exact delete, and its projection has
+        // not applied yet (applies run under the same stripe the caller holds, so
+        // none can be mid-flight). Matching again would be dangerous, not just
+        // redundant: the first request's counterpart may be gone without a trace (a
+        // hard-deleted user row), leaving the mode-wide fallback free to claim a
+        // segment the caller never addressed. The pending operation already removes
+        // the external row, so the intent is idempotently satisfied.
+        if (sharedIdRow is null
+            && await db.ProjectionExternalOperations
+                .AnyAsync(o => o.ItemId == itemId && o.ExternalSegmentId == externalSegmentId, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
+        }
+
         var match = sharedIdRow is not null
             ? (sharedIdRow.State == SegmentState.Active && sharedIdRow.Type == mode ? sharedIdRow : null)
             : UncorrelatedSegmentMatcher.Find(

@@ -110,16 +110,11 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new AddUserSegmentIntent(itemId, request.Type, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        ActionResult result = outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } accepted => ToCreated(accepted.AffectedValues.Single()),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: accepted => ToCreated(accepted.AffectedValues.Single()),
             // An identical active user segment already exists; report it like a create.
-            Ignored ignored => ToCreated(ignored.AffectedValues.Single()),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
-        return result;
+            onIgnored: ignored => ToCreated(ignored.AffectedValues.Single()));
 
         CreatedAtActionResult ToCreated(SegmentValue value)
             => CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentChangeHttp.ToDto(value));
@@ -166,16 +161,11 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        ActionResult result = outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
             // The segment already carries the requested values; report it like an update.
-            Ignored ignored => Ok(SegmentChangeHttp.ToDto(ignored.AffectedValues.Single())),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
-        return result;
+            onIgnored: ignored => Ok(SegmentChangeHttp.ToDto(ignored.AffectedValues.Single())));
     }
 
     /// <summary>
@@ -207,15 +197,11 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new DeleteSegmentIntent(itemId, segmentId), cancellationToken)
             .ConfigureAwait(false);
-        return outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } => NoContent(),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => NoContent(),
             // Unknown on the item or already suppressed — the id addresses nothing deletable.
-            Ignored => NotFound(),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
+            onIgnored: _ => NotFound());
     }
 
     /// <summary>
@@ -246,15 +232,10 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new RestoreSegmentIntent(itemId, segmentId), cancellationToken)
             .ConfigureAwait(false);
-        ActionResult result = outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
             // Unknown on the item or not suppressed — the id addresses nothing restorable.
-            Ignored => NotFound(),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
-        return result;
+            onIgnored: _ => NotFound());
     }
 }

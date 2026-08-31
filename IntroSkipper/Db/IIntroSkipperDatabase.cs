@@ -82,6 +82,15 @@ public interface IIntroSkipperDatabase
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns a stored segment by id, regardless of state. The point read behind the
+    /// editor delete's correlated-dispatch precheck.
+    /// </summary>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The row, or <c>null</c> when unknown.</returns>
+    Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.
     /// Tombstones are excluded unless <paramref name="includeSuppressed"/> is set.
     /// </summary>
