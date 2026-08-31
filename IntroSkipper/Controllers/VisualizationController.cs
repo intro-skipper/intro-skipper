@@ -258,7 +258,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         .ExecuteDeleteAsync(cancellationToken)
                         .ConfigureAwait(false);
 
-                    var seasonIds = excludedIdsBySeason.Keys.ToHashSet();
+                    HashSet<Guid> seasonIds = [.. excludedIdsBySeason.Keys];
                     var seasonStates = await db.DbSeasonState
                         .Where(s => seasonIds.Contains(s.SeasonId))
                         .ToListAsync(cancellationToken)
@@ -266,7 +266,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
                     foreach (var state in seasonStates)
                     {
-                        var currentIds = state.EpisodeIds.ToList();
+                        List<Guid> currentIds = [.. state.EpisodeIds];
                         if (currentIds.RemoveAll(excludedIdsBySeason[state.SeasonId].Contains) > 0)
                         {
                             db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
