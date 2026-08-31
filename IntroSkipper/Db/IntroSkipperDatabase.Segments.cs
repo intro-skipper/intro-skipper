@@ -698,13 +698,6 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var itemIds = await db.Segments
-                .Where(s => s.Type == mode)
-                .Select(s => s.ItemId)
-                .Distinct()
-                .ToArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
-
             // Credits-derived rows are produced by the credits pass, so erasing them must
             // also reopen that pass for their items — the erased mode's own pass cannot
             // regenerate them and would just settle the items as NoSegments.
@@ -715,10 +708,13 @@ public sealed partial class IntroSkipperDatabase
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            await db.Segments
-                .Where(s => s.Type == mode)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            // The kernel journals every erased item's projection with the erase, so
+            // Jellyfin's rows converge away even if the process dies before the
+            // mirror is pushed.
+            var (_, itemIds) = await DeleteSegmentsAndJournalAsync(
+                db,
+                db.Segments.Where(s => s.Type == mode),
+                cancellationToken).ConfigureAwait(false);
 
             // Without this the erased items stay recorded as analyzed for the mode and
             // VerifyQueueAsync settles them as NoSegments, so nothing would re-detect them.
@@ -735,9 +731,6 @@ public sealed partial class IntroSkipperDatabase
                     .ConfigureAwait(false);
             }
 
-            // Journal every erased item's projection with the erase, so Jellyfin's
-            // rows converge away even if the process dies before the mirror is pushed.
-            await EnqueueProjectionsAsync(db, itemIds, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

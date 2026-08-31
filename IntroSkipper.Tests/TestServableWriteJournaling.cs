@@ -44,7 +44,7 @@ public sealed class TestServableWriteJournaling : IDisposable
     }
 
     [Fact]
-    public async Task EraseItems_JournalsOnlyItemsThatHeldRows()
+    public async Task EraseItems_JournalsEveryAddressedItem()
     {
         var withRows = Guid.NewGuid();
         var withoutRows = Guid.NewGuid();
@@ -52,9 +52,11 @@ public sealed class TestServableWriteJournaling : IDisposable
         await database.AddUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
         await ClearQueueAsync();
 
+        // The zero-row item is journaled too: it may hold ghost Jellyfin rows that
+        // only a projection heals, and the erase names it explicitly.
         await database.EraseItemsAsync([withRows, withoutRows]);
 
-        Assert.Equal([withRows], await QueuedItemIdsAsync());
+        Assert.Equal(new[] { withRows, withoutRows }.OrderBy(id => id).ToArray(), await QueuedItemIdsAsync());
     }
 
     [Fact]

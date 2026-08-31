@@ -142,10 +142,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             // The erase journaled every affected item's projection; converge exactly
             // those items now — unrelated pending work keeps its backoff. Anything
             // this pass cannot finish stays journaled and the worker completes it.
-            foreach (var episodeId in episodeIds)
-            {
-                await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(episodeId), cancellationToken).ConfigureAwait(false);
-            }
+            await _segmentChange.ProjectItemsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -194,10 +191,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             // As in EraseSeasonAsync: the erase journaled the affected items'
             // projections; converge exactly those items now, the journal owns the rest.
-            foreach (var excludedId in excludedIds)
-            {
-                await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(excludedId), cancellationToken).ConfigureAwait(false);
-            }
+            await _segmentChange.ProjectItemsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }

@@ -139,12 +139,9 @@ public partial class CleanCacheTask(
             // Converge exactly the erased items now rather than waiting for the
             // worker's poll — unrelated pending work keeps its backoff; anything this
             // pass cannot finish stays journaled. Uncancelable: the erase is committed.
-            foreach (var staleEpisodeId in staleTimestampEpisodeIds)
-            {
-                await _segmentChange
-                    .RetryProjectionAsync(ProjectionScope.ForItem(staleEpisodeId), CancellationToken.None)
-                    .ConfigureAwait(false);
-            }
+            await _segmentChange
+                .ProjectItemsAsync(staleTimestampEpisodeIds, CancellationToken.None)
+                .ConfigureAwait(false);
         }
 
         // Identify episode IDs in the SQLite cache whose items are gone.

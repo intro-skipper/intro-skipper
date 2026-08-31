@@ -207,10 +207,7 @@ public partial class SkipIntroController(
         // The erase journaled every affected item's projection; converge exactly those
         // items now for a snappy dashboard — unrelated pending work keeps its backoff.
         // Anything this pass cannot finish stays journaled and the worker completes it.
-        foreach (var itemId in itemIds)
-        {
-            await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(itemId), cancellationToken).ConfigureAwait(false);
-        }
+        await _segmentChange.ProjectItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

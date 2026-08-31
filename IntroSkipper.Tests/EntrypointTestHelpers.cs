@@ -67,7 +67,7 @@ internal static class EntrypointTestHelpers
     }
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
-    // and returns null for any other id. Shared by the controller and refresh-service tests.
+    // and returns null for any other id. Shared by the controller test suites.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => LibraryManagerProxy.Create(items);
 

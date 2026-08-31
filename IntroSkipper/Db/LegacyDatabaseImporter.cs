@@ -395,13 +395,15 @@ internal static partial class LegacyDatabaseImporter
 
     private static bool TryReadGuid(object value, out Guid guid)
     {
+        // An all-zero id can never name a real Jellyfin item, so a row carrying one
+        // is corrupt: skip it rather than import a segment nothing can ever serve.
         switch (value)
         {
-            case string text when Guid.TryParse(text, out guid):
+            case string text when Guid.TryParse(text, out guid) && guid != Guid.Empty:
                 return true;
             case byte[] { Length: 16 } blob:
                 guid = new Guid(blob);
-                return true;
+                return guid != Guid.Empty;
             default:
                 guid = Guid.Empty;
                 return false;

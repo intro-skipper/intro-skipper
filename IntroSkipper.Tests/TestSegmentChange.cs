@@ -956,6 +956,27 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task RecordFailure_AtStaleVersion_DoesNotArmBackoff()
+    {
+        var itemId = Guid.NewGuid();
+        var database = CreateDatabase();
+        ISegmentProjectionJournal journal = database;
+
+        Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20))).Outcome);
+        var work = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        Assert.NotNull(work);
+        Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40))).Outcome);
+
+        // A failure recorded at the projected (stale) version must not push the
+        // newer work — enqueued due immediately — behind that failure's backoff.
+        await journal.RecordProjectionFailureAsync(itemId, work.Item.Version, DateTime.UtcNow.AddMinutes(5), "stale failure", CancellationToken.None);
+        var current = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        Assert.NotNull(current);
+        Assert.Null(current.Item.NextAttemptAt);
+        Assert.Equal(0, current.Item.AttemptCount);
+    }
+
+    [Fact]
     public async Task Rebuild_RetainsPendingWorkAndOperations()
     {
         var itemId = Guid.NewGuid();

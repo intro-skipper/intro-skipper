@@ -79,16 +79,10 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // Journal the affected items' projections with the delete, so rows
-            // removed here reach the mirror even when the analyzers detect nothing
-            // new — and even if the process dies before the mirror is pushed.
-            var affectedItemIds = await staleRows
-                .Select(s => s.ItemId)
-                .Distinct()
-                .ToArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var removed = await staleRows.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
+            // The kernel journals the affected items' projections with the delete, so
+            // rows removed here reach the mirror even when the analyzers detect
+            // nothing new — and even if the process dies before the mirror is pushed.
+            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, staleRows, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removed;
@@ -112,14 +106,11 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // Journal only items that actually held rows: the erase changes nothing
-            // servable for the rest, and erases can cover whole libraries.
-            var affectedItemIds = await db.Segments
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
-                .Select(s => s.ItemId)
-                .Distinct()
-                .ToArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
+            // Journal every addressed item, rows or not: an erase is the user saying
+            // "this item must serve nothing", and an item with zero plugin rows can
+            // still hold ghost Jellyfin rows (a past projection whose plugin rows were
+            // since lost) that only a projection heals. Erases are explicit user
+            // actions over bounded id sets, so the extra markers cost one no-op sync each.
             var removedSegments = await db.Segments
                 .Where(s => EF.Parameter(ids).Contains(s.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
@@ -128,7 +119,7 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => EF.Parameter(ids).Contains(a.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
-            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
+            await EnqueueProjectionsAsync(db, ids, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removedSegments;
@@ -175,15 +166,10 @@ public sealed partial class IntroSkipperDatabase
                         && u.Source == SegmentSource.User
                         && u.State == SegmentState.Active));
 
-            // Journal the affected items' projections with the delete, so a reset's
-            // removals reach the mirror even when the recompute finds nothing — and
-            // even if the process dies before the mirror is pushed.
-            var affectedItemIds = await doomedRows
-                .Select(s => s.ItemId)
-                .Distinct()
-                .ToArrayAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await doomedRows.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            // The kernel journals the affected items' projections with the delete, so
+            // a reset's removals reach the mirror even when the recompute finds
+            // nothing — and even if the process dies before the mirror is pushed.
+            await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
 
             // Without their records the items are NotAnalyzed on this pass (or a later
             // one) instead of being stranded as NoSegments.
@@ -191,7 +177,6 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => EF.Parameter(ids).Contains(a.ItemId) && modeArray.Contains(a.Type))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
-            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
