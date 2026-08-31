@@ -160,6 +160,25 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task EditorDelete_CorrelatedRow_NeedsNoJellyfinResolution()
+    {
+        var itemId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User);
+        await SeedAsync(row);
+        var adapter = new RecordingProjectionAdapter { ResolveException = new InvalidOperationException("jellyfin down") };
+        var service = CreateService(adapter);
+
+        // A plugin row owns the id, so the dispatch is decided authoritatively: the
+        // failing Jellyfin resolution is never consulted and cannot block the delete.
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, row.Id, MediaSegmentType.Intro)));
+
+        Assert.Equal(row.Id, Assert.Single(outcome.AffectedValues).Id);
+        await using var db = CreateContext();
+        Assert.Empty(await db.Segments.ToListAsync());
+    }
+
+    [Fact]
     public async Task EditorDelete_CorrelatedTypeMismatch_RejectsWithActualType()
     {
         var itemId = Guid.NewGuid();

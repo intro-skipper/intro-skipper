@@ -48,19 +48,23 @@ internal sealed partial class SegmentChange(
 
         // Resolution happens outside the stripe (it only reads Jellyfin); the facade
         // re-validates the target against the intent inside the transaction. The
-        // editor delete resolves unconditionally — its dispatch (shared-id plugin row
-        // versus uncorrelated external row) is decided inside the transaction, and a
-        // correlated dispatch simply never consults the target.
-        var externalSegmentId = intent switch
-        {
-            DeleteExternalSegmentIntent external => external.ExternalSegmentId,
-            EditorDeleteSegmentIntent editorDelete => editorDelete.SegmentId,
-            _ => Guid.Empty
-        };
+        // editor delete resolves only when no plugin row owns the id: a correlated
+        // dispatch is decided authoritatively and must not depend on a Jellyfin read
+        // that may fail while the mirror lags. The precheck is racy by nature — the
+        // facade re-checks inside the transaction, and a row vanishing in between
+        // yields the honest not-found.
         ExternalSegmentTarget? externalTarget = null;
-        if (externalSegmentId != Guid.Empty)
+        if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
         {
-            externalTarget = await adapter.ResolveExternalTargetAsync(intent.ItemId, externalSegmentId, cancellationToken).ConfigureAwait(false);
+            externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
+        }
+        else if (intent is EditorDeleteSegmentIntent editorDelete && editorDelete.SegmentId != Guid.Empty)
+        {
+            var itemRows = await database.GetSegmentsAsync(editorDelete.ItemId, includeSuppressed: true, cancellationToken).ConfigureAwait(false);
+            if (!itemRows.Any(row => row.Id == editorDelete.SegmentId))
+            {
+                externalTarget = await adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         MutationResult result;
