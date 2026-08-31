@@ -1205,7 +1205,8 @@ public class TestBlackFrames
         var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
 
         Assert.Same(episode, result[0]);
-        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.True(episode.NeedsAnalysis(AnalysisMode.Credits));
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
     }
 

@@ -84,8 +84,13 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
                 LogCaughtFingerprintError(ex);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
-                // Fallback to an empty fingerprint on any error
+                // Keep a transient fingerprint failure retriable. A completed neighbor may be
+                // included only to provide a comparison fingerprint; do not discard its valid result.
                 fingerprintCache[episode.EpisodeId] = [];
+                if (episode.NeedsAnalysis(mode))
+                {
+                    episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                }
             }
         }
 

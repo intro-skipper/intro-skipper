@@ -122,6 +122,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             }
             catch (Exception ex)
             {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
                 LogErrorAnalyzingCredits(_logger, ex, episode.Name);
             }
         }
@@ -217,6 +218,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         }
         catch (Exception ex)
         {
+            episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
             LogErrorDuringAnalysis(_logger, ex, episode.Name);
             return null;
         }

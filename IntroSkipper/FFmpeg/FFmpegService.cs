@@ -559,7 +559,7 @@ public sealed partial class FFmpegService(
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             LogAudioDurationProbeFailed(_logger, ex, filePath);
         }
@@ -660,7 +660,7 @@ public sealed partial class FFmpegService(
             firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
-    private async Task<byte[]> GetProcessOutputAsync(
+    internal async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
@@ -694,39 +694,55 @@ public sealed partial class FFmpegService(
 
         try
         {
-            process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-        }
-        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            LogFfmpegPriorityNotModified(_logger, e.Message);
-        }
+            try
+            {
+                process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+            {
+                LogFfmpegPriorityNotModified(_logger, e.Message);
+            }
 
-        using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
-        using var ms = new MemoryStream();
+            using var ms = new MemoryStream();
+            // Draining must not use the caller token: on cancellation or timeout the process is
+            // killed first, then its remaining output is drained so the pipes cannot deadlock.
+            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, CancellationToken.None);
+            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, CancellationToken.None);
 
-        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
-        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            var timedOut = false;
+            try
+            {
+                await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                KillProcessTree(process);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                LogFfmpegExitTimeout(_logger, timeout);
+                KillProcessTree(process);
+                timedOut = true;
+            }
 
-        using var timeoutCts = new CancellationTokenSource(timeout);
-        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-        try
-        {
-            await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+
             cancellationToken.ThrowIfCancellationRequested();
-            throw;
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-        {
-            LogFfmpegExitTimeout(_logger, timeout);
-            KillProcessTree(process);
-        }
+            if (timedOut)
+            {
+                throw new TimeoutException($"ffmpeg process was killed after not exiting within {timeout}ms");
+            }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        return ms.ToArray();
+            return ms.ToArray();
+        }
+        finally
+        {
+            KillProcessTree(process);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)
@@ -932,7 +948,16 @@ public sealed partial class FFmpegService(
         ]);
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        byte[] rawPoints;
+        try
+        {
+            rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+        }
+
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);

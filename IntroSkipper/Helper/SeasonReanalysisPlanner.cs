@@ -45,7 +45,7 @@ internal static class SeasonReanalysisPlanner
         }
 
         // Respect the season-zero (specials) opt-in.
-        if (first.SeasonNumber == 0 && !config.AnalyzeSeasonZero)
+        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, config))
         {
             return false;
         }

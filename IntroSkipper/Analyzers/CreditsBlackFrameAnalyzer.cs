@@ -92,6 +92,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
             }
             catch (Exception ex)
             {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
                 LogErrorAnalyzingCredits(ex, episode.Name);
             }
         }

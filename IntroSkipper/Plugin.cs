@@ -82,11 +82,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to analyze again.
-    /// </summary>
-    public bool AnalyzeAgain { get; set; }
-
-    /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();

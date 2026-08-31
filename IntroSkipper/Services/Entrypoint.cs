@@ -310,13 +310,7 @@ namespace IntroSkipper.Services
         }
 
         private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
-        {
-            _config = (PluginConfiguration)e;
-            if (Plugin.Instance is { } plugin)
-            {
-                plugin.AnalyzeAgain = true;
-            }
-        }
+            => _config = (PluginConfiguration)e;
 
         /// <summary>
         /// Start timer to debounce analyzing.

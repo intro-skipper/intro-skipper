@@ -76,9 +76,10 @@ public partial class CleanCacheTask(
     {
         var queueManager = _analyzerFactory.CreateQueueManager();
 
-        // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
+        // QueueManager.GetMediaInventory() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        var queue = inventory.Items;
         var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(static episodes => episodes)
             .Select(static episode => episode.EpisodeId)
@@ -87,9 +88,9 @@ public partial class CleanCacheTask(
         // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
         // incomplete queue would push swathes of healthy data through the stale-candidate
         // path and lean entirely on the per-id existence check below. Bail out instead.
-        if (queueManager.EnumerationFailureCount > 0)
+        if (!inventory.IsComplete)
         {
-            LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
+            LogSkippingCleanupEnumerationFailures(_logger, Math.Max(1, queueManager.EnumerationFailureCount));
             progress.Report(100);
             return;
         }

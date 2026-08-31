@@ -119,7 +119,22 @@ public partial class ChapterAnalyzer(
 
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
-                var fallback = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                Segment? fallback;
+                try
+                {
+                    fallback = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                    LogErrorDetectingRecapBlackFrames(ex, episode.Name);
+                    continue;
+                }
+
                 if (fallback is not null && fallback.Valid)
                 {
                     matches = [fallback];
@@ -404,4 +419,7 @@ public partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: okay")]
     private partial void LogChapterOk(string @base);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
+    private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
 }
