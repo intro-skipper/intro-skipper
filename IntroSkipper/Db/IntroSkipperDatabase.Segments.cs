@@ -148,6 +148,17 @@ public sealed partial class IntroSkipperDatabase
                 }
 
                 db.Segments.AddRange(accepted);
+
+                // Journal the item's projection with the rows in one transaction when
+                // the servable image changed (a row added or removed; kept rows only
+                // rewrite bookkeeping the mirror does not carry), so an analysis
+                // write can never lose its mirror push to a crash. The projection
+                // worker's poll converges the item.
+                if (accepted.Count > 0 || autoRows.Count > kept)
+                {
+                    await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
+                }
+
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return kept + accepted.Count;
@@ -160,8 +171,22 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
-    public async Task<DbSegment> AddUserSegmentAsync(
+    /// <summary>
+    /// Single-shot form of <see cref="AddUserSegmentCoreAsync"/>: adds a user segment,
+    /// resolving an exact-range collision in place (an automatic row is promoted, a
+    /// suppressed row revived, an existing user row returned unchanged; a promoted row
+    /// loses its <see cref="DbSegment.ConfigHash"/>). Internal on purpose — it does not
+    /// journal a projection, so production writes go through
+    /// <see cref="ApplyChangeAsync"/>; this is the domain-semantics test seam over the
+    /// same core.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="startTicks">Start time in ticks.</param>
+    /// <param name="endTicks">End time in ticks; must be after <paramref name="startTicks"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stored row.</returns>
+    internal async Task<DbSegment> AddUserSegmentAsync(
         Guid itemId,
         AnalysisMode mode,
         long startTicks,
@@ -242,8 +267,19 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
-    public async Task ReplaceUserSegmentsAsync(
+    /// <summary>
+    /// Single-shot form of <see cref="ReplaceUserSegmentsCoreAsync"/>: per mode,
+    /// deletes every active segment and stores the given user segments in one
+    /// transaction (exact-range rows survive in place, keeping the ids Jellyfin
+    /// knows). Internal on purpose — it does not journal a projection, so production
+    /// writes go through <see cref="ApplyChangeAsync"/>; this is the domain-semantics
+    /// test seam over the same core.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segmentsByMode">The user segment to store per mode, in ticks; each end must be after its start.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task ReplaceUserSegmentsAsync(
         Guid itemId,
         IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode,
         CancellationToken cancellationToken = default)
@@ -325,8 +361,22 @@ public sealed partial class IntroSkipperDatabase
         return survivors;
     }
 
-    /// <inheritdoc/>
-    public async Task<DbSegment?> UpdateSegmentAsync(
+    /// <summary>
+    /// Single-shot form of <see cref="UpdateSegmentCoreAsync"/>: moves a segment's
+    /// boundaries and promotes the surviving row to user provenance (an exact-range
+    /// occupant of the same mode absorbs the addressed row and survives). Returns
+    /// <see langword="null"/> when the id is unknown on the item, suppressed, or
+    /// vanished concurrently. Internal on purpose — it does not journal a projection,
+    /// so production writes go through <see cref="ApplyChangeAsync"/>; this is the
+    /// domain-semantics test seam over the same core.
+    /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="startTicks">New start time in ticks.</param>
+    /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The surviving row, or <see langword="null"/>.</returns>
+    internal async Task<DbSegment?> UpdateSegmentAsync(
         Guid itemId,
         Guid segmentId,
         long startTicks,
@@ -450,8 +500,19 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
-    public async Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Single-shot form of <see cref="DeleteSegmentCoreAsync"/>: tombstones automatic
+    /// rows, hard-deletes user rows; returns a pre-delete snapshot, or
+    /// <see langword="null"/> when the id is unknown on the item or already
+    /// suppressed. Internal on purpose — it does not journal a projection, so
+    /// production writes go through <see cref="ApplyChangeAsync"/>; this is the
+    /// domain-semantics test seam over the same core.
+    /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A pre-delete snapshot of the removed row, or <see langword="null"/>.</returns>
+    internal async Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -506,8 +567,20 @@ public sealed partial class IntroSkipperDatabase
         return snapshot;
     }
 
-    /// <inheritdoc/>
-    public async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Single-shot form of <see cref="RestoreSegmentCoreAsync"/>: clears a tombstone,
+    /// re-arming the analysis record and dropping the row's
+    /// <see cref="DbSegment.ConfigHash"/>; returns <see langword="null"/> when the id
+    /// is unknown on the item or not suppressed. Internal on purpose — it does not
+    /// journal a projection, so production writes go through
+    /// <see cref="ApplyChangeAsync"/>; this is the domain-semantics test seam over
+    /// the same core.
+    /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The restored row, or <see langword="null"/>.</returns>
+    internal async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -661,6 +734,11 @@ public sealed partial class IntroSkipperDatabase
                     .ExecuteDeleteAsync(cancellationToken)
                     .ConfigureAwait(false);
             }
+
+            // Journal every erased item's projection with the erase, so Jellyfin's
+            // rows converge away even if the process dies before the mirror is pushed.
+            await EnqueueProjectionsAsync(db, itemIds, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return itemIds;

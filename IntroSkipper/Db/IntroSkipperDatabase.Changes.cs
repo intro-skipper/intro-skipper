@@ -74,6 +74,35 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
+    /// Bulk form of <see cref="EnqueueProjectionAsync"/> for analysis and maintenance
+    /// writes that change many items' servable state in one transaction: one read
+    /// resolves the existing markers, their versions bump, missing markers insert.
+    /// The caller saves and commits; the projection worker's poll picks the markers
+    /// up, so bulk writers never await Jellyfin.
+    /// </summary>
+    private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        if (itemIds.Count == 0)
+        {
+            return;
+        }
+
+        var ids = itemIds.Distinct().ToArray();
+        var existing = await db.ProjectionQueue
+            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var queue in existing)
+        {
+            queue.Version++;
+            queue.NextAttemptAt = null;
+        }
+
+        var known = existing.Select(q => q.ItemId).ToHashSet();
+        db.ProjectionQueue.AddRange(ids.Where(id => !known.Contains(id)).Select(id => new DbProjectionQueueItem { ItemId = id, Version = 1 }));
+    }
+
+    /// <summary>
     /// Shape validation plus the external-target ownership checks; every rejection an
     /// intent can earn is produced here, before the transaction opens — except the
     /// editor delete's target checks, which depend on whether a plugin row owns the id

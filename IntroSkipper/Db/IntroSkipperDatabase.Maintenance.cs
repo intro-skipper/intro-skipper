@@ -63,7 +63,7 @@ public sealed partial class IntroSkipperDatabase
         // type the user has an active row for — the analyzers skip such items, so
         // nothing would regenerate the rows (same guard as ResetItemsForReanalysisAsync;
         // callers additionally pre-filter user-provided items as an optimization).
-        return await db.Segments
+        var staleRows = db.Segments
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                 && s.Source != SegmentSource.User
                 && s.State == SegmentState.Active
@@ -74,9 +74,25 @@ public sealed partial class IntroSkipperDatabase
                 && !db.Segments.Any(u => u.ItemId == s.ItemId
                     && u.Type == s.Type
                     && u.Source == SegmentSource.User
-                    && u.State == SegmentState.Active))
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+                    && u.State == SegmentState.Active));
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            // Journal the affected items' projections with the delete, so rows
+            // removed here reach the mirror even when the analyzers detect nothing
+            // new — and even if the process dies before the mirror is pushed.
+            var affectedItemIds = await staleRows
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var removed = await staleRows.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
     }
 
     /// <inheritdoc/>
@@ -96,6 +112,14 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
+            // Journal only items that actually held rows: the erase changes nothing
+            // servable for the rest, and erases can cover whole libraries.
+            var affectedItemIds = await db.Segments
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
             var removedSegments = await db.Segments
                 .Where(s => EF.Parameter(ids).Contains(s.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
@@ -104,6 +128,8 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => EF.Parameter(ids).Contains(a.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
+            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removedSegments;
         }
@@ -139,7 +165,7 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await db.Segments
+            var doomedRows = db.Segments
                 .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                     && modeArray.Contains(s.Type)
                     && s.Source != SegmentSource.User
@@ -147,9 +173,17 @@ public sealed partial class IntroSkipperDatabase
                     && !db.Segments.Any(u => u.ItemId == s.ItemId
                         && u.Type == s.Type
                         && u.Source == SegmentSource.User
-                        && u.State == SegmentState.Active))
-                .ExecuteDeleteAsync(cancellationToken)
+                        && u.State == SegmentState.Active));
+
+            // Journal the affected items' projections with the delete, so a reset's
+            // removals reach the mirror even when the recompute finds nothing — and
+            // even if the process dies before the mirror is pushed.
+            var affectedItemIds = await doomedRows
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
+            await doomedRows.ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
 
             // Without their records the items are NotAnalyzed on this pass (or a later
             // one) instead of being stranded as NoSegments.
@@ -157,6 +191,8 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => EF.Parameter(ids).Contains(a.ItemId) && modeArray.Contains(a.Type))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
+            await EnqueueProjectionsAsync(db, affectedItemIds, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
     }

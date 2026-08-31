@@ -25,8 +25,20 @@ public sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
     }
 
-    /// <inheritdoc/>
-    public async Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Single-shot form of <see cref="SetItemDisabledCoreAsync"/>: sets whether the
+    /// item's automatic segments are withheld from Jellyfin (disabling rewrites a
+    /// stale season key in place; idempotent requests write nothing) and returns the
+    /// previous flag. Internal on purpose — it does not journal a projection, so
+    /// production writes go through <see cref="ApplyChangeAsync"/>; this is the
+    /// domain-semantics test seam over the same core.
+    /// </summary>
+    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether the item was disabled before this write.</returns>
+    internal async Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();

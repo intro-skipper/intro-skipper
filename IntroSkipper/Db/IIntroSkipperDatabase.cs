@@ -74,78 +74,12 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of active automatic segments of the writing pass written or kept by this
     /// write; 0 for a fully rejected write, whose standing rows are left as they were.</returns>
+    /// <remarks>
+    /// A write that changes the item's servable image journals the item's projection
+    /// in the same transaction, so the projection worker converges Jellyfin even if
+    /// the process dies before any mirror push.
+    /// </remarks>
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Adds a user segment. An exact-range collision is resolved in place: an active
-    /// automatic row is promoted to <see cref="SegmentSource.User"/>, a suppressed row is
-    /// revived as a user segment, an existing user row is returned unchanged. Overlapping
-    /// (non-identical) segments of the same mode are allowed. A row that changes hands this
-    /// way loses its <see cref="DbSegment.ConfigHash"/>, which only describes analyzer output.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="startTicks">Start time in ticks.</param>
-    /// <param name="endTicks">End time in ticks; must be after <paramref name="startTicks"/>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The stored row.</returns>
-    Task<DbSegment> AddUserSegmentAsync(Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// For each given mode, deletes every active segment (any source) and stores the
-    /// single user segment, all in one transaction. A row that already occupies exactly
-    /// the new range survives in place as the user segment (keeping the id Jellyfin
-    /// knows), like <see cref="AddUserSegmentAsync"/>; other tombstones are kept. Modes
-    /// absent from <paramref name="segmentsByMode"/> are untouched. Exists only for the
-    /// replace-on-write legacy shims (<c>POST Episode/{id}/Timestamps</c> and the
-    /// non-commercial <c>POST MediaSegmentsApi/{itemId}</c>).
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="segmentsByMode">The user segment to store per mode, in ticks; each end must be after its start.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task ReplaceUserSegmentsAsync(Guid itemId, IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Updates the boundaries of a stored segment and marks it user-provided. When another
-    /// segment of the same item and mode exactly occupies the new range, the two rows merge:
-    /// the occupant survives as the user segment (keeping the id Jellyfin knows) and the
-    /// addressed row is removed — mirroring <see cref="AddUserSegmentAsync"/>'s in-place
-    /// resolution of exact-range collisions, including the cleared
-    /// <see cref="DbSegment.ConfigHash"/> on the surviving row.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="startTicks">New start time in ticks.</param>
-    /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The surviving row (the addressed row, or the exact-range occupant it merged into),
-    /// or <c>null</c> when the id is unknown on the item, suppressed, or was deleted by a
-    /// concurrent write before the update could commit.</returns>
-    Task<DbSegment?> UpdateSegmentAsync(Guid itemId, Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Deletes a segment: automatic rows are tombstoned (kept as
-    /// <see cref="SegmentState.Suppressed"/> so re-analysis does not re-add an
-    /// overlapping automatic segment), user rows are hard-deleted.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A pre-delete snapshot of the removed row, or <c>null</c> when the id is
-    /// unknown on the item or already suppressed.</returns>
-    Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Clears a tombstone, making the suppressed segment active again with its original
-    /// source. The row's <see cref="DbSegment.ConfigHash"/> is dropped: the restore is
-    /// recorded human intent, so the hash-driven stale cleanup must not judge the row.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The restored row, or <c>null</c> when the id is unknown on the item or not suppressed.</returns>
-    Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.
@@ -175,12 +109,12 @@ public interface IIntroSkipperDatabase
     /// scan re-detects instead of classifying the erased items as <c>NoSegments</c>.
     /// Items whose erased rows were credits-derived also lose their
     /// <see cref="AnalysisMode.Credits"/> records, because only the credits pass can
-    /// regenerate those rows. Everything runs in one transaction.
+    /// regenerate those rows. Everything runs in one transaction, the affected items'
+    /// projections journaled with it, so their Jellyfin mirrors converge durably.
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The ids of the items that held a segment of the mode, so the caller can
-    /// converge their Jellyfin mirrors.</returns>
+    /// <returns>The ids of the items that held a segment of the mode.</returns>
     Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -188,7 +122,9 @@ public interface IIntroSkipperDatabase
     /// record, in one transaction, so items still in the library are re-analyzed from
     /// scratch on the next scan and items that left it (or had their media replaced)
     /// leave nothing behind. Season state and disable flags are untouched. The ID set is
-    /// bound as one JSON parameter, so the item count is unbounded.
+    /// bound as one JSON parameter, so the item count is unbounded. Items that held rows
+    /// journal their projections with the erase, so their Jellyfin mirrors converge
+    /// durably — items already gone from the library included.
     /// </summary>
     /// <param name="itemIds">Item IDs to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -222,8 +158,12 @@ public interface IIntroSkipperDatabase
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of rows removed, so the caller can converge the Jellyfin
-    /// mirror even when the following analysis detects nothing new.</returns>
+    /// <returns>The number of rows removed.</returns>
+    /// <remarks>
+    /// The affected items' projections are journaled with the delete, so the removed
+    /// rows reach the Jellyfin mirror even when the following analysis detects
+    /// nothing new — and even if the process dies before any mirror push.
+    /// </remarks>
     Task<int> CleanStaleAutomaticSegmentsAsync(IEnumerable<Guid> itemIds, AnalysisMode mode, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -250,16 +190,6 @@ public interface IIntroSkipperDatabase
     Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes an item's analysis record for the given mode so the next scan analyzes it
-    /// again. A no-op when no record exists.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task ClearItemAnalysisAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns the settled-season reanalysis state for all modes in a season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
@@ -283,7 +213,9 @@ public interface IIntroSkipperDatabase
     /// scratch on the current pass: the modes' automatic segments and analysis records go
     /// in a single transaction; user-provided segments and tombstones are preserved, and
     /// so are the automatic rows of an item that holds an active user row of the same mode
-    /// (the analyzers skip such an item, so nothing would regenerate them).
+    /// (the analyzers skip such an item, so nothing would regenerate them). Items whose
+    /// rows were deleted journal their projections with the reset, so the removals reach
+    /// the Jellyfin mirror even when the recompute finds nothing.
     /// </summary>
     /// <param name="itemIds">Item IDs to reset.</param>
     /// <param name="modes">Analysis modes to reset.</param>
@@ -368,21 +300,6 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The disabled item IDs.</returns>
     Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Sets whether an item's automatic segments are withheld from Jellyfin.
-    /// Analysis and stored segments are unaffected either way; user-provided segments
-    /// always sync. Disabling records the item's current season key — rewriting a
-    /// stale key in place — and enabling removes the flag no matter which key
-    /// recorded it. Idempotent: a request matching the stored state and key writes
-    /// nothing.
-    /// </summary>
-    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Whether the item was disabled before this write, so callers can roll back.</returns>
-    Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Rebuilds the database while attempting to preserve segments, season state,

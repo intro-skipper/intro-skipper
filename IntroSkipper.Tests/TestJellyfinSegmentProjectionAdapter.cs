@@ -122,7 +122,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
         Assert.Null(await adapter.ResolveExternalTargetAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
     }
 
-    private static (JellyfinSegmentProjectionAdapter Adapter, FakeJellyfinSegmentStore Store, IIntroSkipperDatabase Database) Create(params MediaSegmentDto[] existingSegments)
+    private static (JellyfinSegmentProjectionAdapter Adapter, FakeJellyfinSegmentStore Store, IntroSkipperDatabase Database) Create(params MediaSegmentDto[] existingSegments)
     {
         var store = new FakeJellyfinSegmentStore { ExistingSegments = [.. existingSegments] };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
