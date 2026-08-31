@@ -335,6 +335,59 @@ public class TestChapterAnalyzer
     }
 
     [Fact]
+    public async Task AnalyzeMediaFiles_RecapBlackFrameException_MarksFailureAndContinues()
+    {
+        var tempDir = System.IO.Path.Join(System.IO.Path.GetTempPath(), "IntroSkipper.Tests");
+        System.IO.Directory.CreateDirectory(tempDir);
+        var dbPath = System.IO.Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var config = new PluginConfiguration
+        {
+            ChapterAnalyzerRecapPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+            DetectRecapUsingBlackFrames = true,
+        };
+        var ffmpeg = new RecapBlackFrameFfmpeg([])
+        {
+            BlackFrameException = new InvalidOperationException("test failure"),
+        };
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, config);
+        var failedEpisode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode1.mkv", Name = "S01E01" };
+        var secondEpisode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode2.mkv", Name = "S01E02" };
+
+        try
+        {
+            using (var db = new Db.IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
+
+                // A per-episode ffmpeg failure in the recap black-frame fallback must mark the
+                // episode retriable and continue with the season instead of aborting the pass.
+                await analyzer.AnalyzeMediaFiles([failedEpisode, secondEpisode], AnalysisMode.Recap, CancellationToken.None);
+            }
+
+            Assert.Equal(EpisodeState.AnalysisFailed, failedEpisode.GetAnalyzed(AnalysisMode.Recap));
+            Assert.Equal(EpisodeState.AnalysisFailed, secondEpisode.GetAnalyzed(AnalysisMode.Recap));
+            Assert.Equal(2, ffmpeg.ScanCalls);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    System.IO.File.Delete(path);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void PluginGetChapters_ReturnsEmptyList_WhenChapterManagerReturnsNull()
     {
         using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
@@ -408,6 +461,10 @@ public class TestChapterAnalyzer
 
     private sealed class RecapBlackFrameFfmpeg(BlackFrame[] frames) : IFFmpegService
     {
+        public Exception? BlackFrameException { get; init; }
+
+        public int ScanCalls { get; private set; }
+
         public TimeRange? LastRange { get; private set; }
 
         public int? LastMinimum { get; private set; }
@@ -433,6 +490,12 @@ public class TestChapterAnalyzer
             AnalysisMode mode,
             CancellationToken cancellationToken = default)
         {
+            ScanCalls++;
+            if (BlackFrameException is not null)
+            {
+                throw BlackFrameException;
+            }
+
             LastRange = range;
             LastMinimum = minimum;
             LastThreshold = threshold;
