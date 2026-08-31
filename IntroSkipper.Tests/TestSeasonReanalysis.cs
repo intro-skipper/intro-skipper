@@ -334,6 +334,106 @@ public sealed class TestSeasonReanalysisPlanner
 public sealed class TestSeasonReanalysisReset
 {
     [Fact]
+    public async Task PersistableEpisodeIds_ExcludeFailuresWithoutDiscardingNegativeCacheResults()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var failedMediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+        var noSegmentsMediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+        var seasonId = Guid.NewGuid();
+        var failedId = Guid.NewGuid();
+        var noSegmentsId = Guid.NewGuid();
+        var analyzedId = Guid.NewGuid();
+        var userProvidedId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var configHash = ConfigHasher.Analysis(
+            config,
+            AnalysisMode.Credits,
+            AnalyzerAction.Default,
+            ffmpegValid: true);
+
+        var failed = CreateQueuedEpisode(failedId, seasonId);
+        failed.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
+        var noSegments = CreateQueuedEpisode(noSegmentsId, seasonId);
+        var analyzed = CreateQueuedEpisode(analyzedId, seasonId);
+        analyzed.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
+        Assert.True(analyzed.NeedsAnalysis(AnalysisMode.Credits));
+        analyzed.SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
+        var userProvided = CreateQueuedEpisode(userProvidedId, seasonId);
+        userProvided.SetAnalyzed(AnalysisMode.Credits, EpisodeState.UserProvided);
+
+        var persistableIds = BaseItemAnalyzerTask.GetPersistableEpisodeIds(
+            [failed, noSegments, analyzed, userProvided],
+            AnalysisMode.Credits);
+
+        Assert.Equal([noSegmentsId, analyzedId, userProvidedId], persistableIds);
+        Assert.True(failed.NeedsAnalysis(AnalysisMode.Credits));
+        Assert.False(analyzed.NeedsAnalysis(AnalysisMode.Credits));
+        Assert.False(userProvided.NeedsAnalysis(AnalysisMode.Credits));
+
+        try
+        {
+            await File.WriteAllTextAsync(failedMediaPath, string.Empty);
+            await File.WriteAllTextAsync(noSegmentsMediaPath, string.Empty);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                var failedItem = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(failedItem, "Id", failedId);
+                EntrypointTestHelpers.SetPropertyOrField(failedItem, "Path", failedMediaPath);
+                var noSegmentsItem = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(noSegmentsItem, "Id", noSegmentsId);
+                EntrypointTestHelpers.SetPropertyOrField(noSegmentsItem, "Path", noSegmentsMediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(failedItem, noSegmentsItem);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                await Plugin.SetEpisodeIdsAsync(
+                    seasonId,
+                    AnalysisMode.Credits,
+                    persistableIds,
+                    configHash);
+
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true));
+                var nextRun = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(failedId, seasonId), CreateQueuedEpisode(noSegmentsId, seasonId)],
+                    [AnalysisMode.Credits]);
+
+                Assert.Equal(EpisodeState.NotAnalyzed, nextRun[0].GetAnalyzed(AnalysisMode.Credits));
+                Assert.Equal(EpisodeState.NoSegments, nextRun[1].GetAnalyzed(AnalysisMode.Credits));
+            }
+        }
+        finally
+        {
+            if (File.Exists(failedMediaPath))
+            {
+                File.Delete(failedMediaPath);
+            }
+
+            if (File.Exists(noSegmentsMediaPath))
+            {
+                File.Delete(noSegmentsMediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task SettleReanalysisGuard_PersistsCompletedEpisodeSet()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
