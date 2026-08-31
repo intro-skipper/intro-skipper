@@ -139,7 +139,7 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
-    public void OnSettingsChanged_UpdatesConfig_AndSetsAnalyzeAgain()
+    public void OnSettingsChanged_UpdatesConfig()
     {
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
 
@@ -147,15 +147,11 @@ public sealed class TestEntrypointEvents
 
         using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
         {
-            // Ensure AnalyzeAgain starts false.
-            var plugin = Plugin.Instance!;
-            plugin.AnalyzeAgain = false;
-
             EntrypointTestHelpers.InvokePrivate(entrypoint, "OnSettingsChanged", (BasePluginConfiguration)newConfig);
-
-            Assert.True(plugin.AnalyzeAgain);
         }
 
+        // A save records the new configuration and nothing else. Reanalysis is driven by the
+        // per-season config hash, which is durable and therefore survives an interrupted run.
         var storedConfig = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(entrypoint, "_config");
         Assert.Same(newConfig, storedConfig);
     }

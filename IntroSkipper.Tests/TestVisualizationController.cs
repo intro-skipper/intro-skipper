@@ -331,13 +331,13 @@ public sealed class TestVisualizationController
 
         public bool DeleteForItem(Guid itemId)
         {
-            var result = inner.DeleteForItem(itemId);
+            var deleted = inner.DeleteForItem(itemId);
             if (Interlocked.Increment(ref _deleteCount) == 1)
             {
                 cancellationTokenSource.Cancel();
             }
 
-            return result;
+            return deleted;
         }
 
         public void DeleteByMode(AnalysisMode mode) => inner.DeleteByMode(mode);

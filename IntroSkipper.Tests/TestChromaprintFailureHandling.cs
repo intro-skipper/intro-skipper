@@ -35,6 +35,48 @@ public sealed class TestChromaprintFailureHandling
         Assert.All(episodes, e => Assert.Equal(EpisodeState.AnalysisFailed, e.GetAnalyzed(AnalysisMode.Introduction)));
     }
 
+    [Fact]
+    public async Task AnalyzeMediaFiles_FingerprintException_DoesNotDowngradeAnalyzedEpisode()
+    {
+        var unanalyzed = CreateEpisode(1);
+        var analyzed = CreateEpisode(2);
+        analyzed.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            new ThrowingFingerprintService(),
+            new NoOpDetectionCacheService { HasCachedFingerprintResult = true });
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        // The cached fingerprint pulls the analyzed episode into the re-analysis queue; a failed
+        // fingerprint there must not discard its completed verdict.
+        await analyzer.AnalyzeMediaFiles([unanalyzed, analyzed], AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, unanalyzed.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.Analyzed, analyzed.GetAnalyzed(AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public async Task AnalyzeMediaFiles_FingerprintException_DoesNotDowngradeUserProvidedNeighbor()
+    {
+        var unanalyzed = CreateEpisode(1);
+        var userProvided = CreateEpisode(2);
+        userProvided.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.UserProvided);
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            new ThrowingFingerprintService(),
+            new NoOpDetectionCacheService());
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        // With a single unanalyzed episode the adjacent user-provided episode is pulled in as a
+        // fingerprint pairing partner; a failed fingerprint there must not strip its protection.
+        await analyzer.AnalyzeMediaFiles([unanalyzed, userProvided], AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, unanalyzed.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.UserProvided, userProvided.GetAnalyzed(AnalysisMode.Introduction));
+    }
+
     private static QueuedEpisode CreateEpisode(int number) => new()
     {
         EpisodeId = Guid.NewGuid(),
@@ -81,9 +123,11 @@ public sealed class TestChromaprintFailureHandling
 
     private sealed class NoOpDetectionCacheService : IDetectionCacheService
     {
+        public bool HasCachedFingerprintResult { get; init; }
+
         public bool IsEnabled => false;
 
-        public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode) => false;
+        public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode) => HasCachedFingerprintResult;
 
         public bool TryRead<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
         {
@@ -93,7 +137,7 @@ public sealed class TestChromaprintFailureHandling
 
         public bool Write<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items) => false;
 
-        public bool DeleteForItem(Guid itemId) => true;
+        public bool DeleteForItem(Guid itemId) => false;
 
         public void DeleteByMode(AnalysisMode mode)
         {
