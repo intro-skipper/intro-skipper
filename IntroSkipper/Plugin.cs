@@ -466,8 +466,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         AnalysisMode mode,
         IEnumerable<Guid> episodeIds,
         string configHash = "",
-        CancellationToken cancellationToken = default,
-        AnalyzerAction action = AnalyzerAction.Default)
+        AnalyzerAction action = AnalyzerAction.Default,
+        CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var seasonState = await db.DbSeasonState

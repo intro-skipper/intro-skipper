@@ -45,6 +45,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private double _analysisPercent;
     private ExclusionPolicy _exclusionPolicy = ExclusionPolicy.Empty;
 
+    private enum QueueItemResult
+    {
+        Queued,
+        Excluded,
+        Failed,
+    }
+
     /// <summary>
     /// Gets all media items on the server.
     /// </summary>
@@ -396,13 +403,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         return QueueItemResult.Queued;
-    }
-
-    private enum QueueItemResult
-    {
-        Queued,
-        Excluded,
-        Failed,
     }
 
     private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)

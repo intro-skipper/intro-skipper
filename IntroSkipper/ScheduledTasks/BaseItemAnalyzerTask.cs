@@ -345,8 +345,8 @@ public partial class BaseItemAnalyzerTask(
                 mode,
                 items.Select(i => i.EpisodeId),
                 configHash,
-                cancellationToken,
-                action).ConfigureAwait(false);
+                action,
+                cancellationToken).ConfigureAwait(false);
 
             return 0;
         }
@@ -450,7 +450,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, GetPersistableEpisodeIds(items, mode), configHash, cancellationToken).ConfigureAwait(false);
+        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, GetPersistableEpisodeIds(items, mode), configHash, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
