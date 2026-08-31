@@ -81,8 +81,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
                 LogCaughtFingerprintError(ex);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
-                // Fallback to an empty fingerprint on any error
+                // Fallback to an empty fingerprint on any error, and record the failure so the episode
+                // is retried on the next run. Without this it is persisted as a completed no-segment
+                // result, and an ffmpeg hiccup on one episode becomes a permanent verdict.
                 fingerprintCache[episode.EpisodeId] = [];
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
             }
         }
 

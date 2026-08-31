@@ -428,10 +428,21 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
+        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, GetPersistableEpisodeIds(items, mode), configHash, cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
+
+    /// <summary>
+    /// Gets episode IDs whose analysis result can be persisted for the current configuration.
+    /// </summary>
+    /// <param name="items">Episodes in the current season pass.</param>
+    /// <param name="mode">Analysis mode being processed.</param>
+    /// <returns>Episode IDs excluding transient analysis failures.</returns>
+    internal static IReadOnlyList<Guid> GetPersistableEpisodeIds(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
+        => [.. items
+            .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
+            .Select(item => item.EpisodeId)];
 
     /// <summary>
     /// Decide whether an anime Preview segment needs to be written for an episode, and build it.
