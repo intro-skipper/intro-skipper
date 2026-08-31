@@ -139,10 +139,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
-            // The erase journaled every affected item's projection; converge the
-            // mirrors now for a snappy dashboard. Anything this pass cannot finish
-            // stays journaled and the worker completes it.
-            await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
+            // The erase journaled every affected item's projection; converge exactly
+            // those items now — unrelated pending work keeps its backoff. Anything
+            // this pass cannot finish stays journaled and the worker completes it.
+            foreach (var episodeId in episodeIds)
+            {
+                await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(episodeId), cancellationToken).ConfigureAwait(false);
+            }
 
             return NoContent();
         }
@@ -190,8 +193,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .ConfigureAwait(false);
 
             // As in EraseSeasonAsync: the erase journaled the affected items'
-            // projections; converge the mirrors now, the journal owns the rest.
-            await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
+            // projections; converge exactly those items now, the journal owns the rest.
+            foreach (var excludedId in excludedIds)
+            {
+                await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(excludedId), cancellationToken).ConfigureAwait(false);
+            }
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }

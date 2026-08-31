@@ -195,7 +195,7 @@ public partial class SkipIntroController(
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -205,10 +205,13 @@ public partial class SkipIntroController(
             await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
-        // The erase journaled every affected item's projection; converge the mirrors
-        // now for a snappy dashboard. Anything this pass cannot finish (a failure, or
-        // the request going away) stays journaled and the worker completes it.
-        await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
+        // The erase journaled every affected item's projection; converge exactly those
+        // items now for a snappy dashboard — unrelated pending work keeps its backoff.
+        // Anything this pass cannot finish stays journaled and the worker completes it.
+        foreach (var itemId in itemIds)
+        {
+            await _segmentChange.RetryProjectionAsync(ProjectionScope.ForItem(itemId), cancellationToken).ConfigureAwait(false);
+        }
 
         return NoContent();
     }
