@@ -262,6 +262,8 @@ public sealed class TestCleanCacheTask
             => throw new IOException("probe failed");
 
         public string GetChromaprintLogs() => string.Empty;
+
+        public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
     }
 
     private sealed class NullMediaSegmentRefresher : IMediaSegmentRefresher
