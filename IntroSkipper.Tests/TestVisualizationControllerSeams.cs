@@ -181,7 +181,6 @@ public sealed class TestVisualizationControllerSeams
     private static VisualizationController CreateController(IntroSkipperDatabase database, string cacheDbPath, ILibraryManager? libraryManager = null)
         => new(
             NullLogger<VisualizationController>.Instance,
-            new NoOpMediaSegmentRefresher(),
             DatabaseTestHelpers.CreateSegmentChange(new FakeJellyfinSegmentStore(), database),
             libraryManager!,
             new AnalyzerTaskFactory(
@@ -189,7 +188,6 @@ public sealed class TestVisualizationControllerSeams
                 libraryManager!,
                 providerManager: null!,
                 fileSystem: null!,
-                new NoOpMediaSegmentRefresher(),
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 database),
@@ -254,10 +252,4 @@ public sealed class TestVisualizationControllerSeams
         }
     }
 
-    private sealed class NoOpMediaSegmentRefresher : IMediaSegmentRefresher
-    {
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
 }

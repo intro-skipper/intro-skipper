@@ -28,12 +28,10 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
     ISegmentChange segmentChange,
-    IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly ISegmentChange _segmentChange = segmentChange;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -197,7 +195,7 @@ public partial class SkipIntroController(
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -207,8 +205,10 @@ public partial class SkipIntroController(
             await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
-        // The items keep their other modes' segments, so converge (not wipe) their mirrors.
-        await _mediaSegmentRefresher.RefreshAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        // The erase journaled every affected item's projection; converge the mirrors
+        // now for a snappy dashboard. Anything this pass cannot finish (a failure, or
+        // the request going away) stays journaled and the worker completes it.
+        await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

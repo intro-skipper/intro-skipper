@@ -44,7 +44,6 @@ namespace IntroSkipper.Services
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Dictionary<Guid, Guid> _itemsToReset = [];
         private readonly Lock _seasonsLock = new();
-        private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;
@@ -62,7 +61,6 @@ namespace IntroSkipper.Services
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
-        /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
@@ -70,8 +68,7 @@ namespace IntroSkipper.Services
             IIntroSkipperDatabase database,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
-            AnalyzerTaskFactory analyzerFactory,
-            IMediaSegmentRefresher mediaSegmentRefresher)
+            AnalyzerTaskFactory analyzerFactory)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
@@ -80,7 +77,6 @@ namespace IntroSkipper.Services
             _ffmpegService = ffmpegService;
             _logger = logger;
             _analyzerFactory = analyzerFactory;
-            _mediaSegmentRefresher = mediaSegmentRefresher;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -396,7 +392,6 @@ namespace IntroSkipper.Services
                         }
 
                         var failedResetSeasonIds = new HashSet<Guid>();
-                        var successfullyResetItems = new Dictionary<Guid, Guid>();
                         foreach (var (itemId, seasonId) in itemsToReset)
                         {
                             try
@@ -407,7 +402,6 @@ namespace IntroSkipper.Services
                                     cts.Token).ConfigureAwait(false);
                                 _cacheDatabase.DeleteForItem(itemId);
 
-                                successfullyResetItems[itemId] = seasonId;
                                 LogMediaItemChanged(_logger, itemId);
                             }
                             catch (Exception ex)
@@ -424,32 +418,11 @@ namespace IntroSkipper.Services
                             }
                         }
 
-                        var failedRefreshSeasonIds = new HashSet<Guid>();
-
-                        // Not gated on UpdateMediaSegments: the refresher no-ops itself via
-                        // MediaSegmentMirrorPolicy, which reads live config instead of this
-                        // class's snapshot.
-                        if (successfullyResetItems.Count > 0)
-                        {
-                            try
-                            {
-                                await _mediaSegmentRefresher.RefreshAsync(successfullyResetItems.Keys, cts.Token).ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException) when (cts.IsCancellationRequested)
-                            {
-                                RequeueResetItems(successfullyResetItems);
-                                throw;
-                            }
-                            catch (Exception ex)
-                            {
-                                RequeueResetItems(successfullyResetItems);
-                                failedRefreshSeasonIds.UnionWith(successfullyResetItems.Values);
-                                LogErrorRefreshingChangedMediaItems(_logger, ex, successfullyResetItems.Count);
-                            }
-                        }
-
+                        // No mirror push here: the reset journals its deletions'
+                        // projections, and the projection worker converges Jellyfin
+                        // durably — a failed or interrupted push no longer requeues
+                        // the items for another reset.
                         seasonIds.ExceptWith(failedResetSeasonIds);
-                        seasonIds.ExceptWith(failedRefreshSeasonIds);
 
                         var analyzer = _analyzerFactory.CreateAnalyzerTask();
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
@@ -489,20 +462,6 @@ namespace IntroSkipper.Services
                     LogAnalyzingEndedNeedsRestart();
                     _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
                 }
-            }
-        }
-
-        private void RequeueResetItems(IReadOnlyDictionary<Guid, Guid> itemsToReset)
-        {
-            lock (_seasonsLock)
-            {
-                foreach (var (itemId, seasonId) in itemsToReset)
-                {
-                    _itemsToReset[itemId] = seasonId;
-                    _seasonsToAnalyze.Add(seasonId);
-                }
-
-                _analyzeAgain = true;
             }
         }
 
@@ -549,9 +508,6 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for changed media item {Id}")]
         private static partial void LogErrorResettingChangedMediaItem(ILogger logger, Exception ex, Guid id);
-
-        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to refresh media segments for {Count} changed media items")]
-        private static partial void LogErrorRefreshingChangedMediaItems(ILogger logger, Exception ex, int count);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
         private partial void LogErrorDeletingFingerprintCache(Exception ex);

@@ -32,7 +32,6 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             EntrypointTestHelpers.CreateLibraryManager(),
             providerManager: null!,
             fileSystem: null!,
-            mediaSegmentRefresher: null!,
             ffmpegService: new FFmpegService(
                 NullLogger<FFmpegService>.Instance,
                 DatabaseTestHelpers.CreateTempCacheService()),
@@ -72,7 +71,6 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             libraryManager,
             providerManager: null!,
             fileSystem: null!,
-            mediaSegmentRefresher: null!,
             ffmpegService,
             cacheService: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();

@@ -15,7 +15,7 @@ using Xunit;
 
 /// <summary>
 /// Tests for <see cref="MediaSegmentMirror"/>: uniform per-item convergence, per-item
-/// serialization, cross-item concurrency, cleanup ordering, and the disabled no-op.
+/// serialization, cross-item concurrency, and the disabled no-op.
 /// </summary>
 public sealed class TestMediaSegmentMirror
 {
@@ -135,45 +135,6 @@ public sealed class TestMediaSegmentMirror
     }
 
     [Fact]
-    public async Task DeleteOwnSegments_WaitsForParkedSyncOfSameItem()
-    {
-        var itemId = Guid.NewGuid();
-        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var store = new FakeJellyfinSegmentStore
-        {
-            WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
-            WriteEntered = writeEntered,
-            BlockedItemId = itemId
-        };
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.ReplaceAutoSegmentsAsync(
-            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
-
-        // Park a sync between its plugin-database read and its store replace, holding
-        // the item's stripe — the stale-cleanup adversary: if the bulk delete ran now,
-        // the stale replace would land after it and resurrect rows whose plugin source
-        // the cleanup caller is about to remove.
-        var sync = mirror.SyncItemAsync(itemId, CancellationToken.None);
-        await writeEntered.Task;
-
-        var cleanup = mirror.DeleteOwnSegmentsAsync([itemId], CancellationToken.None);
-
-        // The cleanup must serialize behind the parked sync instead of interleaving.
-        Assert.NotSame(cleanup, await Task.WhenAny(cleanup, Task.Delay(TimeSpan.FromMilliseconds(250))));
-        Assert.Empty(store.DeletedOwnItemIds);
-
-        store.WriteGate!.SetResult();
-        await sync;
-        await cleanup;
-
-        // The stale replace landed first and the delete last, so the item converges
-        // to no Jellyfin rows.
-        Assert.Single(store.ReplacedItems);
-        Assert.Equal([itemId], store.DeletedOwnItemIds);
-    }
-
-    [Fact]
     public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -194,12 +155,10 @@ public sealed class TestMediaSegmentMirror
         Assert.Equal(
             MirrorDeleteOutcome.MirroringDisabled,
             await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
-        await mirror.DeleteOwnSegmentsAsync([itemId], CancellationToken.None);
 
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);
         Assert.Empty(store.DeletedSegments);
-        Assert.Empty(store.DeletedOwnItemIds);
     }
 
     /// <summary>

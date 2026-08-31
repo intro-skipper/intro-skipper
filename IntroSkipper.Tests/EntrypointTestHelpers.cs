@@ -42,10 +42,9 @@ internal static class EntrypointTestHelpers
         var logger = loggerFactory.CreateLogger<Entrypoint>();
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        // The Entrypoint and its analyzer factory see the same segment database and
-        // refresher, as they do in production DI.
+        // The Entrypoint and its analyzer factory see the same segment database, as
+        // they do in production DI.
         var segmentDatabase = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var mediaSegmentRefresher = new FakeMediaSegmentRefresher();
 
         var entrypoint = new Entrypoint(
             libraryManager: null!,
@@ -59,22 +58,12 @@ internal static class EntrypointTestHelpers
                 libraryManager: null!,
                 providerManager: null!,
                 fileSystem: null!,
-                mediaSegmentRefresher: mediaSegmentRefresher,
                 ffmpegService: null!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                database: segmentDatabase),
-            mediaSegmentRefresher: mediaSegmentRefresher);
+                database: segmentDatabase));
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
-    }
-
-    private sealed class FakeMediaSegmentRefresher : IMediaSegmentRefresher
-    {
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
     }
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById

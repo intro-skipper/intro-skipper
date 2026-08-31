@@ -40,8 +40,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public Exception? DeleteSegmentException { get; init; }
 
-    public Exception? DeleteOwnException { get; init; }
-
     public TaskCompletionSource? WriteGate { get; init; }
 
     /// <summary>
@@ -61,8 +59,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public List<(Guid ItemId, Guid SegmentId)> DeletedSegments { get; } = [];
 
-    public List<Guid> DeletedOwnItemIds { get; } = [];
-
     public async Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _writeCount);
@@ -79,22 +75,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         {
             MirrorRows[itemId] = [.. segments];
         }
-    }
-
-    public Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
-    {
-        ThrowIfConfigured(DeleteOwnException);
-        var ids = itemIds.ToList();
-        DeletedOwnItemIds.AddRange(ids);
-        lock (_mirrorLock)
-        {
-            foreach (var itemId in ids)
-            {
-                MirrorRows.Remove(itemId);
-            }
-        }
-
-        return Task.CompletedTask;
     }
 
     public Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken)

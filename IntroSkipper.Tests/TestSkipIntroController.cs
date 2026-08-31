@@ -150,20 +150,37 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
             itemId,
             AnalysisMode.Introduction,
             [new Segment(itemId, new TimeRange(10, 20))],
             SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
         var missingCachePath = Path.Join(
             Path.GetTempPath(),
             "IntroSkipper.Tests",
             "skip-controller",
             Guid.NewGuid().ToString("N"),
             "cache.db");
-        var refresher = new RecordingMediaSegmentRefresher();
-        var controller = CreateController(new FakeJellyfinSegmentStore(), database, missingCachePath, refresher);
+
+        // The row is mirrored; the erase must converge it away despite the cache failure.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaBrowser.Model.MediaSegments.MediaSegmentDto
+                {
+                    Id = row.Id,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = row.StartTicks,
+                    EndTicks = row.EndTicks,
+                }
+            ],
+        };
+        var controller = CreateController(store, database, missingCachePath);
 
         var result = await controller.ResetIntroTimestamps(
             AnalysisMode.Introduction,
@@ -172,8 +189,9 @@ public sealed class TestSkipIntroController
 
         Assert.IsType<NoContentResult>(result);
         Assert.Empty(await database.GetSegmentsAsync(itemId));
-        // The erased items' mirrors are converged so Jellyfin stops serving the rows.
-        Assert.Equal([itemId], refresher.RefreshedItemIds);
+        // The erase journaled the item's projection and the request converged it, so
+        // Jellyfin stops serving the rows.
+        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
     }
 
     [Fact]
@@ -205,28 +223,12 @@ public sealed class TestSkipIntroController
     private static SkipIntroController CreateController(
         IJellyfinSegmentStore store,
         IntroSkipperDatabase database,
-        string cacheDbPath,
-        IMediaSegmentRefresher? refresher = null)
+        string cacheDbPath)
         => new(
             DatabaseTestHelpers.CreateSegmentChange(store, database),
-            refresher ?? new RecordingMediaSegmentRefresher(),
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
             database);
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-skip-controller.db");
-
-    private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
-    {
-        public IReadOnlyList<Guid> RefreshedItemIds { get; private set; } = [];
-
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        {
-            RefreshedItemIds = [.. itemIds];
-            return Task.CompletedTask;
-        }
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-    }
 }

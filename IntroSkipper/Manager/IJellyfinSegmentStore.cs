@@ -23,15 +23,6 @@ public interface IJellyfinSegmentStore
     Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Deletes Intro Skipper's segments for the given item ids, including items that no
-    /// longer exist in the library. Other providers' segments are never touched.
-    /// </summary>
-    /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Reads all of Intro Skipper's segment rows for an item; other providers' rows are
     /// never returned. Lets sync callers compare the mirrored state against an intended
     /// push and skip the write when nothing changed.

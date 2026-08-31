@@ -34,8 +34,7 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
-/// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation.</param>
+/// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation and converges journaled projections.</param>
 /// <param name="libraryManager">libraryManager.</param>
 /// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
@@ -45,10 +44,9 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ISegmentChange segmentChange, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, ISegmentChange segmentChange, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly ISegmentChange _segmentChange = segmentChange;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
@@ -141,9 +139,10 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
-            // Every plugin row of these items is gone, so the mirror converges to a plain
-            // delete; a failure surfaces as the 500 below instead of a logged 204.
-            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+            // The erase journaled every affected item's projection; converge the
+            // mirrors now for a snappy dashboard. Anything this pass cannot finish
+            // stays journaled and the worker completes it.
+            await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -190,9 +189,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .DeleteForItemsAsync(excludedIds, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            // As in EraseSeasonAsync: no plugin rows remain for these items, so their
-            // mirrors converge to a plain delete.
-            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
+            // As in EraseSeasonAsync: the erase journaled the affected items'
+            // projections; converge the mirrors now, the journal owns the rest.
+            await _segmentChange.RetryProjectionAsync(ProjectionScope.All, cancellationToken).ConfigureAwait(false);
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }

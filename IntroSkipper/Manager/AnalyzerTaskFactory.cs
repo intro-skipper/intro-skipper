@@ -22,7 +22,6 @@ namespace IntroSkipper.Manager;
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
-/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
@@ -31,7 +30,6 @@ public class AnalyzerTaskFactory(
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
     IDetectionCacheService cacheService,
     IIntroSkipperDatabase database)
@@ -58,7 +56,6 @@ public class AnalyzerTaskFactory(
             loggerFactory.CreateLogger<BaseItemAnalyzerTask>(),
             loggerFactory,
             this,
-            mediaSegmentRefresher,
             ffmpegService,
             cacheService,
             database);
