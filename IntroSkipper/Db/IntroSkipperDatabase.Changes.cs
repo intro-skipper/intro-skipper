@@ -19,10 +19,10 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget = null, CancellationToken cancellationToken = default)
+    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(intent);
-        if (Validate(intent, externalTarget) is { } rejection)
+        if (Validate(intent) is { } rejection)
         {
             return new MutationResult(rejection, []);
         }
@@ -32,11 +32,13 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var result = await MutateAsync(db, intent, externalTarget, cancellationToken).ConfigureAwait(false);
-            if (result.Outcome is Rejected)
+            var result = await MutateAsync(db, intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
+            if (result.Outcome is Rejected || !result.Reproject)
             {
-                // Every outcome is decided before a core persists a mutation, so
-                // disposing the transaction unwinds nothing that matters.
+                // Every rejection — and every no-reproject Ignore, whose target
+                // exists in no state at all — is decided before a core persists a
+                // mutation, so disposing the transaction unwinds nothing that
+                // matters, and a 404-style probe pays no journal write.
                 return result;
             }
 
@@ -103,12 +105,12 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Shape validation plus the external-target ownership checks; every rejection an
-    /// intent can earn is produced here, before the transaction opens — except the
-    /// editor delete's target checks, which depend on whether a plugin row owns the id
-    /// and therefore live in its <see cref="MutateAsync"/> dispatch.
+    /// Shape validation; every rejection an intent can earn from its own values is
+    /// produced here, before the transaction opens. The editor delete's external-target
+    /// checks depend on whether a plugin row owns the id and therefore live in its
+    /// <see cref="MutateAsync"/> dispatch, after the lazily resolved target arrives.
     /// </summary>
-    private static Rejected? Validate(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget)
+    private static Rejected? Validate(SegmentChangeIntent intent)
     {
         static bool ValidMode(AnalysisMode mode) => AnalysisHelpers.IsSupported(mode);
 
@@ -125,11 +127,6 @@ public sealed partial class IntroSkipperDatabase
             UpdateSegmentIntent value when !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid tick range."),
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
-            DeleteExternalSegmentIntent value when value.ExternalSegmentId == Guid.Empty || AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid external segment ID or type."),
-            DeleteExternalSegmentIntent when externalTarget is null => new(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found."),
-            DeleteExternalSegmentIntent value when externalTarget.Id != value.ExternalSegmentId => new(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External target does not correspond to the requested segment ID."),
-            DeleteExternalSegmentIntent value when externalTarget.ItemId != value.ItemId => new(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item."),
-            DeleteExternalSegmentIntent value when externalTarget.Type != value.ExpectedType => new(SegmentChangeRejectedReason.ExternalTypeMismatch, "External segment type does not match the expected type."),
             EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment type."),
             WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !TickConversions.IsValidTickRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
@@ -140,10 +137,11 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Dispatches one validated intent to the shared mutation cores. Prechecks decide
-    /// every Ignored/Rejected outcome before any core persists a change, so the caller
-    /// can abandon the transaction on a non-null outcome.
+    /// every Rejected outcome and every no-reproject Ignore before any core persists a
+    /// change, so the caller can abandon the transaction on those; an Ignore that
+    /// journals may additionally have staged a foreign-row operation.
     /// </summary>
-    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget, CancellationToken cancellationToken)
+    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget, CancellationToken cancellationToken)
     {
         switch (intent)
         {
@@ -238,88 +236,103 @@ public sealed partial class IntroSkipperDatabase
 
             case DeleteSegmentIntent value:
                 {
-                    var snapshot = await DeleteSegmentCoreAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                    if (snapshot is null)
+                    var deleted = await DeleteOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
+                    if (deleted is null)
                     {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.");
+                        // A suppressed row keeps the journaled re-projection (its
+                        // ghost Jellyfin row may linger); an id that exists in no
+                        // state has nothing to heal.
+                        var suppressed = await db.Segments
+                            .AnyAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
+                            .ConfigureAwait(false);
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.", reproject: suppressed);
                     }
 
-                    await ClearItemAnalysisCoreAsync(db, value.ItemId, snapshot.Type, cancellationToken).ConfigureAwait(false);
-                    return new MutationResult(null, [ToDeletedValue(snapshot)]);
+                    return new MutationResult(null, [deleted]);
                 }
 
             case RestoreSegmentIntent value:
                 {
                     var restored = await RestoreSegmentCoreAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                    return restored is null
-                        ? MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed, "Segment was not found on the item or was not suppressed.")
-                        : new MutationResult(null, [ToValue(restored)]);
-                }
+                    if (restored is null)
+                    {
+                        // Same classification as the delete: an existing (active) row
+                        // keeps the healing re-projection, a missing id journals nothing.
+                        var exists = await db.Segments
+                            .AnyAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
+                            .ConfigureAwait(false);
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed, "Segment was not found on the item or was not suppressed.", reproject: exists);
+                    }
 
-            case DeleteExternalSegmentIntent value:
-                // Validate guaranteed the target and its ownership.
-                return await DeleteExternalRowAsync(db, value.ItemId, value.ExternalSegmentId, value.ExpectedType, externalTarget!, cancellationToken).ConfigureAwait(false);
+                    return new MutationResult(null, [ToValue(restored)]);
+                }
 
             case EditorDeleteSegmentIntent value:
                 {
-                    // The editor's legacy delete dispatch, decided inside the
-                    // transaction so a concurrent mutation cannot invalidate the
-                    // chosen path: a plugin row sharing the id is deleted
-                    // authoritatively (its mirrored row converges away on
-                    // projection), and only an uncorrelated id falls back to the
-                    // exactly validated external delete.
+                    // The delete dispatch, decided entirely inside the transaction so
+                    // a concurrent mutation cannot invalidate the chosen path: a
+                    // plugin row sharing the id is deleted authoritatively, and only
+                    // an uncorrelated id resolves and validates the external row.
                     var mode = AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType)!.Value;
-                    var correlated = await db.Segments.AsNoTracking()
-                        .FirstOrDefaultAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
+                    var itemRows = await db.Segments.AsNoTracking()
+                        .Where(s => s.ItemId == value.ItemId)
+                        .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
+                    var correlated = itemRows.Find(s => s.Id == value.SegmentId);
                     if (correlated is not null)
                     {
                         if (correlated.Type != mode)
                         {
                             return MutationResult.Reject(
                                 SegmentChangeRejectedReason.ExternalTypeMismatch,
-                                FormattableString.Invariant($"Segment '{value.SegmentId}' is {AnalysisHelpers.ModeToSegmentType[correlated.Type]}, not the requested type '{value.ExpectedType}'."));
+                                TypeMismatchMessage(value.SegmentId, AnalysisHelpers.ModeToSegmentType[correlated.Type], value.ExpectedType));
                         }
 
+                        // The correlated row's Jellyfin twin shares its id and shape,
+                        // so its targeted delete is journaled with the row — for a
+                        // suppressed row that heals a lingering ghost, and either way
+                        // it durably records that this external row was addressed, so
+                        // a retry whose sync is still pending answers idempotently
+                        // instead of re-matching (see the pending-op guard below).
+                        await JournalExternalDeleteAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, correlated.StartTicks, correlated.EndTicks, cancellationToken).ConfigureAwait(false);
                         if (correlated.State == SegmentState.Suppressed)
                         {
-                            // The plugin already treats the row as deleted, so the
-                            // delete is idempotently satisfied; the journaled
-                            // re-projection removes any ghost row Jellyfin re-added.
+                            // The plugin already treats the row as deleted; the delete
+                            // is idempotently satisfied.
                             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The segment is already deleted.");
                         }
 
-                        var snapshot = await DeleteSegmentCoreAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                        if (snapshot is null)
-                        {
-                            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The segment is already deleted.");
-                        }
-
-                        await ClearItemAnalysisCoreAsync(db, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
-                        return new MutationResult(null, [ToDeletedValue(snapshot)]);
+                        var deleted = await DeleteOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
+                        return deleted is null
+                            ? MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The segment is already deleted.")
+                            : new MutationResult(null, [deleted]);
                     }
 
-                    // No plugin row owns the id, so the resolved Jellyfin row must
-                    // corroborate the request before the external delete runs — the
-                    // same checks Validate applies to DeleteExternalSegmentIntent.
-                    if (externalTarget is null || externalTarget.Id != value.SegmentId)
+                    // No plugin row owns the id: resolve the Jellyfin row now — only
+                    // this arm needs the read, and the caller's stripe keeps it
+                    // race-free against concurrent projections — and require it to
+                    // corroborate the request before the external delete runs.
+                    var target = resolveExternalTarget is null
+                        ? null
+                        : await resolveExternalTarget().ConfigureAwait(false);
+                    if (target is null || target.Id != value.SegmentId)
                     {
                         return MutationResult.Reject(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found.");
                     }
 
-                    if (externalTarget.ItemId != value.ItemId)
+                    if (target.ItemId != value.ItemId)
                     {
                         return MutationResult.Reject(SegmentChangeRejectedReason.ExternalItemMismatch, "External segment belongs to another item.");
                     }
 
-                    if (externalTarget.Type != value.ExpectedType)
+                    if (target.Type != value.ExpectedType)
                     {
                         return MutationResult.Reject(
                             SegmentChangeRejectedReason.ExternalTypeMismatch,
-                            FormattableString.Invariant($"Segment '{value.SegmentId}' is {externalTarget.Type}, not the requested type '{value.ExpectedType}'."));
+                            TypeMismatchMessage(value.SegmentId, target.Type, value.ExpectedType));
                     }
 
-                    return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, externalTarget, cancellationToken).ConfigureAwait(false);
+                    return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, target, itemRows, cancellationToken).ConfigureAwait(false);
                 }
 
             case WriteUserTimestampsIntent value:
@@ -370,55 +383,86 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Deletes one exactly validated Jellyfin row and its plugin counterpart. The
-    /// counterpart is matched like the editor's legacy delete dispatch: the shared id
-    /// first — resolved state-agnostically, so a suppressed shared-id row means the
-    /// plugin already treats the segment as deleted and the journaled op merely
-    /// removes the lingering ghost row, with no fallback allowed to claim another
-    /// (possibly user) segment — then the uncorrelated rule (1-tick tolerance,
-    /// non-commercial mode-wide fallback), without which a pre-shared-id row sitting
+    /// Deletes one exactly validated, uncorrelated Jellyfin row and its plugin
+    /// counterpart. The counterpart is matched by the shared uncorrelated rule
+    /// (1-tick tolerance, closest wins), without which a pre-shared-id row sitting
     /// one tick off would stay active and the very sync this change journals would
-    /// resurrect the deleted segment. The journaled operation removes the foreign row
-    /// either way, carrying the validated boundaries for the apply-time guard.
+    /// resurrect the deleted segment; the non-commercial mode-wide fallback fires
+    /// only while the item has no unapplied projection work — the fallback is a
+    /// drift-healing guess, and while the mirror is known to be behind, a concurrent
+    /// delete's counterpart may be gone without a trace, so guessing could claim a
+    /// segment the caller never addressed. The journaled operation removes the
+    /// foreign row either way, carrying the validated boundaries for the apply-time
+    /// guard.
     /// </summary>
-    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, ExternalSegmentTarget target, CancellationToken cancellationToken)
+    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, ExternalSegmentTarget target, List<DbSegment> itemRows, CancellationToken cancellationToken)
     {
         var mode = AnalysisHelpers.TryMapSegmentTypeToMode(expectedType)!.Value;
-        var itemRows = await db.Segments.AsNoTracking()
-            .Where(s => s.ItemId == itemId)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var sharedIdRow = itemRows.Find(s => s.Id == externalSegmentId);
 
-        // A pending journaled delete of this uncorrelated row means a concurrent or
-        // retried request already recorded this exact delete, and its projection has
-        // not applied yet (applies run under the same stripe the caller holds, so
-        // none can be mid-flight). Matching again would be dangerous, not just
-        // redundant: the first request's counterpart may be gone without a trace (a
+        // A pending journaled delete of this exact row shape means a concurrent or
+        // retried request already recorded this delete, and its projection has not
+        // applied yet (applies run under the same stripe the caller holds, so none
+        // can be mid-flight). Matching again would be dangerous, not just redundant:
+        // the earlier request's counterpart may be gone without a trace (a
         // hard-deleted user row), leaving the mode-wide fallback free to claim a
-        // segment the caller never addressed. The pending operation already removes
-        // the external row, so the intent is idempotently satisfied.
-        if (sharedIdRow is null
-            && await db.ProjectionExternalOperations
-                .AnyAsync(o => o.ItemId == itemId && o.ExternalSegmentId == externalSegmentId, cancellationToken)
-                .ConfigureAwait(false))
+        // segment the caller never addressed. The shape comparison matters too: a
+        // row rewritten under its stable id since the earlier request must fall
+        // through and journal a fresh operation for the new shape — its old
+        // operation drops harmlessly as superseded at apply time.
+        if (await HasJournaledExternalDeleteAsync(db, itemId, externalSegmentId, expectedType, target.StartTicks, target.EndTicks, cancellationToken).ConfigureAwait(false))
         {
             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
         }
 
-        var match = sharedIdRow is not null
-            ? (sharedIdRow.State == SegmentState.Active && sharedIdRow.Type == mode ? sharedIdRow : null)
-            : UncorrelatedSegmentMatcher.Find(
-                [.. itemRows.Where(s => s.State == SegmentState.Active)],
-                mode,
-                target.StartTicks,
-                target.EndTicks);
+        var mirrorMaybeBehind = await db.ProjectionQueue
+            .AnyAsync(q => q.ItemId == itemId, cancellationToken)
+            .ConfigureAwait(false);
+        var match = UncorrelatedSegmentMatcher.Find(
+            [.. itemRows.Where(s => s.State == SegmentState.Active)],
+            mode,
+            target.StartTicks,
+            target.EndTicks,
+            allowModeWideFallback: !mirrorMaybeBehind);
 
         var affected = new List<SegmentValue>();
-        if (match is not null && await DeleteSegmentCoreAsync(db, itemId, match.Id, cancellationToken).ConfigureAwait(false) is { } snapshot)
+        if (match is not null && await DeleteOwnedRowAsync(db, itemId, match.Id, cancellationToken).ConfigureAwait(false) is { } deleted)
         {
-            affected.Add(ToDeletedValue(snapshot));
-            await ClearItemAnalysisCoreAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
+            affected.Add(deleted);
+        }
+
+        await JournalExternalDeleteAsync(db, itemId, externalSegmentId, expectedType, target.StartTicks, target.EndTicks, cancellationToken).ConfigureAwait(false);
+        return new MutationResult(null, affected);
+    }
+
+    /// <summary>
+    /// Shared delete tail of the id-addressed delete arms: the core delete (tombstone
+    /// or removal), the mode's analysis-record clear, and the deleted-value report.
+    /// Returns <see langword="null"/> when the id is unknown on the item or already
+    /// suppressed; nothing is persisted then.
+    /// </summary>
+    private static async Task<SegmentValue?> DeleteOwnedRowAsync(IntroSkipperDbContext db, Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    {
+        var snapshot = await DeleteSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        await ClearItemAnalysisCoreAsync(db, itemId, snapshot.Type, cancellationToken).ConfigureAwait(false);
+        return ToDeletedValue(snapshot);
+    }
+
+    /// <summary>
+    /// Stages the durable delete of one external Jellyfin row, deduplicated on the
+    /// exact validated shape: retries while a projection outage holds must not grow
+    /// the journal, while an operation for a different shape coexists on purpose
+    /// (the superseded old operation drops harmlessly at apply time).
+    /// </summary>
+    private static async Task JournalExternalDeleteAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, long startTicks, long endTicks, CancellationToken cancellationToken)
+    {
+        if (await HasJournaledExternalDeleteAsync(db, itemId, externalSegmentId, expectedType, startTicks, endTicks, cancellationToken).ConfigureAwait(false))
+        {
+            return;
         }
 
         db.ProjectionExternalOperations.Add(new DbProjectionExternalOperation
@@ -426,11 +470,24 @@ public sealed partial class IntroSkipperDatabase
             ItemId = itemId,
             ExternalSegmentId = externalSegmentId,
             ExpectedType = expectedType,
-            StartTicks = target.StartTicks,
-            EndTicks = target.EndTicks
+            StartTicks = startTicks,
+            EndTicks = endTicks
         });
-        return new MutationResult(null, affected);
     }
+
+    private static Task<bool> HasJournaledExternalDeleteAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, long startTicks, long endTicks, CancellationToken cancellationToken)
+        => db.ProjectionExternalOperations.AnyAsync(
+            o => o.ItemId == itemId
+                && o.ExternalSegmentId == externalSegmentId
+                && o.ExpectedType == expectedType
+                && o.StartTicks == startTicks
+                && o.EndTicks == endTicks,
+            cancellationToken);
+
+    // The wire-visible 400 text of the MediaSegmentsApi type contradiction; one
+    // template for the correlated and uncorrelated arms so the contract cannot drift.
+    private static string TypeMismatchMessage(Guid segmentId, MediaSegmentType actualType, MediaSegmentType expectedType)
+        => FormattableString.Invariant($"Segment '{segmentId}' is {actualType}, not the requested type '{expectedType}'.");
 
     private static SegmentValue ToValue(DbSegment row) => new(row.Id, row.ItemId, row.Type, row.StartTicks, row.EndTicks, row.Source, row.State);
 

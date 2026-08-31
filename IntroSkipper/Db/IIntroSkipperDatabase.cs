@@ -34,19 +34,23 @@ public interface IIntroSkipperDatabase
     /// any journaled foreign-row delete — so a committed change can never lose its
     /// projection to a crash. Invalid intents and unowned external targets return
     /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
-    /// <see cref="Ignored"/> but still journal a re-projection: re-asserting held
-    /// state is how a diverged mirror heals on retry. Callers must serialize calls
-    /// per item (the coordinator's mutation stripe); concurrent first-time enqueues
-    /// for one item can otherwise fail on the queue's primary key.
+    /// <see cref="Ignored"/> and still journal a re-projection — re-asserting held
+    /// state is how a diverged mirror heals on retry — except when their target
+    /// exists in no state at all, where nothing addressable can have diverged and
+    /// nothing is journaled. Callers must serialize calls per item (the
+    /// coordinator's mutation stripe); concurrent first-time enqueues for one item
+    /// can otherwise fail on the queue's primary key.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
-    /// <param name="externalTarget">The resolved Jellyfin row for
-    /// <see cref="DeleteExternalSegmentIntent"/> (<see langword="null"/> when
-    /// unresolved); ignored for other intents.</param>
+    /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
+    /// <see cref="EditorDeleteSegmentIntent"/> addresses. Invoked at most once,
+    /// inside the transaction, only after the in-transaction correlated lookup
+    /// misses — a correlated dispatch never depends on a Jellyfin read. Ignored for
+    /// other intents.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
     /// <see langword="null"/> when the change committed.</returns>
-    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget = null, CancellationToken cancellationToken = default);
+    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically replaces the active automatic segments of an item and mode with the
@@ -80,15 +84,6 @@ public interface IIntroSkipperDatabase
     /// the process dies before any mirror push.
     /// </remarks>
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Returns a stored segment by id, regardless of state. The point read behind the
-    /// editor delete's correlated-dispatch precheck.
-    /// </summary>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The row, or <c>null</c> when unknown.</returns>
-    Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.

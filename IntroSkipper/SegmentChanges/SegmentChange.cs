@@ -46,33 +46,21 @@ internal sealed partial class SegmentChange(
         ArgumentNullException.ThrowIfNull(intent);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Resolution runs under the item's mutation stripe, like the mutation it
-        // feeds: projections take the same stripe, so a target resolved here cannot
-        // go stale against a concurrent request's delete of the same row — either
-        // that delete's projection already ran (the row is gone and resolution
-        // reports it) or its journaled operation is still pending (the facade's
-        // pending-op guard answers idempotently). The editor delete resolves only
-        // when no plugin row owns the id: a correlated dispatch is decided
-        // authoritatively and must not depend on a Jellyfin read that may fail
-        // while the mirror lags.
+        // The editor delete's Jellyfin target resolves lazily inside the facade
+        // transaction, only after the in-transaction correlated lookup misses and
+        // shape validation passed — one read, one decision point. The stripe held
+        // here serializes that resolution with concurrent projections of the same
+        // item, so a resolved target cannot go stale against another request's
+        // delete: either that delete's projection already ran (the row is gone and
+        // resolution reports it) or its journaled operation is still pending (the
+        // facade's pending-op guard answers idempotently).
         MutationResult result;
         using (await mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
-            ExternalSegmentTarget? externalTarget = null;
-            if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
-            {
-                externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
-            }
-            else if (intent is EditorDeleteSegmentIntent editorDelete && editorDelete.SegmentId != Guid.Empty)
-            {
-                var ownRow = await database.GetSegmentAsync(editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
-                if (ownRow is null || ownRow.ItemId != editorDelete.ItemId)
-                {
-                    externalTarget = await adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            result = await database.ApplyChangeAsync(intent, externalTarget, cancellationToken).ConfigureAwait(false);
+            Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
+                ? () => adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken)
+                : null;
+            result = await database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
         }
 
         if (result.Outcome is Rejected)
@@ -222,9 +210,10 @@ internal sealed partial class SegmentChange(
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
     /// then the mirror convergence, then the version-guarded completion — all under
-    /// the shared mutation stripe, for the same reason the editor holds it across its
-    /// write-plus-sync: a projection interleaving between another mutation's write and
-    /// its rollback would bake the rolled-back state into the mirror. Every step is
+    /// the shared mutation stripe, so a projection can never interleave with a
+    /// concurrent mutation's commit-then-project sequence and push state derived from
+    /// a stale read, and so <see cref="ApplyAsync"/>'s in-transaction target
+    /// resolution and pending-op guard cannot race a mid-flight apply. Every step is
     /// idempotent, and the completion deletes the queue row only at the version it
     /// projected, so concurrent enqueues cannot lose work.
     /// </summary>

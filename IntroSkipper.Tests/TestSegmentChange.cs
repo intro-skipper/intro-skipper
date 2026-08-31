@@ -111,34 +111,7 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
-    public async Task ExternalDelete_RejectsCrossItemAndTypeBeforeCommit()
-    {
-        var itemId = Guid.NewGuid();
-        var adapter = new RecordingProjectionAdapter
-        {
-            ExternalTarget = new ExternalSegmentTarget(Guid.NewGuid(), Guid.NewGuid(), MediaSegmentType.Intro, 10, 20)
-        };
-        var service = CreateService(adapter);
-
-        Assert.IsType<Rejected>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, adapter.ExternalTarget.Id, MediaSegmentType.Intro)));
-
-        adapter.ExternalTarget = adapter.ExternalTarget with { ItemId = itemId };
-        Assert.IsType<Rejected>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, adapter.ExternalTarget.Id, MediaSegmentType.Outro)));
-
-        // A resolution that does not correspond to the requested id (the facade is a
-        // public API and must not trust the caller's pairing) is rejected too.
-        Assert.IsType<Rejected>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, Guid.NewGuid(), MediaSegmentType.Intro)));
-        await using var db = CreateContext();
-        await db.ApplyMigrationsAsync();
-        Assert.Empty(await db.ProjectionQueue.ToListAsync());
-        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
-    }
-
-    [Fact]
-    public async Task EditorDelete_CorrelatedActiveRow_DeletesAuthoritativelyWithoutExternalOp()
+    public async Task EditorDelete_CorrelatedActiveRow_JournalsItsTwinRowsTargetedDelete()
     {
         var itemId = Guid.NewGuid();
         var row = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User);
@@ -149,14 +122,119 @@ public sealed class TestSegmentChange : IDisposable
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
             new EditorDeleteSegmentIntent(itemId, row.Id, MediaSegmentType.Intro)));
 
-        // The plugin row owns the id: the delete is authoritative and the mirror
-        // converges through the plain sync — no foreign-row operation is journaled.
+        // The plugin row owns the id: the delete is authoritative, and its Jellyfin
+        // twin's targeted delete is journaled with the row's own shape — the durable
+        // record that lets a retry answer idempotently while the sync is pending.
         Assert.Equal(ProjectionState.Applied, outcome.Projection);
         Assert.Equal(row.Id, Assert.Single(outcome.AffectedValues).Id);
-        Assert.Empty(Assert.Single(adapter.Applies).ExternalOperations);
+        var operation = Assert.Single(Assert.Single(adapter.Applies).ExternalOperations);
+        Assert.Equal(row.Id, operation.ExternalSegmentId);
+        Assert.Equal(10, operation.StartTicks);
         await using var db = CreateContext();
         Assert.Empty(await db.Segments.ToListAsync());
         Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_RetriedCorrelatedDelete_CannotClaimAnotherSegment()
+    {
+        var itemId = Guid.NewGuid();
+
+        // The correlated delete hard-deletes user intro A without a trace and its
+        // sync stays pending; the retry resolves the still-mirrored twin as an
+        // uncorrelated row. The journaled targeted delete must answer it
+        // idempotently — without it, the mode-wide fallback would claim B.
+        var claimed = new DbSegment(itemId, AnalysisMode.Introduction, 1000, 2000, SegmentSource.User);
+        var survivor = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.User);
+        await SeedAsync(claimed, survivor);
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        adapter.ExternalTargets[claimed.Id] = new ExternalSegmentTarget(claimed.Id, itemId, MediaSegmentType.Intro, 1000, 2000);
+        var service = CreateService(adapter);
+
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, claimed.Id, MediaSegmentType.Intro)));
+        Assert.Equal(ProjectionState.Pending, first.Projection);
+
+        var second = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, claimed.Id, MediaSegmentType.Intro)));
+
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, second.Reason);
+        Assert.Equal(claimed.Id, Assert.Single(Assert.Single(adapter.Applies).ExternalOperations).ExternalSegmentId);
+        await using var db = CreateContext();
+        Assert.Equal(survivor.Id, Assert.Single(await db.Segments.ToListAsync()).Id);
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_RewrittenExternalRow_JournalsAFreshOperation()
+    {
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        adapter.ExternalTargets[externalId] = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20);
+        var service = CreateService(adapter);
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        // The foreign provider rewrote the row under its stable id while the first
+        // delete's projection was pending: the re-delete must journal a fresh
+        // operation for the new shape instead of reporting the old one as covering
+        // it (the old operation drops harmlessly as superseded at apply time).
+        adapter.ExternalTargets[externalId] = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 25);
+        Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        var operations = Assert.Single(adapter.Applies).ExternalOperations;
+        Assert.Equal(2, operations.Count);
+        Assert.Contains(operations, o => o.EndTicks == 20);
+        Assert.Contains(operations, o => o.EndTicks == 25);
+        await using var db = CreateContext();
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PendingWork_SuppressesTheModeWideFallback()
+    {
+        var itemId = Guid.NewGuid();
+        var survivor = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.User);
+        await SeedAsync(survivor);
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        var service = CreateService(adapter);
+
+        // A failed change leaves the item's marker pending: the mirror is known to
+        // be behind, so the fallback's single-active-row guess must not fire.
+        Assert.IsType<Accepted>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40)));
+
+        var externalId = Guid.NewGuid();
+        adapter.ExternalTargets[externalId] = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 100, 200);
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        // Only the named foreign row is journaled for deletion; the sole active
+        // intro is never guessed at while work is pending.
+        Assert.Empty(outcome.AffectedValues);
+        await using var db = CreateContext();
+        Assert.Contains(await db.Segments.ToListAsync(), s => s.Id == survivor.Id && s.State == SegmentState.Active);
+    }
+
+    [Fact]
+    public async Task DeleteAndRestoreOfUnknownId_JournalNothing()
+    {
+        var itemId = Guid.NewGuid();
+        await SeedAsync(new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User));
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        // Ids that exist in no state have nothing to heal: the 404-style probes
+        // must not pay a journal write and a mirror sync.
+        Assert.IsType<Ignored>(await service.ApplyAsync(new DeleteSegmentIntent(itemId, Guid.NewGuid())));
+        Assert.IsType<Ignored>(await service.ApplyAsync(new RestoreSegmentIntent(itemId, Guid.NewGuid())));
+
+        Assert.Empty(adapter.Attempts);
+        await using var db = CreateContext();
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
     }
 
     [Fact]
@@ -212,9 +290,12 @@ public sealed class TestSegmentChange : IDisposable
             new EditorDeleteSegmentIntent(itemId, tombstone.Id, MediaSegmentType.Intro)));
 
         // The plugin already treats the row as deleted; the journaled re-projection
-        // is what removes a ghost Jellyfin row re-added since.
+        // and the tombstone's targeted delete are what remove a ghost Jellyfin row
+        // re-added since.
         Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, ignored.Reason);
-        Assert.Empty(Assert.Single(adapter.Applies).Segments);
+        var applied = Assert.Single(adapter.Applies);
+        Assert.Empty(applied.Segments);
+        Assert.Equal(tombstone.Id, Assert.Single(applied.ExternalOperations).ExternalSegmentId);
         await using var db = CreateContext();
         Assert.Empty(await db.ProjectionQueue.ToListAsync());
     }
@@ -331,6 +412,13 @@ public sealed class TestSegmentChange : IDisposable
         var mismatched = Assert.IsType<Rejected>(await service.ApplyAsync(
             new EditorDeleteSegmentIntent(itemId, mismatchedId, MediaSegmentType.Intro)));
         Assert.Equal(SegmentChangeRejectedReason.ExternalTypeMismatch, mismatched.Reason);
+
+        // A resolution that does not correspond to the requested id (the facade is a
+        // public API and must not trust the resolver's pairing) is rejected too.
+        adapter.ExternalTarget = new ExternalSegmentTarget(Guid.NewGuid(), itemId, MediaSegmentType.Intro, 10, 20);
+        var mismatchedPairing = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, Guid.NewGuid(), MediaSegmentType.Intro)));
+        Assert.Equal(SegmentChangeRejectedReason.ExternalSegmentNotFound, mismatchedPairing.Reason);
 
         await using var db = CreateContext();
         await db.ApplyMigrationsAsync();
@@ -574,7 +662,7 @@ public sealed class TestSegmentChange : IDisposable
         var service = CreateService(adapter);
 
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
 
         Assert.Equal(counterpart.Id, Assert.Single(outcome.AffectedValues).Id);
         await using var db = CreateContext();
@@ -664,12 +752,14 @@ public sealed class TestSegmentChange : IDisposable
         };
         var service = CreateService(adapter);
 
-        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, tombstone.Id, MediaSegmentType.Intro)));
+        var outcome = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, tombstone.Id, MediaSegmentType.Intro)));
 
         // The suppressed shared-id row means the plugin already treats the segment as
-        // deleted: the journaled op only removes the lingering ghost row, and no
-        // fallback may hard-delete the user's own (sole active) segment of the mode.
+        // deleted: the delete is idempotently ignored, the journaled op only removes
+        // the lingering ghost row, and no fallback may hard-delete the user's own
+        // (sole active) segment of the mode.
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, outcome.Reason);
         Assert.Empty(outcome.AffectedValues);
         Assert.Equal(tombstone.Id, Assert.Single(Assert.Single(adapter.Applies).ExternalOperations).ExternalSegmentId);
         await using var db = CreateContext();
@@ -692,7 +782,7 @@ public sealed class TestSegmentChange : IDisposable
         var service = CreateService(adapter);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyAsync(
-            new DeleteExternalSegmentIntent(Guid.NewGuid(), Guid.NewGuid(), MediaSegmentType.Intro)));
+            new EditorDeleteSegmentIntent(Guid.NewGuid(), Guid.NewGuid(), MediaSegmentType.Intro)));
 
         await using var verify = CreateContext();
         Assert.Empty(await verify.Segments.ToListAsync());
@@ -714,7 +804,7 @@ public sealed class TestSegmentChange : IDisposable
         var service = CreateService(adapter);
 
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
-            new DeleteExternalSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
 
         Assert.Equal(ProjectionState.Pending, outcome.Projection);
         Assert.Equal(externalId, Assert.Single(Assert.Single(adapter.Attempts).ExternalOperations).ExternalSegmentId);
@@ -760,8 +850,8 @@ public sealed class TestSegmentChange : IDisposable
         var policy = new FakeMirrorPolicy { Enabled = false };
         var service = CreateService(adapter, policy);
 
-        await service.ApplyAsync(new DeleteExternalSegmentIntent(itemId, firstId, MediaSegmentType.Intro));
-        await service.ApplyAsync(new DeleteExternalSegmentIntent(itemId, secondId, MediaSegmentType.Outro));
+        await service.ApplyAsync(new EditorDeleteSegmentIntent(itemId, firstId, MediaSegmentType.Intro));
+        await service.ApplyAsync(new EditorDeleteSegmentIntent(itemId, secondId, MediaSegmentType.Outro));
 
         var skipped = Assert.Single((await service.GetProjectionStatusAsync(ProjectionScope.ForItem(itemId))).Items);
         Assert.Equal(ProjectionState.Skipped, skipped.State);
@@ -845,7 +935,7 @@ public sealed class TestSegmentChange : IDisposable
             ExternalTarget = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20),
             FailuresRemaining = 1
         };
-        await CreateService(adapter).ApplyAsync(new DeleteExternalSegmentIntent(itemId, externalId, MediaSegmentType.Intro));
+        await CreateService(adapter).ApplyAsync(new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro));
 
         await using (var db = CreateContext())
         {
