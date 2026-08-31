@@ -108,23 +108,6 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
-            var entity = await db.MediaSegments
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    segment => segment.ItemId == itemId && segment.Id == segmentId,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            return entity is null ? null : Map(entity);
-        }
-    }
-
-    /// <inheritdoc />
     public async Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -140,7 +123,7 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public async Task<int> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
@@ -149,19 +132,6 @@ public sealed partial class JellyfinSegmentStore(
             // users remove any of the item's segments by id. It is scoped to the item,
             // unlike IMediaSegmentManager, so a caller holding a stale or mismatched
             // segment id can never delete another item's segment.
-            return await db.MediaSegments
-                .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task<int> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
-    {
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
             return await db.MediaSegments
                 .Where(segment => segment.ItemId == itemId
                     && segment.Id == segmentId

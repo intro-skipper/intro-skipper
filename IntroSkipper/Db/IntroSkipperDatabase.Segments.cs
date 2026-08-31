@@ -507,64 +507,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default)
-    {
-        if (deletedSnapshot is null)
-        {
-            return;
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.Id == deletedSnapshot.Id, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (row is not null)
-        {
-            row.State = deletedSnapshot.State;
-            row.Source = deletedSnapshot.Source;
-        }
-        else
-        {
-            db.Segments.Add(deletedSnapshot.Clone());
-        }
-
-        try
-        {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
-        {
-            // A row with the same range appeared in the meantime. For an automatic
-            // snapshot the restore's intent is met — but a user snapshot must not
-            // silently degrade to the occupant's provenance (a concurrent analysis
-            // write would leave the range automatic, and a later hash cleanup would
-            // delete it), so hand the occupant to the user.
-            if (deletedSnapshot.Source != SegmentSource.User)
-            {
-                return;
-            }
-
-            db.ChangeTracker.Clear();
-            var occupant = await db.Segments
-                .FirstOrDefaultAsync(
-                    s => s.ItemId == deletedSnapshot.ItemId
-                        && s.Type == deletedSnapshot.Type
-                        && s.StartTicks == deletedSnapshot.StartTicks
-                        && s.EndTicks == deletedSnapshot.EndTicks,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (occupant is not null && occupant.Source != SegmentSource.User)
-            {
-                occupant.PromoteToUser();
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
-
-    /// <inheritdoc/>
     public async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -632,18 +574,6 @@ public sealed partial class IntroSkipperDatabase
         }
 
         return row;
-    }
-
-    /// <inheritdoc/>
-    public async Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        return await db.Segments
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

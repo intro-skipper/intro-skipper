@@ -18,16 +18,16 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="SegmentEditorController.DeleteSegmentAsync"/> validation and rollback behavior:
-/// the plugin DB row is deleted before the Jellyfin-side delete (tombstoning automatic rows,
-/// hard-deleting user rows), so a Jellyfin failure must restore the exact row — via the
-/// shared-id fast path or the uncorrelated-id fallback (exact ticks, or the mode's single
-/// active row for non-commercial types).
+/// Tests for <see cref="SegmentEditorController"/> over the durable segment-change
+/// coordinator: the legacy delete dispatch (shared-id fast path, uncorrelated exact
+/// fallback with one tick of tolerance and the non-commercial mode-wide fallback),
+/// validation wire behavior, and accepted-plus-pending semantics when the Jellyfin
+/// projection cannot apply synchronously.
 /// </summary>
 public sealed class SegmentEditorControllerTests
 {
     [Fact]
-    public async Task DeleteSegment_RestoresPluginRow_WhenJellyfinDeleteFails_AndJellyfinSegmentAlreadyGone()
+    public async Task DeleteSegment_KeepsAuthoritativeDelete_WhenProjectionFails()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var itemId = Guid.NewGuid();
@@ -35,28 +35,36 @@ public sealed class SegmentEditorControllerTests
         var original = await database.AddUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
 
-        // Jellyfin has no segment with this id, and its delete throws: the already
-        // hard-deleted user row must be re-inserted verbatim by the rollback.
-        var store = new FakeJellyfinSegmentStore { DeleteSegmentException = new InvalidOperationException("jellyfin down") };
+        // The row is mirrored under its shared id, but the convergence write fails:
+        // the committed delete must stand (202, not an error), with the journaled
+        // work owning the mirror from there — no rollback resurrects a user delete.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = original.Id,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = original.StartTicks,
+                    EndTicks = original.EndTicks,
+                }
+            ],
+            WriteException = new InvalidOperationException("jellyfin down"),
+        };
         var controller = CreateController(store, database);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            controller.DeleteSegmentAsync(original.Id, itemId, "intro", CancellationToken.None));
+        var result = await controller.DeleteSegmentAsync(original.Id, itemId, "intro", CancellationToken.None);
 
-        var rows = await database.GetSegmentsAsync(itemId);
-        var restored = Assert.Single(rows);
-        Assert.Equal(original.Id, restored.Id);
-        Assert.Equal(AnalysisMode.Introduction, restored.Type);
-        Assert.Equal(TickConversions.FromSeconds(100), restored.StartTicks);
-        Assert.Equal(TickConversions.FromSeconds(160), restored.EndTicks);
-        Assert.Equal(SegmentSource.User, restored.Source);
-        Assert.Equal(SegmentState.Active, restored.State);
-        Assert.Equal(original.ConfigHash, restored.ConfigHash);
-        Assert.Equal(original.CreatedAt, restored.CreatedAt);
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        var body = Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value);
+        Assert.Equal("Pending", body.Projection);
+        Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
     }
 
     [Fact]
-    public async Task DeleteSegment_RestoresPluginRow_WhenJellyfinDeleteFails_WithKnownJellyfinSegment()
+    public async Task DeleteSegment_KeepsTombstone_WhenUncorrelatedJellyfinDeleteFails()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var itemId = Guid.NewGuid();
@@ -70,9 +78,11 @@ public sealed class SegmentEditorControllerTests
             "cfg-2");
         var original = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-        // The Jellyfin row's id matches no plugin row (it predates the shared-id scheme),
-        // so the plugin counterpart is matched by exact ticks. The automatic row is
-        // tombstoned, then the failing Jellyfin delete flips it back to Active.
+        // The Jellyfin row's id matches no plugin row (it predates the shared-id
+        // scheme), so the plugin counterpart is matched by exact ticks and
+        // tombstoned. The failing Jellyfin delete no longer rolls that back: the
+        // change reports accepted-plus-pending and the journaled foreign-row delete
+        // retries until Jellyfin converges.
         var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
@@ -90,17 +100,15 @@ public sealed class SegmentEditorControllerTests
         };
         var controller = CreateController(store, database);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            controller.DeleteSegmentAsync(jellyfinSegmentId, itemId, "intro", CancellationToken.None));
+        var result = await controller.DeleteSegmentAsync(jellyfinSegmentId, itemId, "intro", CancellationToken.None);
 
-        var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(original.Id, restored.Id);
-        Assert.Equal(original.StartTicks, restored.StartTicks);
-        Assert.Equal(original.EndTicks, restored.EndTicks);
-        Assert.Equal(SegmentSource.Chapter, restored.Source);
-        Assert.Equal(SegmentState.Active, restored.State);
-        Assert.Equal("cfg-2", restored.ConfigHash);
-        Assert.Equal(original.CreatedAt, restored.CreatedAt);
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        var body = Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value);
+        Assert.Equal("Pending", body.Projection);
+        var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(original.Id, tombstone.Id);
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+        Assert.Empty(store.DeletedSegments);
     }
 
     [Theory]
@@ -191,8 +199,9 @@ public sealed class SegmentEditorControllerTests
         var row = await database.AddUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
 
-        // Jellyfin segment already gone; the delete of the unknown shared id succeeds as
-        // a no-op, so the orphaned user row is cleaned up.
+        // Jellyfin segment already gone; the correlated delete commits and the
+        // convergence finds nothing left to change, so the orphaned user row is
+        // cleaned up as a plain synchronous success.
         var store = new FakeJellyfinSegmentStore();
         var controller = CreateController(store, database);
 
@@ -200,7 +209,7 @@ public sealed class SegmentEditorControllerTests
 
         Assert.IsType<OkResult>(result);
         Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
     }
 
     [Fact]
@@ -226,7 +235,7 @@ public sealed class SegmentEditorControllerTests
         Assert.Equal(row.Id, tombstone.Id);
         Assert.Equal(SegmentState.Suppressed, tombstone.State);
         Assert.Equal(SegmentSource.Chapter, tombstone.Source);
-        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
 
         // Deleting the already-suppressed row again succeeds idempotently (the plugin
         // already treats it as deleted) instead of 404ing.
@@ -424,7 +433,7 @@ public sealed class SegmentEditorControllerTests
 
         Assert.IsType<OkResult>(result);
         Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
     }
 
     [Fact]
@@ -604,6 +613,6 @@ public sealed class SegmentEditorControllerTests
 
     private static SegmentEditorController CreateController(
         IJellyfinSegmentStore store,
-        IntroSkipper.Db.IIntroSkipperDatabase database)
+        IntroSkipper.Db.IntroSkipperDatabase database)
         => DatabaseTestHelpers.CreateSegmentEditorController(store, database);
 }

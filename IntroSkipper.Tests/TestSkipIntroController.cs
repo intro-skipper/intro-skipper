@@ -70,15 +70,17 @@ public sealed class TestSkipIntroController
 
         var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
 
-        // The controller does not gate on UpdateMediaSegments; the mirror itself no-ops.
-        Assert.IsType<NoContentResult>(result);
+        // The controller does not gate on UpdateMediaSegments; the change commits and
+        // reports its skipped projection honestly (the journaled work replays on enable).
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        Assert.Equal("Skipped", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
         Assert.Equal(0, store.WriteCallCount);
         var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, segment.Source);
     }
 
     [Fact]
-    public async Task UpdateTimestampsAsync_MirrorFailure_PropagatesAndKeepsStoredSegment()
+    public async Task UpdateTimestampsAsync_MirrorFailure_ReportsAcceptedPending_AndKeepsStoredSegment()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -94,11 +96,12 @@ public sealed class TestSkipIntroController
             Introduction = new Segment(itemId, new TimeRange(10, 20))
         };
 
-        // Like every editor write: the failure reaches the caller instead of a 204, and
-        // the committed plugin row stays (the next sync converges the mirror).
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None));
+        // The committed change stands; the failed mirror write surfaces as an
+        // accepted-plus-pending 202 and the journaled work retries until convergence.
+        var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
 
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        Assert.Equal("Pending", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
         Assert.Equal(1, store.WriteCallCount);
         var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, segment.Source);
@@ -109,7 +112,7 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
             itemId,
@@ -205,7 +208,7 @@ public sealed class TestSkipIntroController
         string cacheDbPath,
         IMediaSegmentRefresher? refresher = null)
         => new(
-            DatabaseTestHelpers.CreateEditorService(store, database),
+            DatabaseTestHelpers.CreateSegmentChange(store, database),
             refresher ?? new RecordingMediaSegmentRefresher(),
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
             database);

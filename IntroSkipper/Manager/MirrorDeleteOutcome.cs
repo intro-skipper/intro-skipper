@@ -4,7 +4,7 @@
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Result of <see cref="MediaSegmentMirror.DeleteSegmentAsync"/>. Distinguishes a
+/// Result of <see cref="MediaSegmentMirror.DeleteValidatedSegmentAsync"/>. Distinguishes a
 /// missing row from a disabled mirror, so a config flip mid-flight cannot masquerade
 /// as drift.
 /// </summary>

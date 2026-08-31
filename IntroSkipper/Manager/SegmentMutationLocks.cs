@@ -6,12 +6,12 @@ using IntroSkipper.Helper;
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// The per-item mutation stripes that serialize every interactive segment mutation,
-/// shared by <see cref="MediaSegmentEditorService"/> and the durable segment-change
-/// coordinator so the one-serializer-per-item invariant holds across both entry points
-/// while they coexist. Separate pool from <see cref="MediaSegmentMirror"/>'s; lock
-/// order is always mutation stripe -&gt; mirror stripe. Must be registered as a
-/// singleton so all requests share the stripes.
+/// The per-item mutation stripes that serialize every interactive segment mutation:
+/// the durable segment-change coordinator takes an item's stripe both to apply an
+/// intent and to project its journaled work, so a projection can never interleave
+/// with a concurrent mutation on the same item. Separate pool from
+/// <see cref="MediaSegmentMirror"/>'s; lock order is always mutation stripe -&gt;
+/// mirror stripe. Must be registered as a singleton so all requests share the stripes.
 /// </summary>
 public sealed class SegmentMutationLocks
 {

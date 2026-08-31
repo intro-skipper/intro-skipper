@@ -5,7 +5,7 @@ using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -18,22 +18,25 @@ namespace IntroSkipper.Controllers;
 /// (shared with the Jellyfin media segment row). Boundaries are seconds at this edge.
 /// Supersedes the singular <c>Episode/{id}/Timestamps</c> endpoints. Elevation-gated
 /// editor surface: reads return the stored view, unfiltered by the per-item disable
-/// flag; playback clients read Jellyfin's native media segments instead.
+/// flag; playback clients read Jellyfin's native media segments instead. Mutations
+/// commit through the durable segment-change coordinator: a change whose Jellyfin
+/// projection does not apply synchronously answers <c>202 Accepted</c> with a
+/// <see cref="SegmentChangeAcceptedResponse"/> and converges from the journal.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentsController"/> class.
 /// </remarks>
-/// <param name="database">Segment database facade.</param>
-/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
+/// <param name="database">Segment database facade (reads only).</param>
+/// <param name="segmentChange">Durable segment-change coordinator; owns every mutation.</param>
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public class SegmentsController(
     IIntroSkipperDatabase database,
-    MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
+    ISegmentChange segmentChange) : ControllerBase
 {
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
+    private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Gets all stored segments of an item, ordered by type and start time.
@@ -70,12 +73,14 @@ public class SegmentsController(
     /// <param name="request">Segment to create.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="201">The created segment.</response>
+    /// <response code="202">The segment committed but its Jellyfin projection is pending or skipped.</response>
     /// <response code="400">The boundaries or the segment type are invalid.</response>
     /// <response code="404">The item is not an episode or movie.</response>
     /// <returns>The created segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{itemId}/Segments")]
     [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> CreateSegment(
@@ -102,10 +107,22 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var row = await _mediaSegmentEditorService
-            .CreateUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken)
+        var outcome = await _segmentChange
+            .ApplyAsync(new AddUserSegmentIntent(itemId, request.Type, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        return CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentDto.FromDbSegment(row));
+        ActionResult result = outcome switch
+        {
+            Accepted { Projection: ProjectionState.Applied } accepted => ToCreated(accepted.AffectedValues.Single()),
+            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+            // An identical active user segment already exists; report it like a create.
+            Ignored ignored => ToCreated(ignored.AffectedValues.Single()),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
+        };
+        return result;
+
+        CreatedAtActionResult ToCreated(SegmentValue value)
+            => CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentChangeHttp.ToDto(value));
     }
 
     /// <summary>
@@ -118,12 +135,14 @@ public class SegmentsController(
     /// <param name="request">New boundaries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The updated (or merged-into) segment.</response>
+    /// <response code="202">The update committed but its Jellyfin projection is pending or skipped.</response>
     /// <response code="400">The boundaries are invalid.</response>
     /// <response code="404">The segment does not exist on this item or is suppressed.</response>
     /// <returns>The surviving segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPut("Episode/{itemId}/Segments/{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> UpdateSegment(
@@ -144,15 +163,19 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var updated = await _mediaSegmentEditorService
-            .UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken)
+        var outcome = await _segmentChange
+            .ApplyAsync(new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        if (updated is null)
+        ActionResult result = outcome switch
         {
-            return NotFound();
-        }
-
-        return Ok(SegmentDto.FromDbSegment(updated));
+            Accepted { Projection: ProjectionState.Applied } accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
+            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+            // The segment already carries the requested values; report it like an update.
+            Ignored ignored => Ok(SegmentChangeHttp.ToDto(ignored.AffectedValues.Single())),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
+        };
+        return result;
     }
 
     /// <summary>
@@ -163,11 +186,13 @@ public class SegmentsController(
     /// <param name="segmentId">Segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">The segment was deleted.</response>
+    /// <response code="202">The delete committed but its Jellyfin projection is pending or skipped.</response>
     /// <response code="404">The segment does not exist on this item or is already suppressed.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpDelete("Episode/{itemId}/Segments/{segmentId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteSegment(
         [FromRoute] Guid itemId,
@@ -179,19 +204,18 @@ public class SegmentsController(
             return NotFound();
         }
 
-        // The cascade owns the whole delete workflow: item-scoped plugin delete, targeted
-        // Jellyfin delete with rollback, mirror re-sync when the shared id found no
-        // Jellyfin row, and the season-state reset (mode comes from the deleted row).
-        // The Jellyfin row shares the segment id.
-        var deleted = await _mediaSegmentEditorService
-            .DeleteSegmentAsync(itemId, segmentId, cancellationToken)
+        var outcome = await _segmentChange
+            .ApplyAsync(new DeleteSegmentIntent(itemId, segmentId), cancellationToken)
             .ConfigureAwait(false);
-        if (deleted is null)
+        return outcome switch
         {
-            return NotFound();
-        }
-
-        return NoContent();
+            Accepted { Projection: ProjectionState.Applied } => NoContent(),
+            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+            // Unknown on the item or already suppressed — the id addresses nothing deletable.
+            Ignored => NotFound(),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
+        };
     }
 
     /// <summary>
@@ -201,11 +225,13 @@ public class SegmentsController(
     /// <param name="segmentId">Segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The restored segment.</response>
+    /// <response code="202">The restore committed but its Jellyfin projection is pending or skipped.</response>
     /// <response code="404">The segment does not exist on this item or is not suppressed.</response>
     /// <returns>The restored segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{itemId}/Segments/{segmentId}/Restore")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<SegmentDto>> RestoreSegment(
         [FromRoute] Guid itemId,
@@ -217,14 +243,18 @@ public class SegmentsController(
             return NotFound();
         }
 
-        var restored = await _mediaSegmentEditorService
-            .RestoreSegmentAsync(itemId, segmentId, cancellationToken)
+        var outcome = await _segmentChange
+            .ApplyAsync(new RestoreSegmentIntent(itemId, segmentId), cancellationToken)
             .ConfigureAwait(false);
-        if (restored is null)
+        ActionResult result = outcome switch
         {
-            return NotFound();
-        }
-
-        return Ok(SegmentDto.FromDbSegment(restored));
+            Accepted { Projection: ProjectionState.Applied } accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
+            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+            // Unknown on the item or not suppressed — the id addresses nothing restorable.
+            Ignored => NotFound(),
+            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
+            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
+        };
+        return result;
     }
 }

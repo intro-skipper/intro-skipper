@@ -132,19 +132,9 @@ public interface IIntroSkipperDatabase
     /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A pre-delete snapshot sufficient to reverse the delete exactly via
-    /// <see cref="UndoDeleteAsync"/>, or <c>null</c> when the id is unknown on the item or already suppressed.</returns>
+    /// <returns>A pre-delete snapshot of the removed row, or <c>null</c> when the id is
+    /// unknown on the item or already suppressed.</returns>
     Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Reverses a prior <see cref="DeleteSegmentAsync"/> exactly: flips the tombstone back
-    /// to its previous state, or re-inserts the hard-deleted row verbatim (same id, source,
-    /// config hash and creation time). No-op when nothing was deleted.
-    /// </summary>
-    /// <param name="deletedSnapshot">Snapshot returned by the delete to reverse; <c>null</c> when nothing was deleted.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears a tombstone, making the suppressed segment active again with its original
@@ -156,14 +146,6 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The restored row, or <c>null</c> when the id is unknown on the item or not suppressed.</returns>
     Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Returns a stored segment by id, regardless of state.
-    /// </summary>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The row, or <c>null</c> when unknown.</returns>
-    Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.

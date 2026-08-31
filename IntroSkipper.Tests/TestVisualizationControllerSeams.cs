@@ -178,11 +178,11 @@ public sealed class TestVisualizationControllerSeams
         await WaitForScanLeaseReleaseAsync();
     }
 
-    private static VisualizationController CreateController(IIntroSkipperDatabase database, string cacheDbPath, ILibraryManager? libraryManager = null)
+    private static VisualizationController CreateController(IntroSkipperDatabase database, string cacheDbPath, ILibraryManager? libraryManager = null)
         => new(
             NullLogger<VisualizationController>.Instance,
             new NoOpMediaSegmentRefresher(),
-            DatabaseTestHelpers.CreateEditorService(new FakeJellyfinSegmentStore(), database),
+            DatabaseTestHelpers.CreateSegmentChange(new FakeJellyfinSegmentStore(), database),
             libraryManager!,
             new AnalyzerTaskFactory(
                 NullLoggerFactory.Instance,
