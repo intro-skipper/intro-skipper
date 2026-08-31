@@ -335,9 +335,10 @@ public sealed class TestSegmentsApiController
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "cfg");
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-            // The row is mirrored, and the convergence write fails: the committed
-            // tombstone must stand (202, not an error, no rollback) with the
-            // journaled work retrying until Jellyfin converges.
+            // The row is mirrored, and Jellyfin is down (the journaled targeted
+            // delete and the convergence write both fail): the committed tombstone
+            // must stand (202, not an error, no rollback) with the journaled work
+            // retrying until Jellyfin converges.
             var store = new FakeJellyfinSegmentStore
             {
                 ExistingSegments =
@@ -352,6 +353,7 @@ public sealed class TestSegmentsApiController
                     }
                 ],
                 WriteException = new InvalidOperationException("Jellyfin unavailable"),
+                DeleteSegmentException = new InvalidOperationException("Jellyfin unavailable"),
             };
             var controller = CreateController(database, store);
 

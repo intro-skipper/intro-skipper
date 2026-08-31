@@ -35,13 +35,8 @@ internal static class UncorrelatedSegmentMatcher
     /// <param name="mode">The mode the Jellyfin row maps to.</param>
     /// <param name="startTicks">The Jellyfin row's start ticks.</param>
     /// <param name="endTicks">The Jellyfin row's end ticks.</param>
-    /// <param name="allowModeWideFallback">Whether the non-commercial mode-wide fallback may fire. The
-    /// fallback is a drift-healing guess that presumes the caller's view of the mirror is current;
-    /// callers pass <see langword="false"/> while the item has unapplied projection work, where a
-    /// concurrent delete's counterpart may be gone without a trace and guessing could claim a
-    /// segment the caller never addressed.</param>
     /// <returns>The counterpart, or <see langword="null"/> when none matches.</returns>
-    internal static DbSegment? Find(IReadOnlyList<DbSegment> rows, AnalysisMode mode, long startTicks, long endTicks, bool allowModeWideFallback = true)
+    internal static DbSegment? Find(IReadOnlyList<DbSegment> rows, AnalysisMode mode, long startTicks, long endTicks)
     {
         var match = rows
             .Where(s => s.Type == mode
@@ -51,7 +46,7 @@ internal static class UncorrelatedSegmentMatcher
             .ThenBy(s => s.Id)
             .FirstOrDefault();
 
-        if (match is null && allowModeWideFallback && mode != AnalysisMode.Commercial)
+        if (match is null && mode != AnalysisMode.Commercial)
         {
             var modeRows = rows.Where(s => s.Type == mode).ToList();
             if (modeRows.Count == 1)

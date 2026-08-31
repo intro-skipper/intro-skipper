@@ -194,16 +194,18 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
-    public async Task PendingWork_SuppressesTheModeWideFallback()
+    public async Task ModeWideFallback_HealsDrift_EvenWithUnrelatedPendingWork()
     {
         var itemId = Guid.NewGuid();
-        var survivor = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.User);
-        await SeedAsync(survivor);
+        var drifted = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.Chapter);
+        await SeedAsync(drifted);
         var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
         var service = CreateService(adapter);
 
-        // A failed change leaves the item's marker pending: the mirror is known to
-        // be behind, so the fallback's single-active-row guess must not fire.
+        // An unrelated failed change leaves the item's marker pending. The
+        // fallback's drift heal must still work — the retry hazards it once posed
+        // are answered by the pending-op guard (every single-row delete journals
+        // its target's operation), not by suppressing the heal.
         Assert.IsType<Accepted>(await service.ApplyAsync(
             new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40)));
 
@@ -212,11 +214,39 @@ public sealed class TestSegmentChange : IDisposable
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
             new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
 
-        // Only the named foreign row is journaled for deletion; the sole active
-        // intro is never guessed at while work is pending.
-        Assert.Empty(outcome.AffectedValues);
+        // The mode's single active intro is the legacy mode-scoped match and is
+        // tombstoned alongside the journaled foreign-row delete.
+        Assert.Equal(drifted.Id, Assert.Single(outcome.AffectedValues).Id);
         await using var db = CreateContext();
-        Assert.Contains(await db.Segments.ToListAsync(), s => s.Id == survivor.Id && s.State == SegmentState.Active);
+        Assert.Equal(SegmentState.Suppressed, Assert.Single(await db.Segments.ToListAsync(), s => s.Id == drifted.Id).State);
+    }
+
+    [Fact]
+    public async Task PluralDelete_RetriedThroughTheEditor_IsIgnored()
+    {
+        var itemId = Guid.NewGuid();
+
+        // The plural API hard-deletes user intro A; its sync stays pending, so the
+        // editor still lists the mirrored twin and the user deletes it there. The
+        // plural delete's journaled twin operation answers the cross-surface retry
+        // idempotently — without it, the mode-wide fallback would claim B.
+        var claimed = new DbSegment(itemId, AnalysisMode.Introduction, 1000, 2000, SegmentSource.User);
+        var survivor = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.User);
+        await SeedAsync(claimed, survivor);
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        adapter.ExternalTargets[claimed.Id] = new ExternalSegmentTarget(claimed.Id, itemId, MediaSegmentType.Intro, 1000, 2000);
+        var service = CreateService(adapter);
+
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(new DeleteSegmentIntent(itemId, claimed.Id)));
+        Assert.Equal(ProjectionState.Pending, first.Projection);
+
+        var second = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, claimed.Id, MediaSegmentType.Intro)));
+
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, second.Reason);
+        await using var db = CreateContext();
+        Assert.Equal(survivor.Id, Assert.Single(await db.Segments.ToListAsync()).Id);
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
     }
 
     [Fact]

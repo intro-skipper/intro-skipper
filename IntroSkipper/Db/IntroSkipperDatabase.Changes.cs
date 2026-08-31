@@ -248,6 +248,11 @@ public sealed partial class IntroSkipperDatabase
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.", reproject: suppressed);
                     }
 
+                    // Like the editor delete's correlated arm: journal the Jellyfin
+                    // twin's targeted delete with the row's own shape, so a retry of
+                    // this delete through any surface answers idempotently via the
+                    // pending-op guard while the sync is still pending.
+                    await JournalExternalDeleteAsync(db, value.ItemId, value.SegmentId, AnalysisHelpers.ModeToSegmentType[deleted.Mode], deleted.StartTicks, deleted.EndTicks, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, [deleted]);
                 }
 
@@ -385,15 +390,14 @@ public sealed partial class IntroSkipperDatabase
     /// <summary>
     /// Deletes one exactly validated, uncorrelated Jellyfin row and its plugin
     /// counterpart. The counterpart is matched by the shared uncorrelated rule
-    /// (1-tick tolerance, closest wins), without which a pre-shared-id row sitting
-    /// one tick off would stay active and the very sync this change journals would
-    /// resurrect the deleted segment; the non-commercial mode-wide fallback fires
-    /// only while the item has no unapplied projection work — the fallback is a
-    /// drift-healing guess, and while the mirror is known to be behind, a concurrent
-    /// delete's counterpart may be gone without a trace, so guessing could claim a
-    /// segment the caller never addressed. The journaled operation removes the
-    /// foreign row either way, carrying the validated boundaries for the apply-time
-    /// guard.
+    /// (1-tick tolerance, closest wins, non-commercial mode-wide fallback), without
+    /// which a pre-shared-id row sitting one tick off would stay active and the very
+    /// sync this change journals would resurrect the deleted segment. The fallback
+    /// cannot re-claim after a concurrent or retried single-row delete: every such
+    /// delete journals its target's operation, and the pending-op guard above
+    /// answers those retries before matching runs. The journaled operation removes
+    /// the foreign row either way, carrying the validated boundaries for the
+    /// apply-time guard.
     /// </summary>
     private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, ExternalSegmentTarget target, List<DbSegment> itemRows, CancellationToken cancellationToken)
     {
@@ -414,15 +418,11 @@ public sealed partial class IntroSkipperDatabase
             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
         }
 
-        var mirrorMaybeBehind = await db.ProjectionQueue
-            .AnyAsync(q => q.ItemId == itemId, cancellationToken)
-            .ConfigureAwait(false);
         var match = UncorrelatedSegmentMatcher.Find(
             [.. itemRows.Where(s => s.State == SegmentState.Active)],
             mode,
             target.StartTicks,
-            target.EndTicks,
-            allowModeWideFallback: !mirrorMaybeBehind);
+            target.EndTicks);
 
         var affected = new List<SegmentValue>();
         if (match is not null && await DeleteOwnedRowAsync(db, itemId, match.Id, cancellationToken).ConfigureAwait(false) is { } deleted)
