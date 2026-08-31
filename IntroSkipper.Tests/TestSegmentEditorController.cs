@@ -35,9 +35,10 @@ public sealed class SegmentEditorControllerTests
         var original = await database.AddUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
 
-        // The row is mirrored under its shared id, but the convergence write fails:
-        // the committed delete must stand (202, not an error), with the journaled
-        // work owning the mirror from there — no rollback resurrects a user delete.
+        // The row is mirrored under its shared id, but Jellyfin is down (both the
+        // journaled targeted delete and the convergence write fail): the committed
+        // delete must stand (202, not an error), with the journaled work owning the
+        // mirror from there — no rollback resurrects a user delete.
         var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
@@ -52,6 +53,7 @@ public sealed class SegmentEditorControllerTests
                 }
             ],
             WriteException = new InvalidOperationException("jellyfin down"),
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
 

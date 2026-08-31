@@ -577,18 +577,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        return await db.Segments
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
     public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(
         Guid itemId,
         bool includeSuppressed = false,

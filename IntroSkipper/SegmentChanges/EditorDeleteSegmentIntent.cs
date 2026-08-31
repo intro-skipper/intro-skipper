@@ -6,11 +6,12 @@ using Jellyfin.Database.Implementations.Enums;
 namespace IntroSkipper.SegmentChanges;
 
 /// <summary>
-/// Deletes the editor-addressed segment the legacy <c>DELETE MediaSegmentsApi/{segmentId}</c>
-/// wire contract names. A plugin row sharing the id is deleted authoritatively (tombstoning
-/// automatic rows); an id with no plugin row falls back to the exactly validated external
-/// delete of <see cref="DeleteExternalSegmentIntent"/>, uncorrelated counterpart matching
-/// included.
+/// Deletes one editor-addressed segment, the single external-delete intent (the
+/// legacy <c>DELETE MediaSegmentsApi/{segmentId}</c> wire contract). A plugin row
+/// sharing the id is deleted authoritatively (tombstoning automatic rows) with its
+/// Jellyfin twin's targeted delete journaled; an id with no plugin row resolves the
+/// Jellyfin row lazily inside the transaction, validates its ownership, matches the
+/// uncorrelated plugin counterpart, and journals the foreign row's durable delete.
 /// </summary>
 /// <param name="ItemId">Owning item ID.</param>
 /// <param name="SegmentId">Editor-visible segment ID (shared with the plugin row when one exists).</param>
