@@ -8,7 +8,7 @@ namespace IntroSkipper.SegmentChanges;
 /// <param name="Affected">Affected authoritative segment values of a committed mutation.</param>
 public sealed record MutationResult(SegmentChangeOutcome? Outcome, IReadOnlyList<SegmentValue> Affected)
 {
-    internal static MutationResult Ignore(SegmentChangeIgnoredReason reason, string message) => new(new Ignored(reason, message), []);
+    internal static MutationResult Ignore(SegmentChangeIgnoredReason reason, string message, IReadOnlyList<SegmentValue>? affectedValues = null) => new(new Ignored(reason, message, affectedValues ?? []), []);
 
     internal static MutationResult Reject(SegmentChangeRejectedReason reason, string message) => new(new Rejected(reason, message), []);
 }

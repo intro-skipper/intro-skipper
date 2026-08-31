@@ -138,6 +138,174 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task EditorDelete_CorrelatedActiveRow_DeletesAuthoritativelyWithoutExternalOp()
+    {
+        var itemId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User);
+        await SeedAsync(row);
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, row.Id, MediaSegmentType.Intro)));
+
+        // The plugin row owns the id: the delete is authoritative and the mirror
+        // converges through the plain sync — no foreign-row operation is journaled.
+        Assert.Equal(ProjectionState.Applied, outcome.Projection);
+        Assert.Equal(row.Id, Assert.Single(outcome.AffectedValues).Id);
+        Assert.Empty(Assert.Single(adapter.Applies).ExternalOperations);
+        await using var db = CreateContext();
+        Assert.Empty(await db.Segments.ToListAsync());
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_CorrelatedTypeMismatch_RejectsWithActualType()
+    {
+        var itemId = Guid.NewGuid();
+        var credits = new DbSegment(itemId, AnalysisMode.Credits, 30, 40, SegmentSource.Chapter);
+        await SeedAsync(credits);
+        var service = CreateService(new RecordingProjectionAdapter());
+
+        var rejected = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, credits.Id, MediaSegmentType.Intro)));
+
+        Assert.Equal(SegmentChangeRejectedReason.ExternalTypeMismatch, rejected.Reason);
+        Assert.Contains(nameof(MediaSegmentType.Outro), rejected.Message, StringComparison.Ordinal);
+        await using var db = CreateContext();
+        Assert.Equal(SegmentState.Active, Assert.Single(await db.Segments.ToListAsync()).State);
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_SuppressedCorrelatedRow_IsIgnoredButStillReprojects()
+    {
+        var itemId = Guid.NewGuid();
+        var tombstone = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter)
+        {
+            State = SegmentState.Suppressed,
+        };
+        await SeedAsync(tombstone);
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        var ignored = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, tombstone.Id, MediaSegmentType.Intro)));
+
+        // The plugin already treats the row as deleted; the journaled re-projection
+        // is what removes a ghost Jellyfin row re-added since.
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, ignored.Reason);
+        Assert.Empty(Assert.Single(adapter.Applies).Segments);
+        await using var db = CreateContext();
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_Uncorrelated_MatchesWithinOneTick_AndJournalsForeignDelete()
+    {
+        var itemId = Guid.NewGuid();
+
+        // Imported rows are rounded from seconds; the pre-upgrade Jellyfin row of the
+        // same value was truncated one tick lower and carries its own id.
+        var pluginRow = new DbSegment(itemId, AnalysisMode.Introduction, 1238398, 500000000, SegmentSource.User);
+        await SeedAsync(pluginRow);
+        var jellyfinRowId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter();
+        adapter.ExternalTargets[jellyfinRowId] = new ExternalSegmentTarget(jellyfinRowId, itemId, MediaSegmentType.Intro, 1238397, 500000000);
+        var service = CreateService(adapter);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, jellyfinRowId, MediaSegmentType.Intro)));
+
+        // The one-tick-off counterpart is deleted so the very sync this change
+        // journals cannot resurrect the segment, and the foreign row's delete is
+        // journaled with its validated boundaries.
+        Assert.Equal(ProjectionState.Applied, outcome.Projection);
+        var operation = Assert.Single(Assert.Single(adapter.Applies).ExternalOperations);
+        Assert.Equal(jellyfinRowId, operation.ExternalSegmentId);
+        Assert.Equal(1238397, operation.StartTicks);
+        await using var db = CreateContext();
+        Assert.Empty(await db.Segments.ToListAsync());
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task EditorDelete_Uncorrelated_SeveralRowsWithinTolerance_DeletesTheExactMatch()
+    {
+        var itemId = Guid.NewGuid();
+
+        // Two 1-tick-shifted copies of the same boundaries (truncated and rounded
+        // eras) both sit within tolerance; the exact match must win.
+        var shiftedCopy = new DbSegment(itemId, AnalysisMode.Introduction, 1238397, 500000000, SegmentSource.User);
+        var exactCopy = new DbSegment(itemId, AnalysisMode.Introduction, 1238398, 500000000, SegmentSource.User);
+        await SeedAsync(shiftedCopy, exactCopy);
+        var jellyfinRowId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter();
+        adapter.ExternalTargets[jellyfinRowId] = new ExternalSegmentTarget(jellyfinRowId, itemId, MediaSegmentType.Intro, 1238398, 500000000);
+        var service = CreateService(adapter);
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, jellyfinRowId, MediaSegmentType.Intro)));
+
+        await using var db = CreateContext();
+        Assert.Equal(shiftedCopy.Id, Assert.Single(await db.Segments.ToListAsync()).Id);
+    }
+
+    [Fact]
+    public async Task EditorDelete_UncorrelatedResolutionMismatches_RejectBeforeCommit()
+    {
+        var itemId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        // No Jellyfin row resolves under the id.
+        var missing = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, Guid.NewGuid(), MediaSegmentType.Intro)));
+        Assert.Equal(SegmentChangeRejectedReason.ExternalSegmentNotFound, missing.Reason);
+
+        // The resolved row belongs to another item.
+        var foreignId = Guid.NewGuid();
+        adapter.ExternalTargets[foreignId] = new ExternalSegmentTarget(foreignId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20);
+        var foreign = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, foreignId, MediaSegmentType.Intro)));
+        Assert.Equal(SegmentChangeRejectedReason.ExternalItemMismatch, foreign.Reason);
+
+        // The resolved row carries another type.
+        var mismatchedId = Guid.NewGuid();
+        adapter.ExternalTargets[mismatchedId] = new ExternalSegmentTarget(mismatchedId, itemId, MediaSegmentType.Outro, 10, 20);
+        var mismatched = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, mismatchedId, MediaSegmentType.Intro)));
+        Assert.Equal(SegmentChangeRejectedReason.ExternalTypeMismatch, mismatched.Reason);
+
+        await using var db = CreateContext();
+        await db.ApplyMigrationsAsync();
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task IgnoredIdempotentAddAndUpdate_ReportTheExistingRow()
+    {
+        var itemId = Guid.NewGuid();
+        var service = CreateService(new RecordingProjectionAdapter());
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
+        var rowId = Assert.Single(first.AffectedValues).Id;
+
+        // Idempotent create and same-values update both report the row that already
+        // satisfies the intent, so wire adapters can keep their applied shapes.
+        var addAgain = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
+        Assert.Equal(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, addAgain.Reason);
+        Assert.Equal(rowId, Assert.Single(addAgain.AffectedValues).Id);
+
+        var updateSame = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new UpdateSegmentIntent(itemId, rowId, 10, 20)));
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, updateSame.Reason);
+        Assert.Equal(rowId, Assert.Single(updateSame.AffectedValues).Id);
+    }
+
+    [Fact]
     public async Task VisibilityFailure_KeepsDisabledFlagAndPendingFilteredImage()
     {
         var itemId = Guid.NewGuid();

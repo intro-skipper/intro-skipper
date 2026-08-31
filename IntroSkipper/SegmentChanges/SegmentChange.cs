@@ -47,11 +47,20 @@ internal sealed partial class SegmentChange(
         cancellationToken.ThrowIfCancellationRequested();
 
         // Resolution happens outside the stripe (it only reads Jellyfin); the facade
-        // re-validates the target against the intent inside the transaction.
-        ExternalSegmentTarget? externalTarget = null;
-        if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
+        // re-validates the target against the intent inside the transaction. The
+        // editor delete resolves unconditionally — its dispatch (shared-id plugin row
+        // versus uncorrelated external row) is decided inside the transaction, and a
+        // correlated dispatch simply never consults the target.
+        var externalSegmentId = intent switch
         {
-            externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
+            DeleteExternalSegmentIntent external => external.ExternalSegmentId,
+            EditorDeleteSegmentIntent editorDelete => editorDelete.SegmentId,
+            _ => Guid.Empty
+        };
+        ExternalSegmentTarget? externalTarget = null;
+        if (externalSegmentId != Guid.Empty)
+        {
+            externalTarget = await adapter.ResolveExternalTargetAsync(intent.ItemId, externalSegmentId, cancellationToken).ConfigureAwait(false);
         }
 
         MutationResult result;
