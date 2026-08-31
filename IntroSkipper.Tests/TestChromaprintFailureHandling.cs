@@ -93,9 +93,7 @@ public sealed class TestChromaprintFailureHandling
 
         public bool Write<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items) => false;
 
-        public void DeleteForItem(Guid itemId)
-        {
-        }
+        public bool DeleteForItem(Guid itemId) => false;
 
         public void DeleteByMode(AnalysisMode mode)
         {

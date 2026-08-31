@@ -329,13 +329,15 @@ public sealed class TestVisualizationController
         public bool Write<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
             => inner.Write(itemId, mode, type, start, end, items);
 
-        public void DeleteForItem(Guid itemId)
+        public bool DeleteForItem(Guid itemId)
         {
-            inner.DeleteForItem(itemId);
+            var deleted = inner.DeleteForItem(itemId);
             if (Interlocked.Increment(ref _deleteCount) == 1)
             {
                 cancellationTokenSource.Cancel();
             }
+
+            return deleted;
         }
 
         public void DeleteByMode(AnalysisMode mode) => inner.DeleteByMode(mode);
