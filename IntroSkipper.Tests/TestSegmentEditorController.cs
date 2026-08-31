@@ -316,7 +316,13 @@ public sealed class SegmentEditorControllerTests
                 }
             ],
         };
-        var controller = CreateController(store, database);
+
+        // The seeding analyzer write journaled the item's projection marker; converge
+        // it first, as the projection worker long since would have — the mode-wide
+        // fallback deliberately stays quiet while work is pending.
+        var segmentChange = DatabaseTestHelpers.CreateSegmentChange(store, database);
+        await segmentChange.RetryProjectionAsync(IntroSkipper.SegmentChanges.ProjectionScope.ForItem(itemId));
+        var controller = new SegmentEditorController(segmentChange);
 
         var result = await controller.DeleteSegmentAsync(jellyfinRowId, itemId, "intro", CancellationToken.None);
 
