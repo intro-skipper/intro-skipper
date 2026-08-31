@@ -92,19 +92,18 @@ public partial class SkipIntroController(
 
         if (slots.Count == 0)
         {
+            // Nothing to store is a pure no-op (release-note item): the old path ran
+            // an empty replace plus a mirror sync here, which incidentally healed a
+            // diverged mirror; healing now rides on real mutations and the journal.
             return NoContent();
         }
 
         var outcome = await _segmentChange.ApplyAsync(new WriteUserTimestampsIntent(id, slots), cancellationToken).ConfigureAwait(false);
-        return outcome switch
-        {
-            Accepted { Projection: ProjectionState.Applied } => NoContent(),
-            Accepted accepted => SegmentChangeHttp.Accepted(accepted),
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => NoContent(),
             // The requested timestamps are already stored; an idempotent re-POST succeeds.
-            Ignored => NoContent(),
-            Rejected rejected => SegmentChangeHttp.Rejected(rejected),
-            _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
-        };
+            onIgnored: _ => NoContent());
     }
 
     /// <summary>

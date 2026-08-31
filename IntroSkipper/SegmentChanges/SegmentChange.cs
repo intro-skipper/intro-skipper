@@ -46,30 +46,32 @@ internal sealed partial class SegmentChange(
         ArgumentNullException.ThrowIfNull(intent);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Resolution happens outside the stripe (it only reads Jellyfin); the facade
-        // re-validates the target against the intent inside the transaction. The
-        // editor delete resolves only when no plugin row owns the id: a correlated
-        // dispatch is decided authoritatively and must not depend on a Jellyfin read
-        // that may fail while the mirror lags. The precheck is racy by nature — the
-        // facade re-checks inside the transaction, and a row vanishing in between
-        // yields the honest not-found.
-        ExternalSegmentTarget? externalTarget = null;
-        if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
-        {
-            externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
-        }
-        else if (intent is EditorDeleteSegmentIntent editorDelete && editorDelete.SegmentId != Guid.Empty)
-        {
-            var itemRows = await database.GetSegmentsAsync(editorDelete.ItemId, includeSuppressed: true, cancellationToken).ConfigureAwait(false);
-            if (!itemRows.Any(row => row.Id == editorDelete.SegmentId))
-            {
-                externalTarget = await adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
+        // Resolution runs under the item's mutation stripe, like the mutation it
+        // feeds: projections take the same stripe, so a target resolved here cannot
+        // go stale against a concurrent request's delete of the same row — either
+        // that delete's projection already ran (the row is gone and resolution
+        // reports it) or its journaled operation is still pending (the facade's
+        // pending-op guard answers idempotently). The editor delete resolves only
+        // when no plugin row owns the id: a correlated dispatch is decided
+        // authoritatively and must not depend on a Jellyfin read that may fail
+        // while the mirror lags.
         MutationResult result;
         using (await mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
+            ExternalSegmentTarget? externalTarget = null;
+            if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
+            {
+                externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
+            }
+            else if (intent is EditorDeleteSegmentIntent editorDelete && editorDelete.SegmentId != Guid.Empty)
+            {
+                var ownRow = await database.GetSegmentAsync(editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
+                if (ownRow is null || ownRow.ItemId != editorDelete.ItemId)
+                {
+                    externalTarget = await adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             result = await database.ApplyChangeAsync(intent, externalTarget, cancellationToken).ConfigureAwait(false);
         }
 

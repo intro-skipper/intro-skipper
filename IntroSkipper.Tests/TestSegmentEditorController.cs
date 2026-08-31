@@ -490,6 +490,20 @@ public sealed class SegmentEditorControllerTests
     }
 
     [Fact]
+    public async Task DeleteSegment_EmptySegmentId_Returns404_LikeTheOldLookupMiss()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var controller = CreateController(new FakeJellyfinSegmentStore(), database);
+
+        // The pre-cutover dispatch fell through both lookups for an empty id and
+        // answered 404, which idempotent cleanup clients treat as already-gone.
+        var result = await controller.DeleteSegmentAsync(Guid.Empty, Guid.NewGuid(), "intro", CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
     public async Task CreateSegment_BadRequest_ForUnmappedSegmentType_WithoutWriting()
     {
         var itemId = Guid.NewGuid();
