@@ -465,10 +465,22 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 !string.IsNullOrEmpty(savedHash);
             var hashMatches = hasStoredHash && string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
 
-            // Ordered by precedence. The force flag overrides stored state entirely, and a missing
-            // state row is reported instead of the hash comparison it would have lost anyway.
-            var reason = plugin.AnalyzeAgain ? AnalysisReason.SettingsSaved
-                : !hasStoredHash ? AnalysisReason.NoStoredState
+            // Chromaprint availability invalidates upward only. Gaining it reopens seasons that settled
+            // without it, which is why it is in the hash at all. Losing it must not: the probe reports
+            // false for a genuinely incapable build and for a one-off failure to launch ffmpeg alike,
+            // and discarding good results because a probe failed once re-analyzed whole libraries.
+            if (!hashMatches && !ffmpegValid && hasStoredHash)
+            {
+                var withChromaprint = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid: true);
+                if (string.Equals(savedHash, withChromaprint, StringComparison.Ordinal))
+                {
+                    hashMatches = true;
+                    expectedHash = withChromaprint;
+                }
+            }
+
+            // A missing state row is reported instead of the hash comparison it would have lost anyway.
+            var reason = !hasStoredHash ? AnalysisReason.NoStoredState
                 : !hashMatches ? AnalysisReason.ConfigHashChanged
                 : AnalysisReason.None;
 
@@ -510,15 +522,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                         var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
                                              userProvided.Contains(candidate.EpisodeId);
 
-                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
-                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
-                        // re-analyzed and their timestamps updated to reflect the new settings.
-                        if (isUserProvided || (!plugin.AnalyzeAgain && hashMatches))
+                        // Always preserve user-provided segments. Automatic ones are reusable only
+                        // while the stored hash still describes the current configuration.
+                        if (isUserProvided || hashMatches)
                         {
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain && hashMatches &&
+                    else if (hashMatches &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
                              ids.Contains(candidate.EpisodeId))
                     {
@@ -578,8 +589,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         {
             var state = stateByMode[mode];
 
-            // The analyzer never runs a mode the user switched off for this season, and already says so
-            // itself. Reporting a reason to analyze it would repeat on every run and never come true.
+            // Switching a mode off changes the hash, so the season is queued once to settle its new
+            // state and then skipped. The analyzer logs that skip itself, so announcing analysis that
+            // will not happen would only be confusing.
             if (state.Action == AnalyzerAction.None)
             {
                 continue;
@@ -591,7 +603,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             var (reason, level) = state.Reason switch
             {
                 AnalysisReason.None => (AnalysisReason.NotRecorded, LogLevel.Debug),
-                AnalysisReason.SettingsSaved => (AnalysisReason.SettingsSaved, LogLevel.Debug),
                 AnalysisReason.ConfigHashChanged => (AnalysisReason.ConfigHashChanged, LogLevel.Information),
                 _ => (state.Reason, LogLevel.Debug)
             };

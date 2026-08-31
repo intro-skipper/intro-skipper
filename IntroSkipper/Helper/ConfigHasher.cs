@@ -19,6 +19,13 @@ public static class ConfigHasher
     /// <param name="config">Plugin configuration.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer priority/action used for the season.</param>
+    /// <remarks>
+    /// Two settings are folded into a mode other than the one they are named for, because that is where
+    /// they change the result: <see cref="PluginConfiguration.MinimumIntroDuration"/> is the minimum
+    /// shared-region duration Chromaprint applies to Credits as well, and
+    /// <see cref="PluginConfiguration.AnimePreviewFromCreditsEnd"/> is what creates anime Preview
+    /// segments. Leaving either out means turning it off never retires the segments it produced.
+    /// </remarks>
     /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint. Folded into the
     /// hash for Chromaprint-capable modes so a settled <see cref="EpisodeState.NoSegments"/> season is
     /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
@@ -36,8 +43,9 @@ public static class ConfigHasher
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Credits => Invariant(
-                $"analysis|v2|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
+                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
+                $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}",
@@ -52,7 +60,8 @@ public static class ConfigHasher
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
-                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
+                $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
+                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(
