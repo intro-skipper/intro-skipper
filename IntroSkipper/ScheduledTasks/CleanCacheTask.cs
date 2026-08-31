@@ -87,9 +87,16 @@ public partial class CleanCacheTask(
             _fileSystem,
             _ffmpegService);
 
-        // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
+        // QueueManager.GetMediaInventory() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        if (!inventory.IsComplete)
+        {
+            LogIncompleteInventory(_logger);
+            throw new InvalidOperationException("Cannot clean the Intro Skipper cache because the media inventory is incomplete");
+        }
+
+        var queue = inventory.Items;
         var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(static episodes => episodes)
             .Select(static episode => episode.EpisodeId)
@@ -160,6 +167,9 @@ public partial class CleanCacheTask(
     {
         return [];
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Aborting cache cleanup: the media inventory is incomplete, so cached data cannot be safely removed. Check the preceding log entries for the libraries or items that failed to enumerate")]
+    private static partial void LogIncompleteInventory(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
     private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);
