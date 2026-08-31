@@ -105,6 +105,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// Enumerates the media inventory and reports whether every library and item was inspected.
     /// Cleanup must not delete rows absent from an incomplete inventory.
     /// </summary>
+    /// <param name="includeExcluded">Whether excluded items should be included.</param>
+    /// <param name="cancellationToken">Token used to cancel enumeration.</param>
+    /// <returns>The enumerated media items and a completeness indicator.</returns>
     internal Task<MediaInventoryResult> GetMediaInventory(bool includeExcluded, CancellationToken cancellationToken = default)
         => GetMediaInventoryCore(includeExcluded, seasonIds: null, cancellationToken);
 
@@ -749,9 +752,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     // discard results produced while it was available.
                     if (!hashMatches && !ffmpegValid && hasAnalyzedHash)
                     {
-                        var availableHash = ConfigHasher.Analysis(plugin.Configuration, mode, action: snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
-                            ? savedAction
-                            : AnalyzerAction.Default, ffmpegValid: true);
+                        var availableHash = ConfigHasher.Analysis(
+                            plugin.Configuration,
+                            mode,
+                            snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
+                                ? savedAction
+                                : AnalyzerAction.Default,
+                            ffmpegValid: true);
                         hashMatches = string.Equals(analyzedHash, availableHash, StringComparison.Ordinal);
                     }
 
@@ -862,7 +869,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     reason);
             }
         }
-
     }
 
     private static bool ChromaprintAffectsMode(AnalysisMode mode)

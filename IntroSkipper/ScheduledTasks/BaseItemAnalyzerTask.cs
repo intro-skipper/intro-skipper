@@ -55,6 +55,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly IIntroSkipperDatabase _database = database;
+
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
     /// retaining a constructor-time snapshot can stamp analysis with a hash that no longer matches
@@ -465,6 +466,9 @@ public partial class BaseItemAnalyzerTask(
     /// Gets episode IDs whose analysis result can be persisted. Transient failures remain without an
     /// analysis record so queue verification retries them on the next scan.
     /// </summary>
+    /// <param name="items">The queued episodes whose analysis results were evaluated.</param>
+    /// <param name="mode">The analysis mode used for the queued episodes.</param>
+    /// <returns>The IDs of episodes with persistable analysis results.</returns>
     internal static IReadOnlyList<Guid> GetPersistableEpisodeIds(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
         => [.. items
             .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)

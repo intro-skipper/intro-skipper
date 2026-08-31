@@ -957,6 +957,7 @@ public sealed partial class FFmpegService(
         {
             throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
         }
+
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);

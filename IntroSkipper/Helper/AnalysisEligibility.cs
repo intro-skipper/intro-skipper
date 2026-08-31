@@ -15,6 +15,9 @@ internal static class AnalysisEligibility
     /// Determines whether specials are opted out of analysis. Movies also use season number zero,
     /// but are not specials and must remain eligible.
     /// </summary>
+    /// <param name="first">An episode from the season being considered.</param>
+    /// <param name="config">The current plugin configuration.</param>
+    /// <returns><see langword="true"/> when the season is opted out of analysis; otherwise, <see langword="false"/>.</returns>
     internal static bool IsSeasonZeroOptedOut(QueuedEpisode first, PluginConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(first);
