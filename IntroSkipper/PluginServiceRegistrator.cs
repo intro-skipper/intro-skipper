@@ -8,6 +8,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
@@ -16,6 +17,8 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace IntroSkipper
 {
@@ -35,8 +38,12 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade.
-            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
+            // gates; every consumer goes through a facade. The segment facade is
+            // registered once and forwarded to both of its interfaces so the domain
+            // surface and the projection journal share one gate and one instance.
+            serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
+            serviceCollection.AddSingleton<ISegmentProjectionJournal>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
             serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
@@ -62,9 +69,26 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
-            // Singleton: the editor service serializes all interactive mutations per item
-            // on its own striped lock, which only works when every request shares it.
+            // The mutation stripes serialize all interactive mutations per item across
+            // both entry points (editor service and the durable segment-change
+            // coordinator), which only works when every request shares the singleton.
+            serviceCollection.AddSingleton<SegmentMutationLocks>();
             serviceCollection.AddSingleton<MediaSegmentEditorService>();
+            // Live view of the mirroring flag plus its toggle event; hosted so it can
+            // subscribe to plugin configuration changes.
+            serviceCollection.AddSingleton<MediaSegmentMirrorPolicyService>();
+            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            // Durable segment changes: the coordinator commits intents through the
+            // facade and retries journaled projection work; hosted for the retry loop.
+            // TryAdd: the service collection is Jellyfin's shared server-wide
+            // container, so an unconditional registration would claim (or cede to a
+            // later plugin) the global TimeProvider slot for every consumer.
+            serviceCollection.TryAddSingleton(TimeProvider.System);
+            serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
+            serviceCollection.AddSingleton<SegmentChange>();
+            serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {

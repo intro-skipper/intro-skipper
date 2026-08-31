@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 
 namespace IntroSkipper.Db;
 
@@ -25,6 +26,27 @@ public interface IIntroSkipperDatabase
     /// </summary>
     /// <returns>A <see cref="Task"/> that completes when initialization has finished.</returns>
     Task InitializeAsync();
+
+    /// <summary>
+    /// Applies one closed segment-change intent in a single transaction: the mutation
+    /// (via the same cores the single-shot methods use), its analysis-record
+    /// bookkeeping, and the durable projection journal — a per-item queue marker plus
+    /// any journaled foreign-row delete — so a committed change can never lose its
+    /// projection to a crash. Invalid intents and unowned external targets return
+    /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
+    /// <see cref="Ignored"/> but still journal a re-projection: re-asserting held
+    /// state is how a diverged mirror heals on retry. Callers must serialize calls
+    /// per item (the coordinator's mutation stripe); concurrent first-time enqueues
+    /// for one item can otherwise fail on the queue's primary key.
+    /// </summary>
+    /// <param name="intent">Closed domain intent.</param>
+    /// <param name="externalTarget">The resolved Jellyfin row for
+    /// <see cref="DeleteExternalSegmentIntent"/> (<see langword="null"/> when
+    /// unresolved); ignored for other intents.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
+    /// <see langword="null"/> when the change committed.</returns>
+    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically replaces the active automatic segments of an item and mode with the

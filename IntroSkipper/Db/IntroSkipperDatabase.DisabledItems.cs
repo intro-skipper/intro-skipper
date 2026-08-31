@@ -31,6 +31,26 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
+        var (previous, changed) = await SetItemDisabledCoreAsync(db, seasonId, itemId, disabled, cancellationToken).ConfigureAwait(false);
+        if (changed)
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return previous;
+    }
+
+    /// <summary>
+    /// Core of <see cref="SetItemDisabledAsync"/> on a caller-owned context. Stages the
+    /// flag change without saving; the caller saves and commits when <c>Changed</c> is set.
+    /// </summary>
+    private static async Task<(bool Previous, bool Changed)> SetItemDisabledCoreAsync(
+        IntroSkipperDbContext db,
+        Guid seasonId,
+        Guid itemId,
+        bool disabled,
+        CancellationToken cancellationToken)
+    {
         var existing = await db.DisabledItems
             .FindAsync([itemId], cancellationToken)
             .ConfigureAwait(false);
@@ -44,7 +64,7 @@ public sealed partial class IntroSkipperDatabase
             }
             else if (existing.SeasonId == seasonId)
             {
-                return previous;
+                return (previous, false);
             }
             else
             {
@@ -57,13 +77,12 @@ public sealed partial class IntroSkipperDatabase
         {
             if (existing is null)
             {
-                return previous;
+                return (previous, false);
             }
 
             db.DisabledItems.Remove(existing);
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return previous;
+        return (previous, true);
     }
 }

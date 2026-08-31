@@ -4,6 +4,7 @@
 using System.Globalization;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.EntityFrameworkCore;
@@ -124,6 +125,21 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
+    public async Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            var entity = await db.MediaSegments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(segment => segment.Id == segmentId, cancellationToken)
+                .ConfigureAwait(false);
+
+            return entity is null ? null : Map(entity);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -135,6 +151,23 @@ public sealed partial class JellyfinSegmentStore(
             // segment id can never delete another item's segment.
             return await db.MediaSegments
                 .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await db.MediaSegments
+                .Where(segment => segment.ItemId == itemId
+                    && segment.Id == segmentId
+                    && segment.Type == type
+                    && segment.StartTicks == startTicks
+                    && segment.EndTicks == endTicks)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }

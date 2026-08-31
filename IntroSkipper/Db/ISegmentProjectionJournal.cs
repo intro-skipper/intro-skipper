@@ -1,0 +1,66 @@
+// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Db;
+
+/// <summary>
+/// The projection-journal surface of the segment database, consumed by the durable
+/// segment-change coordinator: read pending work, complete it, or record a failed
+/// attempt. Work is enqueued only by
+/// <see cref="IIntroSkipperDatabase.ApplyChangeAsync"/>, atomically with its mutation.
+/// </summary>
+internal interface ISegmentProjectionJournal
+{
+    /// <summary>
+    /// Reads the pending queue rows, ordered by item id: all of them, or one item's.
+    /// Items without a row have no pending work.
+    /// </summary>
+    /// <param name="itemId">Item filter, or <see langword="null"/> for every row.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Untracked queue rows.</returns>
+    Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads the ids of items whose work is due: no backoff recorded, or the backoff
+    /// has elapsed.
+    /// </summary>
+    /// <param name="now">Current UTC time.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The due item ids.</returns>
+    Task<IReadOnlyList<Guid>> GetDueProjectionItemIdsAsync(DateTime now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads one item's pending work: the queue row plus its journaled foreign-row
+    /// deletes in FIFO order.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The work, or <see langword="null"/> when nothing is pending.</returns>
+    Task<ProjectionWork?> ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Completes applied work: deletes the processed operations, then the queue row —
+    /// the latter only when its version still matches, so work enqueued while the
+    /// apply was in flight survives. The two deletes are deliberately separate
+    /// statements: a crash between them leaves the row, which merely costs one extra
+    /// idempotent re-sync.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="version">The queue-row version the caller projected.</param>
+    /// <param name="processedOperationIds">Ids of the operations the apply processed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a failed attempt on the item's queue row: increments the attempt count
+    /// and stores the backoff due time and sanitized failure. A no-op when the row is
+    /// gone (the work completed concurrently).
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="nextAttemptAt">UTC time the next attempt is due.</param>
+    /// <param name="failure">Sanitized failure message.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task RecordProjectionFailureAsync(Guid itemId, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken);
+}

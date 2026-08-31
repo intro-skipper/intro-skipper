@@ -1,0 +1,106 @@
+// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
+using Microsoft.EntityFrameworkCore;
+
+namespace IntroSkipper.Db;
+
+/// <summary>
+/// Projection-journal (<see cref="ISegmentProjectionJournal"/>) operations of
+/// <see cref="IntroSkipperDatabase"/>. Enqueueing lives in
+/// <c>IntroSkipperDatabase.Changes.cs</c>, atomically with the mutation.
+/// </summary>
+public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
+{
+    /// <inheritdoc/>
+    async Task<IReadOnlyList<DbProjectionQueueItem>> ISegmentProjectionJournal.GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var rows = db.ProjectionQueue.AsNoTracking();
+        if (itemId.HasValue)
+        {
+            rows = rows.Where(q => q.ItemId == itemId.Value);
+        }
+
+        return await rows.OrderBy(q => q.ItemId).ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    async Task<IReadOnlyList<Guid>> ISegmentProjectionJournal.GetDueProjectionItemIdsAsync(DateTime now, CancellationToken cancellationToken)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.ProjectionQueue.AsNoTracking()
+            .Where(q => q.NextAttemptAt == null || q.NextAttemptAt <= now)
+            .OrderBy(q => q.ItemId)
+            .Select(q => q.ItemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    async Task<ProjectionWork?> ISegmentProjectionJournal.ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var item = await db.ProjectionQueue.AsNoTracking()
+            .FirstOrDefaultAsync(q => q.ItemId == itemId, cancellationToken)
+            .ConfigureAwait(false);
+        if (item is null)
+        {
+            return null;
+        }
+
+        var operations = await db.ProjectionExternalOperations.AsNoTracking()
+            .Where(o => o.ItemId == itemId)
+            .OrderBy(o => o.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return new ProjectionWork(item, operations);
+    }
+
+    /// <inheritdoc/>
+    async Task ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(processedOperationIds);
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        if (processedOperationIds.Count > 0)
+        {
+            await db.ProjectionExternalOperations
+                .Where(o => o.ItemId == itemId && EF.Parameter(processedOperationIds).Contains(o.Id))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await db.ProjectionQueue
+            .Where(q => q.ItemId == itemId && q.Version == version)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    async Task ISegmentProjectionJournal.RecordProjectionFailureAsync(Guid itemId, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        await db.ProjectionQueue
+            .Where(q => q.ItemId == itemId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(q => q.AttemptCount, q => q.AttemptCount + 1)
+                    .SetProperty(q => q.NextAttemptAt, nextAttemptAt)
+                    .SetProperty(q => q.Failure, failure),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+}

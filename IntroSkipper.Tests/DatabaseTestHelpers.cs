@@ -46,7 +46,7 @@ internal static class DatabaseTestHelpers
     /// of the editor-service composition chain.
     /// </summary>
     internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(CreateMirror(store, database), store, database, NullLogger<MediaSegmentEditorService>.Instance);
+        => new(new SegmentMutationLocks(), CreateMirror(store, database), store, database, NullLogger<MediaSegmentEditorService>.Instance);
 
     /// <summary>
     /// Composes the editor controller over the standard editor-service wiring, the

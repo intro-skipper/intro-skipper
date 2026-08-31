@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 
 /// <summary>
@@ -121,6 +122,34 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
         => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
+
+    public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
+
+    public Task<int> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
+    {
+        ThrowIfConfigured(DeleteSegmentException);
+        var match = ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId
+            && segment.Id == segmentId
+            && segment.Type == type
+            && segment.StartTicks == startTicks
+            && segment.EndTicks == endTicks);
+        if (match is null)
+        {
+            return Task.FromResult(0);
+        }
+
+        DeletedSegments.Add((itemId, segmentId));
+        lock (_mirrorLock)
+        {
+            if (MirrorRows.TryGetValue(itemId, out var rows))
+            {
+                rows.RemoveAll(segment => segment.Id == segmentId);
+            }
+        }
+
+        return Task.FromResult(1);
+    }
 
     public Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
