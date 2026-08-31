@@ -96,6 +96,12 @@ export const detectionTab: Tab = {
                     description:
                         "Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
                 }),
+                checkboxField({
+                    id: "IncludeIntroStartOffsetWhenSnapping",
+                    label: "Include start offset when snapping to episode start",
+                    description:
+                        "When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
+                }),
                 numberField({
                     id: "IntroEndOffset",
                     label: "Intro End Offset (seconds)",

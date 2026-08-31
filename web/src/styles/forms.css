@@ -245,15 +245,6 @@ legend {
     padding: 0 8px;
 }
 
-details summary {
-    cursor: pointer;
-    padding: 10px;
-    text-align: center;
-    font-size: 1em;
-    outline: 2px solid var(--is-border-muted);
-    margin-bottom: 8px;
-}
-
 textarea {
     width: 100%;
     background: var(--is-input-bg);
@@ -348,6 +339,113 @@ tr {
 
 a {
     color: var(--is-accent);
+}
+
+/* Support log (information tab). */
+
+.support-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.support-head .checkbox-list-label {
+    margin: 0;
+}
+
+.support-title {
+    font-size: 0.75em;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--is-text-muted);
+    margin: 14px 0 6px;
+}
+
+.support-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 18px;
+    row-gap: 2px;
+    font-size: 0.9em;
+}
+
+.support-grid dt {
+    color: var(--is-text-muted);
+    white-space: nowrap;
+}
+
+.support-grid dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.support-none {
+    font-size: 0.9em;
+    color: var(--is-text-muted);
+}
+
+.support-fold {
+    border-top: 1px solid var(--is-border);
+}
+
+.support-fold:last-child {
+    border-bottom: 1px solid var(--is-border);
+}
+
+.support-fold summary {
+    cursor: pointer;
+    padding: 7px 0;
+    font-size: 0.9em;
+    list-style: none;
+}
+
+.support-fold summary::-webkit-details-marker {
+    display: none;
+}
+
+.support-fold summary::before {
+    content: "\25B8";
+    display: inline-block;
+    width: 14px;
+    color: var(--is-text-muted);
+}
+
+.support-fold[open] > summary::before {
+    content: "\25BE";
+}
+
+.support-fold summary:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+.support-fold-meta {
+    margin-left: 8px;
+    font-size: 0.85em;
+    color: var(--is-text-muted);
+}
+
+.support-pre {
+    margin: 0;
+    padding: 6px 0 10px 14px;
+    font-family: monospace;
+    font-size: 0.8em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--is-text);
+}
+
+@media (max-width: 520px) {
+    .support-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .support-grid dt {
+        margin-top: 6px;
+    }
 }
 
 /* Storage usage list (information tab). */

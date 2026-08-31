@@ -56,7 +56,8 @@ public interface IDetectionCacheService
     /// Deletes all cache entries for a media item.
     /// </summary>
     /// <param name="itemId">The media item ID whose cache entries should be deleted.</param>
-    void DeleteForItem(Guid itemId);
+    /// <returns><see langword="true"/> if deletion completed; otherwise, <see langword="false"/>.</returns>
+    bool DeleteForItem(Guid itemId);
 
     /// <summary>
     /// Deletes cache entries by analysis mode.

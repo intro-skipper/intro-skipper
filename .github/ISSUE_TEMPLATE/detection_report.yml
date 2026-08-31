@@ -1,0 +1,130 @@
+name: "Detection report"
+description: "A segment was detected at the wrong time, not at all, or where there is none"
+title: "[Detection]: "
+labels: [bug]
+body:
+  - type: checkboxes
+    id: requirements
+    attributes:
+      label: Before you report
+      description: |
+        Detection needs a working FFmpeg with Chromaprint and an analysis run with your current settings. Rule those out first, see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting).
+      options:
+        - label: I use Jellyfin 10.11.11 (or newer) and installed the plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
+          required: true
+        - label: "The support log below says `FFmpeg: okay`"
+          required: true
+        - label: I ran "Detect and Analyze Media Segments" after my last settings change
+          required: true
+        - label: The wrong or missing values show up in Dashboard -> Plugins -> Intro Skipper -> Settings -> Timestamps, so this is not only a playback or client problem
+          required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > Please do not revise the form, but you may omit sections that do not apply.
+
+  - type: input
+    attributes:
+      label: Jellyfin version or container image/tag
+      placeholder: 10.11.11, jellyfin/jellyfin:10.11.11, etc.
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Show or movie
+      description: Name and year, plus the IMDb or TVDB id if you have it
+      placeholder: The Pitt (2025), tt31938062
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Season and episodes
+      description: Which episodes are affected, and whether the others in that season are fine
+      placeholder: S01E03 and S01E05 wrong, rest of season 1 fine
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Source of the files
+      description: Where the files come from and whether they were re-encoded or remuxed afterwards. TV recordings with ads, files without chapters, and re-encodes that changed the chapter or audio track layout all behave differently.
+      placeholder: WEB-DL, Blu-ray remux, TV recording, DVD rip, re-encoded with Tdarr or HandBrake, ...
+
+  - type: dropdown
+    attributes:
+      label: Segment type
+      multiple: true
+      options:
+        - Intro
+        - Credits
+        - Recap
+        - Preview
+        - Commercial
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: What is wrong
+      options:
+        - Not detected at all
+        - Starts or ends at the wrong time
+        - Detected where there is none
+        - Detected as the wrong segment type
+        - Inconsistent between episodes of the same season
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Detected vs. correct timestamps
+      description: |
+        Detected values are in Dashboard -> Plugins -> Intro Skipper -> Settings -> Timestamps (expand the show, then the season). For the correct values, scrub through the file in a player and note where the segment really starts and ends. Two or three episodes are enough, including one that works if any do.
+      value: |
+        | Episode | Segment | Detected      | Correct       |
+        | ------- | ------- | ------------- | ------------- |
+        | S01E03  | Credits | 41:10 - 42:30 | 42:05 - 42:30 |
+        | S01E05  | Credits | none          | 41:58 - 42:30 |
+    validations:
+      required: true
+
+  - type: checkboxes
+    attributes:
+      label: Analysis settings
+      description: Check everything that is enabled under Dashboard -> Plugins -> Intro Skipper -> Settings.
+      options:
+        - label: Prefer Chromaprint Analysis (Analysis tab)
+        - label: Use alternative black frame analyzer (Black Frame tab)
+        - label: Detect recap using black frames (Black Frame tab)
+        - label: An analyzer override is set for this season (Timestamps tab -> Manage)
+        - label: Other settings on the Analysis, Detection, Chapters or Black Frame tabs differ from the defaults (list them in the notes below)
+
+  - type: textarea
+    attributes:
+      label: Media info
+      description: |
+        For one affected episode (and one that works, if any do), paste the output of `mediainfo "<file>"` or `ffprobe -v error -show_format -show_streams -show_chapters "<file>"`. The audio tracks and the chapter list with names and times matter most. Without shell access, the Media Info dialog in the episode's menu in Jellyfin is a fallback, but it does not list chapters.
+      render: text
+
+  - type: textarea
+    attributes:
+      label: Intro Skipper Support Log
+      placeholder: Go to Dashboard -> Plugins -> Intro Skipper -> Settings -> Information. Click the Copy to Clipboard button and paste the contents here
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Jellyfin logs
+      description: |
+        Rescan the season (Timestamps tab -> Manage -> Scan Season) and paste the log lines that mention the show. Most analysis output is logged at Debug level. To get it, add `"IntroSkipper": "Debug"` to the `Override` block in Jellyfin's `logging.json` and restart, see [debug logging](https://jellyfin.org/docs/general/administration/troubleshooting/#debug-logging).
+      render: shell
+
+  - type: textarea
+    attributes:
+      label: Notes
+      description: What you already tried (rescan, Prefer Chromaprint, erased timestamps and fingerprints, ...) and anything else that might matter.

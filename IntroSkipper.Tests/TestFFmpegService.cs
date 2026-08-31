@@ -11,6 +11,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -73,7 +74,7 @@ public class TestFFmpegService
         var result = await ffmpegService.CheckFFmpegVersionAsync();
 
         // Get the logs and verify no "Trailing option" warning appears
-        var logs = ffmpegService.GetChromaprintLogs();
+        var logs = string.Join('\n', ffmpegService.GetCheckResult().Outputs.Select(o => o.Output));
 
         // The test passes if FFmpeg version check succeeds (no error)
         // and no "Trailing option" warning is in the logs
