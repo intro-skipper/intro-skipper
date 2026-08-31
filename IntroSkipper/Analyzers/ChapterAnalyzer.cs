@@ -114,7 +114,23 @@ public partial class ChapterAnalyzer(
                 : null;
             if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
             {
-                skipRange = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    skipRange = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // A hard per-episode failure (e.g. an ffmpeg timeout) must not abort the whole
+                    // season pass. Mark the episode as failed so it stays retriable and is not
+                    // persisted as a completed no-segment result.
+                    episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                    LogErrorDetectingRecapBlackFrames(ex, episode.Name);
+                    continue;
+                }
             }
 
             if (skipRange is null || !skipRange.Valid)
@@ -358,4 +374,7 @@ public partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: okay")]
     private partial void LogChapterOk(string @base);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
+    private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
 }

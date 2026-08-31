@@ -84,8 +84,15 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
                 // Fallback to an empty fingerprint on any error, and record the failure so the episode
                 // is retried on the next run. Without this it is persisted as a completed no-segment
                 // result, and an ffmpeg hiccup on one episode becomes a permanent verdict.
+                // Episodes that already carry a completed result (re-analysis of an Analyzed episode
+                // with a cached fingerprint, or an Analyzed/UserProvided neighbor pulled in to pair
+                // with a lone unanalyzed episode) keep that result: a failed fingerprint must not
+                // discard a valid verdict.
                 fingerprintCache[episode.EpisodeId] = [];
-                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                if (episode.NeedsAnalysis(mode))
+                {
+                    episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                }
             }
         }
 
