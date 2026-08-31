@@ -205,7 +205,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return false;
         }
 
-        var items = libraryItems.DistinctBy(e => e.Id).ToList();
+        IReadOnlyList<BaseItem> items = [.. libraryItems.DistinctBy(e => e.Id)];
 
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
@@ -218,22 +218,24 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 if (item is Episode episode)
                 {
-                    if (await QueueEpisode(episode, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    var result = await QueueEpisode(episode, includeExcluded, cancellationToken).ConfigureAwait(false);
+                    if (result == QueueItemResult.Queued)
                     {
                         queuedCount++;
                     }
-                    else if (includeExcluded)
+                    else if (result == QueueItemResult.Failed)
                     {
                         isComplete = false;
                     }
                 }
                 else if (item is Movie movie)
                 {
-                    if (await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    var result = await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false);
+                    if (result == QueueItemResult.Queued)
                     {
                         queuedCount++;
                     }
-                    else if (includeExcluded)
+                    else if (result == QueueItemResult.Failed)
                     {
                         isComplete = false;
                     }
@@ -258,21 +260,21 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return isComplete;
     }
 
-    private async Task<bool> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<QueueItemResult> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         if (string.IsNullOrEmpty(episode.Path))
         {
             LogNotQueuingEpisodeNoPath(_logger, episode.Name, episode.SeriesName, episode.Id);
-            return false;
+            return QueueItemResult.Failed;
         }
 
         var decision = _exclusionPolicy.EvaluateSeries(episode.SeriesName, episode.SeriesId, episode.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
             LogSkippingExcludedItem(_logger, episode.Name, decision.RuleLabel);
-            return false;
+            return QueueItemResult.Excluded;
         }
 
         // Allocate a new list for each new season
@@ -324,7 +326,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             pluginInstance.TotalQueued++;
         }
 
-        return true;
+        return QueueItemResult.Queued;
     }
 
     private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
@@ -348,21 +350,21 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
     }
 
-    private async Task<bool> QueueMovieAsync(Movie movie, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<QueueItemResult> QueueMovieAsync(Movie movie, bool includeExcluded, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         if (string.IsNullOrEmpty(movie.Path))
         {
             LogNotQueuingMovieNoPath(_logger, movie.Name, movie.Id);
-            return false;
+            return QueueItemResult.Failed;
         }
 
         var decision = _exclusionPolicy.EvaluateMovie(movie.Name, movie.Id, movie.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
             LogSkippingExcludedItem(_logger, movie.Name, decision.RuleLabel);
-            return false;
+            return QueueItemResult.Excluded;
         }
 
         // Allocate a new list for each movie.
@@ -393,7 +395,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             pluginInstance.TotalQueued++;
         }
 
-        return true;
+        return QueueItemResult.Queued;
+    }
+
+    private enum QueueItemResult
+    {
+        Queued,
+        Excluded,
+        Failed,
     }
 
     private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)

@@ -345,7 +345,8 @@ public partial class BaseItemAnalyzerTask(
                 mode,
                 items.Select(i => i.EpisodeId),
                 configHash,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                action).ConfigureAwait(false);
 
             return 0;
         }

@@ -223,9 +223,9 @@ public sealed class TestCleanCacheTask
         {
             return targetMethod?.Name switch
             {
-                nameof(ILibraryManager.GetVirtualFolders) => _folders.ToList(),
+                nameof(ILibraryManager.GetVirtualFolders) => [.. _folders],
                 nameof(ILibraryManager.GetItemList) when _throwOnItemList => throw new IOException("library unavailable"),
-                nameof(ILibraryManager.GetItemList) => _items.ToList(),
+                nameof(ILibraryManager.GetItemList) => [.. _items],
                 nameof(ILibraryManager.GetItemById) => null,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };

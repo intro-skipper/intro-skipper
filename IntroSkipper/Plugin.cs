@@ -461,7 +461,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
+    internal static async Task SetEpisodeIdsAsync(
+        Guid id,
+        AnalysisMode mode,
+        IEnumerable<Guid> episodeIds,
+        string configHash = "",
+        CancellationToken cancellationToken = default,
+        AnalyzerAction action = AnalyzerAction.Default)
     {
         using var db = CreateDbContext();
         var seasonState = await db.DbSeasonState
@@ -470,7 +476,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (seasonState is null)
         {
-            seasonState = new DbSeasonState(id, mode, AnalyzerAction.Default, episodeIds, configHash);
+            seasonState = new DbSeasonState(id, mode, action, episodeIds, configHash);
             db.DbSeasonState.Add(seasonState);
         }
         else
