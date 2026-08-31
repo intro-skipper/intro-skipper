@@ -76,6 +76,34 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
+    public async Task EraseSeasonAsync_CancellationAfterCacheDeletion_LeavesDatabaseConsistent()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(dbPath, seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        await SeedSeasonAsync(dbPath, seasonId, episodeIds);
+        await SeedCacheAsync(episodeIds[0], episodeIds[1]);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var cacheService = new CancelAfterFirstDeleteCacheService(
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            cancellationTokenSource);
+        var controller = CreateController(new RecordingMediaSegmentRefresher(), loggerFactory, cacheService);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: true, cancellationTokenSource.Token));
+
+        await using var db = new IntroSkipperDbContext(dbPath);
+        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+        using var cacheDb = Plugin.CreateCacheDbContext();
+        Assert.False(await cacheDb.DetectionCache.AnyAsync(e => episodeIds.Contains(e.ItemId)));
+    }
+
+    [Fact]
     public async Task ClearExcludedTimestampsAsync_RemovesOnlyCurrentlyExcludedState()
     {
         var seriesId = Guid.NewGuid();
@@ -169,7 +197,10 @@ public sealed class TestVisualizationController
         }
     }
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
+    private static VisualizationController CreateController(
+        RecordingMediaSegmentRefresher refresher,
+        ILoggerFactory loggerFactory,
+        IDetectionCacheService? cacheService = null)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
@@ -179,7 +210,7 @@ public sealed class TestVisualizationController
             fileSystem: null!,
             loggerFactory,
             ffmpegService: null!,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            cacheService ?? new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
@@ -270,6 +301,7 @@ public sealed class TestVisualizationController
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             RefreshCallCount++;
             CollectionCallCount++;
             LastItemIds = [.. itemIds];
@@ -281,5 +313,36 @@ public sealed class TestVisualizationController
             RemoveCallCount++;
             return RefreshAsync(itemIds, cancellationToken);
         }
+    }
+
+    private sealed class CancelAfterFirstDeleteCacheService(
+        IDetectionCacheService inner,
+        CancellationTokenSource cancellationTokenSource) : IDetectionCacheService
+    {
+        private int _deleteCount;
+
+        public bool IsEnabled => inner.IsEnabled;
+
+        public bool TryRead<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
+            => inner.TryRead(itemId, mode, type, start, end, out result);
+
+        public bool Write<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
+            => inner.Write(itemId, mode, type, start, end, items);
+
+        public bool DeleteForItem(Guid itemId)
+        {
+            var deleted = inner.DeleteForItem(itemId);
+            if (Interlocked.Increment(ref _deleteCount) == 1)
+            {
+                cancellationTokenSource.Cancel();
+            }
+
+            return deleted;
+        }
+
+        public void DeleteByMode(AnalysisMode mode) => inner.DeleteByMode(mode);
+
+        public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
+            => inner.HasCachedFingerprint(episode, mode);
     }
 }

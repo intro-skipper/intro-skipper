@@ -45,13 +45,20 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private double _analysisPercent;
     private ExclusionPolicy _exclusionPolicy = ExclusionPolicy.Empty;
 
+    private enum QueueItemResult
+    {
+        Queued,
+        Excluded,
+        Failed,
+    }
+
     /// <summary>
     /// Gets all media items on the server.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
-    public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, cancellationToken);
+    public async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
+        => (await GetMediaInventory(includeExcluded: false, cancellationToken).ConfigureAwait(false)).Items;
 
     internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
     {
@@ -66,12 +73,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
+        => (await GetMediaInventory(includeExcluded, cancellationToken).ConfigureAwait(false)).Items;
+
+    internal async Task<MediaInventoryResult> GetMediaInventory(bool includeExcluded, CancellationToken cancellationToken = default)
     {
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
             LogPluginInstanceNull(_logger);
-            return _queuedEpisodes;
+            return new MediaInventoryResult(_queuedEpisodes, false);
         }
 
         if (!includeExcluded)
@@ -81,43 +91,60 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         LoadAnalysisSettings(plugin);
 
-        // For all selected libraries, enqueue all contained episodes.
-        var virtualFolders = _libraryManager.GetVirtualFolders();
-        if (virtualFolders is null)
+        var isComplete = true;
+        try
         {
-            LogLibraryManagerNull(_logger);
-            return _queuedEpisodes;
+            var virtualFolders = _libraryManager.GetVirtualFolders();
+            if (virtualFolders is null)
+            {
+                LogLibraryManagerNull(_logger);
+                return new MediaInventoryResult(_queuedEpisodes, false);
+            }
+
+            foreach (var folder in virtualFolders)
+            {
+                if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
+                {
+                    LogLibraryDisabled(_logger, folder.Name);
+                    continue;
+                }
+
+                LogRunningEnqueueLibrary(_logger, folder.Name);
+
+                // Some virtual folders don't have a proper item id.
+                if (!Guid.TryParse(folder.ItemId, out var folderId))
+                {
+                    isComplete = false;
+                    LogInvalidFolderId(_logger, folder.Name);
+                    continue;
+                }
+
+                try
+                {
+                    if (!await QueueLibraryContents(folderId, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    {
+                        isComplete = false;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    isComplete = false;
+                    LogFailedEnqueueLibrary(_logger, folder.Name, ex);
+                }
+            }
         }
-
-        foreach (var folder in virtualFolders)
+        catch (OperationCanceledException)
         {
-            // If libraries have been selected for analysis, ensure this library was selected.
-            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
-            {
-                LogLibraryDisabled(_logger, folder.Name);
-                continue;
-            }
-
-            LogRunningEnqueueLibrary(_logger, folder.Name);
-
-            // Some virtual folders don't have a proper item id.
-            if (!Guid.TryParse(folder.ItemId, out var folderId))
-            {
-                continue;
-            }
-
-            try
-            {
-                await QueueLibraryContents(folderId, includeExcluded, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                LogFailedEnqueueLibrary(_logger, folder.Name, ex);
-            }
+            throw;
+        }
+        catch (Exception ex)
+        {
+            isComplete = false;
+            LogFailedEnumerateLibraries(_logger, ex);
         }
 
         if (_refreshedEpisodes.Count > 0)
@@ -135,7 +162,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        return _queuedEpisodes;
+        return new MediaInventoryResult(_queuedEpisodes, isComplete);
     }
 
     /// <summary>
@@ -164,7 +191,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
     }
 
-    private async Task QueueLibraryContents(Guid id, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<bool> QueueLibraryContents(Guid id, bool includeExcluded, CancellationToken cancellationToken)
     {
         LogConstructingQuery(_logger);
 
@@ -178,36 +205,46 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        var items = _libraryManager.GetItemList(query, false)
-            .DistinctBy(e => e.Id)
-            .ToList();
-
-        if (items is null)
+        var libraryItems = _libraryManager.GetItemList(query, false);
+        if (libraryItems is null)
         {
             LogLibraryQueryNull(_logger);
-            return;
+            return false;
         }
+
+        IReadOnlyList<BaseItem> items = [.. libraryItems.DistinctBy(e => e.Id)];
 
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         var queuedCount = 0;
+        var isComplete = true;
         foreach (var item in items)
         {
             try
             {
                 if (item is Episode episode)
                 {
-                    if (await QueueEpisode(episode, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    var result = await QueueEpisode(episode, includeExcluded, cancellationToken).ConfigureAwait(false);
+                    if (result == QueueItemResult.Queued)
                     {
                         queuedCount++;
+                    }
+                    else if (result == QueueItemResult.Failed)
+                    {
+                        isComplete = false;
                     }
                 }
                 else if (item is Movie movie)
                 {
-                    if (await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    var result = await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false);
+                    if (result == QueueItemResult.Queued)
                     {
                         queuedCount++;
+                    }
+                    else if (result == QueueItemResult.Failed)
+                    {
+                        isComplete = false;
                     }
                 }
                 else
@@ -221,28 +258,30 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
             catch (Exception ex)
             {
+                isComplete = false;
                 LogErrorProcessingItem(_logger, ex, item.Name, item.Id);
             }
         }
 
         LogQueuedEpisodes(_logger, queuedCount);
+        return isComplete;
     }
 
-    private async Task<bool> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<QueueItemResult> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         if (string.IsNullOrEmpty(episode.Path))
         {
             LogNotQueuingEpisodeNoPath(_logger, episode.Name, episode.SeriesName, episode.Id);
-            return false;
+            return QueueItemResult.Failed;
         }
 
         var decision = _exclusionPolicy.EvaluateSeries(episode.SeriesName, episode.SeriesId, episode.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
             LogSkippingExcludedItem(_logger, episode.Name, decision.RuleLabel);
-            return false;
+            return QueueItemResult.Excluded;
         }
 
         // Allocate a new list for each new season
@@ -294,7 +333,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             pluginInstance.TotalQueued++;
         }
 
-        return true;
+        return QueueItemResult.Queued;
     }
 
     private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
@@ -318,21 +357,21 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
     }
 
-    private async Task<bool> QueueMovieAsync(Movie movie, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<QueueItemResult> QueueMovieAsync(Movie movie, bool includeExcluded, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         if (string.IsNullOrEmpty(movie.Path))
         {
             LogNotQueuingMovieNoPath(_logger, movie.Name, movie.Id);
-            return false;
+            return QueueItemResult.Failed;
         }
 
         var decision = _exclusionPolicy.EvaluateMovie(movie.Name, movie.Id, movie.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
             LogSkippingExcludedItem(_logger, movie.Name, decision.RuleLabel);
-            return false;
+            return QueueItemResult.Excluded;
         }
 
         // Allocate a new list for each movie.
@@ -363,7 +402,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             pluginInstance.TotalQueued++;
         }
 
-        return true;
+        return QueueItemResult.Queued;
     }
 
     private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)
@@ -451,15 +490,40 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // The expected config hash depends on the season-level analyzer action and mode, not on the
         // individual episode, so compute it once per mode instead of once per episode and mode.
-        var hashMatchesByMode = new Dictionary<AnalysisMode, bool>(modes.Count);
+        var stateByMode = new Dictionary<AnalysisMode, ModeCacheState>(modes.Count);
         foreach (var mode in modes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
                 ? savedAction
                 : AnalyzerAction.Default;
             var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
-            hashMatchesByMode[mode] = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
+            // A season-state row is created by the analyzer preference editor as well as by analysis,
+            // so an empty hash means "never analyzed", not "analyzed under a different configuration".
+            var hasStoredHash = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                !string.IsNullOrEmpty(savedHash);
+            var hashMatches = hasStoredHash && string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
+            // Chromaprint availability invalidates upward only. Gaining it reopens seasons that settled
+            // without it, which is why it is in the hash at all. Losing it must not: the probe reports
+            // false for a genuinely incapable build and for a one-off failure to launch ffmpeg alike,
+            // and discarding good results because a probe failed once re-analyzed whole libraries.
+            if (!hashMatches && !ffmpegValid && hasStoredHash)
+            {
+                var withChromaprint = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid: true);
+                if (string.Equals(savedHash, withChromaprint, StringComparison.Ordinal))
+                {
+                    hashMatches = true;
+                    expectedHash = withChromaprint;
+                }
+            }
+
+            // A missing state row is reported instead of the hash comparison it would have lost anyway.
+            var reason = !hasStoredHash ? AnalysisReason.NoStoredState
+                : !hashMatches ? AnalysisReason.ConfigHashChanged
+                : AnalysisReason.None;
+
+            stateByMode[mode] = new ModeCacheState(reason, action, savedHash ?? string.Empty, expectedHash);
         }
 
         foreach (var candidate in candidates)
@@ -489,7 +553,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    var hashMatches = hashMatchesByMode[mode];
+                    var hashMatches = stateByMode[mode].HashMatches;
 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
@@ -497,15 +561,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                         var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
                                              userProvided.Contains(candidate.EpisodeId);
 
-                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
-                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
-                        // re-analyzed and their timestamps updated to reflect the new settings.
-                        if (isUserProvided || (!plugin.AnalyzeAgain && hashMatches))
+                        // Always preserve user-provided segments. Automatic ones are reusable only
+                        // while the stored hash still describes the current configuration.
+                        if (isUserProvided || hashMatches)
                         {
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain && hashMatches &&
+                    else if (hashMatches &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
                              ids.Contains(candidate.EpisodeId))
                     {
@@ -523,14 +586,122 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
+        LogAnalysisReasons(verified, modes, stateByMode, ffmpegValid, plugin.Configuration);
+
         return verified;
     }
+
+    /// <summary>
+    /// Reports why each mode still has episodes to analyze, so a full-library rescan can be traced
+    /// back to its cause. Losing a whole season's stored state is logged at information level, since
+    /// that is the case users need explained. Picking up newly added episodes happens on most runs of
+    /// an active library, so it stays at debug level.
+    /// </summary>
+    /// <param name="verified">Episodes that survived verification, with their analyzed state set.</param>
+    /// <param name="modes">Analysis modes being processed.</param>
+    /// <param name="stateByMode">Stored-state comparison for each mode.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint.</param>
+    /// <param name="config">Plugin configuration.</param>
+    private void LogAnalysisReasons(
+        IReadOnlyList<QueuedEpisode> verified,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyDictionary<AnalysisMode, ModeCacheState> stateByMode,
+        bool ffmpegValid,
+        PluginConfiguration config)
+    {
+        if (verified.Count == 0)
+        {
+            return;
+        }
+
+        var first = verified[0];
+
+        // Analysis skips specials wholesale when the opt-in is off, so these episodes stay unanalyzed
+        // with no stored state. Reporting a reason to analyze them would repeat on every run and never
+        // come true.
+        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, config))
+        {
+            return;
+        }
+
+        foreach (var mode in modes)
+        {
+            var state = stateByMode[mode];
+
+            // Switching a mode off changes the hash, so the season is queued once to settle its new
+            // state and then skipped. The analyzer logs that skip itself, so announcing analysis that
+            // will not happen would only be confusing.
+            if (state.Action == AnalyzerAction.None)
+            {
+                continue;
+            }
+
+            // AnalysisReason.None means the stored state matched, so the pending episodes are ones the
+            // stored state does not list. Only a hash change means something moved under the user, so
+            // it is the one cause worth reporting by default.
+            var (reason, level) = state.Reason switch
+            {
+                AnalysisReason.None => (AnalysisReason.NotRecorded, LogLevel.Debug),
+                AnalysisReason.ConfigHashChanged => (AnalysisReason.ConfigHashChanged, LogLevel.Information),
+                _ => (state.Reason, LogLevel.Debug)
+            };
+
+            if (!_logger.IsEnabled(level))
+            {
+                continue;
+            }
+
+            // Counts what the analyzer chain will process, which is every episode NeedsAnalysis()
+            // admits, not just the NotAnalyzed ones that trigger the pass.
+            var pending = verified.Count(e => e.NeedsAnalysis(mode));
+            if (pending == 0 || !verified.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+            {
+                continue;
+            }
+
+            if (reason == AnalysisReason.ConfigHashChanged)
+            {
+                LogSeasonConfigHashChanged(
+                    _logger,
+                    mode,
+                    pending,
+                    verified.Count,
+                    first.SeriesName,
+                    first.SeasonNumber,
+                    state.StoredHash,
+                    state.ExpectedHash,
+                    ChromaprintAffectsMode(mode) ? ffmpegValid.ToString() : "n/a");
+                continue;
+            }
+
+            LogSeasonQueuedForAnalysis(
+                _logger,
+                level,
+                mode,
+                pending,
+                verified.Count,
+                first.SeriesName,
+                first.SeasonNumber,
+                reason);
+        }
+    }
+
+    // Only the Chromaprint-capable modes fold Chromaprint availability into their hash, so naming it
+    // for Preview or Commercial would point at a cause that cannot apply.
+    private static bool ChromaprintAffectsMode(AnalysisMode mode)
+        => mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Plugin instance is null in GetMediaItems()")]
     private static partial void LogPluginInstanceNull(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Library manager returned null when requesting virtual folders")]
     private static partial void LogLibraryManagerNull(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to enumerate virtual folders")]
+    private static partial void LogFailedEnumerateLibraries(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping library \"{Name}\": virtual folder does not have a valid item id")]
+    private static partial void LogInvalidFolderId(ILogger logger, string name);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
     private static partial void LogLibraryDisabled(ILogger logger, string name);
@@ -591,4 +762,34 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
+
+    [LoggerMessage(Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: {Reason}")]
+    private static partial void LogSeasonQueuedForAnalysis(ILogger logger, LogLevel level, AnalysisMode mode, int count, int total, string name, int season, AnalysisReason reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (chromaprint available: {ChromaprintAvailable})")]
+    private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable);
+
+    /// <summary>
+    /// Stored analysis state for one mode, compared against the current configuration.
+    /// </summary>
+    /// <param name="Reason">Why the season's stored state cannot be reused, if it cannot.</param>
+    /// <param name="Action">Analyzer action stored for the season, which decides whether the mode runs at all.</param>
+    /// <param name="StoredHash">Hash recorded when the season was last analyzed, empty when none is stored.</param>
+    /// <param name="ExpectedHash">Hash computed from the current configuration.</param>
+    private readonly record struct ModeCacheState(
+        AnalysisReason Reason,
+        AnalyzerAction Action,
+        string StoredHash,
+        string ExpectedHash)
+    {
+        /// <summary>
+        /// Gets a value indicating whether stored analysis state can be reused for this mode. Derived
+        /// from <see cref="Reason"/> so the queue decision and the logged explanation cannot drift.
+        /// </summary>
+        public bool HashMatches => Reason is AnalysisReason.None;
+    }
+
+    internal sealed record MediaInventoryResult(
+        IReadOnlyDictionary<Guid, List<QueuedEpisode>> Items,
+        bool IsComplete);
 }

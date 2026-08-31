@@ -185,11 +185,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        using var db = Plugin.CreateDbContext();
-        await db.DbSegment
-            .Where(s => s.Type == mode)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await Plugin.EraseTimestampsForModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {

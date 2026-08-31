@@ -130,11 +130,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public string CacheDbPath => _cacheDbPath;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to analyze again.
-    /// </summary>
-    public bool AnalyzeAgain { get; set; }
-
-    /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
@@ -466,7 +461,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
+    internal static async Task SetEpisodeIdsAsync(
+        Guid id,
+        AnalysisMode mode,
+        IEnumerable<Guid> episodeIds,
+        string configHash = "",
+        AnalyzerAction action = AnalyzerAction.Default,
+        CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var seasonState = await db.DbSeasonState
@@ -475,7 +476,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (seasonState is null)
         {
-            seasonState = new DbSeasonState(id, mode, AnalyzerAction.Default, episodeIds, configHash);
+            seasonState = new DbSeasonState(id, mode, action, episodeIds, configHash);
             db.DbSeasonState.Add(seasonState);
         }
         else
@@ -740,6 +741,50 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // on this pass or a later one) instead of being stranded as NoSegments.
             var seasonStates = await db.DbSeasonState
                 .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Deletes every stored segment for one analysis mode across the whole library and clears the
+    /// analyzed-episode lists that referenced them.
+    /// </summary>
+    /// <remarks>
+    /// Clearing the lists is what makes the erase recoverable. Leaving them in place would let
+    /// <c>VerifyQueueAsync</c> restore each episode as <see cref="EpisodeState.NoSegments"/> on the
+    /// next run, because the stored config hash still matches, so analysis would skip the mode and the
+    /// erased timestamps would never come back. Mirrors the per-season path in
+    /// <see cref="ResetSeasonForReanalysisAsync"/>.
+    /// </remarks>
+    /// <param name="mode">Analysis mode to erase.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal static async Task EraseTimestampsForModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await db.DbSegment
+                .Where(s => s.Type == mode)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var seasonStates = await db.DbSeasonState
+                .Where(s => s.Type == mode)
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 

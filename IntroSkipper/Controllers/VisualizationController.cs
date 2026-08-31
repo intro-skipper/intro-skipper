@@ -173,36 +173,36 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         {
             using var db = Plugin.CreateDbContext();
 
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
+            {
+                await db.DbSegment
+                    .Where(s => episodeIds.Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                var seasonStates = await db.DbSeasonState
+                    .Where(s => s.SeasonId == seasonId)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                foreach (var state in seasonStates)
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+                }
+
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             if (eraseCache)
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
                 foreach (var episode in episodes)
                 {
                     await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
                 }
             }
-
-            // Batch-load season state and clear episode IDs.
-            var seasonStates = await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -250,27 +250,32 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             int removedSegments;
             using (var db = Plugin.CreateDbContext())
             {
-                removedSegments = await db.DbSegment
-                    .Where(s => excludedIds.Contains(s.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                var seasonIds = excludedIdsBySeason.Keys.ToHashSet();
-                var seasonStates = await db.DbSeasonState
-                    .Where(s => seasonIds.Contains(s.SeasonId))
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                foreach (var state in seasonStates)
+                var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                await using (transaction.ConfigureAwait(false))
                 {
-                    var currentIds = state.EpisodeIds.ToList();
-                    if (currentIds.RemoveAll(excludedIdsBySeason[state.SeasonId].Contains) > 0)
-                    {
-                        db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-                    }
-                }
+                    removedSegments = await db.DbSegment
+                        .Where(s => excludedIds.Contains(s.ItemId))
+                        .ExecuteDeleteAsync(cancellationToken)
+                        .ConfigureAwait(false);
 
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    HashSet<Guid> seasonIds = [.. excludedIdsBySeason.Keys];
+                    var seasonStates = await db.DbSeasonState
+                        .Where(s => seasonIds.Contains(s.SeasonId))
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    foreach (var state in seasonStates)
+                    {
+                        List<Guid> currentIds = [.. state.EpisodeIds];
+                        if (currentIds.RemoveAll(excludedIdsBySeason[state.SeasonId].Contains) > 0)
+                        {
+                            db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+                        }
+                    }
+
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
             }
 
             int removedCacheEntries;
