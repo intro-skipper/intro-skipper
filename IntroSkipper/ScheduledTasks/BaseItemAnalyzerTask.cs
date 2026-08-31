@@ -211,6 +211,10 @@ public partial class BaseItemAnalyzerTask(
             {
                 LogFingerprintExceptionDuringAnalysis(_logger, ex);
             }
+            catch (TimeoutException ex)
+            {
+                LogFfmpegTimeoutDuringAnalysis(_logger, ex);
+            }
             catch (Exception ex)
             {
                 LogUnexpectedAnalysisError(_logger, ex);
@@ -595,6 +599,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis.")]
     private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season.")]
+    private static partial void LogFfmpegTimeoutDuringAnalysis(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during analysis.")]
     private static partial void LogUnexpectedAnalysisError(ILogger logger, Exception ex);
