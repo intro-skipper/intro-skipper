@@ -293,6 +293,18 @@ public sealed partial class IntroSkipperDatabase
                         : await resolveExternalTarget().ConfigureAwait(false);
                     if (target is null || target.Id != value.SegmentId)
                     {
+                        // The row may be missing because this very delete's journaled
+                        // operation already removed it while the item sync behind it
+                        // is still pending (the projection deletes foreign rows before
+                        // it syncs), so a retry must not 404. With nothing resolved
+                        // the pending-op guard answers by id and requested type —
+                        // there is no shape to compare, and no row for the mode-wide
+                        // fallback to mis-claim, so the weaker match stays safe.
+                        if (await HasJournaledExternalDeleteForIdAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, cancellationToken).ConfigureAwait(false))
+                        {
+                            return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
+                        }
+
                         return MutationResult.Reject(SegmentChangeRejectedReason.ExternalSegmentNotFound, "External segment was not found.");
                     }
 
@@ -453,6 +465,17 @@ public sealed partial class IntroSkipperDatabase
                 && o.ExpectedType == expectedType
                 && o.StartTicks == startTicks
                 && o.EndTicks == endTicks,
+            cancellationToken);
+
+    // Id-level variant of the pending-op guard for a target that no longer resolves:
+    // the journaled operation may itself be why the row is gone (its delete applied,
+    // the item sync behind it still pending), and its recorded shape is then the only
+    // shape there is.
+    private static Task<bool> HasJournaledExternalDeleteForIdAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, CancellationToken cancellationToken)
+        => db.ProjectionExternalOperations.AnyAsync(
+            o => o.ItemId == itemId
+                && o.ExternalSegmentId == externalSegmentId
+                && o.ExpectedType == expectedType,
             cancellationToken);
 
     // The wire-visible 400 text of the MediaSegmentsApi type contradiction; one
