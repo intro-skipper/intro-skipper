@@ -44,7 +44,6 @@ public sealed class TestSeasonReanalysisPlanner
             libraryManager,
             providerManager: null!,
             fileSystem: null!,
-            mediaSegmentRefresher: null!,
             ffmpegService: null!,
             cacheService: DatabaseTestHelpers.CreateTempCacheService(),
             database: DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();

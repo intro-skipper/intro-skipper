@@ -27,8 +27,6 @@ public sealed partial class JellyfinSegmentStore(
     IDbContextFactory<JellyfinDbContext> contextFactory,
     ILogger<JellyfinSegmentStore> logger) : IJellyfinSegmentStore
 {
-    private const int DeleteChunkSize = 500;
-
     /// <summary>
     /// Gets the provider id Jellyfin derives for Intro Skipper's segment provider.
     /// Mirrors the server's MediaSegmentManager.GetProviderId: an MD5 (UTF-16) of the
@@ -65,30 +63,6 @@ public sealed partial class JellyfinSegmentStore(
                     await SaveExactlyAsync(db, itemId, nameof(ReplaceSegmentsAsync), entities.Count, cancellationToken).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <inheritdoc />
-    public async Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
-        var ids = itemIds.Where(static id => id != Guid.Empty).Distinct().ToList();
-        if (ids.Count == 0)
-        {
-            return;
-        }
-
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
-            foreach (var chunk in ids.Chunk(DeleteChunkSize))
-            {
-                await db.MediaSegments
-                    .Where(segment => chunk.Contains(segment.ItemId) && segment.SegmentProviderId == ProviderId)
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
         }
     }
 

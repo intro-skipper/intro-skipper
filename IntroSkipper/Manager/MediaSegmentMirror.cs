@@ -10,13 +10,12 @@ namespace IntroSkipper.Manager;
 
 /// <summary>
 /// The plugin's write path into Jellyfin's media segments: per-item locked convergence
-/// (<see cref="SyncItemAsync"/>), the validated foreign-row delete
-/// (<see cref="DeleteValidatedSegmentAsync"/>), and a stripe-serialized bulk cleanup
-/// (<see cref="DeleteOwnSegmentsAsync"/>). Sync and bulk cleanup never touch other
-/// providers' segments; the validated delete removes any of the item's rows by id (the
-/// editor lets users delete foreign rows). Every operation no-ops when mirroring is
-/// disabled (<see cref="MediaSegmentMirrorPolicy"/>), so callers never gate it. The one
-/// writer that bypasses this class is Jellyfin itself: it persists
+/// (<see cref="SyncItemAsync"/>) and the validated foreign-row delete
+/// (<see cref="DeleteValidatedSegmentAsync"/>). Sync never touches other providers'
+/// segments; the validated delete removes any of the item's rows by id (the editor
+/// lets users delete foreign rows). Every operation no-ops when mirroring is disabled
+/// (<see cref="MediaSegmentMirrorPolicy"/>), so callers never gate it. The one writer
+/// that bypasses this class is Jellyfin itself: it persists
 /// <see cref="SegmentProvider"/> results during its own provider runs and can therefore
 /// re-add a just-deleted segment from a read that predates the delete, until a later
 /// sync converges the item.
@@ -90,34 +89,6 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var rowsDeleted = await segmentStore.DeleteValidatedSegmentAsync(itemId, segmentId, type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
         return rowsDeleted > 0 ? MirrorDeleteOutcome.Deleted : MirrorDeleteOutcome.RowNotFound;
-    }
-
-    /// <summary>
-    /// Deletes every Intro Skipper segment row for the given item ids, including items
-    /// no longer in the library. The ids are grouped by lock stripe and each group's
-    /// delete runs while holding its stripe, so the cleanup serializes with every
-    /// per-item mirror write: an in-flight <see cref="SyncItemAsync"/> holding a stale
-    /// plugin-database read cannot land its replace after this cleanup and resurrect
-    /// rows whose plugin source the caller is removing, and any sync that starts later
-    /// re-reads the plugin database and converges on what the caller left there.
-    /// </summary>
-    /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return;
-        }
-
-        foreach (var stripeGroup in itemIds.GroupBy(StripedAsyncLock.StripeIndex))
-        {
-            using var stripe = await _lock.AcquireStripeAsync(stripeGroup.Key, cancellationToken).ConfigureAwait(false);
-            await segmentStore.DeleteOwnSegmentsAsync(stripeGroup, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     // (Id, StartTicks, EndTicks, Type) plus the query-fixed item and provider id is the

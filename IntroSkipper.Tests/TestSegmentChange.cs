@@ -1004,14 +1004,67 @@ public sealed class TestSegmentChange : IDisposable
         Assert.NotNull(work);
         Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40))).Outcome);
 
-        // Completing at the projected (stale) version must not lose the newer work.
-        await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, [], CancellationToken.None);
+        // Completing at the projected (stale) version must not lose the newer work,
+        // and must report the miss so callers do not claim the item converged.
+        Assert.False(await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, [], CancellationToken.None));
         var surviving = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
         Assert.NotNull(surviving);
         Assert.Equal(work.Item.Version + 1, surviving.Item.Version);
 
-        await journal.CompleteProjectionWorkAsync(itemId, surviving.Item.Version, [], CancellationToken.None);
+        Assert.True(await journal.CompleteProjectionWorkAsync(itemId, surviving.Item.Version, [], CancellationToken.None));
         Assert.Null(await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RecordFailure_AtStaleVersion_DoesNotArmBackoff()
+    {
+        var itemId = Guid.NewGuid();
+        var database = CreateDatabase();
+        ISegmentProjectionJournal journal = database;
+
+        Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20))).Outcome);
+        var work = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        Assert.NotNull(work);
+        Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40))).Outcome);
+
+        // A failure recorded at the projected (stale) version must not push the
+        // newer work — enqueued due immediately — behind that failure's backoff.
+        await journal.RecordProjectionFailureAsync(itemId, work.Item.Version, DateTime.UtcNow.AddMinutes(5), "stale failure", CancellationToken.None);
+        var current = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        Assert.NotNull(current);
+        Assert.Null(current.Item.NextAttemptAt);
+        Assert.Equal(0, current.Item.AttemptCount);
+    }
+
+    [Fact]
+    public async Task CompletionSupersededMidApply_ReportsPendingNotApplied()
+    {
+        var itemId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        // An analyzer write holds no projection stripe, so it can land while a
+        // projection is mid-apply: the marker's version bumps and the completion
+        // must miss it — and the outcome must say Pending, not Applied, so retry
+        // counts, status reads and the HTTP 202 mapping agree with the surviving
+        // marker.
+        adapter.OnApply = () => adapter.Database!.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Credits, [new Segment(itemId, new TimeRange(30, 40))], SegmentSource.Chapter);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20)));
+
+        Assert.Equal(ProjectionState.Pending, outcome.Projection);
+        await using (var db = CreateContext())
+        {
+            Assert.Equal(2, Assert.Single(await db.ProjectionQueue.ToListAsync()).Version);
+        }
+
+        // With no further interleaving the surviving work converges on retry.
+        adapter.OnApply = null;
+        Assert.Equal(1, (await service.RetryProjectionAsync(ProjectionScope.ForItem(itemId))).RetriedCount);
+        await using var verify = CreateContext();
+        Assert.Empty(await verify.ProjectionQueue.ToListAsync());
     }
 
     [Fact]
@@ -1109,6 +1162,10 @@ public sealed class TestSegmentChange : IDisposable
 
         public int MirroringDisabledRemaining { get; set; }
 
+        // Runs mid-apply, after the snapshot but before the outcome — the seam for
+        // simulating an unstriped facade write landing while a projection is in flight.
+        public Func<Task>? OnApply { get; set; }
+
         public Task<ExternalSegmentTarget?> ResolveExternalTargetAsync(Guid itemId, Guid externalSegmentId, CancellationToken cancellationToken)
         {
             if (ResolveException is not null)
@@ -1128,6 +1185,11 @@ public sealed class TestSegmentChange : IDisposable
                 : await Database.GetServableSegmentsAsync(itemId, cancellationToken);
             var snapshot = new AppliedProjection(itemId, image, [.. externalOperations]);
             Attempts.Add(snapshot);
+            if (OnApply is { } onApply)
+            {
+                await onApply();
+            }
+
             if (MirroringDisabledRemaining-- > 0)
             {
                 return ProjectionApplyOutcome.MirroringDisabled;

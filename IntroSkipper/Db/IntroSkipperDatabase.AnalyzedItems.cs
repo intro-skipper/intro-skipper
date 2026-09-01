@@ -42,8 +42,18 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
-    public async Task ClearItemAnalysisAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Single-shot form of <see cref="ClearItemAnalysisCoreAsync"/>: removes an
+    /// item's analysis record for the mode so the next scan analyzes it again (a
+    /// no-op when no record exists). Internal on purpose — production callers reach
+    /// the core through <see cref="ApplyChangeAsync"/>; this is the test seam over
+    /// the same core.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task ClearItemAnalysisAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();

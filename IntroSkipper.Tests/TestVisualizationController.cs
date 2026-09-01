@@ -27,7 +27,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestVisualizationController
 {
     [Fact]
-    public async Task EraseSeasonAsync_AwaitsMirrorDelete_BeforeReturningNoContent()
+    public async Task EraseSeasonAsync_AwaitsMirrorConvergence_BeforeReturningNoContent()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -35,28 +35,36 @@ public sealed class TestVisualizationController
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
-        var refresher = new RecordingMediaSegmentRefresher
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Both episodes' rows are mirrored, so the post-erase convergence has real
+        // writes; the first one parks so the pre-completion assertion cannot race.
+        var store = new FakeJellyfinSegmentStore
         {
-            Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            ExistingSegments = [CreateMirroredDto(episodeIds[0]), CreateMirroredDto(episodeIds[1])],
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        // Pre-warm the facade's init gate so the action below runs synchronously up to the
-        // refresher await (its single pending point). With a cold gate, initialization
-        // completes on the thread pool and the pre-completion assertions race it. This
-        // mirrors production, where the hosted initializer warms the gate before traffic.
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.InitializeAsync();
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
+        await writeEntered.Task;
 
+        // The erase is committed and journaled; the response still waits for the
+        // convergence pass it kicked off.
         Assert.False(actionTask.IsCompleted);
-        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
 
-        refresher.Completion.SetResult();
+        writeGate.SetResult();
         var result = await actionTask;
 
         Assert.IsType<NoContentResult>(result);
+        Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[0], CancellationToken.None));
+        Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[1], CancellationToken.None));
         await using var db = new IntroSkipperDbContext(dbPath);
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
@@ -65,7 +73,7 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
-    public async Task EraseSeasonAsync_AlwaysDelegatesRefresh_TheServiceOwnsTheMirrorFlag()
+    public async Task EraseSeasonAsync_MirroringDisabled_CommitsEraseAndKeepsWorkJournaled()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -73,16 +81,20 @@ public sealed class TestVisualizationController
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
-        var refresher = new RecordingMediaSegmentRefresher();
+        var store = new FakeJellyfinSegmentStore();
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var result = await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
-        // The controller no longer gates on UpdateMediaSegments: it always delegates,
-        // and MediaSegmentRefreshService itself owns the mirror flag.
+        // The erase commits regardless of the mirror flag; the journaled projection
+        // work sits durably (state Skipped) and replays when mirroring turns on.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal(episodeIds.OrderBy(id => id), refresher.RemovedItemIds.OrderBy(id => id));
+        Assert.Equal(0, store.WriteCallCount);
+        await using var db = new IntroSkipperDbContext(dbPath);
+        Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        Assert.Equal(2, await db.ProjectionQueue.CountAsync(q => episodeIds.Contains(q.ItemId)));
     }
 
     [Fact]
@@ -102,7 +114,6 @@ public sealed class TestVisualizationController
             Guid.NewGuid().ToString("N"),
             "cache.db");
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(),
             loggerFactory,
             DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
             missingCachePath);
@@ -141,9 +152,8 @@ public sealed class TestVisualizationController
             config);
         await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
         await SeedCacheAsync(pluginScope.CacheDbPath, excludedId, includedId);
-        var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
+        var controller = CreateController(loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
 
@@ -155,7 +165,6 @@ public sealed class TestVisualizationController
         // items is a full erase, so suppressed rows are deleted (and counted) too.
         Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(1, response.RemovedCacheEntries);
-        Assert.Equal([excludedId], refresher.RemovedItemIds);
 
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
@@ -195,7 +204,6 @@ public sealed class TestVisualizationController
             "cache.db");
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(),
             loggerFactory,
             DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
             missingCachePath);
@@ -229,7 +237,6 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
@@ -244,7 +251,7 @@ public sealed class TestVisualizationController
             ExistingSegments = [CreateMirroredDto(episodeIds[0], mirroredRow.Id, mirroredRow.StartTicks, mirroredRow.EndTicks)]
         };
         var controller = CreateController(
-            refresher, loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -262,10 +269,8 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(deleteResult);
 
-        // Both directions resync the item's mirror through the change coordinator;
-        // the refresher (the bulk/lenient path) is not involved in the disable flow.
+        // Both directions resync the item's mirror through the change coordinator.
         Assert.Equal(2, store.WriteCallCount);
-        Assert.Equal(0, refresher.CollectionCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
@@ -287,7 +292,7 @@ public sealed class TestVisualizationController
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(orphanId, Guid.Empty)));
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(loggerFactory, database, pluginScope.CacheDbPath);
 
         var result = await controller.DisableItem(orphanId, CancellationToken.None);
 
@@ -313,7 +318,7 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
@@ -344,7 +349,7 @@ public sealed class TestVisualizationController
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var result = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -381,7 +386,7 @@ public sealed class TestVisualizationController
         await database.ReplaceAutoSegmentsAsync(
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         var result = await controller.EnableItem(episodeIds[0], CancellationToken.None);
 
@@ -420,7 +425,7 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.InitializeAsync();
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
         // Request A commits the flag, then parks inside its projection write while
         // holding the item's mutation stripe.
@@ -481,7 +486,7 @@ public sealed class TestVisualizationController
         };
         var segmentChange = DatabaseTestHelpers.CreateSegmentChange(store, database);
         var controller = CreateController(
-            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, segmentChange);
+            loggerFactory, database, pluginScope.CacheDbPath, segmentChange);
         var segmentsController = new SegmentsController(database, segmentChange);
 
         // Request A commits the disable flag, then parks inside its projection write
@@ -527,10 +532,9 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(movie));
-        var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(loggerFactory, database, pluginScope.CacheDbPath);
 
         var result = await controller.DisableItem(movieId, CancellationToken.None);
 
@@ -564,14 +568,13 @@ public sealed class TestVisualizationController
             EndTicks = endTicks ?? TickConversions.FromSeconds(20)
         };
 
-    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
-        => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
+    private static VisualizationController CreateController(ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
+        => CreateController(loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
 
-    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, IntroSkipper.SegmentChanges.SegmentChange? segmentChange = null)
+    private static VisualizationController CreateController(ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, IntroSkipper.SegmentChanges.SegmentChange? segmentChange = null)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
-            refresher,
             segmentChange ?? DatabaseTestHelpers.CreateSegmentChange(new FakeJellyfinSegmentStore(), database),
             libraryManager: null!,
             new AnalyzerTaskFactory(
@@ -579,7 +582,6 @@ public sealed class TestVisualizationController
                 libraryManager: null!,
                 providerManager: null!,
                 fileSystem: null!,
-                mediaSegmentRefresher: null!,
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 database),
@@ -645,24 +647,4 @@ public sealed class TestVisualizationController
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-visualization-controller.db");
 
-    private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
-    {
-        public TaskCompletionSource? Completion { get; init; }
-
-        public int CollectionCallCount { get; private set; }
-
-        public IReadOnlyList<Guid> RemovedItemIds { get; private set; } = [];
-
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        {
-            CollectionCallCount++;
-            return Completion?.Task ?? Task.CompletedTask;
-        }
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        {
-            RemovedItemIds = [.. itemIds];
-            return Completion?.Task ?? Task.CompletedTask;
-        }
-    }
 }

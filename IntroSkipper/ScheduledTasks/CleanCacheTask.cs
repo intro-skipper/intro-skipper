@@ -7,6 +7,7 @@
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -25,7 +26,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="cacheService">Detection cache service; owns the configuration-hash policy.</param>
-/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="segmentChange">Durable segment-change coordinator; converges the erased items' journaled projections.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     AnalyzerTaskFactory analyzerFactory,
@@ -33,7 +34,7 @@ public partial class CleanCacheTask(
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
     IDetectionCacheService cacheService,
-    IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
+    ISegmentChange segmentChange) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
@@ -41,7 +42,7 @@ public partial class CleanCacheTask(
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Gets the task name.
@@ -127,24 +128,19 @@ public partial class CleanCacheTask(
 
         if (staleTimestampEpisodeIds.Count > 0)
         {
-            // Refresh first with Intro Skipper excluded. If refresh fails or is canceled, the
-            // timestamps remain available so a later cleanup run can retry the handoff.
-            await _mediaSegmentRefresher
-                .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, cancellationToken)
-                .ConfigureAwait(false);
-
+            // The erase journals every affected item's projection with the delete, so
+            // the Jellyfin rows converge away durably — a sync racing this cleanup
+            // from a stale read is followed by the marker's own projection, and a
+            // crash mid-cleanup leaves the work journaled instead of orphaning rows.
             await _database
                 .EraseItemsAsync(staleTimestampEpisodeIds, cancellationToken)
                 .ConfigureAwait(false);
 
-            // Sweep the mirror again: a sync queued on a stripe during the first cleanup
-            // may have re-read the plugin rows before the erase above and resurrected the
-            // Jellyfin rows. After the erase these items hold no plugin segments, so no
-            // later cleanup run would list them and the resurrected rows would be
-            // permanent. Uncancelable for the same reason: the erase is committed and a
-            // canceled second sweep would leave the same orphans behind.
-            await _mediaSegmentRefresher
-                .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, CancellationToken.None)
+            // Converge exactly the erased items now rather than waiting for the
+            // worker's poll — unrelated pending work keeps its backoff; anything this
+            // pass cannot finish stays journaled. Uncancelable: the erase is committed.
+            await _segmentChange
+                .ProjectItemsAsync(staleTimestampEpisodeIds, CancellationToken.None)
                 .ConfigureAwait(false);
         }
 

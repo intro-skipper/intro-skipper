@@ -28,7 +28,6 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="analyzerFactory">Factory used to create fresh queue managers per run.</param>
-/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
@@ -36,7 +35,6 @@ public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     AnalyzerTaskFactory analyzerFactory,
-    IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
     IDetectionCacheService cacheService,
     IIntroSkipperDatabase database)
@@ -51,7 +49,6 @@ public partial class BaseItemAnalyzerTask(
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly IIntroSkipperDatabase _database = database;
@@ -125,7 +122,6 @@ public partial class BaseItemAnalyzerTask(
 
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
-            var updateMediaSegments = false;
             IReadOnlyList<AnalysisMode> settledResetModes = [];
 
             var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
@@ -150,6 +146,9 @@ public partial class BaseItemAnalyzerTask(
                 {
                     var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, Config.AnimePreviewFromCreditsEnd);
                     LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+
+                    // The reset journals its deletions' projections, so they propagate
+                    // to Jellyfin even if the recompute finds nothing.
                     await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, ct).ConfigureAwait(false);
                     foreach (var episode in episodes)
                     {
@@ -161,9 +160,6 @@ public partial class BaseItemAnalyzerTask(
                             }
                         }
                     }
-
-                    // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
-                    updateMediaSegments = true;
                 }
             }
 
@@ -174,7 +170,7 @@ public partial class BaseItemAnalyzerTask(
                 foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var segmentsChanged = await AnalyzeItemsAsync(
+                    await AnalyzeItemsAsync(
                         episodes,
                         mode,
                         ffmpegValid,
@@ -190,7 +186,6 @@ public partial class BaseItemAnalyzerTask(
                         completedSettledModes.Add(mode);
                     }
 
-                    updateMediaSegments = segmentsChanged || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
@@ -213,11 +208,8 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (updateMediaSegments && Config.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(episodes.Select(e => e.EpisodeId), ct).ConfigureAwait(false);
-            }
-
+            // No mirror push here: every write above journaled its item's projection
+            // with the change, and the projection worker converges Jellyfin durably.
             if (completedSettledModes.Count > 0)
             {
                 await _database.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
@@ -290,17 +282,16 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Analyze a group of media items for skippable segments.
+    /// Analyze a group of media items for skippable segments. Every write into the
+    /// segment store journals its item's projection, so the Jellyfin mirror converges
+    /// from the journal — the pass itself never pushes.
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when the pass changed stored segments — an item was
-    /// analyzed, stale automatic rows were removed before the analyzers ran, an analyzer
-    /// deleted a segment it adjusted into an unusable range, or a derived preview was
-    /// written — so the caller converges the Jellyfin mirror.</returns>
-    private async Task<bool> AnalyzeItemsAsync(
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    private async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         bool ffmpegValid,
@@ -308,7 +299,7 @@ public partial class BaseItemAnalyzerTask(
     {
         if (!HasUncachedAnalysisWork(items, mode))
         {
-            return false;
+            return;
         }
 
         var first = items[0];
@@ -318,10 +309,9 @@ public partial class BaseItemAnalyzerTask(
 
         if (AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
         {
-            return false;
+            return;
         }
 
-        var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
         var action = await _database.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
         var configHash = ConfigHasher.Analysis(Config, mode, action, ffmpegValid);
 
@@ -335,7 +325,7 @@ public partial class BaseItemAnalyzerTask(
                 items.Select(i => i.EpisodeId),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
-            return false;
+            return;
         }
 
         foreach (var item in items)
@@ -343,9 +333,9 @@ public partial class BaseItemAnalyzerTask(
             item.AnalysisConfigHash = configHash;
         }
 
-        // Rows removed here must reach the mirror even if the analyzers below detect
-        // nothing new, or Jellyfin keeps serving segments the plugin no longer stores.
-        var staleRemoved = await _database.CleanStaleAutomaticSegmentsAsync(
+        // The cleanup journals the removed rows' projections, so they reach the
+        // mirror even if the analyzers below detect nothing new.
+        await _database.CleanStaleAutomaticSegmentsAsync(
             items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
@@ -424,10 +414,6 @@ public partial class BaseItemAnalyzerTask(
                 break;
         }
 
-        // Analyzers that adjust an existing automatic segment into an unusable range delete it and
-        // mark the episode NoSegments, so a transition into that state means stored segments changed.
-        var preAnalysisStates = items.ToDictionary(e => e.EpisodeId, e => e.GetAnalyzed(mode));
-
         // Execute each analyzer in order. Analyzers skip episodes already
         // marked as analyzed by earlier ones via NeedsAnalysis().
         foreach (var analyzer in analyzers)
@@ -437,12 +423,9 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
-        // These writes target Preview rows on items whose Credits state may not have moved, so they
-        // are a third source of change the counts below cannot see.
-        var previewsWritten = false;
         if (mode == AnalysisMode.Credits && isAnime && Config.AnimePreviewFromCreditsEnd)
         {
-            previewsWritten = await CreateAnimePreviewFromCreditsAsync(items, cancellationToken).ConfigureAwait(false);
+            await CreateAnimePreviewFromCreditsAsync(items, cancellationToken).ConfigureAwait(false);
         }
 
         // Record completed items under this hash, found segments or not. Failed items are omitted so
@@ -452,14 +435,6 @@ public partial class BaseItemAnalyzerTask(
             GetPersistableEpisodeIds(items, mode),
             configHash,
             cancellationToken).ConfigureAwait(false);
-
-        var analyzed = totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
-        var invalidSegmentsRemoved = items.Any(e =>
-            e.GetAnalyzed(mode) == EpisodeState.NoSegments
-            && preAnalysisStates.TryGetValue(e.EpisodeId, out var previousState)
-            && previousState != EpisodeState.NoSegments);
-
-        return analyzed > 0 || staleRemoved > 0 || previewsWritten || invalidSegmentsRemoved;
     }
 
     /// <summary>
@@ -551,13 +526,11 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     /// <param name="items">Media items to process.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when at least one Preview row was written, so the caller
-    /// converges the Jellyfin mirror even if the Credits pass itself analyzed nothing.</returns>
-    private async Task<bool> CreateAnimePreviewFromCreditsAsync(
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    private async Task CreateAnimePreviewFromCreditsAsync(
         IReadOnlyList<QueuedEpisode> items,
         CancellationToken cancellationToken)
     {
-        var wrote = false;
         foreach (var episode in items)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -603,7 +576,6 @@ public partial class BaseItemAnalyzerTask(
 
             if (stored > 0)
             {
-                wrote = true;
                 LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);
             }
             else
@@ -611,8 +583,6 @@ public partial class BaseItemAnalyzerTask(
                 LogDroppedAnimePreview(_logger, episode.Name);
             }
         }
-
-        return wrote;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Created anime preview for {Episode}: {Start:F2}s to {End:F2}s")]

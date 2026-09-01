@@ -122,6 +122,28 @@ internal sealed partial class SegmentChange(
     }
 
     /// <inheritdoc />
+    public async Task<int> ProjectItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
+        var ids = itemIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        var applied = 0;
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Max(1, Plugin.Instance?.Configuration.MaxParallelism ?? 1),
+            CancellationToken = cancellationToken
+        };
+        await Parallel.ForEachAsync(ids, options, async (itemId, token) =>
+        {
+            if (await ProjectItemAsync(itemId, force: true, token).ConfigureAwait(false) == ProjectionState.Applied)
+            {
+                Interlocked.Increment(ref applied);
+            }
+        }).ConfigureAwait(false);
+        return applied;
+    }
+
+    /// <inheritdoc />
     public override void Dispose()
     {
         _nudge.Dispose();
@@ -258,9 +280,14 @@ internal sealed partial class SegmentChange(
             }
 
             // Uncancelable: the apply is done; abandoning the bookkeeping would only
-            // schedule a redundant (idempotent) re-sync.
-            await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false);
-            return ProjectionState.Applied;
+            // schedule a redundant (idempotent) re-sync. A completion that missed its
+            // version means an unstriped analyzer or maintenance write superseded the
+            // projected work mid-apply: the marker survives and the item is still
+            // behind, so report Pending — retry counts, status reads and the HTTP
+            // 202 mapping must all agree with the surviving marker.
+            return await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false)
+                ? ProjectionState.Applied
+                : ProjectionState.Pending;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -270,7 +297,7 @@ internal sealed partial class SegmentChange(
         {
             var attempts = work.Item.AttemptCount + 1;
             var next = now + TimeSpan.FromSeconds(Math.Min(BackoffMaxSeconds, BackoffBaseSeconds * Math.Pow(2, Math.Min(10, attempts - 1))));
-            await journal.RecordProjectionFailureAsync(itemId, next, Sanitize(ex), CancellationToken.None).ConfigureAwait(false);
+            await journal.RecordProjectionFailureAsync(itemId, work.Item.Version, next, Sanitize(ex), CancellationToken.None).ConfigureAwait(false);
             LogProjectionFailed(logger, ex, itemId);
             return ProjectionState.Pending;
         }

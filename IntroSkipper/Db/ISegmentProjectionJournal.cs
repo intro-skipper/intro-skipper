@@ -6,8 +6,10 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// The projection-journal surface of the segment database, consumed by the durable
 /// segment-change coordinator: read pending work, complete it, or record a failed
-/// attempt. Work is enqueued only by
-/// <see cref="IIntroSkipperDatabase.ApplyChangeAsync"/>, atomically with its mutation.
+/// attempt. Work is enqueued only inside the facade — by
+/// <see cref="IIntroSkipperDatabase.ApplyChangeAsync"/> and by the analyzer and
+/// maintenance writes that change servable state — always atomically with the
+/// mutation.
 /// </summary>
 internal interface ISegmentProjectionJournal
 {
@@ -49,18 +51,24 @@ internal interface ISegmentProjectionJournal
     /// <param name="version">The queue-row version the caller projected.</param>
     /// <param name="processedOperationIds">Ids of the operations the apply processed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken);
+    /// <returns><see langword="true"/> when the queue row was retired at the projected
+    /// version; <see langword="false"/> when it survived because newer work superseded
+    /// the version mid-apply, so the item is still behind.</returns>
+    Task<bool> CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken);
 
     /// <summary>
     /// Records a failed attempt on the item's queue row: increments the attempt count
-    /// and stores the backoff due time and sanitized failure. A no-op when the row is
-    /// gone (the work completed concurrently).
+    /// and stores the backoff due time and sanitized failure. Guarded by the version
+    /// the failed attempt projected, like the completion: a no-op when the row is
+    /// gone (the work completed concurrently) or superseded (a newer enqueue made the
+    /// work due immediately — its supersession must not be stomped with a stale
+    /// backoff).
     /// </summary>
     /// <param name="itemId">Item id.</param>
+    /// <param name="version">The queue-row version the failed attempt projected.</param>
     /// <param name="nextAttemptAt">UTC time the next attempt is due.</param>
     /// <param name="failure">Sanitized failure message.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task RecordProjectionFailureAsync(Guid itemId, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken);
+    Task RecordProjectionFailureAsync(Guid itemId, long version, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken);
 }

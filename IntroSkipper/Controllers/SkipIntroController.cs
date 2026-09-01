@@ -28,12 +28,10 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
     ISegmentChange segmentChange,
-    IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly ISegmentChange _segmentChange = segmentChange;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -206,8 +204,10 @@ public partial class SkipIntroController(
             await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
-        // The items keep their other modes' segments, so converge (not wipe) their mirrors.
-        await _mediaSegmentRefresher.RefreshAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        // The erase journaled every affected item's projection; converge exactly those
+        // items now for a snappy dashboard — unrelated pending work keeps its backoff.
+        // Anything this pass cannot finish stays journaled and the worker completes it.
+        await _segmentChange.ProjectItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

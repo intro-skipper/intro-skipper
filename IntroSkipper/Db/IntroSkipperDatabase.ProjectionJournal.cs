@@ -64,7 +64,7 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
     }
 
     /// <inheritdoc/>
-    async Task ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
+    async Task<bool> ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(processedOperationIds);
 
@@ -79,14 +79,14 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
                 .ConfigureAwait(false);
         }
 
-        await db.ProjectionQueue
+        return await db.ProjectionQueue
             .Where(q => q.ItemId == itemId && q.Version == version)
             .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .ConfigureAwait(false) > 0;
     }
 
     /// <inheritdoc/>
-    async Task ISegmentProjectionJournal.RecordProjectionFailureAsync(Guid itemId, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
+    async Task ISegmentProjectionJournal.RecordProjectionFailureAsync(Guid itemId, long version, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(failure);
 
@@ -94,7 +94,7 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
         using var db = _contextFactory.CreateDbContext();
 
         await db.ProjectionQueue
-            .Where(q => q.ItemId == itemId)
+            .Where(q => q.ItemId == itemId && q.Version == version)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(q => q.AttemptCount, q => q.AttemptCount + 1)

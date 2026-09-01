@@ -59,11 +59,11 @@ public sealed class TestCleanCacheTask
                     : throw new InvalidOperationException("library database unavailable"));
 
             var progress = new RecordingProgress();
-            var refresher = new RecordingRefresher();
-            await CreateTask(libraryManager, database, cacheDatabase, refresher).ExecuteAsync(progress, CancellationToken.None);
+            var store = new FakeJellyfinSegmentStore();
+            await CreateTask(libraryManager, database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
 
             Assert.Equal(100, progress.Value);
-            Assert.Equal(0, refresher.RemoveCallCount);
+            Assert.Equal(0, store.WriteCallCount);
             await AssertSeededDataIntactAsync(database, cacheDatabase, liveEpisodeId, dbPath);
         }
         finally
@@ -282,14 +282,14 @@ public sealed class TestCleanCacheTask
                 getItemById: id => id == disabledLibraryEpisodeId ? CreateMovie(id) : null);
 
             var progress = new RecordingProgress();
-            var refresher = new RecordingRefresher();
-            await CreateTask(libraryManager, database, cacheDatabase, refresher).ExecuteAsync(progress, CancellationToken.None);
+            var store = new FakeJellyfinSegmentStore();
+            await CreateTask(libraryManager, database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
 
             Assert.Equal(100, progress.Value);
 
-            // Once before the erase (retryable handoff) and once after it (sweeps rows a
-            // concurrently queued sync could have resurrected from the pre-erase read).
-            Assert.Equal(2, refresher.RemoveCallCount);
+            // Mirroring is off in this configuration: the erase committed and journaled
+            // the gone item's projection, which sits durably until mirroring turns on.
+            Assert.Equal(0, store.WriteCallCount);
             Assert.NotNull(cacheDatabase.FindEntry(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Null(cacheDatabase.FindEntry(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
 
@@ -310,6 +310,8 @@ public sealed class TestCleanCacheTask
                 db.SeasonStates, s => s.SeasonId == goneEpisodeId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
                 db.AnalyzedItems, a => a.ItemId == goneEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.ProjectionQueue, q => q.ItemId == goneEpisodeId));
         }
         finally
         {
@@ -338,9 +340,9 @@ public sealed class TestCleanCacheTask
 
     private static CleanCacheTask CreateTask(
         ILibraryManager libraryManager,
-        IIntroSkipperDatabase database,
+        IntroSkipperDatabase database,
         IDetectionCacheDatabase cacheDatabase,
-        IMediaSegmentRefresher? mediaSegmentRefresher = null)
+        FakeJellyfinSegmentStore? store = null)
         => new(
             NullLogger<CleanCacheTask>.Instance,
             new AnalyzerTaskFactory(
@@ -348,7 +350,6 @@ public sealed class TestCleanCacheTask
                 libraryManager,
                 providerManager: null!,
                 fileSystem: null!,
-                mediaSegmentRefresher: null!,
                 ffmpegService: null!,
                 cacheService: null!,
                 database),
@@ -356,7 +357,7 @@ public sealed class TestCleanCacheTask
             database,
             cacheDatabase,
             new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
-            mediaSegmentRefresher: mediaSegmentRefresher ?? new RecordingRefresher());
+            DatabaseTestHelpers.CreateSegmentChange(store ?? new FakeJellyfinSegmentStore(), database));
 
     private static MediaBrowser.Controller.Entities.Movies.Movie CreateMovie(Guid id)
         => new()
@@ -409,18 +410,6 @@ public sealed class TestCleanCacheTask
         public void Report(double value) => Value = value;
     }
 
-    private sealed class RecordingRefresher : IMediaSegmentRefresher
-    {
-        public int RemoveCallCount { get; private set; }
-
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        {
-            RemoveCallCount++;
-            return Task.CompletedTask;
-        }
-    }
 
     // ILibraryManager stub for the queue-building path: returns the configured virtual
     // folders, delegates GetItemList to the configured behavior (which may throw to

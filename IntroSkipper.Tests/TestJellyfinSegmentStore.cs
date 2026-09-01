@@ -266,44 +266,28 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
-    public async Task DeleteOwnSegmentsAsync_DeletesOnlyOwnRows_ForGivenItems()
+    public async Task ReplaceSegmentsAsync_EmptySet_DeletesOnlyOwnRows_OfTheGivenItem()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
         var itemA = Guid.NewGuid();
-        var itemB = Guid.NewGuid();
         var itemC = Guid.NewGuid();
         var foreignA = CreateEntity(itemA, MediaSegmentType.Outro, 0, 100, ForeignProviderId);
         var ownC = CreateEntity(itemC, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
         await SeedAsync(
             db,
             CreateEntity(itemA, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
-            CreateEntity(itemB, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
             foreignA,
             ownC);
 
-        await store.DeleteOwnSegmentsAsync([itemA, itemB, Guid.Empty], CancellationToken.None);
+        // The projection sync of an erased item pushes an empty set: the item's own
+        // rows go, other providers' rows and other items' rows survive.
+        await store.ReplaceSegmentsAsync(itemA, [], CancellationToken.None);
 
         var rows = await GetAllAsync(db);
         Assert.Equal(2, rows.Count);
         Assert.Single(rows, row => row.Id == foreignA.Id);
         Assert.Single(rows, row => row.Id == ownC.Id);
-    }
-
-    [Fact]
-    public async Task DeleteOwnSegmentsAsync_HandlesMoreThanOneChunkOfIds()
-    {
-        using var db = new TempJellyfinDb();
-        var store = CreateStore(db);
-        var ids = Enumerable.Range(0, 501).Select(_ => Guid.NewGuid()).ToArray();
-        await SeedAsync(
-            db,
-            CreateEntity(ids[0], MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
-            CreateEntity(ids[^1], MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId));
-
-        await store.DeleteOwnSegmentsAsync(ids, CancellationToken.None);
-
-        Assert.Empty(await GetAllAsync(db));
     }
 
     [Fact]

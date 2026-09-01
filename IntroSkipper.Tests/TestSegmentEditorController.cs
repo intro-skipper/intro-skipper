@@ -316,6 +316,7 @@ public sealed class SegmentEditorControllerTests
                 }
             ],
         };
+
         var controller = CreateController(store, database);
 
         var result = await controller.DeleteSegmentAsync(jellyfinRowId, itemId, "intro", CancellationToken.None);

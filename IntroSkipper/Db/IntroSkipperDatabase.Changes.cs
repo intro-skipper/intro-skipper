@@ -61,18 +61,80 @@ public sealed partial class IntroSkipperDatabase
     /// consults a clock (<see langword="null"/> due time means due immediately), so
     /// test time providers stay authoritative over retry timing.
     /// </summary>
-    private static async Task EnqueueProjectionAsync(IntroSkipperDbContext db, Guid itemId, CancellationToken cancellationToken)
+    private static Task EnqueueProjectionAsync(IntroSkipperDbContext db, Guid itemId, CancellationToken cancellationToken)
+        => EnqueueProjectionsAsync(db, [itemId], cancellationToken);
+
+    /// <summary>
+    /// The single home of the marker-supersession rule, shared by the intent path
+    /// (one item) and the bulk analysis/maintenance writes: existing markers bump
+    /// their version with the due time reset, missing markers insert. The caller
+    /// saves and commits; the projection worker's poll picks the markers up, so bulk
+    /// writers never await Jellyfin.
+    /// </summary>
+    private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
-        var queue = await db.ProjectionQueue.FirstOrDefaultAsync(q => q.ItemId == itemId, cancellationToken).ConfigureAwait(false);
-        if (queue is null)
+        if (itemIds.Count == 0)
         {
-            db.ProjectionQueue.Add(new DbProjectionQueueItem { ItemId = itemId, Version = 1 });
+            return;
         }
-        else
+
+        var ids = itemIds.Distinct().ToArray();
+
+        // Set-based bump, never a tracked read-modify-write: the analyzer and
+        // maintenance callers hold no projection stripe, so the worker's
+        // version-guarded completion can delete a marker at any moment — a tracked
+        // update would then throw DbUpdateConcurrencyException at save time and roll
+        // the caller's whole transaction back (the analyzed segments with it). The
+        // atomic UPDATE either beats the completion (whose stale delete then misses)
+        // or follows it (the id inserts fresh below); either way it makes this
+        // transaction the database's single writer, so the existence read underneath
+        // cannot go stale before commit.
+        await db.ProjectionQueue
+            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(q => q.Version, q => q.Version + 1)
+                    .SetProperty(q => q.NextAttemptAt, (DateTime?)null),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var known = await db.ProjectionQueue.AsNoTracking()
+            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
+            .Select(q => q.ItemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        db.ProjectionQueue.AddRange(ids.Except(known).Select(id => new DbProjectionQueueItem { ItemId = id, Version = 1 }));
+    }
+
+    /// <summary>
+    /// The bulk delete-and-journal kernel: materializes the doomed rows' ids once,
+    /// deletes exactly those rows, and journals exactly their items' projections —
+    /// so a delete and its markers can never be computed from two different row
+    /// sets. Runs inside the caller's transaction; the caller saves and commits.
+    /// </summary>
+    /// <param name="db">Open context whose transaction the delete joins.</param>
+    /// <param name="doomedRows">Query selecting the rows to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of segment rows deleted and the distinct ids of the items they belonged to.</returns>
+    private static async Task<(int RemovedRows, IReadOnlyCollection<Guid> ItemIds)> DeleteSegmentsAndJournalAsync(IntroSkipperDbContext db, IQueryable<DbSegment> doomedRows, CancellationToken cancellationToken)
+    {
+        var doomed = await doomedRows
+            .Select(s => new { s.Id, s.ItemId })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (doomed.Count == 0)
         {
-            queue.Version++;
-            queue.NextAttemptAt = null;
+            return (0, []);
         }
+
+        var doomedIds = doomed.Select(d => d.Id).ToArray();
+        var removed = await db.Segments
+            .Where(s => EF.Parameter(doomedIds).Contains(s.Id))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var itemIds = doomed.Select(d => d.ItemId).Distinct().ToArray();
+        await EnqueueProjectionsAsync(db, itemIds, cancellationToken).ConfigureAwait(false);
+        return (removed, itemIds);
     }
 
     /// <summary>

@@ -64,11 +64,10 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<SegmentDtoFactory>();
             serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
             // Every plugin write into Jellyfin's MediaSegments table goes through the
-            // mirror: per-item locked syncs and targeted deletes, plus a bulk cleanup
-            // that takes each lock stripe in turn.
+            // mirror: per-item locked syncs and validated targeted deletes, driven by
+            // the projection worker.
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
             // The mutation stripes serialize all interactive mutations per item —
             // apply and projection alike — which only works when every request
             // shares the singleton.
