@@ -68,9 +68,18 @@ internal sealed partial class SegmentChange(
             return result.Outcome;
         }
 
-        // Accepted and Ignored both project: an Ignored intent re-asserts state the
-        // plugin database already holds, and re-projecting it is how a diverged
-        // mirror (a ghost or missing Jellyfin row) heals on retry.
+        if (result is { Reproject: false, Outcome: { } probeOutcome })
+        {
+            // A no-reproject Ignore journaled nothing (its target exists in no state
+            // at all), so there is nothing to project — and force-projecting anyway
+            // would let a 404-style probe run the item's unrelated pending work ahead
+            // of the backoff its failure earned.
+            return probeOutcome;
+        }
+
+        // Accepted and every other Ignored both project: an Ignored intent re-asserts
+        // state the plugin database already holds, and re-projecting it is how a
+        // diverged mirror (a ghost or missing Jellyfin row) heals on retry.
         var projected = await ProjectCommittedItemAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
         return result.Outcome ?? new Accepted(result.Affected, projected);
     }

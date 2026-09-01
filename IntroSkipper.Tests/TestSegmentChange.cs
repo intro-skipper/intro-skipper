@@ -418,6 +418,42 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task EditorDelete_RetryAfterJournaledDeleteEmptiedJellyfin_IsIgnoredNotRejected()
+    {
+        var itemId = Guid.NewGuid();
+        var externalId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter { FailuresRemaining = 1 };
+        adapter.ExternalTargets[externalId] = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20);
+        var service = CreateService(adapter);
+
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+        Assert.Equal(ProjectionState.Pending, first.Projection);
+
+        // The journaled operation deletes the Jellyfin row before the item sync, so
+        // a failed sync can leave the row gone while the work is still pending.
+        adapter.ExternalTargets.Remove(externalId);
+
+        // A probe claiming another type earns no idempotent answer: nothing
+        // resolvable corroborates it, and the pending operation records a different
+        // delete.
+        var otherType = Assert.IsType<Rejected>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Outro)));
+        Assert.Equal(SegmentChangeRejectedReason.ExternalSegmentNotFound, otherType.Reason);
+
+        // The true retry answers idempotently from the journal instead of 404ing,
+        // and its re-projection converges the pending work.
+        var retry = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
+
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, retry.Reason);
+        Assert.Equal(externalId, Assert.Single(Assert.Single(adapter.Applies).ExternalOperations).ExternalSegmentId);
+        await using var db = CreateContext();
+        Assert.Empty(await db.ProjectionQueue.ToListAsync());
+        Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
+    }
+
+    [Fact]
     public async Task EditorDelete_UncorrelatedResolutionMismatches_RejectBeforeCommit()
     {
         var itemId = Guid.NewGuid();
@@ -764,6 +800,29 @@ public sealed class TestSegmentChange : IDisposable
         Assert.Equal(2, adapter.Applies.Count);
         await using var db = CreateContext();
         Assert.Empty(await db.ProjectionQueue.ToListAsync());
+    }
+
+    [Fact]
+    public async Task NoReprojectProbe_DoesNotForceRunPendingWork()
+    {
+        var itemId = Guid.NewGuid();
+        var adapter = new RecordingProjectionAdapter();
+        adapter.FailingItems.Add(itemId);
+        var service = CreateService(adapter);
+
+        Assert.Equal(ProjectionState.Pending, Assert.IsType<Accepted>(await service.ApplyAsync(
+            new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20))).Projection);
+
+        // A probe of an id that exists in no state journals nothing, and it must not
+        // force-project either: the item's unrelated pending work keeps the backoff
+        // its failure earned instead of retrying on every stray 404.
+        var probe = Assert.IsType<Ignored>(await service.ApplyAsync(
+            new DeleteSegmentIntent(itemId, Guid.NewGuid())));
+
+        Assert.Equal(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, probe.Reason);
+        Assert.Single(adapter.Attempts);
+        await using var db = CreateContext();
+        Assert.Equal(1, Assert.Single(await db.ProjectionQueue.ToListAsync()).AttemptCount);
     }
 
     [Fact]
