@@ -11,6 +11,7 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -42,18 +43,28 @@ internal static class DatabaseTestHelpers
         => new(store, new SegmentDtoFactory(database));
 
     /// <summary>
-    /// Composes the editor service with its standard mirror wiring, the single test home
-    /// of the editor-service composition chain.
+    /// Composes the durable segment-change coordinator over the real Jellyfin
+    /// projection adapter and mirror, the single test home of the production
+    /// composition chain so constructor changes touch one place. Controller tests get
+    /// end-to-end behavior: intent commit, journal, and mirror convergence against
+    /// the given store.
     /// </summary>
-    internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(new SegmentMutationLocks(), CreateMirror(store, database), store, database, NullLogger<MediaSegmentEditorService>.Instance);
+    internal static SegmentChange CreateSegmentChange(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
+        => new(
+            database,
+            database,
+            new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
+            policy ?? new FakeMirrorPolicy(),
+            new SegmentMutationLocks(),
+            TimeProvider.System,
+            NullLogger<SegmentChange>.Instance);
 
     /// <summary>
-    /// Composes the editor controller over the standard editor-service wiring, the
+    /// Composes the editor controller over the standard segment-change wiring, the
     /// single test home of the controller composition chain.
     /// </summary>
-    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(CreateEditorService(store, database));
+    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IntroSkipperDatabase database)
+        => new(CreateSegmentChange(store, database));
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.

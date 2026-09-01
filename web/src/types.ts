@@ -112,6 +112,15 @@ export type SegmentDto = {
     Suppressed: boolean;
 };
 
+// Wire body of a 202 Accepted mutation response: the change committed durably but
+// its Jellyfin projection is pending (or skipped while mirroring is disabled) and
+// converges from the server-side journal. Segments carries the committed values.
+export type SegmentChangeAcceptedResponse = {
+    ChangeStatus: string;
+    Projection: "Pending" | "Skipped";
+    Segments: SegmentDto[];
+};
+
 export type SegmentCreateRequest = {
     Type: SegmentType;
     Start: number;

@@ -136,7 +136,12 @@ public sealed class TestSegmentsApiController
                 new CreateSegmentRequest(AnalysisMode.Introduction, 5, 30),
                 CancellationToken.None);
 
-            Assert.IsType<CreatedAtActionResult>(response.Result);
+            // The segment committed, but mirroring is off: the response reports the
+            // skipped projection honestly and the journaled work replays on enable.
+            var accepted = Assert.IsType<AcceptedResult>(response.Result);
+            var body = Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value);
+            Assert.Equal("Skipped", body.Projection);
+            Assert.Equal(AnalysisMode.Introduction, Assert.Single(body.Segments).Type);
             Assert.Empty(store.ReplacedItems);
         }
         finally
@@ -269,10 +274,14 @@ public sealed class TestSegmentsApiController
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, autoRow.Id, CancellationToken.None));
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == autoRow.Id);
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Contains((itemId, autoRow.Id), store.DeletedSegments);
+
+            // The projection converges the item's whole mirror: only the surviving
+            // user row remains pushed.
+            Assert.Equal(userRow.Id, Assert.Single(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None)).Id);
 
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, userRow.Id, CancellationToken.None));
             Assert.DoesNotContain(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == userRow.Id);
+            Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
 
             Assert.IsType<NotFoundResult>(await controller.DeleteSegment(itemId, Guid.NewGuid(), CancellationToken.None));
             Assert.IsType<NotFoundResult>(await controller.DeleteSegment(itemId, autoRow.Id, CancellationToken.None)); // already suppressed
@@ -296,10 +305,13 @@ public sealed class TestSegmentsApiController
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
             var controller = CreateController(database, out var store);
 
-            Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
+            var response = await controller.DeleteSegment(itemId, row.Id, CancellationToken.None);
 
-            // Plugin-side delete happened; Jellyfin stays untouched, consistent with
-            // how create/update/restore honor the UpdateMediaSegments flag.
+            // Plugin-side delete committed; Jellyfin stays untouched and the response
+            // reports the skipped projection honestly (the journaled work replays on
+            // enable), consistent with how create/update/restore honor the flag.
+            var accepted = Assert.IsType<AcceptedResult>(response);
+            Assert.Equal("Skipped", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
             Assert.Empty(store.DeletedSegments);
@@ -312,7 +324,7 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
-    public async Task DeleteSegment_RollsBackPluginDelete_WhenJellyfinDeleteFails()
+    public async Task DeleteSegment_KeepsTombstone_WhenJellyfinProjectionFails()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -322,15 +334,37 @@ public sealed class TestSegmentsApiController
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "cfg");
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            var controller = CreateController(database, out _, new InvalidOperationException("Jellyfin unavailable"));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
+            // The row is mirrored, and Jellyfin is down (the journaled targeted
+            // delete and the convergence write both fail): the committed tombstone
+            // must stand (202, not an error, no rollback) with the journaled work
+            // retrying until Jellyfin converges.
+            var store = new FakeJellyfinSegmentStore
+            {
+                ExistingSegments =
+                [
+                    new MediaBrowser.Model.MediaSegments.MediaSegmentDto
+                    {
+                        Id = row.Id,
+                        ItemId = itemId,
+                        Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                        StartTicks = row.StartTicks,
+                        EndTicks = row.EndTicks,
+                    }
+                ],
+                WriteException = new InvalidOperationException("Jellyfin unavailable"),
+                DeleteSegmentException = new InvalidOperationException("Jellyfin unavailable"),
+            };
+            var controller = CreateController(database, store);
 
-            // The tombstone was rolled back — the row is active again with its metadata.
-            var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.Equal(row.Id, restored.Id);
-            Assert.Equal("cfg", restored.ConfigHash);
+            var response = await controller.DeleteSegment(itemId, row.Id, CancellationToken.None);
+
+            var accepted = Assert.IsType<AcceptedResult>(response);
+            Assert.Equal("Pending", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
+            var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(row.Id, tombstone.Id);
+            Assert.Equal(SegmentState.Suppressed, tombstone.State);
+            Assert.Equal("cfg", tombstone.ConfigHash);
         }
         finally
         {
@@ -368,14 +402,15 @@ public sealed class TestSegmentsApiController
     }
 
     private static SegmentsController CreateController(
-        IIntroSkipperDatabase database,
-        out FakeJellyfinSegmentStore store,
-        Exception? deleteException = null)
+        IntroSkipperDatabase database,
+        out FakeJellyfinSegmentStore store)
     {
-        store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
-        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
-        return new SegmentsController(database, editorService);
+        store = new FakeJellyfinSegmentStore();
+        return CreateController(database, store);
     }
+
+    private static SegmentsController CreateController(IntroSkipperDatabase database, FakeJellyfinSegmentStore store)
+        => new(database, DatabaseTestHelpers.CreateSegmentChange(store, database));
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-segments-api.db");

@@ -2,6 +2,7 @@ import type {
     PluginConfig,
     ApiResult,
     SegmentDto,
+    SegmentChangeAcceptedResponse,
     SegmentCreateRequest,
     SegmentUpdateRequest,
     AnalyzerActions,
@@ -114,11 +115,28 @@ export function getEpisodeSegments(
     );
 }
 
+// A mutation whose Jellyfin projection did not apply synchronously answers 202 with
+// a SegmentChangeAcceptedResponse instead of the segment DTO; the change itself is
+// committed and the server converges Jellyfin from its journal. Unwraps that body
+// back to the endpoint's single-DTO shape so callers keep one contract.
+async function requestSegmentMutation(
+    url: string,
+    method: "POST" | "PUT",
+    body?: unknown,
+): Promise<ApiResult<SegmentDto>> {
+    const result = await request<SegmentDto | SegmentChangeAcceptedResponse>(url, method, body);
+    if (!result.ok || result.status !== 202) {
+        return result as ApiResult<SegmentDto>;
+    }
+    const accepted = result.data as SegmentChangeAcceptedResponse;
+    return { ok: true, status: result.status, data: accepted.Segments?.[0] };
+}
+
 export function createEpisodeSegment(
     itemId: string,
     body: SegmentCreateRequest,
 ): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", body);
+    return requestSegmentMutation(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", body);
 }
 
 export function updateEpisodeSegment(
@@ -126,13 +144,15 @@ export function updateEpisodeSegment(
     segmentId: string,
     body: SegmentUpdateRequest,
 ): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(
+    return requestSegmentMutation(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
         "PUT",
         body,
     );
 }
 
+// A 202 body (accepted, projection pending) parses as non-null data; delete callers
+// only check `ok`, so no unwrapping is needed.
 export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<ApiResult<null>> {
     return request<null>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
@@ -144,7 +164,7 @@ export function restoreEpisodeSegment(
     itemId: string,
     segmentId: string,
 ): Promise<ApiResult<SegmentDto>> {
-    return request<SegmentDto>(
+    return requestSegmentMutation(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}/Restore`,
         "POST",
     );

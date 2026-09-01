@@ -296,67 +296,6 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
-    public async Task UndoDeleteAsync_ReversesBothDeleteShapes()
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chapter, "cfg");
-            var autoRow = Assert.Single(await database.GetSegmentsAsync(itemId));
-            var userRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
-
-            // Tombstoned auto row: undo flips the tombstone back.
-            var autoDelete = await database.DeleteSegmentAsync(itemId, autoRow.Id);
-            await database.UndoDeleteAsync(autoDelete);
-            var restored = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Id == autoRow.Id);
-            Assert.Equal(SegmentState.Active, restored.State);
-            Assert.Equal("cfg", restored.ConfigHash);
-
-            // Hard-deleted user row: undo re-inserts the snapshot verbatim.
-            var userDelete = await database.DeleteSegmentAsync(itemId, userRow.Id);
-            await database.UndoDeleteAsync(userDelete);
-            var reinserted = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Id == userRow.Id);
-            Assert.Equal(SegmentSource.User, reinserted.Source);
-            Assert.Equal(userRow.CreatedAt, reinserted.CreatedAt);
-
-            // Nothing deleted → no-op.
-            await database.UndoDeleteAsync(null);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task UndoDeleteAsync_SwallowsReinsert_WhenEquivalentRowAppeared()
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var userRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
-            var snapshot = await database.DeleteSegmentAsync(itemId, userRow.Id);
-
-            // An equivalent row (same range, new id) appears before the undo runs: the
-            // re-insert hits the unique quadruple index and is swallowed, so the
-            // occupant survives and the rollback path does not fail.
-            var occupant = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
-            await database.UndoDeleteAsync(snapshot);
-
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.Equal(occupant.Id, row.Id);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
     public async Task ExplicitErase_ClearsTombstones_SoReanalysisCanReAdd()
     {
         var dbPath = CreateTempDbPath();

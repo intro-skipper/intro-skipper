@@ -34,19 +34,23 @@ public interface IIntroSkipperDatabase
     /// any journaled foreign-row delete — so a committed change can never lose its
     /// projection to a crash. Invalid intents and unowned external targets return
     /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
-    /// <see cref="Ignored"/> but still journal a re-projection: re-asserting held
-    /// state is how a diverged mirror heals on retry. Callers must serialize calls
-    /// per item (the coordinator's mutation stripe); concurrent first-time enqueues
-    /// for one item can otherwise fail on the queue's primary key.
+    /// <see cref="Ignored"/> and still journal a re-projection — re-asserting held
+    /// state is how a diverged mirror heals on retry — except when their target
+    /// exists in no state at all, where nothing addressable can have diverged and
+    /// nothing is journaled. Callers must serialize calls per item (the
+    /// coordinator's mutation stripe); concurrent first-time enqueues for one item
+    /// can otherwise fail on the queue's primary key.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
-    /// <param name="externalTarget">The resolved Jellyfin row for
-    /// <see cref="DeleteExternalSegmentIntent"/> (<see langword="null"/> when
-    /// unresolved); ignored for other intents.</param>
+    /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
+    /// <see cref="EditorDeleteSegmentIntent"/> addresses. Invoked at most once,
+    /// inside the transaction, only after the in-transaction correlated lookup
+    /// misses — a correlated dispatch never depends on a Jellyfin read. Ignored for
+    /// other intents.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
     /// <see langword="null"/> when the change committed.</returns>
-    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, ExternalSegmentTarget? externalTarget = null, CancellationToken cancellationToken = default);
+    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically replaces the active automatic segments of an item and mode with the
@@ -132,19 +136,9 @@ public interface IIntroSkipperDatabase
     /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A pre-delete snapshot sufficient to reverse the delete exactly via
-    /// <see cref="UndoDeleteAsync"/>, or <c>null</c> when the id is unknown on the item or already suppressed.</returns>
+    /// <returns>A pre-delete snapshot of the removed row, or <c>null</c> when the id is
+    /// unknown on the item or already suppressed.</returns>
     Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Reverses a prior <see cref="DeleteSegmentAsync"/> exactly: flips the tombstone back
-    /// to its previous state, or re-inserts the hard-deleted row verbatim (same id, source,
-    /// config hash and creation time). No-op when nothing was deleted.
-    /// </summary>
-    /// <param name="deletedSnapshot">Snapshot returned by the delete to reverse; <c>null</c> when nothing was deleted.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears a tombstone, making the suppressed segment active again with its original
@@ -156,14 +150,6 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The restored row, or <c>null</c> when the id is unknown on the item or not suppressed.</returns>
     Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Returns a stored segment by id, regardless of state.
-    /// </summary>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The row, or <c>null</c> when unknown.</returns>
-    Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.
@@ -399,7 +385,9 @@ public interface IIntroSkipperDatabase
     /// <param name="itemId">Item ID.</param>
     /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Whether the item was disabled before this write, so callers can roll back.</returns>
+    /// <returns>Whether the item was disabled before this write. Reported for callers
+    /// that need to observe the transition; the durable-change design never rolls the
+    /// flag back — it records the user's intent.</returns>
     Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
 
     /// <summary>

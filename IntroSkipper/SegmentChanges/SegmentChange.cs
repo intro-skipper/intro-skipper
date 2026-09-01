@@ -46,18 +46,21 @@ internal sealed partial class SegmentChange(
         ArgumentNullException.ThrowIfNull(intent);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Resolution happens outside the stripe (it only reads Jellyfin); the facade
-        // re-validates the target against the intent inside the transaction.
-        ExternalSegmentTarget? externalTarget = null;
-        if (intent is DeleteExternalSegmentIntent external && external.ExternalSegmentId != Guid.Empty)
-        {
-            externalTarget = await adapter.ResolveExternalTargetAsync(external.ItemId, external.ExternalSegmentId, cancellationToken).ConfigureAwait(false);
-        }
-
+        // The editor delete's Jellyfin target resolves lazily inside the facade
+        // transaction, only after the in-transaction correlated lookup misses and
+        // shape validation passed — one read, one decision point. The stripe held
+        // here serializes that resolution with concurrent projections of the same
+        // item, so a resolved target cannot go stale against another request's
+        // delete: either that delete's projection already ran (the row is gone and
+        // resolution reports it) or its journaled operation is still pending (the
+        // facade's pending-op guard answers idempotently).
         MutationResult result;
         using (await mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
-            result = await database.ApplyChangeAsync(intent, externalTarget, cancellationToken).ConfigureAwait(false);
+            Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
+                ? () => adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken)
+                : null;
+            result = await database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
         }
 
         if (result.Outcome is Rejected)
@@ -65,9 +68,18 @@ internal sealed partial class SegmentChange(
             return result.Outcome;
         }
 
-        // Accepted and Ignored both project: an Ignored intent re-asserts state the
-        // plugin database already holds, and re-projecting it is how a diverged
-        // mirror (a ghost or missing Jellyfin row) heals on retry.
+        if (result is { Reproject: false, Outcome: { } probeOutcome })
+        {
+            // A no-reproject Ignore journaled nothing (its target exists in no state
+            // at all), so there is nothing to project — and force-projecting anyway
+            // would let a 404-style probe run the item's unrelated pending work ahead
+            // of the backoff its failure earned.
+            return probeOutcome;
+        }
+
+        // Accepted and every other Ignored both project: an Ignored intent re-asserts
+        // state the plugin database already holds, and re-projecting it is how a
+        // diverged mirror (a ghost or missing Jellyfin row) heals on retry.
         var projected = await ProjectCommittedItemAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
         return result.Outcome ?? new Accepted(result.Affected, projected);
     }
@@ -207,9 +219,10 @@ internal sealed partial class SegmentChange(
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
     /// then the mirror convergence, then the version-guarded completion — all under
-    /// the shared mutation stripe, for the same reason the editor holds it across its
-    /// write-plus-sync: a projection interleaving between another mutation's write and
-    /// its rollback would bake the rolled-back state into the mirror. Every step is
+    /// the shared mutation stripe, so a projection can never interleave with a
+    /// concurrent mutation's commit-then-project sequence and push state derived from
+    /// a stale read, and so <see cref="ApplyAsync"/>'s in-transaction target
+    /// resolution and pending-op guard cannot race a mid-flight apply. Every step is
     /// idempotent, and the completion deletes the queue row only at the version it
     /// projected, so concurrent enqueues cannot lose work.
     /// </summary>

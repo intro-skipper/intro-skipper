@@ -12,8 +12,10 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IntroSkipper.Controllers;
@@ -25,12 +27,12 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
-    MediaSegmentEditorService editorService,
+    ISegmentChange segmentChange,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
-    private readonly MediaSegmentEditorService _editorService = editorService;
+    private readonly ISegmentChange _segmentChange = segmentChange;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
@@ -41,17 +43,21 @@ public partial class SkipIntroController(
     /// <remarks>
     /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Each provided slot
     /// replaces every stored segment of its mode with the single user segment; all slots
-    /// commit in one transaction. A failed Jellyfin mirror update is reported as an error
-    /// (the stored segments stay committed and the next sync converges the mirror).
+    /// commit in one durable transaction. A change whose Jellyfin projection does not
+    /// apply synchronously answers <c>202 Accepted</c> and converges from the journal.
     /// </remarks>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">New timestamps saved.</response>
+    /// <response code="202">The timestamps committed but their Jellyfin projection is pending or skipped.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
@@ -74,19 +80,30 @@ public partial class SkipIntroController(
             (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
-        var segmentsByMode = new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)>();
+        var slots = new List<UserTimestamp>();
         foreach (var (mode, segment) in segmentTypes)
         {
             // An empty or degenerate slot (end not after start) is skipped, not stored.
             if (TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
             {
-                segmentsByMode[mode] = (startTicks, endTicks);
+                slots.Add(new UserTimestamp(mode, startTicks, endTicks));
             }
         }
 
-        await _editorService.ReplaceUserSegmentsAsync(id, segmentsByMode, cancellationToken).ConfigureAwait(false);
+        if (slots.Count == 0)
+        {
+            // Nothing to store is a pure no-op (release-note item): the old path ran
+            // an empty replace plus a mirror sync here, which incidentally healed a
+            // diverged mirror; healing now rides on real mutations and the journal.
+            return NoContent();
+        }
 
-        return NoContent();
+        var outcome = await _segmentChange.ApplyAsync(new WriteUserTimestampsIntent(id, slots), cancellationToken).ConfigureAwait(false);
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => NoContent(),
+            // The requested timestamps are already stored; an idempotent re-POST succeeds.
+            onIgnored: _ => NoContent());
     }
 
     /// <summary>

@@ -29,23 +29,16 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     private Dictionary<Guid, List<MediaSegmentDto>>? _mirrorRows;
 
     /// <summary>
-    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
-    /// segment id exactly like the production store. Also the seed of the live mirror
-    /// state served by <see cref="GetOwnSegmentsAsync"/> (the fake treats every seeded
-    /// row as Intro Skipper's own).
+    /// Gets the segments served by <see cref="FindSegmentAsync"/>, matched by segment id
+    /// exactly like the production store. Also the seed of the live mirror state served
+    /// by <see cref="GetOwnSegmentsAsync"/> (the fake treats every seeded row as Intro
+    /// Skipper's own).
     /// </summary>
     public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
 
     public Exception? WriteException { get; init; }
 
     public Exception? DeleteSegmentException { get; init; }
-
-    /// <summary>
-    /// Gets a callback invoked after a successful <see cref="DeleteSegmentAsync"/> is
-    /// recorded, e.g. to cancel a token at the exact point where the Jellyfin delete
-    /// has already committed.
-    /// </summary>
-    public Action? DeleteSegmentCallback { get; init; }
 
     public Exception? DeleteOwnException { get; init; }
 
@@ -61,13 +54,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     public TaskCompletionSource? WriteEntered { get; init; }
 
     public Guid? BlockedItemId { get; init; }
-
-    /// <summary>
-    /// Gets the segment ids <see cref="DeleteSegmentAsync"/> reports as not found
-    /// (returning 0 deleted rows, the drift signal). Every other delete reports one
-    /// deleted row, simulating a correlated Jellyfin row.
-    /// </summary>
-    public IReadOnlyList<Guid> MissingSegmentIds { get; init; } = [];
 
     public int WriteCallCount => _writeCount;
 
@@ -120,9 +106,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         }
     }
 
-    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
-
     public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
         => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
 
@@ -149,22 +132,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         }
 
         return Task.FromResult(1);
-    }
-
-    public Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        ThrowIfConfigured(DeleteSegmentException);
-        DeletedSegments.Add((itemId, segmentId));
-        lock (_mirrorLock)
-        {
-            if (MirrorRows.TryGetValue(itemId, out var rows))
-            {
-                rows.RemoveAll(segment => segment.Id == segmentId);
-            }
-        }
-
-        DeleteSegmentCallback?.Invoke();
-        return Task.FromResult(MissingSegmentIds.Contains(segmentId) ? 0 : 1);
     }
 
     // Lazy so the init-only seed is complete before the first grouping; access only

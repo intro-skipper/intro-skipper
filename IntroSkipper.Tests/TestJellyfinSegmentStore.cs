@@ -200,7 +200,7 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
-    public async Task GetSegmentAsync_ReturnsAllFields_AcrossProviders()
+    public async Task FindSegmentAsync_ReturnsAllFields_AcrossItemsAndProviders()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
@@ -208,7 +208,9 @@ public sealed class TestJellyfinSegmentStore
         var segmentId = Guid.NewGuid();
         await SeedAsync(db, CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, ForeignProviderId, segmentId));
 
-        var result = await store.GetSegmentAsync(itemId, segmentId, CancellationToken.None);
+        // The resolution read for external deletes: by bare id, any item, any
+        // provider — the caller validates ownership afterwards.
+        var result = await store.FindSegmentAsync(segmentId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(segmentId, result!.Id);
@@ -217,12 +219,11 @@ public sealed class TestJellyfinSegmentStore
         Assert.Equal(10, result.StartTicks);
         Assert.Equal(20, result.EndTicks);
 
-        Assert.Null(await store.GetSegmentAsync(Guid.NewGuid(), segmentId, CancellationToken.None));
-        Assert.Null(await store.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None));
+        Assert.Null(await store.FindSegmentAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]
-    public async Task DeleteSegmentAsync_DeletesAnyProvidersRow()
+    public async Task DeleteValidatedSegmentAsync_DeletesAnyProvidersRow_WhenShapeMatches()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
@@ -231,14 +232,14 @@ public sealed class TestJellyfinSegmentStore
         var own = CreateEntity(itemId, MediaSegmentType.Outro, 30, 40, JellyfinSegmentStore.ProviderId);
         await SeedAsync(db, foreign, own);
 
-        await store.DeleteSegmentAsync(itemId, foreign.Id, CancellationToken.None);
+        Assert.Equal(1, await store.DeleteValidatedSegmentAsync(itemId, foreign.Id, MediaSegmentType.Intro, 10, 20, CancellationToken.None));
 
         var row = Assert.Single(await GetAllAsync(db));
         Assert.Equal(own.Id, row.Id);
     }
 
     [Fact]
-    public async Task DeleteSegmentAsync_IgnoresRowsOfOtherItems()
+    public async Task DeleteValidatedSegmentAsync_IgnoresMismatchedItemOrShape()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
@@ -248,14 +249,19 @@ public sealed class TestJellyfinSegmentStore
         await SeedAsync(db, rowA);
 
         // A mismatched item id must not delete another item's segment.
-        await store.DeleteSegmentAsync(itemB, rowA.Id, CancellationToken.None);
+        Assert.Equal(0, await store.DeleteValidatedSegmentAsync(itemB, rowA.Id, MediaSegmentType.Intro, 10, 20, CancellationToken.None));
+        Assert.Single(await GetAllAsync(db));
+
+        // A row rewritten since validation (type or boundaries drifted) is left alone.
+        Assert.Equal(0, await store.DeleteValidatedSegmentAsync(itemA, rowA.Id, MediaSegmentType.Outro, 10, 20, CancellationToken.None));
+        Assert.Equal(0, await store.DeleteValidatedSegmentAsync(itemA, rowA.Id, MediaSegmentType.Intro, 11, 20, CancellationToken.None));
         Assert.Single(await GetAllAsync(db));
 
         // An unknown segment id is a no-op rather than an error.
-        await store.DeleteSegmentAsync(itemA, Guid.NewGuid(), CancellationToken.None);
+        Assert.Equal(0, await store.DeleteValidatedSegmentAsync(itemA, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
         Assert.Single(await GetAllAsync(db));
 
-        await store.DeleteSegmentAsync(itemA, rowA.Id, CancellationToken.None);
+        Assert.Equal(1, await store.DeleteValidatedSegmentAsync(itemA, rowA.Id, MediaSegmentType.Intro, 10, 20, CancellationToken.None));
         Assert.Empty(await GetAllAsync(db));
     }
 

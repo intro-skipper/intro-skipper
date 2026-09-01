@@ -10,12 +10,13 @@ namespace IntroSkipper.Manager;
 
 /// <summary>
 /// The plugin's write path into Jellyfin's media segments: per-item locked convergence
-/// (<see cref="SyncItemAsync"/>), targeted delete (<see cref="DeleteSegmentAsync"/>),
-/// and a stripe-serialized bulk cleanup (<see cref="DeleteOwnSegmentsAsync"/>).
-/// Sync and bulk cleanup never touch other providers' segments; the targeted delete
-/// removes any of the item's rows by id (the editor lets users delete foreign rows).
-/// Every operation no-ops when mirroring is disabled (<see cref="MediaSegmentMirrorPolicy"/>),
-/// so callers never gate it. The one writer that bypasses this class is Jellyfin itself: it persists
+/// (<see cref="SyncItemAsync"/>), the validated foreign-row delete
+/// (<see cref="DeleteValidatedSegmentAsync"/>), and a stripe-serialized bulk cleanup
+/// (<see cref="DeleteOwnSegmentsAsync"/>). Sync and bulk cleanup never touch other
+/// providers' segments; the validated delete removes any of the item's rows by id (the
+/// editor lets users delete foreign rows). Every operation no-ops when mirroring is
+/// disabled (<see cref="MediaSegmentMirrorPolicy"/>), so callers never gate it. The one
+/// writer that bypasses this class is Jellyfin itself: it persists
 /// <see cref="SegmentProvider"/> results during its own provider runs and can therefore
 /// re-add a just-deleted segment from a read that predates the delete, until a later
 /// sync converges the item.
@@ -27,7 +28,7 @@ namespace IntroSkipper.Manager;
 /// <param name="segmentDtoFactory">Factory that converts stored plugin segments to Jellyfin DTOs.</param>
 public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, SegmentDtoFactory segmentDtoFactory)
 {
-    // Separate pool from MediaSegmentEditorService's mutation stripes; see
+    // Separate pool from SegmentMutationLocks' mutation stripes; see
     // StripedAsyncLock for the pooling rationale.
     private readonly StripedAsyncLock _lock = new();
 
@@ -64,31 +65,12 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     }
 
     /// <summary>
-    /// Deletes one of the item's Jellyfin segment rows by id under the item's lock, so
-    /// the targeted delete serializes with concurrent <see cref="SyncItemAsync"/> calls
-    /// instead of racing a bulk replace derived from a stale plugin-database read.
-    /// </summary>
-    /// <param name="itemId">The item id that must own the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>What happened to the row.</returns>
-    public async Task<MirrorDeleteOutcome> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return MirrorDeleteOutcome.MirroringDisabled;
-        }
-
-        using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var rowsDeleted = await segmentStore.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        return rowsDeleted > 0 ? MirrorDeleteOutcome.Deleted : MirrorDeleteOutcome.RowNotFound;
-    }
-
-    /// <summary>
-    /// Deletes one journaled foreign row under the item's lock, only while it still
-    /// matches its validated shape: type and boundaries travel inside the delete
-    /// statement itself, so no concurrent rewrite of the row under its stable id can
-    /// slip between a check and the delete.
+    /// Deletes one journaled foreign row under the item's lock — so the targeted
+    /// delete serializes with concurrent <see cref="SyncItemAsync"/> calls instead of
+    /// racing a bulk replace derived from a stale plugin-database read — and only
+    /// while the row still matches its validated shape: type and boundaries travel
+    /// inside the delete statement itself, so no concurrent rewrite of the row under
+    /// its stable id can slip between a check and the delete.
     /// </summary>
     /// <param name="itemId">The item id that must own the segment.</param>
     /// <param name="segmentId">The segment id.</param>

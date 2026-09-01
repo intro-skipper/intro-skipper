@@ -42,15 +42,6 @@ public interface IJellyfinSegmentStore
     Task<IReadOnlyList<MediaSegmentDto>> GetOwnSegmentsAsync(Guid itemId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Retrieves a segment by item and segment id, regardless of provider.
-    /// </summary>
-    /// <param name="itemId">The item id that owns the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Retrieves a segment by id alone — any item, any provider. The resolution read
     /// for external deletes, which must tell a missing row apart from one owned by
     /// another item before any validation can happen.
@@ -59,18 +50,6 @@ public interface IJellyfinSegmentStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
     Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Deletes a segment by id when it belongs to the given item, regardless of provider.
-    /// A segment id owned by a different item is left untouched, and an unknown id is a
-    /// no-op so callers can clean up plugin-side rows whose Jellyfin row is already gone.
-    /// </summary>
-    /// <param name="itemId">The item id that must own the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of rows deleted: 0 when no row matched the item and segment id.
-    /// Callers use a 0 for a row they expected to exist as a drift signal.</returns>
-    Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a segment only while it still matches its validated shape — item, id,

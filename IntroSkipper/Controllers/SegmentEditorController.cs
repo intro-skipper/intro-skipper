@@ -7,7 +7,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
@@ -18,19 +18,21 @@ using Microsoft.AspNetCore.Mvc;
 namespace IntroSkipper.Controllers;
 
 /// <summary>
-/// Extended API for MediaSegments Management.
+/// Extended API for MediaSegments Management. Mutations commit through the durable
+/// segment-change coordinator: a change whose Jellyfin projection does not apply
+/// synchronously answers <c>202 Accepted</c> and converges from the journal.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
+/// <param name="segmentChange">Durable segment-change coordinator; owns every mutation.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
+public class SegmentEditorController(ISegmentChange segmentChange) : ControllerBase
 {
-    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
+    private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -55,9 +57,10 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <param name="providerId">Provider of the Segment.</param>
     /// <param name="segment">MediaSegment data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The created segment.</returns>
+    /// <returns>HTTP 200 when the change applied synchronously, 202 when it committed with a pending or skipped projection.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
@@ -87,23 +90,15 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         // segments with the posted one (clients edit by re-POSTing a new range), while
         // commercials — inherently many per item — are added, deduplicated on an
         // exact-range collision.
-        if (mode == AnalysisMode.Commercial)
-        {
-            await _mediaSegmentEditorService
-                .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        else
-        {
-            await _mediaSegmentEditorService
-                .ReplaceUserSegmentsAsync(
-                    itemId,
-                    new Dictionary<AnalysisMode, (long StartTicks, long EndTicks)> { [mode] = (segment.StartTicks, segment.EndTicks) },
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return Ok();
+        SegmentChangeIntent intent = mode == AnalysisMode.Commercial
+            ? new AddUserSegmentIntent(itemId, mode, segment.StartTicks, segment.EndTicks)
+            : new ReplaceUserSegmentsForModeIntent(itemId, mode, [new SegmentRange(segment.StartTicks, segment.EndTicks)]);
+        var outcome = await _segmentChange.ApplyAsync(intent, cancellationToken).ConfigureAwait(false);
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => Ok(),
+            // The posted image is already stored; an idempotent re-POST succeeds.
+            onIgnored: _ => Ok());
     }
 
     /// <summary>
@@ -115,13 +110,15 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// HTTP 200 on success — including a row the plugin already tombstoned, where the
-    /// delete converges the item's mirror so a re-added Jellyfin row disappears — 400
-    /// when the requested type does not match the segment, or 404 when no segment is
-    /// found. A segment id owned by a different item is rejected without mutating
-    /// either item.
+    /// journaled re-projection converges the item's mirror so a re-added Jellyfin row
+    /// disappears — 202 when the delete committed with a pending or skipped
+    /// projection, 400 when the requested type does not match the segment, or 404
+    /// when no segment is found. A segment id owned by a different item is rejected
+    /// without mutating either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteSegmentAsync(
@@ -139,17 +136,17 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             return BadRequest($"Unknown segment type '{type}'.");
         }
 
-        // The service resolves the id (shared-id plugin row vs uncorrelated Jellyfin
-        // row) under the item's mutation stripe, so the dispatch cannot race a
+        // The coordinator resolves the id (shared-id plugin row vs uncorrelated
+        // Jellyfin row) inside the intent transaction, so the dispatch cannot race a
         // concurrent mutation.
-        var result = await _mediaSegmentEditorService
-            .DeleteLegacySegmentAsync(itemId, requestedMode, segmentId, cancellationToken)
+        var outcome = await _segmentChange
+            .ApplyAsync(new EditorDeleteSegmentIntent(itemId, segmentId, AnalysisHelpers.ModeToSegmentType[requestedMode]), cancellationToken)
             .ConfigureAwait(false);
-        if (result.MismatchedType is { } actualType)
-        {
-            return BadRequest($"Segment '{segmentId}' is {actualType}, not requested type '{type}'.");
-        }
-
-        return result.IsDeleted ? Ok() : NotFound();
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: _ => Ok(),
+            // The plugin already treats the row as deleted; the journaled
+            // re-projection (or the still-pending journaled delete) converges Jellyfin.
+            onIgnored: _ => Ok());
     }
 }
