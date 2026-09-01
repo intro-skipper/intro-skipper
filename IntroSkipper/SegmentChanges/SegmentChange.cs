@@ -280,9 +280,14 @@ internal sealed partial class SegmentChange(
             }
 
             // Uncancelable: the apply is done; abandoning the bookkeeping would only
-            // schedule a redundant (idempotent) re-sync.
-            await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false);
-            return ProjectionState.Applied;
+            // schedule a redundant (idempotent) re-sync. A completion that missed its
+            // version means an unstriped analyzer or maintenance write superseded the
+            // projected work mid-apply: the marker survives and the item is still
+            // behind, so report Pending — retry counts, status reads and the HTTP
+            // 202 mapping must all agree with the surviving marker.
+            return await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false)
+                ? ProjectionState.Applied
+                : ProjectionState.Pending;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

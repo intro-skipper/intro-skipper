@@ -66,10 +66,10 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// The single home of the marker-supersession rule, shared by the intent path
-    /// (one item) and the bulk analysis/maintenance writes: one read resolves the
-    /// existing markers, their versions bump with the due time reset, missing
-    /// markers insert. The caller saves and commits; the projection worker's poll
-    /// picks the markers up, so bulk writers never await Jellyfin.
+    /// (one item) and the bulk analysis/maintenance writes: existing markers bump
+    /// their version with the due time reset, missing markers insert. The caller
+    /// saves and commits; the projection worker's poll picks the markers up, so bulk
+    /// writers never await Jellyfin.
     /// </summary>
     private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
@@ -79,18 +79,31 @@ public sealed partial class IntroSkipperDatabase
         }
 
         var ids = itemIds.Distinct().ToArray();
-        var existing = await db.ProjectionQueue
+
+        // Set-based bump, never a tracked read-modify-write: the analyzer and
+        // maintenance callers hold no projection stripe, so the worker's
+        // version-guarded completion can delete a marker at any moment — a tracked
+        // update would then throw DbUpdateConcurrencyException at save time and roll
+        // the caller's whole transaction back (the analyzed segments with it). The
+        // atomic UPDATE either beats the completion (whose stale delete then misses)
+        // or follows it (the id inserts fresh below); either way it makes this
+        // transaction the database's single writer, so the existence read underneath
+        // cannot go stale before commit.
+        await db.ProjectionQueue
             .Where(q => EF.Parameter(ids).Contains(q.ItemId))
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(q => q.Version, q => q.Version + 1)
+                    .SetProperty(q => q.NextAttemptAt, (DateTime?)null),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var known = await db.ProjectionQueue.AsNoTracking()
+            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
+            .Select(q => q.ItemId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-        foreach (var queue in existing)
-        {
-            queue.Version++;
-            queue.NextAttemptAt = null;
-        }
-
-        var known = existing.Select(q => q.ItemId).ToHashSet();
-        db.ProjectionQueue.AddRange(ids.Where(id => !known.Contains(id)).Select(id => new DbProjectionQueueItem { ItemId = id, Version = 1 }));
+        db.ProjectionQueue.AddRange(ids.Except(known).Select(id => new DbProjectionQueueItem { ItemId = id, Version = 1 }));
     }
 
     /// <summary>

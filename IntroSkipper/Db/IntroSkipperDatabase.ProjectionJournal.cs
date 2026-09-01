@@ -64,7 +64,7 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
     }
 
     /// <inheritdoc/>
-    async Task ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
+    async Task<bool> ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(processedOperationIds);
 
@@ -79,10 +79,10 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
                 .ConfigureAwait(false);
         }
 
-        await db.ProjectionQueue
+        return await db.ProjectionQueue
             .Where(q => q.ItemId == itemId && q.Version == version)
             .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .ConfigureAwait(false) > 0;
     }
 
     /// <inheritdoc/>
