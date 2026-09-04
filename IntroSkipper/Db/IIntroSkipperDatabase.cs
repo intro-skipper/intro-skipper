@@ -80,9 +80,8 @@ public interface IIntroSkipperDatabase
     /// <summary>
     /// Returns the item's active segments as served to clients: automatic rows are
     /// withheld while the item is disabled, user-provided rows always pass. Every
-    /// client-facing surface (the Jellyfin mirror, the provider, the legacy skip
-    /// shims) reads through this; editor and analysis reads use
-    /// <see cref="GetSegmentsAsync"/>.
+    /// client-facing surface (the Jellyfin mirror and the provider) reads through
+    /// this; editor and analysis reads use <see cref="GetSegmentsAsync"/>.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

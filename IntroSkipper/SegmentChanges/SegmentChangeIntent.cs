@@ -46,11 +46,6 @@ public sealed record RestoreSegmentIntent(Guid ItemId, Guid SegmentId) : Segment
 /// <param name="Visible">Whether automatic output is visible.</param>
 public sealed record SegmentVisibilityChangeIntent(Guid ItemId, Guid SeasonId, bool Visible) : SegmentChangeIntent(ItemId);
 
-/// <summary>Atomically writes user timestamps for several modes.</summary>
-/// <param name="ItemId">Item ID.</param>
-/// <param name="Timestamps">Unique mode timestamps.</param>
-public sealed record WriteUserTimestampsIntent(Guid ItemId, IReadOnlyList<UserTimestamp> Timestamps) : SegmentChangeIntent(ItemId);
-
 /// <summary>
 /// Deletes one editor-addressed segment, the single external-delete intent (the
 /// legacy <c>DELETE MediaSegmentsApi/{segmentId}</c> wire contract). A plugin row
@@ -68,9 +63,3 @@ public sealed record EditorDeleteSegmentIntent(Guid ItemId, Guid SegmentId, Medi
 /// <param name="StartTicks">Start ticks.</param>
 /// <param name="EndTicks">End ticks.</param>
 public sealed record SegmentRange(long StartTicks, long EndTicks);
-
-/// <summary>A user-provided range for one analysis mode.</summary>
-/// <param name="Mode">Analysis mode.</param>
-/// <param name="StartTicks">Start ticks.</param>
-/// <param name="EndTicks">End ticks.</param>
-public sealed record UserTimestamp(AnalysisMode Mode, long StartTicks, long EndTicks);

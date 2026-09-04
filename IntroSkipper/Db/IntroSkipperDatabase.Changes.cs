@@ -157,7 +157,6 @@ internal sealed partial class IntroSkipperDatabase
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment type."),
-            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !TickConversions.IsValidTickRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
             SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
@@ -227,11 +226,7 @@ internal sealed partial class IntroSkipperDatabase
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
                     }
 
-                    var survivors = await ReplaceUserSegmentsCoreAsync(
-                        db,
-                        value.ItemId,
-                        new Dictionary<AnalysisMode, IReadOnlyList<(long StartTicks, long EndTicks)>> { [value.Mode] = requested },
-                        cancellationToken).ConfigureAwait(false);
+                    var survivors = await ReplaceUserSegmentsCoreAsync(db, value.ItemId, value.Mode, requested, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, survivors.Select(ToValue).ToList());
                 }
 
@@ -366,30 +361,6 @@ internal sealed partial class IntroSkipperDatabase
                     }
 
                     return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, target, itemRows, cancellationToken).ConfigureAwait(false);
-                }
-
-            case WriteUserTimestampsIntent value:
-                {
-                    var modes = value.Timestamps.Select(timestamp => timestamp.Mode).ToArray();
-                    var rows = await db.Segments.AsNoTracking()
-                        .Where(s => s.ItemId == value.ItemId && modes.Contains(s.Type))
-                        .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                    var allMatch = value.Timestamps.All(timestamp =>
-                        rows.Where(s => s.Type == timestamp.Mode && s.State == SegmentState.Active).ToList()
-                            is [{ Source: SegmentSource.User } single]
-                        && single.StartTicks == timestamp.StartTicks
-                        && single.EndTicks == timestamp.EndTicks);
-                    if (allMatch)
-                    {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user timestamps are already stored.");
-                    }
-
-                    var byMode = value.Timestamps.ToDictionary(
-                        timestamp => timestamp.Mode,
-                        timestamp => (IReadOnlyList<(long StartTicks, long EndTicks)>)new[] { (timestamp.StartTicks, timestamp.EndTicks) });
-                    var survivors = await ReplaceUserSegmentsCoreAsync(db, value.ItemId, byMode, cancellationToken).ConfigureAwait(false);
-                    return new MutationResult(null, survivors.Select(ToValue).ToList());
                 }
 
             case SegmentVisibilityChangeIntent value:

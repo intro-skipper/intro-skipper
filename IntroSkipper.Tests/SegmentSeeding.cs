@@ -28,9 +28,9 @@ internal static class SegmentSeeding
         return await RowAsync(database, itemId, value.Id);
     }
 
-    /// <summary>Writes one user range per mode atomically, the Timestamps shim's write shape.</summary>
-    public static Task SeedUserTimestampsAsync(this IIntroSkipperDatabase database, Guid itemId, params (AnalysisMode Mode, long StartTicks, long EndTicks)[] timestamps)
-        => CommitAsync(database, new WriteUserTimestampsIntent(itemId, [.. timestamps.Select(t => new UserTimestamp(t.Mode, t.StartTicks, t.EndTicks))]));
+    /// <summary>Replaces the mode's active segments with the given user ranges.</summary>
+    public static Task SeedUserSegmentsForModeAsync(this IIntroSkipperDatabase database, Guid itemId, AnalysisMode mode, params (long StartTicks, long EndTicks)[] ranges)
+        => CommitAsync(database, new ReplaceUserSegmentsForModeIntent(itemId, mode, [.. ranges.Select(r => new SegmentRange(r.StartTicks, r.EndTicks))]));
 
     /// <summary>Sets whether the item's automatic segments are withheld from Jellyfin; idempotent in both directions.</summary>
     public static Task SetItemDisabledAsync(this IIntroSkipperDatabase database, Guid seasonId, Guid itemId, bool disabled)

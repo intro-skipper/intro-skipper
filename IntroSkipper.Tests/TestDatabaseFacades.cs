@@ -61,7 +61,7 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.IsType<Rejected>((await database.ApplyChangeAsync(
             new AddUserSegmentIntent(itemId, undefined, Ticks(10), Ticks(20)))).Outcome);
         Assert.IsType<Rejected>((await database.ApplyChangeAsync(
-            new WriteUserTimestampsIntent(itemId, [new UserTimestamp(undefined, Ticks(10), Ticks(20))]))).Outcome);
+            new ReplaceUserSegmentsForModeIntent(itemId, undefined, [new SegmentRange(Ticks(10), Ticks(20))]))).Outcome);
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => database.ReplaceAutoSegmentsAsync(
                 itemId, undefined, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter));
@@ -123,13 +123,13 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task WriteUserTimestamps_ReplacesAnalysisResult()
+    public async Task ReplaceUserSegmentsForMode_ReplacesAnalysisResult()
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
 
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(20, 80))], SegmentSource.Chromaprint);
-        await database.SeedUserTimestampsAsync(itemId, (AnalysisMode.Introduction, Ticks(10), Ticks(60)));
+        await database.SeedUserSegmentsForModeAsync(itemId, AnalysisMode.Introduction, (Ticks(10), Ticks(60)));
 
         var stored = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, stored.Source);
@@ -138,7 +138,7 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task WriteUserTimestamps_PerMode_PromotesExactRangeInPlace_AndLeavesAbsentModes()
+    public async Task ReplaceUserSegmentsForMode_PromotesExactRangeInPlace_AndLeavesOtherModes()
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
@@ -156,14 +156,12 @@ public sealed class TestDatabaseFacades : IDisposable
             configHash: "analyzer-hash");
         var autoIntro = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Type == AnalysisMode.Introduction && s.StartTicks == Ticks(10));
 
-        await database.SeedUserTimestampsAsync(
-            itemId,
-            (AnalysisMode.Introduction, Ticks(10), Ticks(60)),
-            (AnalysisMode.Commercial, Ticks(400), Ticks(430)));
+        await database.SeedUserSegmentsForModeAsync(itemId, AnalysisMode.Introduction, (Ticks(10), Ticks(60)));
+        await database.SeedUserSegmentsForModeAsync(itemId, AnalysisMode.Commercial, (Ticks(400), Ticks(430)));
 
         // The exact-range occupant keeps its id (Jellyfin addresses the row by it) and
         // changes hands, every other active intro is gone, the commercial slot is a
-        // new user row, and the credits mode was not named so it is untouched.
+        // new user row, and the credits mode was not written so it is untouched.
         var stored = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
         var intro = Assert.Single(stored, s => s.Type == AnalysisMode.Introduction);
         Assert.Equal(autoIntro.Id, intro.Id);
@@ -271,34 +269,6 @@ public sealed class TestDatabaseFacades : IDisposable
 
         var stored = await database.GetSegmentsAsync(itemId);
         Assert.Equal(expectedCount, stored.Count(s => s.Type == AnalysisMode.Credits));
-    }
-
-    [Fact]
-    public void LegacyTimestampMapper_SelectsEarliestStartPerMode_ActiveOnly()
-    {
-        var itemId = Guid.NewGuid();
-        var suppressed = new DbSegment(itemId, AnalysisMode.Commercial, Ticks(1), Ticks(4), SegmentSource.Chapter)
-        {
-            State = SegmentState.Suppressed
-        };
-        var rows = new[]
-        {
-            new DbSegment(itemId, AnalysisMode.Commercial, Ticks(50), Ticks(60), SegmentSource.Chapter),
-            new DbSegment(itemId, AnalysisMode.Commercial, Ticks(20), Ticks(30), SegmentSource.Chapter),
-            new DbSegment(itemId, AnalysisMode.Commercial, Ticks(100), Ticks(110), SegmentSource.Chapter),
-            new DbSegment(itemId, AnalysisMode.Introduction, Ticks(5), Ticks(40), SegmentSource.Chromaprint),
-            suppressed
-        };
-
-        var timestamps = LegacyTimestampMapper.ToCanonical(rows);
-
-        // One representative per mode; for modes with several rows the earliest-start
-        // ACTIVE segment wins — the suppressed 1–4 s row must not resurface.
-        Assert.Equal(2, timestamps.Count);
-        Assert.Equal(20, timestamps[AnalysisMode.Commercial].Start);
-        Assert.Equal(30, timestamps[AnalysisMode.Commercial].End);
-        Assert.Equal(5, timestamps[AnalysisMode.Introduction].Start);
-        Assert.Equal(40, timestamps[AnalysisMode.Introduction].End);
     }
 
     [Fact]

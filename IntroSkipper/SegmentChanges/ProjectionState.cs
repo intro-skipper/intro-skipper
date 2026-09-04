@@ -71,9 +71,6 @@ public enum SegmentChangeRejectedReason
     /// <summary>The external segment has another type.</summary>
     ExternalTypeMismatch,
 
-    /// <summary>The user timestamp set is invalid.</summary>
-    InvalidUserTimestamps,
-
     /// <summary>The season ID is empty.</summary>
     EmptySeasonId,
 

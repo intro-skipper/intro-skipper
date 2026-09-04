@@ -233,52 +233,46 @@ internal sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Replaces each named mode's active segments with the given user ranges on a
-    /// caller-owned context and transaction. For each mode, a row
-    /// occupying exactly a requested range survives in place — keeping the id Jellyfin
-    /// knows: an active row is promoted, a tombstone revived; either way it cannot
-    /// collide with itself on the unique index. The mode's other active rows are
-    /// removed and requested ranges without an occupant are inserted as user rows.
-    /// Stages the changes without saving; the caller saves and commits.
+    /// Replaces one mode's active segments with the given user ranges on a
+    /// caller-owned context and transaction. A row occupying exactly a requested
+    /// range survives in place, keeping the id Jellyfin knows: an active row is
+    /// promoted, a tombstone revived; either way it cannot collide with itself on the
+    /// unique index. The mode's other active rows are removed and requested ranges
+    /// without an occupant are inserted as user rows. Stages the changes without
+    /// saving; the caller saves and commits.
     /// </summary>
-    /// <returns>The surviving user rows, in request order per mode.</returns>
+    /// <returns>The surviving user rows, in request order.</returns>
     private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsCoreAsync(
         IntroSkipperDbContext db,
         Guid itemId,
-        IReadOnlyDictionary<AnalysisMode, IReadOnlyList<(long StartTicks, long EndTicks)>> segmentsByMode,
+        AnalysisMode mode,
+        IReadOnlyList<(long StartTicks, long EndTicks)> ranges,
         CancellationToken cancellationToken)
     {
-        var modes = segmentsByMode.Keys.ToArray();
         var existing = await db.Segments
-            .Where(s => s.ItemId == itemId && modes.Contains(s.Type))
+            .Where(s => s.ItemId == itemId && s.Type == mode)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var survivors = new List<DbSegment>();
-        foreach (var (mode, ranges) in segmentsByMode)
+        var kept = new List<DbSegment>();
+        foreach (var (startTicks, endTicks) in ranges.Distinct())
         {
-            var kept = new List<DbSegment>();
-            foreach (var (startTicks, endTicks) in ranges.Distinct())
+            var row = existing.Find(s => s.StartTicks == startTicks && s.EndTicks == endTicks);
+            if (row is not null)
             {
-                var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
-                if (row is not null)
-                {
-                    row.PromoteToUser();
-                }
-                else
-                {
-                    row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
-                    db.Segments.Add(row);
-                }
-
-                kept.Add(row);
+                row.PromoteToUser();
+            }
+            else
+            {
+                row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
+                db.Segments.Add(row);
             }
 
-            db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && !kept.Contains(s)));
-            survivors.AddRange(kept);
+            kept.Add(row);
         }
 
-        return survivors;
+        db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)));
+        return kept;
     }
 
     /// <summary>

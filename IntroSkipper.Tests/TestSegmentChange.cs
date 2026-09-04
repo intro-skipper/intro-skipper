@@ -448,32 +448,15 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
-    public async Task MultiModeTimestampWrite_IsAtomicAndUsesUserPrecedence()
-    {
-        var itemId = Guid.NewGuid();
-        await SeedAsync(new DbSegment(itemId, AnalysisMode.Introduction, 1, 2, SegmentSource.Chapter));
-        var service = CreateService(new RecordingProjectionAdapter());
-
-        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(new WriteUserTimestampsIntent(
-            itemId,
-            [new UserTimestamp(AnalysisMode.Introduction, 10, 20), new UserTimestamp(AnalysisMode.Credits, 30, 40)])));
-
-        Assert.Equal(2, outcome.AffectedValues.Count);
-        await AssertSegmentsAsync(
-            row => Assert.Equal(SegmentSource.User, row.Source),
-            row => Assert.Equal(SegmentSource.User, row.Source));
-    }
-
-    [Fact]
-    public async Task IdenticalTimestampRewrite_IsIgnoredAndKeepsIds()
+    public async Task IdenticalReplaceRewrite_IsIgnoredAndKeepsIds()
     {
         var itemId = Guid.NewGuid();
         var service = CreateService(new RecordingProjectionAdapter());
-        var first = Assert.IsType<Accepted>(await service.ApplyAsync(new WriteUserTimestampsIntent(
-            itemId, [new UserTimestamp(AnalysisMode.Introduction, 10, 20)])));
+        var first = Assert.IsType<Accepted>(await service.ApplyAsync(new ReplaceUserSegmentsForModeIntent(
+            itemId, AnalysisMode.Introduction, [new SegmentRange(10, 20)])));
 
-        var second = Assert.IsType<Ignored>(await service.ApplyAsync(new WriteUserTimestampsIntent(
-            itemId, [new UserTimestamp(AnalysisMode.Introduction, 10, 20)])));
+        var second = Assert.IsType<Ignored>(await service.ApplyAsync(new ReplaceUserSegmentsForModeIntent(
+            itemId, AnalysisMode.Introduction, [new SegmentRange(10, 20)])));
 
         Assert.Equal(SegmentChangeIgnoredReason.UserImageAlreadyExists, second.Reason);
         await AssertSegmentsAsync(row => Assert.Equal(Assert.Single(first.AffectedValues).Id, row.Id));

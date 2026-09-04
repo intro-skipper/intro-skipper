@@ -16,8 +16,7 @@ namespace IntroSkipper.Controllers;
 /// <summary>
 /// Plural segments API: every stored segment of an item is addressable by its id
 /// (shared with the Jellyfin media segment row). Boundaries are seconds at this edge.
-/// Supersedes the singular <c>Episode/{id}/Timestamps</c> endpoints. Elevation-gated
-/// editor surface: reads return the stored view, unfiltered by the per-item disable
+/// Elevation-gated editor surface: reads return the stored view, unfiltered by the per-item disable
 /// flag; playback clients read Jellyfin's native media segments instead. Mutations
 /// commit through the durable segment-change coordinator: a change whose Jellyfin
 /// projection does not apply synchronously answers <c>202 Accepted</c> with a
