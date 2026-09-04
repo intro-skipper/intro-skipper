@@ -41,11 +41,10 @@ internal interface ISegmentProjectionJournal
     Task<ProjectionWork?> ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Completes applied work: deletes the processed operations, then the queue row —
-    /// the latter only when its version still matches, so work enqueued while the
-    /// apply was in flight survives. The two deletes are deliberately separate
-    /// statements: a crash between them leaves the row, which merely costs one extra
-    /// idempotent re-sync.
+    /// Completes applied work: deletes the processed operations and the queue row in
+    /// one transaction, so both commit or both roll back. The queue row is deleted
+    /// only when its version still matches, so work enqueued while the apply was in
+    /// flight survives.
     /// </summary>
     /// <param name="itemId">Item id.</param>
     /// <param name="version">The queue-row version the caller projected.</param>
