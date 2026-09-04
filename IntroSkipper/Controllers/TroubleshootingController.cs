@@ -177,26 +177,11 @@ public partial class TroubleshootingController : ControllerBase
         _ => FormattableString.Invariant($"{(int)duration.TotalSeconds} s"),
     };
 
-    private string GetPluginVersion()
+    // CI rewrites Commit.CommitHash to the full 40-character hash; a local build leaves it empty.
+    private static string GetPluginVersion()
     {
         var version = Plugin.Instance!.Version.ToString(4);
-
-        try
-        {
-            var commit = Commit.CommitHash;
-            if (!string.IsNullOrWhiteSpace(commit))
-            {
-                version += string.Concat("+", commit.AsSpan(0, 12));
-            }
-        }
-        catch (Exception ex)
-        {
-            LogUnableToAppendCommit(_logger, ex);
-        }
-
-        return version;
+        var commit = Commit.CommitHash;
+        return commit.Length >= 12 ? string.Concat(version, "+", commit.AsSpan(0, 12)) : version;
     }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to append commit to version: {Exception}")]
-    private static partial void LogUnableToAppendCommit(ILogger logger, object exception);
 }

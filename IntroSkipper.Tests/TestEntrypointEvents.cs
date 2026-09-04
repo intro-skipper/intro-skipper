@@ -8,13 +8,10 @@ using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Services;
-using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Plugins;
-using MediaBrowser.Model.Tasks;
+using MediaBrowser.Controller.Library;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -24,283 +21,99 @@ public sealed class TestEntrypointEvents
     [Fact]
     public void OnItemChanged_IgnoresImageUpdates()
     {
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+        using var scope = CreateScope(autoDetectIntros: true);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
 
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", Guid.NewGuid());
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: ItemUpdateType.ImageUpdate);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        var seasonsToAnalyze = EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint);
-        Assert.Empty(seasonsToAnalyze);
+        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
     }
 
     [Fact]
     public void OnItemChanged_QueuesMovieId_WhenAutoDetectEnabled()
     {
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
-
+        using var scope = CreateScope(autoDetectIntros: true);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
         var movieId = Guid.NewGuid();
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", movieId);
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(movieId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        var seasonsToAnalyze = EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint);
-        Assert.Contains(movieId, seasonsToAnalyze);
+        Assert.Contains(movieId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
     }
 
     [Fact]
     public void OnItemChanged_QueuesChangedEpisodeForCoordinatedInvalidation()
     {
+        using var scope = CreateScope(autoDetectIntros: true);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
-
         var episode = new Episode();
         EntrypointTestHelpers.SetPropertyOrField(episode, "Id", itemId);
         EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
         EntrypointTestHelpers.EnsureNonVirtual(episode);
 
-        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-        {
-            var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
+        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-            Assert.Equal(seasonId, EntrypointTestHelpers.GetItemsToReset(entrypoint)[itemId]);
-            Assert.Contains(seasonId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
-        }
+        Assert.Equal(seasonId, EntrypointTestHelpers.GetItemsToReset(entrypoint)[itemId]);
+        Assert.Contains(seasonId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
     }
 
     [Fact]
     public void OnItemChanged_DoesNothing_WhenAutoDetectDisabled()
     {
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
+        using var scope = CreateScope(autoDetectIntros: false);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
 
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", Guid.NewGuid());
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(Guid.NewGuid()), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        var seasonsToAnalyze = EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint);
-        Assert.Empty(seasonsToAnalyze);
+        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
     }
 
-    [Fact]
-    public void OnItemRemoved_DeletesCache_ForEpisode()
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    public void OnItemRemoved_DeletesCacheRows_OnlyWithAutoDetectAndARealId(bool autoDetectIntros, bool emptyId, bool expectDeleted)
     {
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
-        var episodeId = Guid.NewGuid();
+        var removedId = emptyId ? Guid.Empty : Guid.NewGuid();
         var otherId = Guid.NewGuid();
-
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
-
-        var episode = new Episode();
-        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
-        EntrypointTestHelpers.EnsureNonVirtual(episode);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: episode, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
-        {
-            using (var db = new DetectionCacheDbContext(cacheDbPath))
-            {
-                db.DetectionCache.Add(new DbDetectionCache(
-                    episodeId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.DetectionCache.Add(new DbDetectionCache(
-                    episodeId,
-                    AnalysisMode.Credits,
-                    CacheEntryType.BlackFrame,
-                    EntrypointTestHelpers.EmptyJsonArray,
-                    100.5,
-                    0));
-                db.DetectionCache.Add(new DbDetectionCache(
-                    otherId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.SaveChanges();
-            }
-
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-
-            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
-            Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == episodeId));
-            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
-        }
-    }
-
-    [Fact]
-    public void OnSettingsChanged_UpdatesConfig()
-    {
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
-
-        var newConfig = new PluginConfiguration { AutoDetectIntros = true };
-
-        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-        {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnSettingsChanged", (BasePluginConfiguration)newConfig);
-        }
-
-        // Reanalysis is driven by durable per-item configuration hashes, not a process-wide flag.
-        var storedConfig = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(entrypoint, "_config");
-        Assert.Same(newConfig, storedConfig);
-    }
-
-    [Fact]
-    public void OnLibraryRefresh_DoesNotSetAnalyzeAgain_WhenAutomaticTaskRunning()
-    {
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
-        EntrypointTestHelpers.SetPrivateField(entrypoint, "_analyzeAgain", false);
-
-        var cts = new System.Threading.CancellationTokenSource();
-        EntrypointTestHelpers.SetPrivateStaticField(typeof(Entrypoint), "_cancellationTokenSource", cts);
-
-        try
-        {
-            var taskResult = EntrypointTestHelpers.CreateTaskResult("RefreshLibrary", TaskCompletionStatus.Completed);
-            var args = EntrypointTestHelpers.CreateTaskCompletionEventArgs(taskResult);
-
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnLibraryRefresh", args);
-
-            Assert.False((bool)EntrypointTestHelpers.GetPrivateField(entrypoint, "_analyzeAgain"));
-        }
-        finally
-        {
-            cts.Dispose();
-            EntrypointTestHelpers.SetPrivateStaticField(typeof(Entrypoint), "_cancellationTokenSource", null);
-        }
-    }
-}
-public sealed class TestFingerprintCacheDeletionOnRemove
-{
-    [Fact]
-    public void DeletesFingerprintCache_OnMovieRemoval_WhenAutoDetectEnabled()
-    {
-        var removedId = Guid.NewGuid();
-        var otherId = Guid.NewGuid();
-
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
         var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+        using var scope = CreateScope(autoDetectIntros, cacheDbPath);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(cacheDbPath: cacheDbPath);
+        SeedCacheRows(cacheDbPath, removedId, otherId);
 
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(removedId), ItemUpdateType.None);
+        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Path", "C:\\IntroSkipper.Tests\\removed.mkv");
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
-        Assert.Equal(removedId, movie.Id);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
-        {
-            using (var db = new DetectionCacheDbContext(cacheDbPath))
-            {
-                db.DetectionCache.Add(new DbDetectionCache(
-                    removedId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.DetectionCache.Add(new DbDetectionCache(
-                    removedId,
-                    AnalysisMode.Credits,
-                    CacheEntryType.BlackFrame,
-                    EntrypointTestHelpers.EmptyJsonArray,
-                    100.5,
-                    0));
-                db.DetectionCache.Add(new DbDetectionCache(
-                    otherId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.SaveChanges();
-            }
-
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-
-            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
-            Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
-            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
-        }
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.Equal(!expectDeleted, db.DetectionCache.Any(e => e.ItemId == removedId));
+        Assert.True(db.DetectionCache.Any(e => e.ItemId == otherId));
     }
 
-    [Fact]
-    public void DoesNotDeleteFingerprintCache_OnMovieRemoval_WhenAutoDetectDisabled()
+    private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool autoDetectIntros, string? cacheDbPath = null)
+        => EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { AutoDetectIntros = autoDetectIntros }, cacheDbPath);
+
+    private static Movie CreateMovie(Guid id)
     {
-        var removedId = Guid.NewGuid();
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
-
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false, cacheDbPath);
-
         var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Path", "C:\\IntroSkipper.Tests\\removed.mkv");
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", id);
         EntrypointTestHelpers.EnsureNonVirtual(movie);
-        Assert.Equal(removedId, movie.Id);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
-        {
-            using (var db = new DetectionCacheDbContext(cacheDbPath))
-            {
-                db.DetectionCache.Add(new DbDetectionCache(
-                    removedId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.SaveChanges();
-            }
-
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-
-            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
-            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
-        }
+        return movie;
     }
 
-    [Fact]
-    public void DoesNotDeleteFingerprintCache_WhenIdIsEmpty()
+    private static void SeedCacheRows(string cacheDbPath, params Guid[] itemIds)
     {
-        var removedId = Guid.Empty;
-
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
-
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
-
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Path", "C:\\IntroSkipper.Tests\\removed.mkv");
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
-        Assert.Equal(removedId, movie.Id);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
-        {
-            using (var db = new DetectionCacheDbContext(cacheDbPath))
-            {
-                db.DetectionCache.Add(new DbDetectionCache(
-                    removedId,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                db.SaveChanges();
-            }
-
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-
-            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
-            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
-        }
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        db.DetectionCache.AddRange(itemIds.Select(id => new DbDetectionCache(
+            id,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            EntrypointTestHelpers.EmptyJsonArray)));
+        db.SaveChanges();
     }
 }

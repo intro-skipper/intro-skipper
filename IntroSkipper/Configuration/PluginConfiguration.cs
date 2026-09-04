@@ -458,8 +458,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public double SilenceDetectionMinimumDuration { get; set; } = 0.33;
 
-    // ===== Localization support =====
-
     /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.
     /// </summary>

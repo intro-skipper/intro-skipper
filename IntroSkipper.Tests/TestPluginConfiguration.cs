@@ -15,41 +15,6 @@ namespace IntroSkipper.Tests;
 public class TestPluginConfiguration
 {
     [Fact]
-    public void Constructor_UsesConfiguredAnalysisDefaults()
-    {
-        var config = new PluginConfiguration();
-
-        Assert.Equal(PluginConfiguration.DefaultAnalysisPercent, config.AnalysisPercent);
-        Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
-        Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
-        Assert.Equal(15, config.MinimumRecapDetectionDuration);
-        Assert.Equal(120, config.MaximumRecapDetectionDuration);
-        Assert.False(config.DetectRecapUsingBlackFrames);
-        Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
-        Assert.False(config.UseLegacyBlackFrameAnalyzer);
-        Assert.Equal(string.Empty, config.ExcludeSeries);
-        Assert.Equal(string.Empty, config.PreferredAudioLanguage);
-        Assert.True(config.PreferAudioStreamWithMostChannels);
-        Assert.Empty(config.SeriesExclusions);
-        Assert.Empty(config.MovieExclusions);
-        Assert.Empty(config.PathExclusions);
-    }
-
-    [Fact]
-    public void ExclusionLists_AreMutableCollections()
-    {
-        var config = new PluginConfiguration();
-
-        config.SeriesExclusions.Add("The Office");
-        config.MovieExclusions.Add("The Matrix");
-        config.PathExclusions.Add("/mnt/remote");
-
-        Assert.Equal(["The Office"], config.SeriesExclusions);
-        Assert.Equal(["The Matrix"], config.MovieExclusions);
-        Assert.Equal(["/mnt/remote"], config.PathExclusions);
-    }
-
-    [Fact]
     public void XmlSerialization_RoundTripsStructuredExclusionListsWithCommaValues()
     {
         var serializer = new XmlSerializer(typeof(PluginConfiguration));

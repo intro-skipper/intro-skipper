@@ -9,4 +9,4 @@ namespace IntroSkipper.Data;
 /// Represents the current scan status returned by the scan status endpoint.
 /// </summary>
 /// <param name="IsRunning">Whether a scan is currently in progress.</param>
-public record ScanStatusResponse([property: JsonPropertyName("isRunning")] bool IsRunning);
+public sealed record ScanStatusResponse([property: JsonPropertyName("isRunning")] bool IsRunning);

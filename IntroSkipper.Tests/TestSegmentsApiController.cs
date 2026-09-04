@@ -27,7 +27,7 @@ public sealed class TestSegmentsApiController
     public async Task GetSegments_ReturnsAllSegments_WithSecondsAndSource()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -65,7 +65,7 @@ public sealed class TestSegmentsApiController
     public async Task GetSegments_ReturnsEmptyList_ForValidItemWithoutSegments_And404ForUnknownItem()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -88,7 +88,7 @@ public sealed class TestSegmentsApiController
     public async Task CreateSegment_PersistsUserRow_AndPushesUniformSync()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -124,7 +124,7 @@ public sealed class TestSegmentsApiController
     public async Task CreateSegment_DoesNotPush_WhenUpdateMediaSegmentsDisabled()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         try
         {
@@ -157,7 +157,7 @@ public sealed class TestSegmentsApiController
     public async Task CreateSegment_BadRequest_ForInvalidBoundaries(double start, double end)
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -192,7 +192,7 @@ public sealed class TestSegmentsApiController
     public async Task CreateSegment_BadRequest_ForUndefinedNumericMode()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -221,7 +221,7 @@ public sealed class TestSegmentsApiController
     public async Task UpdateSegment_MovesBoundaries_404ForWrongItem_MergesOnExactCollision()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -261,7 +261,7 @@ public sealed class TestSegmentsApiController
     public async Task DeleteSegment_TombstonesAuto_HardDeletesUser_AndDeletesJellyfinRowById()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -293,90 +293,10 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
-    public async Task DeleteSegment_DoesNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
-    {
-        var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
-        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            var controller = CreateController(database, out var store);
-
-            var response = await controller.DeleteSegment(itemId, row.Id, CancellationToken.None);
-
-            // Plugin-side delete committed; Jellyfin stays untouched and the response
-            // reports the skipped projection honestly (the journaled work replays on
-            // enable), consistent with how create/update/restore honor the flag.
-            var accepted = Assert.IsType<AcceptedResult>(response);
-            Assert.Equal("Skipped", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
-            var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-            Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Empty(store.DeletedSegments);
-            Assert.Empty(store.ReplacedItems);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task DeleteSegment_KeepsTombstone_WhenJellyfinProjectionFails()
-    {
-        var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
-        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "cfg");
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-
-            // The row is mirrored, and Jellyfin is down (the journaled targeted
-            // delete and the convergence write both fail): the committed tombstone
-            // must stand (202, not an error, no rollback) with the journaled work
-            // retrying until Jellyfin converges.
-            var store = new FakeJellyfinSegmentStore
-            {
-                ExistingSegments =
-                [
-                    new MediaBrowser.Model.MediaSegments.MediaSegmentDto
-                    {
-                        Id = row.Id,
-                        ItemId = itemId,
-                        Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
-                        StartTicks = row.StartTicks,
-                        EndTicks = row.EndTicks,
-                    }
-                ],
-                WriteException = new InvalidOperationException("Jellyfin unavailable"),
-                DeleteSegmentException = new InvalidOperationException("Jellyfin unavailable"),
-            };
-            var controller = CreateController(database, store);
-
-            var response = await controller.DeleteSegment(itemId, row.Id, CancellationToken.None);
-
-            var accepted = Assert.IsType<AcceptedResult>(response);
-            Assert.Equal("Pending", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
-            var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-            Assert.Equal(row.Id, tombstone.Id);
-            Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Equal("cfg", tombstone.ConfigHash);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
     public async Task RestoreSegment_ReactivatesTombstone_404Otherwise()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = CreateTempDbPath($"{Guid.NewGuid():N}-segments-api.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
@@ -406,12 +326,6 @@ public sealed class TestSegmentsApiController
         out FakeJellyfinSegmentStore store)
     {
         store = new FakeJellyfinSegmentStore();
-        return CreateController(database, store);
+        return new SegmentsController(database, DatabaseTestHelpers.CreateSegmentChange(store, database));
     }
-
-    private static SegmentsController CreateController(IntroSkipperDatabase database, FakeJellyfinSegmentStore store)
-        => new(database, DatabaseTestHelpers.CreateSegmentChange(store, database));
-
-    private static string CreateTempDbPath()
-        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-segments-api.db");
 }

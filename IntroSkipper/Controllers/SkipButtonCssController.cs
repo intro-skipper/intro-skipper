@@ -130,9 +130,9 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
         var expectedValue = $"--skip-hide-duration: {SkipHideDuration}s;";
         var regex = SkipDurationRegex();
 
-        if (regex.IsMatch(css))
+        var currentMatch = regex.Match(css);
+        if (currentMatch.Success)
         {
-            var currentMatch = regex.Match(css);
             if (!currentMatch.Value.Equals(expectedValue, StringComparison.OrdinalIgnoreCase))
             {
                 LogUpdatedSkipDuration(_logger, SkipHideDuration);

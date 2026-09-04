@@ -23,14 +23,6 @@ public static class WarningManager
     }
 
     /// <summary>
-    /// Clear warnings.
-    /// </summary>
-    public static void Clear()
-    {
-        _warnings = PluginWarning.None;
-    }
-
-    /// <summary>
     /// Get warnings.
     /// </summary>
     /// <returns>Warnings.</returns>

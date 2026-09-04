@@ -18,15 +18,8 @@ internal static class ScheduledTaskSemaphore
         return new Lease();
     }
 
-    public static async Task<IDisposable?> TryAcquireAsync()
-    {
-        if (!await _semaphore.WaitAsync(0).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return new Lease();
-    }
+    public static IDisposable? TryAcquire()
+        => _semaphore.Wait(0) ? new Lease() : null;
 
     private static void ReleaseSemaphore()
     {

@@ -5,9 +5,6 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -17,28 +14,45 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using FakeLibraryManager = EntrypointTestHelpers.FakeLibraryManager;
 
 /// <summary>
 /// Tests for <see cref="CleanCacheTask"/>. The cleanup task deletes the rows of ids that are
 /// absent from the enumerated library queue AND no longer resolve on the server, so these
-/// tests pin the guards that keep an incomplete or empty enumeration — including a library
-/// whose media segment provider is disabled — from mass-deleting healthy data.
+/// tests pin the guards that keep an incomplete or empty enumeration, including a library
+/// whose media segment provider is disabled, from mass-deleting healthy data.
 /// </summary>
 public sealed class TestCleanCacheTask
 {
-    [Fact]
-    public async Task ExecuteAsync_SkipsAllCleanup_WhenALibraryFailsToEnumerate()
+    /// <summary>
+    /// Ways the library enumeration can come back incomplete or empty.
+    /// </summary>
+    public enum IncompleteInventory
+    {
+        /// <summary>One library enumerates fine (non-empty queue) while a second one throws.</summary>
+        LibraryThrows,
+
+        /// <summary>An episode fails to queue (its SeasonId repair needs the unavailable provider manager) beside a movie that queues fine.</summary>
+        ItemFailsToQueue,
+
+        /// <summary>No virtual folders at all: an empty queue must not classify everything as stale.</summary>
+        NoLibraries,
+    }
+
+    [Theory]
+    [InlineData(IncompleteInventory.LibraryThrows)]
+    [InlineData(IncompleteInventory.ItemFailsToQueue)]
+    [InlineData(IncompleteInventory.NoLibraries)]
+    public async Task ExecuteAsync_SkipsAllCleanup_WhenTheInventoryIsIncomplete(IncompleteInventory reason)
     {
         var (dbPath, cacheDbPath) = CreateTempDbPaths();
         var liveEpisodeId = Guid.NewGuid();
-        var liveMovieId = Guid.NewGuid();
         try
         {
             using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
@@ -48,19 +62,9 @@ public sealed class TestCleanCacheTask
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
             await SeedAsync(database, cacheDatabase, liveEpisodeId);
 
-            // One library enumerates fine (non-empty queue) while a second one throws, so the
-            // failure guard is exercised independently of the empty-queue guard.
-            var moviesFolder = NewFolder("Movies");
-            var showsFolder = NewFolder("Shows");
-            var libraryManager = FakeLibraryManager.Create(
-                [moviesFolder, showsFolder],
-                folderId => folderId == Guid.Parse(moviesFolder.ItemId!)
-                    ? [CreateMovie(liveMovieId)]
-                    : throw new InvalidOperationException("library database unavailable"));
-
             var progress = new RecordingProgress();
             var store = new FakeJellyfinSegmentStore();
-            await CreateTask(libraryManager, database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
+            await CreateTask(CreateIncompleteLibrary(reason, liveEpisodeId), database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
 
             Assert.Equal(100, progress.Value);
             Assert.Equal(0, store.WriteCallCount);
@@ -68,54 +72,8 @@ public sealed class TestCleanCacheTask
         }
         finally
         {
-            DeleteSqliteFiles(dbPath);
-            DeleteSqliteFiles(cacheDbPath);
-        }
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_SkipsAllCleanup_WhenAnItemFailsToQueue()
-    {
-        var (dbPath, cacheDbPath) = CreateTempDbPaths();
-        var brokenEpisodeId = Guid.NewGuid();
-        try
-        {
-            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
-            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { UpdateMediaSegments = false });
-
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
-            await SeedAsync(database, cacheDatabase, brokenEpisodeId);
-
-            // The episode's queueing throws (its SeasonId repair needs the provider manager,
-            // which is unavailable), while the sibling movie queues fine — so the queue is
-            // non-empty but incomplete, and the broken live episode must not be deleted.
-            var brokenEpisode = new Episode
-            {
-                SeriesId = Guid.NewGuid(),
-                SeasonId = Guid.Empty,
-                ParentIndexNumber = 1,
-                IndexNumber = 1,
-                Path = "/media/show/s01e01.mkv",
-            };
-            EntrypointTestHelpers.SetPropertyOrField(brokenEpisode, "Id", brokenEpisodeId);
-            EntrypointTestHelpers.SetPropertyOrField(brokenEpisode, "SeriesName", "Show");
-            EntrypointTestHelpers.EnsureNonVirtual(brokenEpisode);
-
-            var libraryManager = FakeLibraryManager.Create(
-                [NewFolder("Media")],
-                _ => [brokenEpisode, CreateMovie(Guid.NewGuid())]);
-
-            var progress = new RecordingProgress();
-            await CreateTask(libraryManager, database, cacheDatabase).ExecuteAsync(progress, CancellationToken.None);
-
-            Assert.Equal(100, progress.Value);
-            await AssertSeededDataIntactAsync(database, cacheDatabase, brokenEpisodeId, dbPath);
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-            DeleteSqliteFiles(cacheDbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(cacheDbPath);
         }
     }
 
@@ -142,36 +100,6 @@ public sealed class TestCleanCacheTask
 
         await queueManager.GetMediaItems(includeExcluded: true);
         Assert.Equal(0, queueManager.EnumerationFailureCount);
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_SkipsAllCleanup_WhenNoEnabledLibrariesHaveItems()
-    {
-        var (dbPath, cacheDbPath) = CreateTempDbPaths();
-        var liveEpisodeId = Guid.NewGuid();
-        try
-        {
-            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir(), cacheDbPath);
-            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { UpdateMediaSegments = false });
-
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
-            await SeedAsync(database, cacheDatabase, liveEpisodeId);
-
-            // No virtual folders at all: an empty queue must not classify everything as stale.
-            var libraryManager = FakeLibraryManager.Create([], _ => []);
-
-            var progress = new RecordingProgress();
-            await CreateTask(libraryManager, database, cacheDatabase).ExecuteAsync(progress, CancellationToken.None);
-
-            Assert.Equal(100, progress.Value);
-            await AssertSeededDataIntactAsync(database, cacheDatabase, liveEpisodeId, dbPath);
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-            DeleteSqliteFiles(cacheDbPath);
-        }
     }
 
     [Fact]
@@ -239,8 +167,8 @@ public sealed class TestCleanCacheTask
         }
         finally
         {
-            DeleteSqliteFiles(dbPath);
-            DeleteSqliteFiles(cacheDbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(cacheDbPath);
         }
     }
 
@@ -315,8 +243,8 @@ public sealed class TestCleanCacheTask
         }
         finally
         {
-            DeleteSqliteFiles(dbPath);
-            DeleteSqliteFiles(cacheDbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+            DatabaseTestHelpers.DeleteSqliteFiles(cacheDbPath);
         }
     }
 
@@ -335,6 +263,38 @@ public sealed class TestCleanCacheTask
             {
                 Assert.False(string.IsNullOrEmpty(ConfigHasher.DetectionCache(config, type, mode)));
             }
+        }
+    }
+
+    private static ILibraryManager CreateIncompleteLibrary(IncompleteInventory reason, Guid liveEpisodeId)
+    {
+        switch (reason)
+        {
+            case IncompleteInventory.LibraryThrows:
+                var moviesFolder = NewFolder("Movies");
+                return FakeLibraryManager.Create(
+                    [moviesFolder, NewFolder("Shows")],
+                    folderId => folderId == Guid.Parse(moviesFolder.ItemId!)
+                        ? [CreateMovie(Guid.NewGuid())]
+                        : throw new InvalidOperationException("library database unavailable"));
+
+            case IncompleteInventory.ItemFailsToQueue:
+                // The live episode itself is the one that fails to queue, so it must survive.
+                var brokenEpisode = new Episode
+                {
+                    SeriesId = Guid.NewGuid(),
+                    SeasonId = Guid.Empty,
+                    ParentIndexNumber = 1,
+                    IndexNumber = 1,
+                    Path = "/media/show/s01e01.mkv",
+                };
+                EntrypointTestHelpers.SetPropertyOrField(brokenEpisode, "Id", liveEpisodeId);
+                EntrypointTestHelpers.SetPropertyOrField(brokenEpisode, "SeriesName", "Show");
+                EntrypointTestHelpers.EnsureNonVirtual(brokenEpisode);
+                return FakeLibraryManager.Create([NewFolder("Media")], _ => [brokenEpisode, CreateMovie(Guid.NewGuid())]);
+
+            default:
+                return FakeLibraryManager.Create([], _ => []);
         }
     }
 
@@ -400,52 +360,10 @@ public sealed class TestCleanCacheTask
         => (DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-cleantask.db"),
             DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-cleantask-cache.db"));
 
-    private static void DeleteSqliteFiles(string dbPath)
-        => DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-
     private sealed class RecordingProgress : IProgress<double>
     {
         public double? Value { get; private set; }
 
         public void Report(double value) => Value = value;
-    }
-
-
-    // ILibraryManager stub for the queue-building path: returns the configured virtual
-    // folders, delegates GetItemList to the configured behavior (which may throw to
-    // simulate a failed library enumeration), and answers GetItemById from the configured
-    // resolver (null for every id by default — "the server does not know this item").
-    private class FakeLibraryManager : DispatchProxy
-    {
-        private List<VirtualFolderInfo> _folders = [];
-        private Func<Guid, List<BaseItem>> _getItemList = _ => [];
-        private Func<Guid, BaseItem?> _getItemById = _ => null;
-
-        public static ILibraryManager Create(
-            List<VirtualFolderInfo> folders,
-            Func<Guid, List<BaseItem>> getItemList,
-            Func<Guid, BaseItem?>? getItemById = null)
-        {
-            var proxy = Create<ILibraryManager, FakeLibraryManager>();
-            var fake = (FakeLibraryManager)(object)proxy;
-            fake._folders = folders;
-            fake._getItemList = getItemList;
-            fake._getItemById = getItemById ?? (_ => null);
-            return proxy;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            return targetMethod?.Name switch
-            {
-                nameof(ILibraryManager.GetVirtualFolders) => _folders,
-                nameof(ILibraryManager.GetItemList) => _getItemList(ExtractParentId(args)).ToList(),
-                nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
-                _ => throw new NotImplementedException(targetMethod?.Name),
-            };
-        }
-
-        private static Guid ExtractParentId(object?[]? args)
-            => args?.OfType<InternalItemsQuery>().FirstOrDefault()?.ParentId ?? Guid.Empty;
     }
 }

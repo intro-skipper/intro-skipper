@@ -7,15 +7,15 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Update analyzer actions request.
 /// </summary>
-public class UpdateAnalyzerActionsRequest
+public sealed record UpdateAnalyzerActionsRequest
 {
     /// <summary>
-    /// Gets or sets season ID.
+    /// Gets the season ID.
     /// </summary>
-    public Guid Id { get; set; }
+    public Guid Id { get; init; }
 
     /// <summary>
-    /// Gets or sets analyzer actions.
+    /// Gets the analyzer actions.
     /// </summary>
-    public IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActions { get; set; } = new Dictionary<AnalysisMode, AnalyzerAction>();
+    public IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActions { get; init; } = new Dictionary<AnalysisMode, AnalyzerAction>();
 }

@@ -18,10 +18,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -30,11 +27,11 @@ using Newtonsoft.Json.Linq;
 namespace IntroSkipper.Services
 {
     /// <summary>
-    /// Server entrypoint.
+    /// Server entrypoint: subscribes to library changes and runs the debounced automatic analysis.
+    /// Registered as a singleton so <see cref="DetectSegmentsTask"/> can cancel a running automatic pass.
     /// </summary>
     public sealed partial class Entrypoint : IHostedService, IDisposable
     {
-        private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IDetectionCacheDatabase _cacheDatabase;
         private readonly IIntroSkipperDatabase _database;
@@ -45,17 +42,14 @@ namespace IntroSkipper.Services
         private readonly Dictionary<Guid, Guid> _itemsToReset = [];
         private readonly Lock _seasonsLock = new();
         private readonly Timer _queueTimer;
-        private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
-        private PluginConfiguration _config;
-        private volatile bool _analyzeAgain;
+        private readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private volatile bool _isStopping;
-        private static CancellationTokenSource? _cancellationTokenSource;
+        private CancellationTokenSource? _cancellationTokenSource;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Entrypoint"/> class.
         /// </summary>
         /// <param name="libraryManager">Library manager.</param>
-        /// <param name="taskManager">Task manager.</param>
         /// <param name="cacheDatabase">Detection cache database facade.</param>
         /// <param name="database">Segment database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
@@ -63,7 +57,6 @@ namespace IntroSkipper.Services
         /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
-            ITaskManager taskManager,
             IDetectionCacheDatabase cacheDatabase,
             IIntroSkipperDatabase database,
             IFFmpegService ffmpegService,
@@ -71,14 +64,12 @@ namespace IntroSkipper.Services
             AnalyzerTaskFactory analyzerFactory)
         {
             _libraryManager = libraryManager;
-            _taskManager = taskManager;
             _cacheDatabase = cacheDatabase;
             _database = database;
             _ffmpegService = ffmpegService;
             _logger = logger;
             _analyzerFactory = analyzerFactory;
 
-            _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
                     OnTimerCallback,
                     null,
@@ -87,9 +78,9 @@ namespace IntroSkipper.Services
         }
 
         /// <summary>
-        /// Gets State of the automatic task.
+        /// Gets the state of the automatic analysis task.
         /// </summary>
-        public static TaskState AutomaticTaskState
+        public TaskState AutomaticTaskState
         {
             get
             {
@@ -103,6 +94,10 @@ namespace IntroSkipper.Services
             }
         }
 
+        // Jellyfin replaces the configuration object on save, so the live instance is read on
+        // every use instead of a constructor-time snapshot.
+        private static PluginConfiguration Config => Plugin.Instance!.Configuration;
+
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
@@ -114,13 +109,11 @@ namespace IntroSkipper.Services
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
             _libraryManager.ItemRemoved += OnItemRemoved;
-            _taskManager.TaskCompleted += OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
             await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
             // Initialize web injector for skip button timeout modification
-            if (_config.FileTransformationPluginEnabled == true)
+            if (Config.FileTransformationPluginEnabled)
             {
                 InitializeWebInjector();
             }
@@ -138,8 +131,6 @@ namespace IntroSkipper.Services
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
             _libraryManager.ItemRemoved -= OnItemRemoved;
-            _taskManager.TaskCompleted -= OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
             await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -257,16 +248,15 @@ namespace IntroSkipper.Services
             ItemChangeEventArgs itemChangeEventArgs,
             [NotNullWhen(true)] out BaseItem? item)
         {
-            if (!_config.AutoDetectIntros)
+            item = null;
+            if (!Config.AutoDetectIntros)
             {
-                item = null;
                 return false;
             }
 
             var candidate = itemChangeEventArgs.Item;
             if (candidate is null)
             {
-                item = null;
                 return false;
             }
 
@@ -276,7 +266,6 @@ namespace IntroSkipper.Services
             {
                 if (candidate.LocationType == LocationType.Virtual)
                 {
-                    item = null;
                     return false;
                 }
             }
@@ -291,44 +280,20 @@ namespace IntroSkipper.Services
         }
 
         /// <summary>
-        /// TaskManager task ended.
+        /// Start timer to debounce analyzing. Callers queue their work before calling; a
+        /// running analysis picks it up through <see cref="ScheduleAnalysisIfNeeded"/> when it ends.
         /// </summary>
-        /// <param name="sender">The sending entity.</param>
-        /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
-        private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
-        {
-            if (_config.AutoDetectIntros &&
-                eventArgs.Result is { Key: "RefreshLibrary", Status: TaskCompletionStatus.Completed } &&
-                AutomaticTaskState != TaskState.Running)
-            {
-                StartTimer();
-            }
-        }
-
-        private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
-            => _config = (PluginConfiguration)e;
-
-        /// <summary>
-        /// Start timer to debounce analyzing.
-        /// </summary>
-        private void StartTimer(int delay = 60)
+        private void StartTimer(int delay)
         {
             lock (_seasonsLock)
             {
-                if (_isStopping)
+                if (_isStopping || AutomaticTaskState != TaskState.Idle)
                 {
                     return;
                 }
 
-                if (AutomaticTaskState == TaskState.Running)
-                {
-                    _analyzeAgain = true;
-                }
-                else if (AutomaticTaskState == TaskState.Idle)
-                {
-                    LogMediaLibraryChanged();
-                    _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
-                }
+                LogMediaLibraryChanged();
+                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
             }
         }
 
@@ -388,41 +353,43 @@ namespace IntroSkipper.Services
                             itemsToReset = new Dictionary<Guid, Guid>(_itemsToReset);
                             _seasonsToAnalyze.Clear();
                             _itemsToReset.Clear();
-                            _analyzeAgain = false;
                         }
 
-                        var failedResetSeasonIds = new HashSet<Guid>();
-                        foreach (var (itemId, seasonId) in itemsToReset)
+                        if (itemsToReset.Count > 0)
                         {
                             try
                             {
+                                // One batch for every changed item; the reset journals its
+                                // deletions' projections and the projection worker converges
+                                // Jellyfin durably. The cache delete follows the committed
+                                // reset uncancelled so the two cannot be split by cancellation.
                                 await _database.ResetItemsForReanalysisAsync(
-                                    [itemId],
+                                    itemsToReset.Keys,
                                     Enum.GetValues<AnalysisMode>(),
                                     cts.Token).ConfigureAwait(false);
-                                _cacheDatabase.DeleteForItem(itemId);
+                                await _cacheDatabase.DeleteForItemsAsync(itemsToReset.Keys, CancellationToken.None).ConfigureAwait(false);
 
-                                LogMediaItemChanged(_logger, itemId);
+                                foreach (var itemId in itemsToReset.Keys)
+                                {
+                                    LogMediaItemChanged(_logger, itemId);
+                                }
                             }
                             catch (Exception ex)
                             {
+                                // Requeue the whole batch and skip its seasons this pass.
                                 lock (_seasonsLock)
                                 {
-                                    _itemsToReset[itemId] = seasonId;
-                                    _seasonsToAnalyze.Add(seasonId);
-                                    _analyzeAgain = true;
+                                    foreach (var (itemId, seasonId) in itemsToReset)
+                                    {
+                                        _itemsToReset[itemId] = seasonId;
+                                        _seasonsToAnalyze.Add(seasonId);
+                                    }
                                 }
 
-                                failedResetSeasonIds.Add(seasonId);
-                                LogErrorResettingChangedMediaItem(_logger, ex, itemId);
+                                seasonIds.ExceptWith(itemsToReset.Values);
+                                LogErrorResettingChangedMediaItems(_logger, ex, itemsToReset.Count);
                             }
                         }
-
-                        // No mirror push here: the reset journals its deletions'
-                        // projections, and the projection worker converges Jellyfin
-                        // durably — a failed or interrupted push no longer requeues
-                        // the items for another reset.
-                        seasonIds.ExceptWith(failedResetSeasonIds);
 
                         var analyzer = _analyzerFactory.CreateAnalyzerTask();
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
@@ -456,7 +423,7 @@ namespace IntroSkipper.Services
                     return;
                 }
 
-                var needsRestart = _analyzeAgain || _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
+                var needsRestart = _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
                 if (needsRestart && AutomaticTaskState == TaskState.Idle)
                 {
                     LogAnalyzingEndedNeedsRestart();
@@ -466,11 +433,12 @@ namespace IntroSkipper.Services
         }
 
         /// <summary>
-        /// Method to cancel the automatic task.
+        /// Cancels a running automatic analysis and waits for it to finish.
         /// </summary>
         /// <param name="cancellationToken">Cancellation token.</param>
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-        public static async Task CancelAutomaticTaskAsync(CancellationToken cancellationToken)
+        /// <exception cref="TimeoutException">The analysis did not finish within 60 seconds.</exception>
+        public async Task CancelAutomaticTaskAsync(CancellationToken cancellationToken)
         {
             var cts = Volatile.Read(ref _cancellationTokenSource);
             if (cts is { IsCancellationRequested: false })
@@ -497,7 +465,7 @@ namespace IntroSkipper.Services
         public void Dispose()
         {
             _queueTimer.Dispose();
-            _cancellationTokenSource?.Dispose();
+            _analysisSemaphore.Dispose();
         }
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
@@ -506,8 +474,8 @@ namespace IntroSkipper.Services
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item changed, invalidating automatic analysis and fingerprint cache for {Id}")]
         private static partial void LogMediaItemChanged(ILogger logger, Guid id);
 
-        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for changed media item {Id}")]
-        private static partial void LogErrorResettingChangedMediaItem(ILogger logger, Exception ex, Guid id);
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for {Count} changed media items")]
+        private static partial void LogErrorResettingChangedMediaItems(ILogger logger, Exception ex, int count);
 
         [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
         private partial void LogErrorDeletingFingerprintCache(Exception ex);
