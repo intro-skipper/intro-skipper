@@ -12,15 +12,9 @@ IntroSkipper/Configuration/introskipper.css
 
 # Web dashboard dependencies
 web/node_modules
-docs/agents
 
 # Visual Studio
 .vs/
 
 # JetBrains Rider
 .idea/
-/.cursor
-.agents/
-.omo
-.claude
-CLAUDE.md
