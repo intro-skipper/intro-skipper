@@ -15,7 +15,6 @@ using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -178,35 +177,27 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            Guid? id = item switch
-            {
-                Episode episode => episode.SeasonId,
-                Movie movie => movie.Id,
-                _ => null
-            };
+            // Episodes queue under their season, movies under their own id.
+            var id = item is Episode episode ? episode.SeasonId : item.Id;
+            var delay = itemChangeEventArgs.UpdateReason == ItemUpdateType.None ? 120 : 60;
 
-            if (id.HasValue)
+            lock (_seasonsLock)
             {
-                var delay = itemChangeEventArgs.UpdateReason == ItemUpdateType.None ? 120 : 60;
-
-                lock (_seasonsLock)
+                // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A
+                // replacement at the same path retains the Jellyfin item ID, so the normal
+                // queue would otherwise treat the old automatic analysis and fingerprint
+                // cache as still valid. Defer invalidation until the coordinated analysis
+                // pass, after any currently running analysis has finished writing its state.
+                if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
+                    item.Id != Guid.Empty)
                 {
-                    // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A
-                    // replacement at the same path retains the Jellyfin item ID, so the normal
-                    // queue would otherwise treat the old automatic analysis and fingerprint
-                    // cache as still valid. Defer invalidation until the coordinated analysis
-                    // pass, after any currently running analysis has finished writing its state.
-                    if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
-                        item.Id != Guid.Empty)
-                    {
-                        _itemsToReset[item.Id] = id.Value;
-                    }
-
-                    _seasonsToAnalyze.Add(id.Value);
+                    _itemsToReset[item.Id] = id;
                 }
 
-                StartTimer(delay);
+                _seasonsToAnalyze.Add(id);
             }
+
+            StartTimer(delay);
         }
 
         /// <summary>
@@ -216,35 +207,18 @@ namespace IntroSkipper.Services
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
         private void OnItemRemoved(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
-            try
+            if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item) || item.Id == Guid.Empty)
             {
-                if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
-                {
-                    return;
-                }
-
-                Guid? id = item switch
-                {
-                    Episode episode => episode.Id,
-                    Movie movie => movie.Id,
-                    _ => null
-                };
-
-                if (!id.HasValue || id.Value == Guid.Empty)
-                {
-                    return;
-                }
-
-                LogMediaItemRemoved(id.Value);
-                _cacheDatabase.DeleteForItem(id.Value);
+                return;
             }
-            catch (Exception ex)
-            {
-                LogErrorDeletingFingerprintCache(ex);
-            }
+
+            LogMediaItemRemoved(item.Id);
+            // Best-effort: the facade logs and swallows database errors.
+            _cacheDatabase.DeleteForItem(item.Id);
         }
 
-        private bool TryGetValidItemForAutoProcessing(
+        // An episode or movie with a real location, while automatic analysis is on.
+        private static bool TryGetValidItemForAutoProcessing(
             ItemChangeEventArgs itemChangeEventArgs,
             [NotNullWhen(true)] out BaseItem? item)
         {
@@ -255,24 +229,9 @@ namespace IntroSkipper.Services
             }
 
             var candidate = itemChangeEventArgs.Item;
-            if (candidate is null)
+            if (!MediaItemHelper.IsSupported(candidate) || candidate.LocationType == LocationType.Virtual)
             {
                 return false;
-            }
-
-            // Needed for unit tests: avoid analyzing for virtual items, but don't fail if the item
-            // is partially initialized.
-            try
-            {
-                if (candidate.LocationType == LocationType.Virtual)
-                {
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                // LocationType can throw on partially-initialized items (e.g. in unit tests).
-                LogLocationTypeEvaluationFailed(ex);
             }
 
             item = candidate;
@@ -477,9 +436,6 @@ namespace IntroSkipper.Services
         [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for {Count} changed media items")]
         private static partial void LogErrorResettingChangedMediaItems(ILogger logger, Exception ex, int count);
 
-        [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
-        private partial void LogErrorDeletingFingerprintCache(Exception ex);
-
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media Library changed, analysis will start soon!")]
         private partial void LogMediaLibraryChanged();
 
@@ -494,8 +450,5 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Information, Message = "Analyzing ended, but we need to analyze again!")]
         private partial void LogAnalyzingEndedNeedsRestart();
-
-        [LoggerMessage(Level = LogLevel.Debug, Message = "LocationType evaluation failed for item")]
-        private partial void LogLocationTypeEvaluationFailed(Exception ex);
     }
 }

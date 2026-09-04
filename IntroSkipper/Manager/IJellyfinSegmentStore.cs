@@ -9,7 +9,7 @@ namespace IntroSkipper.Manager;
 /// <summary>
 /// Reads and writes Intro Skipper's media segments directly in Jellyfin's database.
 /// </summary>
-public interface IJellyfinSegmentStore
+internal interface IJellyfinSegmentStore
 {
     /// <summary>
     /// Atomically replaces all of Intro Skipper's segments for an item with the given set.

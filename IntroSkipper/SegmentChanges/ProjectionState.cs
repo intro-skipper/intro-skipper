@@ -16,20 +16,6 @@ public enum ProjectionState
     Skipped
 }
 
-/// <summary>
-/// Result of <see cref="ISegmentProjectionAdapter.ApplyAsync"/>. A disabled mirror is
-/// an outcome, not a failure: the work stays journaled without arming backoff or
-/// recording an error, and replays when mirroring turns on. Real failures throw.
-/// </summary>
-internal enum ProjectionApplyOutcome
-{
-    /// <summary>Jellyfin converged on the item's current truth.</summary>
-    Applied,
-
-    /// <summary>Mirroring is disabled; nothing was pushed and the work must stay pending.</summary>
-    MirroringDisabled,
-}
-
 /// <summary>Expected reasons why a valid intent made no authoritative change.</summary>
 public enum SegmentChangeIgnoredReason
 {

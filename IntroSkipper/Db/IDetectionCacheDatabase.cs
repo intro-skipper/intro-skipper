@@ -11,9 +11,9 @@ namespace IntroSkipper.Db;
 /// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
 /// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
 /// Initialization failures make the cache temporarily unavailable; operations return neutral
-/// results and retry initialization on the next call. Delete operations are best-effort —
-/// the cache is an optimization, so database errors are logged and swallowed (returning 0)
-/// instead of propagating to callers.
+/// results and retry initialization on the next call. Deletes are best-effort: the cache is
+/// an optimization, so database errors are logged and swallowed (returning 0) while
+/// cancellation still propagates.
 /// </summary>
 public interface IDetectionCacheDatabase
 {
@@ -51,17 +51,15 @@ public interface IDetectionCacheDatabase
     void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash);
 
     /// <summary>
-    /// Deletes all cache entries for an item. Best-effort: database errors are logged
-    /// and swallowed. Synchronous for the library-removed event handler, which is not
-    /// async.
+    /// Deletes all cache entries for an item. Synchronous for the library-removed
+    /// event handler, which is not async.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     int DeleteForItem(Guid itemId);
 
     /// <summary>
-    /// Deletes all cache entries for an analysis mode. Best-effort: database errors are
-    /// logged and swallowed (cancellation still propagates).
+    /// Deletes all cache entries for an analysis mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -80,8 +78,7 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Deletes all cache entries for the given items in a single statement; the ID set
-    /// is bound as one JSON parameter, so the item count is unbounded. Best-effort:
-    /// database errors are logged and swallowed (cancellation still propagates).
+    /// is bound as one JSON parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs whose cache entries should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -92,8 +89,7 @@ public interface IDetectionCacheDatabase
     /// Deletes every cache entry whose configuration hash is non-empty, does not start
     /// with <paramref name="acceptedHashPrefix"/>, and is not in
     /// <paramref name="acceptedConfigHashes"/>. The accepted set is bound as a single
-    /// JSON parameter (<c>json_each</c>), so its size is unbounded. Best-effort:
-    /// database errors are logged and swallowed (cancellation still propagates).
+    /// JSON parameter (<c>json_each</c>), so its size is unbounded.
     /// </summary>
     /// <param name="acceptedConfigHashes">Configuration hashes whose entries are kept.</param>
     /// <param name="acceptedHashPrefix">Hash prefix whose entries are kept.</param>

@@ -27,11 +27,11 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
-    ISegmentChange segmentChange,
+    SegmentChange segmentChange,
     IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database) : ControllerBase
 {
-    private readonly ISegmentChange _segmentChange = segmentChange;
+    private readonly SegmentChange _segmentChange = segmentChange;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -62,11 +62,6 @@ public partial class SkipIntroController(
         if (MediaItemHelper.FindSupported(id) is null)
         {
             return NotFound();
-        }
-
-        if (timestamps == null)
-        {
-            return NoContent();
         }
 
         var segmentTypes = new[]

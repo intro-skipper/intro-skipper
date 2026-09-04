@@ -82,7 +82,7 @@ public partial class BaseItemAnalyzerTask(
 
         var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
-        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
+        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (seasonFilter is not null)
         {

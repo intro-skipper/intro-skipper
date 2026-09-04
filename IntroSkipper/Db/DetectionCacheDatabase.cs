@@ -14,7 +14,7 @@ namespace IntroSkipper.Db;
 /// the retryable schema gate: every operation creates a fresh
 /// <see cref="DetectionCacheDbContext"/> from the injected factory.
 /// </summary>
-public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
+internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
@@ -27,9 +27,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <param name="logger">Logger.</param>
     public DetectionCacheDatabase(IDbContextFactory<DetectionCacheDbContext> contextFactory, ILogger<DetectionCacheDatabase> logger)
     {
-        ArgumentNullException.ThrowIfNull(contextFactory);
-        ArgumentNullException.ThrowIfNull(logger);
-
         _contextFactory = contextFactory;
         _logger = logger;
 
@@ -118,8 +115,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleItemIdsAsync(IReadOnlySet<Guid> validItemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(validItemIds);
-
         var validIds = validItemIds.ToArray();
 
         if (!TryInitialize())
@@ -143,8 +138,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -159,9 +152,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<int> DeleteEntriesWithUnknownConfigHashAsync(IReadOnlyCollection<string> acceptedConfigHashes, string acceptedHashPrefix, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(acceptedConfigHashes);
-        ArgumentException.ThrowIfNullOrEmpty(acceptedHashPrefix);
-
         var hashes = acceptedConfigHashes.Distinct().ToArray();
 
         // EF.Parameter binds the accepted set as a single JSON parameter (json_each), so

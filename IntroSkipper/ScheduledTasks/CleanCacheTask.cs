@@ -34,7 +34,7 @@ public partial class CleanCacheTask(
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
     DetectionCacheService cacheService,
-    ISegmentChange segmentChange) : IScheduledTask
+    SegmentChange segmentChange) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
@@ -42,7 +42,7 @@ public partial class CleanCacheTask(
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly ISegmentChange _segmentChange = segmentChange;
+    private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Gets the task name.
@@ -79,19 +79,18 @@ public partial class CleanCacheTask(
 
         // QueueManager.GetMediaInventoryAsync() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var inventory = await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var queue = await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
         // incomplete queue would push swathes of healthy data through the stale-candidate
         // path and lean entirely on the per-id existence check below. Bail out instead.
-        if (!inventory.IsComplete)
+        if (queueManager.EnumerationFailureCount > 0)
         {
-            LogSkippingCleanupEnumerationFailures(_logger, Math.Max(1, queueManager.EnumerationFailureCount));
+            LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
             progress.Report(100);
             return;
         }
 
-        var queue = inventory.Items;
         var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(static episodes => episodes)
             .Select(static episode => episode.EpisodeId)
@@ -152,14 +151,9 @@ public partial class CleanCacheTask(
             .Where(IsGone)
             .ToList();
 
-        // Log and batch-delete all invalid episode DB rows in a single round-trip.
-        foreach (var episodeId in invalidEpisodeIds)
-        {
-            LogDeletingDetectionCacheRows(_logger, episodeId);
-        }
-
         if (invalidEpisodeIds.Count > 0)
         {
+            LogDeletingDetectionCacheRows(_logger, invalidEpisodeIds.Count);
             // Best-effort: the facade logs and swallows database errors.
             await _cacheDatabase
                 .DeleteForItemsAsync(invalidEpisodeIds, cancellationToken)
@@ -197,8 +191,8 @@ public partial class CleanCacheTask(
         return [];
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
-    private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for {Count} items the server no longer knows")]
+    private static partial void LogDeletingDetectionCacheRows(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Deleted {Count} detection cache rows that are unreadable under the current configuration")]
     private static partial void LogDeletedUnreadableCacheRows(ILogger logger, int count);

@@ -6,14 +6,13 @@ using Microsoft.EntityFrameworkCore;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Projection-journal (<see cref="ISegmentProjectionJournal"/>) operations of
-/// <see cref="IntroSkipperDatabase"/>. Enqueueing lives in
-/// <c>IntroSkipperDatabase.Changes.cs</c>, atomically with the mutation.
+/// Projection-journal operations of <see cref="IntroSkipperDatabase"/>. Enqueueing
+/// lives in <c>IntroSkipperDatabase.Changes.cs</c>, atomically with the mutation.
 /// </summary>
-public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    async Task<IReadOnlyList<DbProjectionQueueItem>> ISegmentProjectionJournal.GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -28,7 +27,7 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
     }
 
     /// <inheritdoc/>
-    async Task<IReadOnlyList<Guid>> ISegmentProjectionJournal.GetDueProjectionItemIdsAsync(DateTime now, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Guid>> GetDueProjectionItemIdsAsync(DateTime now, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -42,7 +41,7 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
     }
 
     /// <inheritdoc/>
-    async Task<ProjectionWork?> ISegmentProjectionJournal.ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken)
+    public async Task<(DbProjectionQueueItem Item, IReadOnlyList<DbProjectionExternalOperation> Operations)?> ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -60,14 +59,12 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
             .OrderBy(o => o.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-        return new ProjectionWork(item, operations);
+        return (item, operations);
     }
 
     /// <inheritdoc/>
-    async Task<bool> ISegmentProjectionJournal.CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
+    public async Task<bool> CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(processedOperationIds);
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
@@ -86,10 +83,8 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
     }
 
     /// <inheritdoc/>
-    async Task ISegmentProjectionJournal.RecordProjectionFailureAsync(Guid itemId, long version, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
+    public async Task RecordProjectionFailureAsync(Guid itemId, long version, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(failure);
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 

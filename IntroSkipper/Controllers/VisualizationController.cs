@@ -42,10 +42,10 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, ISegmentChange segmentChange, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly ISegmentChange _segmentChange = segmentChange;
+    private readonly SegmentChange _segmentChange = segmentChange;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
@@ -122,20 +122,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        try
-        {
-            await EraseSeasonCoreAsync(seriesId, seasonId, episodes, eraseCache, cancellationToken).ConfigureAwait(false);
-            return NoContent();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
-            return Problem("An unexpected error occurred while erasing season data.", statusCode: StatusCodes.Status500InternalServerError);
-        }
+        LogErasingTimestamps(_logger, seriesId, seasonId);
+        await EraseItemsAsync(episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+        return NoContent();
     }
 
     /// <summary>
@@ -148,31 +137,19 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken = default)
     {
-        try
+        var queue = await _analyzerFactory.CreateQueueManager().GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var excludedIds = queue.Values
+            .SelectMany(static episodes => episodes)
+            .Where(static episode => episode.IsExcluded)
+            .Select(static episode => episode.EpisodeId)
+            .ToHashSet();
+        if (excludedIds.Count == 0)
         {
-            var queue = (await _analyzerFactory.CreateQueueManager().GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
-            var excludedIds = queue.Values
-                .SelectMany(static episodes => episodes)
-                .Where(static episode => episode.IsExcluded)
-                .Select(static episode => episode.EpisodeId)
-                .ToHashSet();
-            if (excludedIds.Count == 0)
-            {
-                return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
-            }
+            return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
+        }
 
-            var (removedSegments, removedCacheEntries) = await EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
-            return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogFailedToClearExcludedTimestamps(_logger, ex);
-            return Problem("An unexpected error occurred while clearing excluded timestamp data.", statusCode: StatusCodes.Status500InternalServerError);
-        }
+        var (removedSegments, removedCacheEntries) = await EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }
 
     /// <summary>
@@ -255,34 +232,16 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             seasonKey = itemId;
         }
 
-        try
-        {
-            // The coordinator commits the flag durably with its projection work in one
-            // transaction; a failed or skipped Jellyfin resync never rolls the flag
-            // back — the journaled work converges the mirror instead.
-            var outcome = await _segmentChange
-                .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
-                .ConfigureAwait(false);
-            // An idempotent toggle succeeds too (its journaled re-projection still
-            // heals a diverged mirror).
-            return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Only a failure to commit throws; nothing was changed then.
-            LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-            return Problem("Setting the item's disable flag failed; nothing was changed.", statusCode: StatusCodes.Status500InternalServerError);
-        }
-    }
-
-    private Task EraseSeasonCoreAsync(Guid seriesId, Guid seasonId, IReadOnlyList<QueuedEpisode> episodes, bool eraseCache, CancellationToken cancellationToken)
-    {
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-        return EraseItemsAsync(episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken);
+        // The coordinator commits the flag durably with its projection work in one
+        // transaction; a failed or skipped Jellyfin resync never rolls the flag back,
+        // the journaled work converges the mirror instead. Only a failure to commit
+        // throws, and nothing was changed then.
+        var outcome = await _segmentChange
+            .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
+            .ConfigureAwait(false);
+        // An idempotent toggle succeeds too (its journaled re-projection still
+        // heals a diverged mirror).
+        return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
     }
 
     /// <summary>
@@ -348,10 +307,20 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         LogStartRescan(_logger, seasonId);
 
                         // Erase season timestamps and cache first; a season the queue does not
-                        // know has nothing to erase.
+                        // know has nothing to erase. An erase failure is logged and the
+                        // analysis still runs: its writes replace what the erase would have
+                        // removed.
                         if (Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes) && episodes.Count > 0)
                         {
-                            await EraseSeasonCoreAsync(seriesId, seasonId, episodes, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
+                            try
+                            {
+                                LogErasingTimestamps(_logger, seriesId, seasonId);
+                                await EraseItemsAsync(episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache: true, CancellationToken.None).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
+                            }
                         }
 
                         var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
@@ -377,11 +346,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [LoggerMessage(Level = LogLevel.Information, Message = "Erasing timestamps for series {SeriesId} season {SeasonId} at user request")]
     private static partial void LogErasingTimestamps(ILogger logger, Guid seriesId, Guid seasonId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId} before the rescan; analyzing anyway")]
     private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to clear excluded timestamp data")]
-    private static partial void LogFailedToClearExcludedTimestamps(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
     private static partial void LogStartRescan(ILogger logger, Guid seasonId);
@@ -391,7 +357,4 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to set item {ItemId} disabled={Disabled}; the authoritative write did not commit and nothing was changed")]
-    private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

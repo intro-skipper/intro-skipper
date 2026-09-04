@@ -146,10 +146,8 @@ public sealed class TestMediaSegmentMirror
 
         // The mirror flag lives in the mirror, not at call sites: every operation
         // reports the typed disabled outcome and leaves the store untouched.
-        Assert.Equal(MirrorSyncOutcome.MirroringDisabled, await mirror.SyncItemAsync(itemId, CancellationToken.None));
-        Assert.Equal(
-            MirrorDeleteOutcome.MirroringDisabled,
-            await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
+        Assert.False(await mirror.SyncItemAsync(itemId, CancellationToken.None));
+        Assert.Null(await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
 
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);

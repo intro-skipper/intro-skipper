@@ -22,8 +22,6 @@ internal sealed class RetryableInitializationGate
     /// await instead.</param>
     public RetryableInitializationGate(Func<Task> attemptFactory)
     {
-        ArgumentNullException.ThrowIfNull(attemptFactory);
-
         _attemptFactory = attemptFactory;
         _current = CreateAttempt();
     }
@@ -39,8 +37,6 @@ internal sealed class RetryableInitializationGate
     /// <returns>A task that completes when initialization has completed.</returns>
     public async Task AwaitValueAsync(Action<Exception> onFirstFailure)
     {
-        ArgumentNullException.ThrowIfNull(onFirstFailure);
-
         var attempt = GetAttempt();
 
         try
@@ -58,11 +54,8 @@ internal sealed class RetryableInitializationGate
         }
     }
 
-    /// <summary>
-    /// Returns the current shared initialization attempt.
-    /// </summary>
-    /// <returns>The current lazy attempt.</returns>
-    public Lazy<Task> GetAttempt()
+    // The current shared attempt; exposed for tests.
+    internal Lazy<Task> GetAttempt()
     {
         lock (_syncRoot)
         {
@@ -70,12 +63,9 @@ internal sealed class RetryableInitializationGate
         }
     }
 
-    /// <summary>
-    /// Replaces a failed attempt when it is still current.
-    /// </summary>
-    /// <param name="failedAttempt">The failed attempt observed by the caller.</param>
-    /// <returns><see langword="true"/> when this caller installed the replacement.</returns>
-    public bool ResetIfCurrent(Lazy<Task> failedAttempt)
+    // Replaces a failed attempt when it is still current; true when this caller
+    // installed the replacement.
+    internal bool ResetIfCurrent(Lazy<Task> failedAttempt)
     {
         lock (_syncRoot)
         {

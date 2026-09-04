@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper
 {
@@ -38,12 +39,8 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade. The segment facade is
-            // registered once and forwarded to both of its interfaces so the domain
-            // surface and the projection journal share one gate and one instance.
-            serviceCollection.AddSingleton<IntroSkipperDatabase>();
-            serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
-            serviceCollection.AddSingleton<ISegmentProjectionJournal>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
+            // gates; every consumer goes through a facade.
+            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
             serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
@@ -87,8 +84,13 @@ namespace IntroSkipper
             // later plugin) the global TimeProvider slot for every consumer.
             serviceCollection.TryAddSingleton(TimeProvider.System);
             serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
-            serviceCollection.AddSingleton<SegmentChange>();
-            serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton(serviceProvider => new SegmentChange(
+                serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
+                serviceProvider.GetRequiredService<ISegmentProjectionAdapter>(),
+                serviceProvider.GetRequiredService<IMediaSegmentMirrorPolicy>(),
+                serviceProvider.GetRequiredService<SegmentMutationLocks>(),
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                serviceProvider.GetRequiredService<ILogger<SegmentChange>>()));
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>

@@ -9,7 +9,7 @@ namespace IntroSkipper.Helper;
 /// <param name="Name">Property name on <see cref="Configuration.PluginConfiguration"/>.</param>
 /// <param name="Value">Current value, formatted for display.</param>
 /// <param name="Default">Value of a fresh configuration, formatted the same way.</param>
-public sealed record SettingValue(string Name, string Value, string Default)
+internal sealed record SettingValue(string Name, string Value, string Default)
 {
     /// <summary>
     /// Gets a value indicating whether the setting is unchanged from its default.

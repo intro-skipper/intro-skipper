@@ -45,12 +45,16 @@ internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Seg
     /// </summary>
     /// <param name="itemId">The id of the media item to synchronize.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Whether the item converged or mirroring is disabled.</returns>
-    public async Task<MirrorSyncOutcome> SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
+    /// <returns><see langword="true"/> when the item converged (a matching mirror counts:
+    /// the skip-when-unchanged comparison verified it); <see langword="false"/> when
+    /// mirroring is disabled and Jellyfin was not touched. The disabled answer comes
+    /// from the same check that gated the write, so the durable projection never
+    /// reports unpushed work as done.</returns>
+    public async Task<bool> SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
     {
         if (!policy.Enabled)
         {
-            return MirrorSyncOutcome.MirroringDisabled;
+            return false;
         }
 
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
@@ -61,7 +65,7 @@ internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Seg
             await segmentStore.ReplaceSegmentsAsync(itemId, segments, cancellationToken).ConfigureAwait(false);
         }
 
-        return MirrorSyncOutcome.Synced;
+        return true;
     }
 
     /// <summary>
@@ -78,18 +82,20 @@ internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Seg
     /// <param name="startTicks">The start ticks the row carried when the delete was validated.</param>
     /// <param name="endTicks">The end ticks the row carried when the delete was validated.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>What happened to the row; <see cref="MirrorDeleteOutcome.RowNotFound"/>
-    /// covers both a vanished row and one that no longer matches its validated shape.</returns>
-    public async Task<MirrorDeleteOutcome> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
+    /// <returns><see langword="true"/> when the row existed and was deleted;
+    /// <see langword="false"/> when no row matched (vanished, or no longer matching its
+    /// validated shape); <see langword="null"/> when mirroring is disabled and Jellyfin
+    /// was not touched, so a config flip mid-flight cannot masquerade as drift.</returns>
+    public async Task<bool?> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
         if (!policy.Enabled)
         {
-            return MirrorDeleteOutcome.MirroringDisabled;
+            return null;
         }
 
         using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var rowsDeleted = await segmentStore.DeleteValidatedSegmentAsync(itemId, segmentId, type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        return rowsDeleted > 0 ? MirrorDeleteOutcome.Deleted : MirrorDeleteOutcome.RowNotFound;
+        return rowsDeleted > 0;
     }
 
     // (Id, StartTicks, EndTicks, Type) plus the query-fixed item and provider id is the
