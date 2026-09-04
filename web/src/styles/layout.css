@@ -6,6 +6,74 @@
     padding-bottom: calc(52px + env(safe-area-inset-bottom));
 }
 
+/* One keyboard focus ring for every control. Plain checkboxes keep the browser
+   ring; the search and filter inputs use a box-shadow instead. Zero-specificity
+   wrappers let a plain class rule adjust the offset or radius. */
+:where(.app-shell, .is-confirm-dialog)
+    :where(button, select, summary, a, input):where(
+        :not(.ts-search-input, .ts-filter-input, [type="checkbox"]),
+        .ts-episode-disable-toggle
+    ):focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+/* Accent buttons: the footer Save and the per-section action buttons. */
+.save-button,
+.action-button {
+    background: var(--is-accent);
+    color: var(--is-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.save-button:hover,
+.action-button:hover {
+    opacity: 0.9;
+}
+
+/* Ghost buttons: input-colored background with a thin border. */
+.ts-manage-toggle,
+.ts-action-btn.apply,
+.exclusion-add-button,
+.exclusion-remove-button,
+.is-confirm-btn.cancel {
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Outline buttons inside episode cards. */
+.ts-edit-btn,
+.ts-segment-btn {
+    padding: 2px 10px;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+/* Compact inputs in the timestamps browser (show search, episode filter). */
+.ts-search-input,
+.ts-filter-input {
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    color: var(--is-text);
+    font-size: 0.85em;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.ts-search-input:focus-visible,
+.ts-filter-input:focus-visible {
+    border-color: var(--is-input-focus);
+    box-shadow: 0 0 0 1px var(--is-input-focus);
+}
+
 .app-title {
     margin: 0;
     font-size: 1.4em;
@@ -109,11 +177,6 @@
     background: var(--is-hover);
 }
 
-.tab-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
-}
-
 .tab-active {
     background: color-mix(in srgb, var(--is-accent) 15%, transparent);
     color: var(--is-accent);
@@ -121,30 +184,15 @@
 }
 
 .dirty-indicator {
-    display: none;
     font-size: 0.85em;
     color: var(--is-warning);
     white-space: nowrap;
 }
 
 .save-button {
-    background: var(--is-accent);
-    color: var(--is-on-accent);
-    border: none;
     padding: 8px 20px;
-    border-radius: 4px;
-    cursor: pointer;
     font-size: 0.95em;
     touch-action: manipulation;
-}
-
-.save-button:hover {
-    opacity: 0.9;
-}
-
-.save-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .save-button:disabled {
@@ -205,8 +253,6 @@
 }
 
 .ts-breadcrumb-link:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
     border-radius: 2px;
 }
 
@@ -228,18 +274,6 @@
 .ts-search-input {
     width: 100%;
     padding: 6px 10px 6px 28px;
-    background: var(--is-input-bg);
-    border: 1px solid var(--is-input-border);
-    border-radius: 4px;
-    color: var(--is-text);
-    font-size: 0.85em;
-    outline: none;
-    box-sizing: border-box;
-}
-
-.ts-search-input:focus-visible {
-    border-color: var(--is-input-focus);
-    box-shadow: 0 0 0 1px var(--is-input-focus);
 }
 
 .ts-search-icon {
@@ -334,11 +368,6 @@
     color: var(--is-text);
 }
 
-.ts-season-tab:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
-}
-
 .ts-season-tab.active {
     color: var(--is-accent);
     border-bottom: 2px solid var(--is-accent);
@@ -350,12 +379,8 @@
 }
 
 .ts-manage-toggle {
-    background: var(--is-input-bg);
     color: var(--is-text-muted);
-    border: 1px solid var(--is-input-border);
     padding: 5px 12px;
-    border-radius: 4px;
-    cursor: pointer;
     font-size: 0.8em;
     font-family: inherit;
     touch-action: manipulation;
@@ -363,11 +388,6 @@
 
 .ts-manage-toggle:hover {
     color: var(--is-text);
-}
-
-.ts-manage-toggle:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .ts-season-panel {
