@@ -29,46 +29,33 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Applies one closed segment-change intent in a single transaction: the mutation,
-    /// its analysis-record bookkeeping, and the durable projection journal — a
-    /// per-item queue marker plus
-    /// any journaled foreign-row delete — so a committed change can never lose its
-    /// projection to a crash. Invalid intents and unowned external targets return
-    /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
-    /// <see cref="Ignored"/> and still journal a re-projection — re-asserting held
-    /// state is how a diverged mirror heals on retry — except when their target
-    /// exists in no state at all, where nothing addressable can have diverged and
-    /// nothing is journaled. Callers must serialize calls per item (the
-    /// coordinator's mutation stripe); concurrent first-time enqueues for one item
-    /// can otherwise fail on the queue's primary key.
+    /// its analysis-record bookkeeping and the projection journal. Rejected intents
+    /// journal nothing; ignored (already held) intents still journal a re-projection
+    /// unless their target exists in no state at all. Callers must serialize calls
+    /// per item (the coordinator's mutation stripe): concurrent first-time enqueues
+    /// for one item can otherwise fail on the queue's primary key. Outcome semantics:
+    /// <c>docs/segment-database-v2.md</c>.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
     /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
-    /// <see cref="EditorDeleteSegmentIntent"/> addresses. Invoked at most once,
-    /// inside the transaction, only after the in-transaction correlated lookup
-    /// misses — a correlated dispatch never depends on a Jellyfin read. Ignored for
-    /// other intents.</param>
+    /// <see cref="EditorDeleteSegmentIntent"/> addresses; invoked at most once, inside
+    /// the transaction, only after the correlated lookup misses. Ignored for other
+    /// intents.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
     /// <see langword="null"/> when the change committed.</returns>
     Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Atomically replaces the active automatic segments of an item and mode with the
-    /// accepted subset of <paramref name="segments"/>. A segment is rejected when it is
-    /// invalid (end not after start), overlaps a tombstone of the same item and mode,
-    /// overlaps an active user segment of the same mode, is an automatic credits segment
-    /// overlapping any active introduction, exactly matches a row of the other pass, or
-    /// exactly duplicates an earlier accepted segment of the same batch.
-    /// The write only replaces the rows its own pass produced: credits-derived rows
-    /// (<see cref="SegmentSource.CreditsDerived"/>) belong to the credits pass, every
-    /// other automatic row to the mode's own pass — the attribution rule of
-    /// <see cref="CleanStaleAutomaticSegmentsAsync"/> — so the passes sharing the
-    /// Preview mode cannot delete each other's rows.
-    /// Automatic rows whose boundaries match an accepted segment exactly are kept in
-    /// place (stable ids); an empty list clears the pass's automatic segments of the mode.
-    /// A non-empty list whose candidates are all rejected leaves the pass's standing rows
-    /// untouched: the rejections record human intent or policy, not stale detection.
-    /// User segments and tombstones are never touched.
+    /// Atomically replaces the active automatic segments the writing pass produced for
+    /// an item and mode with the admitted subset of <paramref name="segments"/>
+    /// (<see cref="AutoSegmentAdmissionPolicy"/>: tombstones, user rows and intro
+    /// overlap for credits reject a candidate; exact matches of the other pass or of
+    /// an earlier candidate are dropped). Rows whose boundaries match an accepted
+    /// segment keep their ids; an empty list clears the pass's rows; a non-empty list
+    /// whose candidates were all rejected leaves the standing rows untouched. User
+    /// segments and tombstones are never touched. A write that changes the servable
+    /// image journals the item's projection in the same transaction.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="mode">Analysis mode the segments belong to.</param>
@@ -76,13 +63,8 @@ public interface IIntroSkipperDatabase
     /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
     /// <param name="configHash">Configuration hash that produced the segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of active automatic segments of the writing pass written or kept by this
-    /// write; 0 for a fully rejected write, whose standing rows are left as they were.</returns>
-    /// <remarks>
-    /// A write that changes the item's servable image journals the item's projection
-    /// in the same transaction, so the projection worker converges Jellyfin even if
-    /// the process dies before any mirror push.
-    /// </remarks>
+    /// <returns>The number of the pass's active automatic segments written or kept;
+    /// 0 for a fully rejected write.</returns>
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -123,12 +105,9 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Erases the supplied items: every segment (tombstones included) and every analysis
-    /// record, in one transaction, so items still in the library are re-analyzed from
-    /// scratch on the next scan and items that left it (or had their media replaced)
-    /// leave nothing behind. Season state and disable flags are untouched. The ID set is
-    /// bound as one JSON parameter, so the item count is unbounded. Items that held rows
-    /// journal their projections with the erase, so their Jellyfin mirrors converge
-    /// durably — items already gone from the library included.
+    /// record, in one transaction, with every item's projection journaled. Season state
+    /// and disable flags are untouched. The ID set is bound as one JSON parameter, so
+    /// the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -147,27 +126,18 @@ public interface IIntroSkipperDatabase
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes stale automatic segments for the supplied items and mode: active rows of
-    /// the mode whose <see cref="DbSegment.ConfigHash"/> differs from <paramref name="configHash"/>.
-    /// Rows are judged by the pass that produces them: credits-derived anime previews
-    /// (<see cref="SegmentSource.CreditsDerived"/>, stamped with the credits hash) are
-    /// cleaned by the <see cref="AnalysisMode.Credits"/> pass and ignored by the
-    /// <see cref="AnalysisMode.Preview"/> pass. User-provided segments and tombstones
-    /// are intentionally preserved, and so are rows with an empty hash (restored
-    /// tombstones, legacy imports without a recorded hash — they make no staleness
-    /// claim) and the automatic rows of any type the item holds an active user row for
-    /// (the analyzers skip such items, so nothing would regenerate the rows).
+    /// Removes the pass's stale automatic segments for the supplied items: active rows
+    /// whose <see cref="DbSegment.ConfigHash"/> is non-empty and differs from
+    /// <paramref name="configHash"/>. Credits-derived rows belong to the credits pass.
+    /// User segments, tombstones, rows with an empty hash and the automatic rows of a
+    /// type the item holds an active user row for are kept. The affected items'
+    /// projections are journaled with the delete.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of rows removed.</returns>
-    /// <remarks>
-    /// The affected items' projections are journaled with the delete, so the removed
-    /// rows reach the Jellyfin mirror even when the following analysis detects
-    /// nothing new — and even if the process dies before any mirror push.
-    /// </remarks>
     Task<int> CleanStaleAutomaticSegmentsAsync(IEnumerable<Guid> itemIds, AnalysisMode mode, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -215,13 +185,11 @@ public interface IIntroSkipperDatabase
     Task RecordSettleReanalysisAsync(Guid seasonId, IReadOnlyCollection<AnalysisMode> modes, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clears stored automatic analysis state for the items so they are re-analyzed from
-    /// scratch on the current pass: the modes' automatic segments and analysis records go
-    /// in a single transaction; user-provided segments and tombstones are preserved, and
-    /// so are the automatic rows of an item that holds an active user row of the same mode
-    /// (the analyzers skip such an item, so nothing would regenerate them). Items whose
-    /// rows were deleted journal their projections with the reset, so the removals reach
-    /// the Jellyfin mirror even when the recompute finds nothing.
+    /// Clears the items' automatic segments and analysis records for the modes in one
+    /// transaction so the current pass re-analyzes them from scratch. User segments,
+    /// tombstones and the automatic rows of a type the item holds an active user row
+    /// for are kept. Items whose rows were deleted journal their projections with the
+    /// reset.
     /// </summary>
     /// <param name="itemIds">Item IDs to reset.</param>
     /// <param name="modes">Analysis modes to reset.</param>

@@ -79,22 +79,22 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
-    public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
+    internal ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
     /// Gets the total number of media items in the queue.
     /// </summary>
-    public int TotalQueued => QueuedMediaItems.Values.Sum(episodes => episodes.Count);
+    internal int TotalQueued => QueuedMediaItems.Values.Sum(episodes => episodes.Count);
 
     /// <summary>
     /// Gets the number of seasons in the queue.
     /// </summary>
-    public int TotalSeasons => QueuedMediaItems.Count;
+    internal int TotalSeasons => QueuedMediaItems.Count;
 
     /// <summary>
     /// Gets the full path to FFmpeg.
     /// </summary>
-    public string FFmpegPath { get; private set; }
+    internal string FFmpegPath { get; }
 
     /// <inheritdoc />
     public override string Name => ProviderName;

@@ -9,7 +9,7 @@ namespace IntroSkipper.Db;
 /// Projection-journal operations of <see cref="IntroSkipperDatabase"/>. Enqueueing
 /// lives in <c>IntroSkipperDatabase.Changes.cs</c>, atomically with the mutation.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken)

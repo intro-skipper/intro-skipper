@@ -10,7 +10,7 @@ namespace IntroSkipper.Db;
 /// Bulk maintenance operations of <see cref="IntroSkipperDatabase"/> spanning
 /// segments, analysis records and season state.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(
@@ -119,14 +119,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The segment deletes and the analysis-record deletes run in a single transaction so a
-    /// cancelled reset cannot leave segments deleted while their items are still recorded
-    /// as analyzed. Automatic rows of an item that also holds an active user row of the
-    /// same mode are kept: the queue classifies such an item as <c>UserProvided</c> for
-    /// that mode and the analyzers skip it, so nothing would regenerate the rows (the same
-    /// rule as <see cref="CleanStaleAutomaticSegmentsAsync"/>'s callers).
-    /// </remarks>
     public async Task ResetItemsForReanalysisAsync(
         IEnumerable<Guid> itemIds,
         IReadOnlyCollection<AnalysisMode> modes,

@@ -12,7 +12,7 @@ namespace IntroSkipper.Helper;
 /// Lists every persisted plugin setting with its current and default value for the support bundle,
 /// so newly added settings show up without any bookkeeping here.
 /// </summary>
-public static class ConfigurationReport
+internal static class ConfigurationReport
 {
     // Public readable instance properties are the persisted settings; [XmlIgnore] members are runtime state.
     private static readonly PropertyInfo[] SettingProperties =

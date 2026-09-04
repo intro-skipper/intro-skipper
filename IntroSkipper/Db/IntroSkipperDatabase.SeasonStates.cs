@@ -11,7 +11,7 @@ namespace IntroSkipper.Db;
 /// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>,
 /// plus the queue-verification snapshot that joins season state, analysis records and segments.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)

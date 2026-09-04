@@ -16,7 +16,7 @@ namespace IntroSkipper.Db;
 /// crash. The journal records work, not data — projection re-derives the item's image
 /// from current truth when it runs.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <summary>
     /// Rows mirrored before the shared-id scheme were converted from seconds by

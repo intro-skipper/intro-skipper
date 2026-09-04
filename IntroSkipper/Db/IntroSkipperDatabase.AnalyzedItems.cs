@@ -9,7 +9,7 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Per-item analysis record (<see cref="DbAnalyzedItem"/>) operations of <see cref="IntroSkipperDatabase"/>.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default)

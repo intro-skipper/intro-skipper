@@ -9,7 +9,7 @@ namespace IntroSkipper.Db;
 /// Disabled-item operations of <see cref="IntroSkipperDatabase"/>: items whose
 /// automatic segments are withheld from Jellyfin.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)

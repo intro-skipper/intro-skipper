@@ -23,7 +23,7 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="contextFactory">The server's Jellyfin database context factory.</param>
 /// <param name="logger">Application logger.</param>
-public sealed partial class JellyfinSegmentStore(
+internal sealed partial class JellyfinSegmentStore(
     IDbContextFactory<JellyfinDbContext> contextFactory,
     ILogger<JellyfinSegmentStore> logger) : IJellyfinSegmentStore
 {

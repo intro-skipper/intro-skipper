@@ -14,7 +14,7 @@ namespace IntroSkipper.Db;
 /// the retryable schema gate: every operation creates a fresh
 /// <see cref="DetectionCacheDbContext"/> from the injected factory.
 /// </summary>
-public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
+internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;

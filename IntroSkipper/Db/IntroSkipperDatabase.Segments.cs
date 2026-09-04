@@ -13,7 +13,7 @@ namespace IntroSkipper.Db;
 /// caller-owned context; <see cref="ApplyChangeAsync"/> composes them with the
 /// analysis bookkeeping and the projection journal in one transaction.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task<int> ReplaceAutoSegmentsAsync(
@@ -142,11 +142,8 @@ public sealed partial class IntroSkipperDatabase
 
             db.Segments.AddRange(accepted);
 
-            // Journal the item's projection with the rows in one transaction when
-            // the servable image changed (a row added or removed; kept rows only
-            // rewrite bookkeeping the mirror does not carry), so an analysis
-            // write can never lose its mirror push to a crash. The projection
-            // worker's poll converges the item.
+            // Journal only when the servable image changed: kept rows rewrite
+            // bookkeeping the mirror does not carry.
             if (accepted.Count > 0 || autoRows.Count > kept)
             {
                 await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
@@ -523,9 +520,6 @@ public sealed partial class IntroSkipperDatabase
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // The kernel journals every erased item's projection with the erase, so
-            // Jellyfin's rows converge away even if the process dies before the
-            // mirror is pushed.
             var (_, itemIds) = await DeleteSegmentsAndJournalAsync(
                 db,
                 db.Segments.Where(s => s.Type == mode),

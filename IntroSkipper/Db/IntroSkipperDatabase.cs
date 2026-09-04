@@ -20,7 +20,7 @@ namespace IntroSkipper.Db;
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory.
 /// </summary>
-public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 {
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
