@@ -87,14 +87,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
-    /// Gets or sets the total number of episodes in the queue.
+    /// Gets the total number of media items in the queue.
     /// </summary>
-    public int TotalQueued { get; set; }
+    public int TotalQueued => QueuedMediaItems.Values.Sum(episodes => episodes.Count);
 
     /// <summary>
-    /// Gets or sets the number of seasons in the queue.
+    /// Gets the number of seasons in the queue.
     /// </summary>
-    public int TotalSeasons { get; set; }
+    public int TotalSeasons => QueuedMediaItems.Count;
 
     /// <summary>
     /// Gets the directory to cache fingerprints in.
@@ -142,8 +142,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
-
-    internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();
 

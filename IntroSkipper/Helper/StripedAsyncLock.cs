@@ -10,7 +10,7 @@ namespace IntroSkipper.Helper;
 /// two unrelated items' operations, which is harmless. Stripes are never disposed, so an
 /// instance must live for the process lifetime inside a singleton.
 /// </summary>
-internal sealed class StripedAsyncLock
+internal class StripedAsyncLock
 {
     private const int StripeCount = 32; // power of two so the index is a mask
 

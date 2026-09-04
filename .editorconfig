@@ -446,6 +446,9 @@ dotnet_diagnostic.SA1130.severity = none
 # disable warning SA1200: 'using' directive must appear within a namespace declaration
 dotnet_diagnostic.SA1200.severity = none
 
+# disable warning SA1402: File may only contain a single type (small closed type sets share a file)
+dotnet_diagnostic.SA1402.severity = none
+
 # disable warning SA1202: 'public' members must come before 'private' members
 dotnet_diagnostic.SA1202.severity = none
 

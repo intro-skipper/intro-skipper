@@ -77,9 +77,9 @@ public partial class CleanCacheTask(
     {
         var queueManager = _analyzerFactory.CreateQueueManager();
 
-        // QueueManager.GetMediaInventory() already skips libraries where the plugin is disabled via
+        // QueueManager.GetMediaInventoryAsync() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        var inventory = await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
         var queue = inventory.Items;
         var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(static episodes => episodes)

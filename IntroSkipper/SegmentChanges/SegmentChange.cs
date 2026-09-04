@@ -11,8 +11,8 @@ namespace IntroSkipper.SegmentChanges;
 /// <summary>
 /// Durable segment-change coordinator and retry worker. A change commits through the
 /// facade's intent transaction (mutation plus journal) under the shared per-item
-/// mutation stripe, is projected immediately, and — when that fails or the process
-/// dies — is retried from the journal with exponential backoff until Jellyfin
+/// mutation stripe, is projected immediately, and when that fails or the process
+/// dies is retried from the journal with exponential backoff until Jellyfin
 /// converges. The journal records work, not data: applying always re-projects the
 /// item's current truth through the mirror, so retries and replays can never push a
 /// stale image. While mirroring is disabled the work sits durably (state
@@ -48,7 +48,7 @@ internal sealed partial class SegmentChange(
 
         // The editor delete's Jellyfin target resolves lazily inside the facade
         // transaction, only after the in-transaction correlated lookup misses and
-        // shape validation passed — one read, one decision point. The stripe held
+        // shape validation passed: one read, one decision point. The stripe held
         // here serializes that resolution with concurrent projections of the same
         // item, so a resolved target cannot go stale against another request's
         // delete: either that delete's projection already ran (the row is gone and
@@ -71,7 +71,7 @@ internal sealed partial class SegmentChange(
         if (result is { Reproject: false, Outcome: { } probeOutcome })
         {
             // A no-reproject Ignore journaled nothing (its target exists in no state
-            // at all), so there is nothing to project — and force-projecting anyway
+            // at all), so there is nothing to project, and force-projecting anyway
             // would let a 404-style probe run the item's unrelated pending work ahead
             // of the backoff its failure earned.
             return probeOutcome;
@@ -82,43 +82,6 @@ internal sealed partial class SegmentChange(
         // diverged mirror (a ghost or missing Jellyfin row) heals on retry.
         var projected = await ProjectCommittedItemAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
         return result.Outcome ?? new Accepted(result.Affected, projected);
-    }
-
-    /// <inheritdoc />
-    public async Task<ProjectionStatus> GetProjectionStatusAsync(ProjectionScope scope, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        var rows = await journal.GetProjectionQueueAsync(scope.ItemId, cancellationToken).ConfigureAwait(false);
-        var pendingState = mirrorPolicy.Enabled ? ProjectionState.Pending : ProjectionState.Skipped;
-        var items = rows.Select(row => new ItemProjectionStatus(row.ItemId, pendingState, row.AttemptCount, row.NextAttemptAt, row.Failure)).ToList();
-
-        // Applied items hold no queue row, so the all-items scope lists only pending
-        // work; a one-item scope still answers explicitly.
-        if (scope.ItemId is { } itemId && items.Count == 0)
-        {
-            items.Add(new ItemProjectionStatus(itemId, ProjectionState.Applied, 0, null, null));
-        }
-
-        return new ProjectionStatus(scope, items);
-    }
-
-    /// <inheritdoc />
-    public async Task<ProjectionRetryOutcome> RetryProjectionAsync(ProjectionScope scope, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        var rows = await journal.GetProjectionQueueAsync(scope.ItemId, cancellationToken).ConfigureAwait(false);
-        var applied = 0;
-        foreach (var row in rows)
-        {
-            if (await ProjectItemAsync(row.ItemId, force: true, cancellationToken).ConfigureAwait(false) == ProjectionState.Applied)
-            {
-                applied++;
-            }
-        }
-
-        return new ProjectionRetryOutcome(scope, applied, await GetProjectionStatusAsync(scope, cancellationToken).ConfigureAwait(false));
     }
 
     /// <inheritdoc />
@@ -157,12 +120,15 @@ internal sealed partial class SegmentChange(
         try
         {
             // Startup recovery: work that survived a crash or shutdown is attempted
-            // once immediately, ignoring any recorded backoff — the backoff protected
+            // once immediately, ignoring any recorded backoff. The backoff protected
             // the previous process's runtime, and restart-transient failures often
             // resolve themselves. Failures re-arm the normal backoff.
             try
             {
-                await RetryProjectionAsync(ProjectionScope.All, stoppingToken).ConfigureAwait(false);
+                foreach (var row in await journal.GetProjectionQueueAsync(null, stoppingToken).ConfigureAwait(false))
+                {
+                    await ProjectItemAsync(row.ItemId, force: true, stoppingToken).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -240,7 +206,7 @@ internal sealed partial class SegmentChange(
 
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
-    /// then the mirror convergence, then the version-guarded completion — all under
+    /// then the mirror convergence, then the version-guarded completion, all under
     /// the shared mutation stripe, so a projection can never interleave with a
     /// concurrent mutation's commit-then-project sequence and push state derived from
     /// a stale read, and so <see cref="ApplyAsync"/>'s in-transaction target
@@ -270,11 +236,10 @@ internal sealed partial class SegmentChange(
 
         try
         {
-            var operations = work.Operations.Select(o => new ProjectedExternalOperation(o.ExternalSegmentId, o.ExpectedType, o.StartTicks, o.EndTicks)).ToList();
-            if (await adapter.ApplyAsync(itemId, operations, cancellationToken).ConfigureAwait(false) == ProjectionApplyOutcome.MirroringDisabled)
+            if (await adapter.ApplyAsync(itemId, work.Operations, cancellationToken).ConfigureAwait(false) == ProjectionApplyOutcome.MirroringDisabled)
             {
-                // Not a failure: the work stays exactly as journaled — no backoff, no
-                // attempt count, no failure text — immediately due for the enable
+                // Not a failure: the work stays exactly as journaled (no backoff, no
+                // attempt count, no failure text), immediately due for the enable
                 // replay the nudge triggers.
                 return ProjectionState.Skipped;
             }
@@ -283,8 +248,8 @@ internal sealed partial class SegmentChange(
             // schedule a redundant (idempotent) re-sync. A completion that missed its
             // version means an unstriped analyzer or maintenance write superseded the
             // projected work mid-apply: the marker survives and the item is still
-            // behind, so report Pending — retry counts, status reads and the HTTP
-            // 202 mapping must all agree with the surviving marker.
+            // behind, so report Pending. Retry counts and the HTTP 202 mapping must
+            // agree with the surviving marker.
             return await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false)
                 ? ProjectionState.Applied
                 : ProjectionState.Pending;
@@ -305,8 +270,8 @@ internal sealed partial class SegmentChange(
 
     /// <summary>
     /// The immediate projection of a committed change. Shielded: the mutation is
-    /// durably committed and the work journaled, so nothing that goes wrong here —
-    /// cancellation (a client disconnect), a journal read error — may surface as a
+    /// durably committed and the work journaled, so nothing that goes wrong here
+    /// (cancellation from a client disconnect, a journal read error) may surface as a
     /// failure of the accepted change. The retry loop owns the work from there.
     /// </summary>
     private async Task<ProjectionState> ProjectCommittedItemAsync(Guid itemId, CancellationToken cancellationToken)

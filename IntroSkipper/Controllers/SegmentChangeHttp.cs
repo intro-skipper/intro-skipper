@@ -22,15 +22,18 @@ internal static class SegmentChangeHttp
     /// through <see cref="Rejected"/>.
     /// </summary>
     /// <param name="outcome">The typed change outcome.</param>
-    /// <param name="onApplied">The endpoint's established success shape for a synchronously applied change.</param>
-    /// <param name="onIgnored">The endpoint's shape for an intent that already held.</param>
+    /// <param name="onApplied">The endpoint's established success shape for a synchronously applied change, given the affected values.</param>
+    /// <param name="onIgnored">The endpoint's shape for an intent that already held, given the values that already satisfy it; defaults to <paramref name="onApplied"/>.</param>
     /// <returns>The mapped result.</returns>
-    internal static ActionResult Map(SegmentChangeOutcome outcome, Func<Accepted, ActionResult> onApplied, Func<Ignored, ActionResult> onIgnored)
+    internal static ActionResult Map(
+        SegmentChangeOutcome outcome,
+        Func<IReadOnlyList<SegmentValue>, ActionResult> onApplied,
+        Func<IReadOnlyList<SegmentValue>, ActionResult>? onIgnored = null)
         => outcome switch
         {
-            Accepted { Projection: ProjectionState.Applied } accepted => onApplied(accepted),
+            Accepted { Projection: ProjectionState.Applied } accepted => onApplied(accepted.AffectedValues),
             Accepted accepted => Accepted(accepted),
-            Ignored ignored => onIgnored(ignored),
+            Ignored ignored => (onIgnored ?? onApplied)(ignored.AffectedValues),
             Rejected rejected => Rejected(rejected),
             _ => throw new InvalidOperationException($"Unknown segment change outcome '{outcome}'.")
         };
@@ -51,7 +54,7 @@ internal static class SegmentChangeHttp
 
     /// <summary>
     /// Maps a rejection to its established wire status: an absent or foreign-owned
-    /// target is 404 (the caller addressed something that does not exist for it —
+    /// target is 404 (the caller addressed something that does not exist for it,
     /// empty segment and item ids included, which the pre-cutover delete and update
     /// paths answered with 404 after their lookups found nothing), every other
     /// rejection is 400 with the typed message.

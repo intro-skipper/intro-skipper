@@ -14,7 +14,7 @@ namespace IntroSkipper.Manager;
 /// (<see cref="DeleteValidatedSegmentAsync"/>). Sync never touches other providers'
 /// segments; the validated delete removes any of the item's rows by id (the editor
 /// lets users delete foreign rows). Every operation no-ops when mirroring is disabled
-/// (<see cref="MediaSegmentMirrorPolicy"/>), so callers never gate it. The one writer
+/// (<see cref="IMediaSegmentMirrorPolicy"/>), so callers never gate it. The one writer
 /// that bypasses this class is Jellyfin itself: it persists
 /// <see cref="SegmentProvider"/> results during its own provider runs and can therefore
 /// re-add a just-deleted segment from a read that predates the delete, until a later
@@ -25,7 +25,8 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
 /// <param name="segmentDtoFactory">Factory that converts stored plugin segments to Jellyfin DTOs.</param>
-public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, SegmentDtoFactory segmentDtoFactory)
+/// <param name="policy">The mirroring flag, read on every write.</param>
+internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, SegmentDtoFactory segmentDtoFactory, IMediaSegmentMirrorPolicy policy)
 {
     // Separate pool from SegmentMutationLocks' mutation stripes; see
     // StripedAsyncLock for the pooling rationale.
@@ -47,7 +48,7 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     /// <returns>Whether the item converged or mirroring is disabled.</returns>
     public async Task<MirrorSyncOutcome> SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
     {
-        if (!MediaSegmentMirrorPolicy.Enabled)
+        if (!policy.Enabled)
         {
             return MirrorSyncOutcome.MirroringDisabled;
         }
@@ -81,7 +82,7 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     /// covers both a vanished row and one that no longer matches its validated shape.</returns>
     public async Task<MirrorDeleteOutcome> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
-        if (!MediaSegmentMirrorPolicy.Enabled)
+        if (!policy.Enabled)
         {
             return MirrorDeleteOutcome.MirroringDisabled;
         }

@@ -137,10 +137,10 @@ public sealed class TestCleanCacheTask
             ffmpegService: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase());
 
-        await queueManager.GetMediaItems(includeExcluded: true);
+        await queueManager.GetMediaInventoryAsync(includeExcluded: true);
         Assert.Equal(1, queueManager.EnumerationFailureCount);
 
-        await queueManager.GetMediaItems(includeExcluded: true);
+        await queueManager.GetMediaInventoryAsync(includeExcluded: true);
         Assert.Equal(0, queueManager.EnumerationFailureCount);
     }
 

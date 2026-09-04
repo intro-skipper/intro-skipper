@@ -294,12 +294,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             var outcome = await _segmentChange
                 .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
                 .ConfigureAwait(false);
-            return SegmentChangeHttp.Map(
-                outcome,
-                onApplied: _ => NoContent(),
-                // The flag already has the requested value; an idempotent toggle
-                // succeeds (its journaled re-projection still heals a diverged mirror).
-                onIgnored: _ => NoContent());
+            // A flag that already has the requested value (an idempotent toggle) answers
+            // like a fresh one; its journaled re-projection still heals a diverged mirror.
+            return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
         }
         catch (OperationCanceledException)
         {
@@ -318,7 +315,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         if (_libraryManager is not null)
         {
             var queueManager = _analyzerFactory.CreateQueueManager();
-            var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+            var queue = (await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
             return [.. queue.Values.SelectMany(static episodes => episodes).Where(static episode => episode.IsExcluded)];
         }
 
@@ -331,8 +328,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private static bool IsExcludedByPolicy(ExclusionPolicy policy, QueuedEpisode episode)
     {
         var decision = episode.Category == QueuedMediaCategory.Movie
-            ? policy.EvaluateMovie(episode.Name, episode.EpisodeId, episode.Path)
-            : policy.EvaluateSeries(episode.SeriesName, episode.SeriesId, episode.Path);
+            ? policy.EvaluateMovie(episode.Name, episode.Path)
+            : policy.EvaluateSeries(episode.SeriesName, episode.Path);
         return decision.IsExcluded;
     }
 

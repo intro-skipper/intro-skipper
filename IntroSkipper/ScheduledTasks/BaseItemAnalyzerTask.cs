@@ -93,7 +93,7 @@ public partial class BaseItemAnalyzerTask(
         _ = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
-        var queue = await queueManager.GetMediaItems(seasonFilter, cancellationToken).ConfigureAwait(false);
+        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
 
         if (seasonFilter is not null)
         {
@@ -138,8 +138,7 @@ public partial class BaseItemAnalyzerTask(
             // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
             var utcNow = DateTime.UtcNow;
             var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
-            if (Config.ReanalyzeSettledSeasons &&
-                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+            if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
             {
                 settledResetModes = await GetSettleReanalysisModesAsync(first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
                 if (settledResetModes.Count > 0)

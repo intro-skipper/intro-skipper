@@ -11,19 +11,7 @@ namespace IntroSkipper.Manager;
 /// intent and to project its journaled work, so a projection can never interleave
 /// with a concurrent mutation on the same item. Separate pool from
 /// <see cref="MediaSegmentMirror"/>'s; lock order is always mutation stripe -&gt;
-/// mirror stripe. Must be registered as a singleton so all requests share the stripes.
+/// mirror stripe. A distinct type so DI can hold exactly one pool per role; must be
+/// registered as a singleton so all requests share the stripes.
 /// </summary>
-public sealed class SegmentMutationLocks
-{
-    private readonly StripedAsyncLock _locks = new();
-
-    /// <summary>
-    /// Acquires the item's mutation stripe, waiting until it is free. Dispose the
-    /// returned releaser (a <c>using</c> declaration) to free the stripe.
-    /// </summary>
-    /// <param name="itemId">Item id.</param>
-    /// <param name="cancellationToken">Cancellation token; only the wait is cancelable.</param>
-    /// <returns>A releaser that frees the stripe on dispose.</returns>
-    public async Task<IDisposable> AcquireAsync(Guid itemId, CancellationToken cancellationToken)
-        => await _locks.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
-}
+internal sealed class SegmentMutationLocks : StripedAsyncLock;
