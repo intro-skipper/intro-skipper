@@ -1,5 +1,6 @@
 import type { Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
+import { clearListingCache } from "../store/jellyfin-client.ts";
 import { el } from "../components/dom.ts";
 
 export class Router {
@@ -33,6 +34,7 @@ export class Router {
 
         // Scope new subscriptions so the next tab switch can clean them up.
         configStore.beginScope();
+        clearListingCache();
         tab.render(this.contentEl);
         this.activeTab = tab;
 

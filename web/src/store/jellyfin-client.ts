@@ -24,11 +24,17 @@ function isSupportedCollectionType(
     return collectionType == null || SUPPORTED_COLLECTION_TYPES.has(collectionType);
 }
 
-// Library and show listings are cached for the page lifetime and shared by the
-// exclusion suggestions and the timestamps browser. Only successful responses
-// are kept, so a failed request is retried on the next call.
+// Library and show listings are cached per tab visit and shared by the exclusion
+// suggestions and the timestamps browser. The router clears the cache on every
+// tab switch so new media shows up without a page reload. Only successful
+// responses are kept, so a failed request is retried on the next call.
 let librariesCache: Promise<LibraryInfo[]> | null = null;
 const showsByLibrary = new Map<string, Promise<ShowItem[]>>();
+
+export function clearListingCache(): void {
+    librariesCache = null;
+    showsByLibrary.clear();
+}
 
 export function getLibraries(): Promise<LibraryInfo[]> {
     if (librariesCache) return librariesCache;
