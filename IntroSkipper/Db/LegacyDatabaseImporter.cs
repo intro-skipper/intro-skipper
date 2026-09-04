@@ -19,6 +19,12 @@ namespace IntroSkipper.Db;
 /// (never migration history), because the pre-v2 in-place repair era produced
 /// databases whose columns and history do not always agree.
 /// </summary>
+/// <remarks>
+/// Delete later: the retry-against-populated-database recovery in <see cref="ImportAsync"/>
+/// (<c>seen</c>, <c>blockers</c>, <c>occupantsByQuad</c>, <c>promotions</c>) exists only for
+/// the one-time v2 import. Once every 12.0 install has imported, it can go along with the
+/// rest of this importer.
+/// </remarks>
 internal static partial class LegacyDatabaseImporter
 {
     /// <summary>
