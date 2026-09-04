@@ -18,15 +18,24 @@ internal sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        foreach (var (mode, action) in analyzerActions)
+
+        // One transaction so a cancelled request cannot leave the season with a
+        // partially updated action set.
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
         {
-            await db.Database.ExecuteSqlAsync(
-                $"""
-                INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
-                VALUES ({seasonId}, {(int)mode}, {(int)action}, '[]')
-                ON CONFLICT("SeasonId", "Type") DO UPDATE SET "Action" = excluded."Action"
-                """,
-                cancellationToken).ConfigureAwait(false);
+            foreach (var (mode, action) in analyzerActions)
+            {
+                await db.Database.ExecuteSqlAsync(
+                    $"""
+                    INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
+                    VALUES ({seasonId}, {(int)mode}, {(int)action}, '[]')
+                    ON CONFLICT("SeasonId", "Type") DO UPDATE SET "Action" = excluded."Action"
+                    """,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
