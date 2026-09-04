@@ -150,7 +150,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     {
         try
         {
-            var queue = await _analyzerFactory.CreateQueueManager().GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+            var queue = (await _analyzerFactory.CreateQueueManager().GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
             var excludedIds = queue.Values
                 .SelectMany(static episodes => episodes)
                 .Where(static episode => episode.IsExcluded)
@@ -263,12 +263,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             var outcome = await _segmentChange
                 .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
                 .ConfigureAwait(false);
-            return SegmentChangeHttp.Map(
-                outcome,
-                onApplied: _ => NoContent(),
-                // The flag already has the requested value; an idempotent toggle
-                // succeeds (its journaled re-projection still heals a diverged mirror).
-                onIgnored: _ => NoContent());
+            // An idempotent toggle succeeds too (its journaled re-projection still
+            // heals a diverged mirror).
+            return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
         }
         catch (OperationCanceledException)
         {

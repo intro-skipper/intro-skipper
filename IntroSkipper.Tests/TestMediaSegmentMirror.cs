@@ -137,17 +137,12 @@ public sealed class TestMediaSegmentMirror
     [Fact]
     public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
     {
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(
-            Plugin.Instance!,
-            "Configuration",
-            new IntroSkipper.Configuration.PluginConfiguration { UpdateMediaSegments = false });
         var itemId = Guid.NewGuid();
         var store = new FakeJellyfinSegmentStore();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.ReplaceAutoSegmentsAsync(
             itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database, new FakeMirrorPolicy { Enabled = false });
 
         // The mirror flag lives in the mirror, not at call sites: every operation
         // reports the typed disabled outcome and leaves the store untouched.

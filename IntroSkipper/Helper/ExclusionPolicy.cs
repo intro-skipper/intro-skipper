@@ -24,8 +24,6 @@ internal sealed class ExclusionPolicy
         _broadPathRootCount = CountBroadPathRoots(pathRoots);
     }
 
-    public static ExclusionPolicy Empty { get; } = new([], [], []);
-
     public int BroadPathRootCount => _broadPathRootCount;
 
     public static ExclusionPolicy FromConfiguration(PluginConfiguration config)
@@ -38,10 +36,8 @@ internal sealed class ExclusionPolicy
             CreatePathRoots(config.PathExclusions));
     }
 
-    public ExclusionDecision EvaluateSeries(string? seriesName, Guid seriesId, string? path)
+    public ExclusionDecision EvaluateSeries(string? seriesName, string? path)
     {
-        _ = seriesId;
-
         var pathDecision = EvaluatePath(path);
         if (pathDecision.IsExcluded)
         {
@@ -55,14 +51,12 @@ internal sealed class ExclusionPolicy
         }
 
         return _seriesNames.Contains(name)
-            ? new ExclusionDecision(true, ExclusionReason.SeriesName, name)
+            ? new ExclusionDecision(true, name)
             : ExclusionDecision.Included;
     }
 
-    public ExclusionDecision EvaluateMovie(string? movieName, Guid movieId, string? path)
+    public ExclusionDecision EvaluateMovie(string? movieName, string? path)
     {
-        _ = movieId;
-
         var pathDecision = EvaluatePath(path);
         if (pathDecision.IsExcluded)
         {
@@ -71,11 +65,11 @@ internal sealed class ExclusionPolicy
 
         var name = movieName?.Trim() ?? string.Empty;
         return name.Length > 0 && _movieNames.Contains(name)
-            ? new ExclusionDecision(true, ExclusionReason.MovieName, name)
+            ? new ExclusionDecision(true, name)
             : ExclusionDecision.Included;
     }
 
-    public bool IsPathExcluded(string? path)
+    private bool IsPathExcluded(string? path)
     {
         var normalizedPath = NormalizePath(path);
         if (normalizedPath.Length == 0 || _pathRoots.Count == 0)
@@ -141,7 +135,7 @@ internal sealed class ExclusionPolicy
 
     private ExclusionDecision EvaluatePath(string? path)
         => IsPathExcluded(path)
-            ? new ExclusionDecision(true, ExclusionReason.Path, "PathExclusions")
+            ? new ExclusionDecision(true, "PathExclusions")
             : ExclusionDecision.Included;
 
     private static bool IsPathMatch(string normalizedPath, string root)

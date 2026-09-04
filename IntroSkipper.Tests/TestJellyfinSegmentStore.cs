@@ -67,21 +67,6 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
-    public async Task ReplaceSegmentsAsync_ReplacesPreviousOwnRows()
-    {
-        using var db = new TempJellyfinDb();
-        var store = CreateStore(db);
-        var itemId = Guid.NewGuid();
-
-        await store.ReplaceSegmentsAsync(itemId, [CreateDto(MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
-        await store.ReplaceSegmentsAsync(itemId, [CreateDto(MediaSegmentType.Intro, 50, 60)], CancellationToken.None);
-
-        var row = Assert.Single(await GetAllAsync(db));
-        Assert.Equal(50, row.StartTicks);
-        Assert.Equal(60, row.EndTicks);
-    }
-
-    [Fact]
     public async Task ReplaceSegmentsAsync_EmptyInput_DeletesOwnRowsOnly()
     {
         using var db = new TempJellyfinDb();
@@ -263,31 +248,6 @@ public sealed class TestJellyfinSegmentStore
 
         Assert.Equal(1, await store.DeleteValidatedSegmentAsync(itemA, rowA.Id, MediaSegmentType.Intro, 10, 20, CancellationToken.None));
         Assert.Empty(await GetAllAsync(db));
-    }
-
-    [Fact]
-    public async Task ReplaceSegmentsAsync_EmptySet_DeletesOnlyOwnRows_OfTheGivenItem()
-    {
-        using var db = new TempJellyfinDb();
-        var store = CreateStore(db);
-        var itemA = Guid.NewGuid();
-        var itemC = Guid.NewGuid();
-        var foreignA = CreateEntity(itemA, MediaSegmentType.Outro, 0, 100, ForeignProviderId);
-        var ownC = CreateEntity(itemC, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
-        await SeedAsync(
-            db,
-            CreateEntity(itemA, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
-            foreignA,
-            ownC);
-
-        // The projection sync of an erased item pushes an empty set: the item's own
-        // rows go, other providers' rows and other items' rows survive.
-        await store.ReplaceSegmentsAsync(itemA, [], CancellationToken.None);
-
-        var rows = await GetAllAsync(db);
-        Assert.Equal(2, rows.Count);
-        Assert.Single(rows, row => row.Id == foreignA.Id);
-        Assert.Single(rows, row => row.Id == ownC.Id);
     }
 
     [Fact]

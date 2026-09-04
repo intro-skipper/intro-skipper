@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using Microsoft.Extensions.Logging;
 
@@ -8,8 +9,8 @@ namespace IntroSkipper.SegmentChanges;
 
 /// <summary>
 /// Default <see cref="ISegmentProjectionAdapter"/>: every write goes through the
-/// mirror — <see cref="MediaSegmentMirror.DeleteValidatedSegmentAsync"/> for foreign
-/// rows and <see cref="MediaSegmentMirror.SyncItemAsync"/> for the item's own image —
+/// mirror (<see cref="MediaSegmentMirror.DeleteValidatedSegmentAsync"/> for foreign
+/// rows and <see cref="MediaSegmentMirror.SyncItemAsync"/> for the item's own image),
 /// so projection shares the single documented write path, its per-item stripes, and
 /// its disabled-mirror signaling.
 /// </summary>
@@ -32,7 +33,7 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
     }
 
     /// <inheritdoc />
-    public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<ProjectedExternalOperation> externalOperations, CancellationToken cancellationToken)
+    public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(externalOperations);
 
@@ -40,7 +41,7 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
         {
             // The validated shape travels inside the delete predicate, so a row
             // rewritten under its stable id since validation (an apply can run hours
-            // later on backoff, or days later with mirroring off) is left alone —
+            // later on backoff, or days later with mirroring off) is left alone:
             // deleting it would remove content the user never approved. An already
             // vanished row is an idempotent success either way, so dropping the
             // operation is terminal on purpose: retrying into the same mismatch

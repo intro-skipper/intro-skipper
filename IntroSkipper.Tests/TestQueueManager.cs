@@ -23,7 +23,7 @@ using Xunit;
 public sealed class TestQueueManager
 {
     [Fact]
-    public async Task GetMediaItems_QueuesRegularEpisodeAndMovie_AndPublishesQueueState()
+    public async Task GetMediaInventoryAsync_QueuesRegularEpisodeAndMovie_AndPublishesQueueState()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = InitializePlugin();
@@ -43,7 +43,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(episode, movie);
 
-        var queue = await queueManager.GetMediaItems();
+        var queue = (await queueManager.GetMediaInventoryAsync()).Items;
 
         var queuedEpisode = Assert.Single(queue[seasonId]);
         Assert.Equal(episodeId, queuedEpisode.EpisodeId);
@@ -72,7 +72,7 @@ public sealed class TestQueueManager
     }
 
     [Fact]
-    public async Task GetMediaItems_WithSeasonIds_MergesIntoPublishedQueueWithoutUnrelatedItems()
+    public async Task GetMediaInventoryAsync_WithSeasonIds_MergesIntoPublishedQueueWithoutUnrelatedItems()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var existingSeasonId = Guid.NewGuid();
@@ -80,7 +80,7 @@ public sealed class TestQueueManager
         {
             [existingSeasonId] = [new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = existingSeasonId }]
         };
-        var plugin = InitializePlugin(existingQueue, totalQueued: 1, totalSeasons: 1);
+        var plugin = InitializePlugin(existingQueue);
 
         var seriesId = Guid.NewGuid();
         var targetSeasonId = Guid.NewGuid();
@@ -97,7 +97,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(targetEpisode, otherEpisode, movie);
 
-        var queue = await queueManager.GetMediaItems([targetSeasonId]);
+        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [targetSeasonId])).Items;
 
         var queuedEpisode = Assert.Single(queue[targetSeasonId]);
         Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
@@ -116,7 +116,7 @@ public sealed class TestQueueManager
     }
 
     [Fact]
-    public async Task GetMediaItems_WithSeasonIds_QueriesOnlyLibrariesOwningARequestedItem()
+    public async Task GetMediaInventoryAsync_WithSeasonIds_QueriesOnlyLibrariesOwningARequestedItem()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         InitializePlugin();
@@ -138,7 +138,7 @@ public sealed class TestQueueManager
             ffmpegService: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase());
 
-        var queue = await queueManager.GetMediaItems([seasonId]);
+        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [seasonId])).Items;
 
         Assert.Equal(episode.Id, Assert.Single(queue[seasonId]).EpisodeId);
 
@@ -148,7 +148,7 @@ public sealed class TestQueueManager
     }
 
     [Fact]
-    public async Task GetMediaItems_WithSeasonIds_IncludesInSeasonSpecials()
+    public async Task GetMediaInventoryAsync_WithSeasonIds_IncludesInSeasonSpecials()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         InitializePlugin();
@@ -164,7 +164,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(host, special);
 
-        var queue = await queueManager.GetMediaItems([hostSeasonId]);
+        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [hostSeasonId])).Items;
 
         var season = Assert.Single(queue);
         Assert.Equal(hostSeasonId, season.Key);
@@ -173,10 +173,7 @@ public sealed class TestQueueManager
         Assert.Contains(season.Value, episode => episode.EpisodeId == special.Id);
     }
 
-    private static Plugin InitializePlugin(
-        ConcurrentDictionary<Guid, List<QueuedEpisode>>? queuedMediaItems = null,
-        int totalQueued = 0,
-        int totalSeasons = 0)
+    private static Plugin InitializePlugin(ConcurrentDictionary<Guid, List<QueuedEpisode>>? queuedMediaItems = null)
     {
         var plugin = Plugin.Instance!;
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration());
@@ -185,8 +182,6 @@ public sealed class TestQueueManager
             "QueuedMediaItems",
             queuedMediaItems ?? new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
-        plugin.TotalQueued = totalQueued;
-        plugin.TotalSeasons = totalSeasons;
         return plugin;
     }
 

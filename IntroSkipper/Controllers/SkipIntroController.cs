@@ -97,11 +97,8 @@ public partial class SkipIntroController(
         }
 
         var outcome = await _segmentChange.ApplyAsync(new WriteUserTimestampsIntent(id, slots), cancellationToken).ConfigureAwait(false);
-        return SegmentChangeHttp.Map(
-            outcome,
-            onApplied: _ => NoContent(),
-            // The requested timestamps are already stored; an idempotent re-POST succeeds.
-            onIgnored: _ => NoContent());
+        // Already-stored timestamps (an idempotent re-POST) answer like a fresh write.
+        return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
     }
 
     /// <summary>

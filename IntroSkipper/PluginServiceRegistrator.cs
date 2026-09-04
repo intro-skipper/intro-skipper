@@ -77,9 +77,9 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<SegmentMutationLocks>();
             // Live view of the mirroring flag plus its toggle event; hosted so it can
             // subscribe to plugin configuration changes.
-            serviceCollection.AddSingleton<MediaSegmentMirrorPolicyService>();
-            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
-            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            serviceCollection.AddSingleton<MediaSegmentMirrorPolicy>();
+            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicy>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicy>());
             // Durable segment changes: the coordinator commits intents through the
             // facade and retries journaled projection work; hosted for the retry loop.
             // TryAdd: the service collection is Jellyfin's shared server-wide

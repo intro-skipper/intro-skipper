@@ -110,11 +110,8 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new AddUserSegmentIntent(itemId, request.Type, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        return SegmentChangeHttp.Map(
-            outcome,
-            onApplied: accepted => ToCreated(accepted.AffectedValues.Single()),
-            // An identical active user segment already exists; report it like a create.
-            onIgnored: ignored => ToCreated(ignored.AffectedValues.Single()));
+        // An already-existing identical user segment is reported like a create.
+        return SegmentChangeHttp.Map(outcome, onApplied: values => ToCreated(values.Single()));
 
         CreatedAtActionResult ToCreated(SegmentValue value)
             => CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentChangeHttp.ToDto(value));
@@ -161,11 +158,8 @@ public class SegmentsController(
         var outcome = await _segmentChange
             .ApplyAsync(new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks), cancellationToken)
             .ConfigureAwait(false);
-        return SegmentChangeHttp.Map(
-            outcome,
-            onApplied: accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
-            // The segment already carries the requested values; report it like an update.
-            onIgnored: ignored => Ok(SegmentChangeHttp.ToDto(ignored.AffectedValues.Single())));
+        // A segment that already carries the requested values is reported like an update.
+        return SegmentChangeHttp.Map(outcome, onApplied: values => Ok(SegmentChangeHttp.ToDto(values.Single())));
     }
 
     /// <summary>
@@ -234,7 +228,7 @@ public class SegmentsController(
             .ConfigureAwait(false);
         return SegmentChangeHttp.Map(
             outcome,
-            onApplied: accepted => Ok(SegmentChangeHttp.ToDto(accepted.AffectedValues.Single())),
+            onApplied: values => Ok(SegmentChangeHttp.ToDto(values.Single())),
             // Unknown on the item or not suppressed — the id addresses nothing restorable.
             onIgnored: _ => NotFound());
     }

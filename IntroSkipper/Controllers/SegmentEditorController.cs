@@ -94,11 +94,8 @@ public class SegmentEditorController(ISegmentChange segmentChange) : ControllerB
             ? new AddUserSegmentIntent(itemId, mode, segment.StartTicks, segment.EndTicks)
             : new ReplaceUserSegmentsForModeIntent(itemId, mode, [new SegmentRange(segment.StartTicks, segment.EndTicks)]);
         var outcome = await _segmentChange.ApplyAsync(intent, cancellationToken).ConfigureAwait(false);
-        return SegmentChangeHttp.Map(
-            outcome,
-            onApplied: _ => Ok(),
-            // The posted image is already stored; an idempotent re-POST succeeds.
-            onIgnored: _ => Ok());
+        // An already-stored image (an idempotent re-POST) answers like a fresh one.
+        return SegmentChangeHttp.Map(outcome, onApplied: _ => Ok());
     }
 
     /// <summary>
@@ -142,11 +139,8 @@ public class SegmentEditorController(ISegmentChange segmentChange) : ControllerB
         var outcome = await _segmentChange
             .ApplyAsync(new EditorDeleteSegmentIntent(itemId, segmentId, AnalysisHelpers.ModeToSegmentType[requestedMode]), cancellationToken)
             .ConfigureAwait(false);
-        return SegmentChangeHttp.Map(
-            outcome,
-            onApplied: _ => Ok(),
-            // The plugin already treats the row as deleted; the journaled
-            // re-projection (or the still-pending journaled delete) converges Jellyfin.
-            onIgnored: _ => Ok());
+        // A row the plugin already treats as deleted answers like a fresh delete; the
+        // journaled re-projection (or the still-pending journaled delete) converges Jellyfin.
+        return SegmentChangeHttp.Map(outcome, onApplied: _ => Ok());
     }
 }
