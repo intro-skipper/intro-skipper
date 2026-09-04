@@ -115,7 +115,7 @@ public sealed class TestVisualizationControllerSeams
         var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
         Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
 
-        var lease = Assert.IsAssignableFrom<IDisposable>(await ScheduledTaskSemaphore.TryAcquireAsync());
+        var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
         try
         {
             Assert.True(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
@@ -148,7 +148,7 @@ public sealed class TestVisualizationControllerSeams
             DatabaseTestHelpers.CreateTempSegmentDatabase(),
             scope.CacheDbPath,
             EntrypointTestHelpers.CreateLibraryManager());
-        var lease = Assert.IsAssignableFrom<IDisposable>(await ScheduledTaskSemaphore.TryAcquireAsync());
+        var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
         try
         {
             var result = await controller.ScanSeason(Guid.NewGuid(), Guid.NewGuid());

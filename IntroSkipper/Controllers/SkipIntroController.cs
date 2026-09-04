@@ -128,36 +128,18 @@ public partial class SkipIntroController(
             return NotFound();
         }
 
-        var times = new TimeStamps();
         var segments = LegacyTimestampMapper.ToCanonical(
             await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+        // Missing modes serialize as the empty segment, as the old per-mode assignments did.
+        return new TimeStamps
         {
-            times.Introduction = introSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-        {
-            times.Credits = creditSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
-        {
-            times.Recap = recapSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
-        {
-            times.Preview = previewSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
-        {
-            times.Commercial = commercialSegment;
-        }
-
-        return times;
+            Introduction = segments.GetValueOrDefault(AnalysisMode.Introduction) ?? new Segment(),
+            Credits = segments.GetValueOrDefault(AnalysisMode.Credits) ?? new Segment(),
+            Recap = segments.GetValueOrDefault(AnalysisMode.Recap) ?? new Segment(),
+            Preview = segments.GetValueOrDefault(AnalysisMode.Preview) ?? new Segment(),
+            Commercial = segments.GetValueOrDefault(AnalysisMode.Commercial) ?? new Segment(),
+        };
     }
 
     /// <summary>

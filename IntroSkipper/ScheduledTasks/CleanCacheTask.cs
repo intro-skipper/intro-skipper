@@ -80,11 +80,6 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaInventory() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
         var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
-        var queue = inventory.Items;
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(static episodes => episodes)
-            .Select(static episode => episode.EpisodeId)
-            .ToHashSet();
 
         // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
         // incomplete queue would push swathes of healthy data through the stale-candidate
@@ -95,6 +90,12 @@ public partial class CleanCacheTask(
             progress.Report(100);
             return;
         }
+
+        var queue = inventory.Items;
+        var enabledLibraryEpisodeIds = queue.Values
+            .SelectMany(static episodes => episodes)
+            .Select(static episode => episode.EpisodeId)
+            .ToHashSet();
 
         if (enabledLibraryEpisodeIds.Count == 0)
         {
