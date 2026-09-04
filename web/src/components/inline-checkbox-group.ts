@@ -1,11 +1,11 @@
-import type { PluginConfig } from "../types.ts";
+import type { ConfigKeysOfType } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { bindField } from "./field-bind.ts";
 
 export function inlineCheckboxGroup(
     title: string,
-    items: Array<{ id: string; label: string }>,
+    items: Array<{ id: ConfigKeysOfType<boolean>; label: string }>,
 ): HTMLElement {
     const container = el("fieldset", {
         className: "checkbox-container analyze-for analyze-for-group",
@@ -22,19 +22,17 @@ export function inlineCheckboxGroup(
         label.append(input, span);
         container.append(label);
 
-        const fieldKey = item.id as keyof PluginConfig;
-
         bindField({
             container: label,
             input,
-            fieldOpts: { id: item.id },
+            fieldOpts: item,
             onLoaded: () => {
-                input.checked = configStore.get(fieldKey) as boolean;
+                input.checked = configStore.get(item.id);
             },
         });
 
         input.addEventListener("change", () => {
-            configStore.set(fieldKey, input.checked);
+            configStore.set(item.id, input.checked);
         });
     }
 

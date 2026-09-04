@@ -1,11 +1,9 @@
-import type { Tab, PluginConfig } from "../types.ts";
+import type { Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
-import { textField } from "../components/text-field.ts";
-import { checkboxField } from "../components/checkbox-field.ts";
+import { inputField } from "../components/input-field.ts";
 
-const DEFAULTS: Record<string, string> = {
+const DEFAULTS = {
     ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?![\\s:]+End)(\\s|:|$)",
     ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro)(?![\\s:]+End)(\\s|:|$)",
     ChapterAnalyzerPreviewPattern:
@@ -15,12 +13,13 @@ const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\\s:]+End)(\\s|:|$)",
 };
 
-function patternField(id: string, label: string, typeNoun: string): HTMLElement {
+function patternField(id: keyof typeof DEFAULTS, label: string, typeNoun: string): HTMLElement {
     const wrapper = el("div", { className: "pattern-field" });
     const defaultPattern = DEFAULTS[id];
 
     wrapper.append(
-        textField({
+        inputField({
+            kind: "text",
             id,
             label,
             placeholder: defaultPattern,
@@ -39,7 +38,7 @@ function patternField(id: string, label: string, typeNoun: string): HTMLElement 
         "Reset to default",
     );
     resetBtn.addEventListener("click", () => {
-        configStore.set(id as keyof PluginConfig, DEFAULTS[id]);
+        configStore.set(id, DEFAULTS[id]);
     });
     wrapper.append(resetBtn);
 
@@ -50,14 +49,14 @@ export const chaptersTab: Tab = {
     id: "chapters",
     label: "Chapters",
     render(container) {
-        appendTabContent(
-            container,
+        container.append(
             patternField("ChapterAnalyzerIntroductionPattern", "Introductions", "introduction"),
             patternField("ChapterAnalyzerEndCreditsPattern", "Credits", "credits"),
             patternField("ChapterAnalyzerPreviewPattern", "Preview", "preview"),
             patternField("ChapterAnalyzerRecapPattern", "Recaps", "recap"),
             patternField("ChapterAnalyzerCommercialPattern", "Commercials", "commercial"),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "EnableSponsorBlockChapterDetection",
                 label: "Enable SponsorBlock chapter detection",
                 description:

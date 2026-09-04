@@ -1,4 +1,5 @@
 import { el } from "./dom.ts";
+import { showTitle } from "../utils.ts";
 import type { ShowItem } from "../types.ts";
 
 /** Delay before executing a search query (ms). */
@@ -11,24 +12,23 @@ export type BreadcrumbSegment = {
     onClick?: () => void;
 };
 
-export type SearchResultItem = ShowItem;
 
 type SearchOption = {
     id: string;
-    show: SearchResultItem;
+    show: ShowItem;
     element: HTMLElement;
 };
 
-export type BreadcrumbNavOptions = {
+type BreadcrumbNavOptions = {
     segments: BreadcrumbSegment[];
-    allShows: SearchResultItem[];
-    onSearchSelect: (show: SearchResultItem) => void;
+    allShows: ShowItem[];
+    onSearchSelect: (show: ShowItem) => void;
 };
 
 export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     container: HTMLElement;
     updateSegments: (segments: BreadcrumbSegment[]) => void;
-    updateShows: (shows: SearchResultItem[]) => void;
+    updateShows: (shows: ShowItem[]) => void;
     destroy: () => void;
 } {
     const container = el("div", { className: "ts-top-bar" });
@@ -43,7 +43,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         className: "ts-search-input",
         type: "search",
         placeholder: "Search all shows\u2026",
-    }) as HTMLInputElement;
+    });
     searchInput.setAttribute("aria-label", "Search all shows");
     searchInput.setAttribute("autocomplete", "off");
     searchInput.setAttribute("name", "show-search");
@@ -61,7 +61,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     searchWrapper.append(searchIcon, searchInput, resultsEl);
     container.append(crumbsNav, searchWrapper);
 
-    let currentShows: SearchResultItem[] = opts.allShows;
+    let currentShows: ShowItem[] = opts.allShows;
     let currentResults: SearchOption[] = [];
     let activeResultIndex = -1;
 
@@ -103,7 +103,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         activeResult.element.scrollIntoView({ block: "nearest" });
     }
 
-    function selectResult(show: SearchResultItem): void {
+    function selectResult(show: ShowItem): void {
         searchInput.value = "";
         closeResults();
         opts.onSearchSelect(show);
@@ -139,7 +139,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         });
     }
 
-    function appendSearchOption(show: SearchResultItem, label: string): void {
+    function appendSearchOption(show: ShowItem, label: string): void {
         const optionId = "ts-search-result-" + String(currentResults.length + 1);
         const item = el("div", { className: "ts-search-result", id: optionId }, label);
         item.setAttribute("role", "option");
@@ -182,7 +182,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         }
 
         // Group results by library so duplicate show names stay distinguishable.
-        const grouped: Record<string, SearchResultItem[]> = {};
+        const grouped: Record<string, ShowItem[]> = {};
         for (const match of matches) {
             const libraryName = match.LibraryName;
             if (!grouped[libraryName]) grouped[libraryName] = [];
@@ -192,8 +192,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         for (const libraryName of Object.keys(grouped)) {
             resultsEl.append(el("div", { className: "ts-search-group-label" }, libraryName));
             for (const show of grouped[libraryName]) {
-                const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
-                appendSearchOption(show, show.Name + yearStr);
+                appendSearchOption(show, showTitle(show));
             }
         }
 
@@ -266,7 +265,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         updateSegments(segments: BreadcrumbSegment[]) {
             renderSegments(segments);
         },
-        updateShows(shows: SearchResultItem[]) {
+        updateShows(shows: ShowItem[]) {
             currentShows = shows;
             if (searchInput.value.trim()) {
                 renderSearchResults(searchInput.value);

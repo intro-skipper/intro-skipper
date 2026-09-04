@@ -1,17 +1,9 @@
+import type { PluginConfig } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 
-/** Field options used by the shared binding helper. */
-export type BindFieldOpts = {
-    id: string;
-    disabled?: () => boolean;
-    visible?: () => boolean;
-};
-
-function setDescribedBy(
-    input: HTMLInputElement | HTMLSelectElement,
-    ids: string[] | undefined,
-): void {
-    if (!ids || ids.length === 0) {
+/** Adds ids to the control's aria-describedby without dropping existing ones. */
+export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids: string[]): void {
+    if (ids.length === 0) {
         return;
     }
 
@@ -49,27 +41,24 @@ export function bindVisibility(container: HTMLElement, visible?: () => boolean):
 }
 
 /**
- * Shared wiring for form field components.
- * Handles visibility, disabled state, and validation subscriptions
- * that are identical across checkbox, number, text, and select fields.
+ * Shared wiring for config-bound controls: initial value, visibility, disabled
+ * state, and validation messages. `onLoaded` copies the store value into the
+ * control; it is skipped while the control has focus so typing is not clobbered.
  */
 export function bindField(opts: {
     container: HTMLElement;
     input: HTMLInputElement | HTMLSelectElement;
-    fieldOpts: BindFieldOpts;
+    fieldOpts: { id: keyof PluginConfig; disabled?: () => boolean; visible?: () => boolean };
     errorDiv?: HTMLElement;
     describedByIds?: string[];
     onLoaded: () => void;
 }): void {
-    const { container, input, fieldOpts, errorDiv, describedByIds, onLoaded } = opts;
+    const { container, input, fieldOpts, errorDiv, describedByIds = [], onLoaded } = opts;
 
-    const evalVisibility = () => {
+    const evalState = () => {
         if (fieldOpts.visible) {
             container.style.display = fieldOpts.visible() ? "" : "none";
         }
-    };
-
-    const evalDisabled = () => {
         if (fieldOpts.disabled) {
             const isDisabled = fieldOpts.disabled();
             input.disabled = isDisabled;
@@ -77,32 +66,23 @@ export function bindField(opts: {
         }
     };
 
-    configStore.subscribe("loaded", () => {
+    const sync = () => {
         onLoaded();
-        evalVisibility();
-        evalDisabled();
-    });
+        evalState();
+    };
+
+    configStore.subscribe("loaded", sync);
 
     // Late-mounted fields still need an initial value if the config already loaded.
     if (configStore.isLoaded()) {
-        onLoaded();
-        evalVisibility();
-        evalDisabled();
+        sync();
     }
 
-    if (fieldOpts.visible) {
-        configStore.subscribe("changed", evalVisibility);
-    }
-
-    if (fieldOpts.disabled) {
-        configStore.subscribe("changed", evalDisabled);
-    }
-
-    configStore.subscribe("changed", (...args: unknown[]) => {
-        const data = args[0] as { field?: string } | undefined;
-        if (data?.field !== fieldOpts.id) return;
-        if (document.activeElement === input) return;
-        onLoaded();
+    configStore.subscribe("changed", ({ field }) => {
+        evalState();
+        if (field === fieldOpts.id && document.activeElement !== input) {
+            onLoaded();
+        }
     });
 
     setDescribedBy(input, describedByIds);
@@ -113,21 +93,18 @@ export function bindField(opts: {
         errorDiv.setAttribute("aria-live", "polite");
         errorDiv.setAttribute("aria-atomic", "true");
         errorDiv.setAttribute("role", "status");
+        errorDiv.style.display = "none";
 
         setDescribedBy(input, [errorId]);
 
-        configStore.subscribe("validation", (...args: unknown[]) => {
-            const data = args[0] as { field: string; error: string | null };
-            if (data.field !== fieldOpts.id) return;
-            if (data.error) {
-                errorDiv.textContent = data.error;
-                errorDiv.style.display = "";
-                input.classList.add("field-error-active");
+        configStore.subscribe("validation", ({ field, error }) => {
+            if (field !== fieldOpts.id) return;
+            errorDiv.textContent = error ?? "";
+            errorDiv.style.display = error ? "" : "none";
+            input.classList.toggle("field-error-active", Boolean(error));
+            if (error) {
                 input.setAttribute("aria-invalid", "true");
             } else {
-                errorDiv.textContent = "";
-                errorDiv.style.display = "none";
-                input.classList.remove("field-error-active");
                 input.removeAttribute("aria-invalid");
             }
         });

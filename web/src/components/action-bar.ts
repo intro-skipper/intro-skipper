@@ -5,65 +5,44 @@ import * as api from "../store/api.ts";
 import type { AnalyzerActions } from "../types.ts";
 import { delay } from "../utils.ts";
 
-const ANALYZER_ACTION_ORDER: ReadonlyArray<{
-    key: string;
+// Analyzer override choices per mode, in display order. Every mode accepts
+// Default, Chapter and None; the middle entries are the extra analyzers.
+const ANALYZER_MODES: ReadonlyArray<{
+    key: keyof AnalyzerActions;
     label: string;
-    options: ReadonlyArray<{ value: string; label: string }>;
+    actions: readonly string[];
 }> = [
-    {
-        key: "Recap",
-        label: "Recap",
-        options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "Chromaprint", label: "Chromaprint" },
-            { value: "None", label: "None" },
-        ],
-    },
-    {
-        key: "Introduction",
-        label: "Intro",
-        options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "Chromaprint", label: "Chromaprint" },
-            { value: "None", label: "None" },
-        ],
-    },
+    { key: "Recap", label: "Recap", actions: ["Default", "Chapter", "Chromaprint", "None"] },
+    { key: "Introduction", label: "Intro", actions: ["Default", "Chapter", "Chromaprint", "None"] },
     {
         key: "Credits",
         label: "Credits",
-        options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "Chromaprint", label: "Chromaprint" },
-            { value: "BlackFrame", label: "BlackFrame" },
-            { value: "None", label: "None" },
-        ],
+        actions: ["Default", "Chapter", "Chromaprint", "BlackFrame", "None"],
     },
-    {
-        key: "Preview",
-        label: "Preview",
-        options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "None", label: "None" },
-        ],
-    },
-    {
-        key: "Commercial",
-        label: "Commercial",
-        options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "None", label: "None" },
-        ],
-    },
+    { key: "Preview", label: "Preview", actions: ["Default", "Chapter", "None"] },
+    { key: "Commercial", label: "Commercial", actions: ["Default", "Chapter", "None"] },
 ];
 
 const SEGMENT_EDITOR_PLUGIN_ID = "ace21d44a4e54a85ae75acd2e24a9574";
 
-export type ActionBarOptions = {
+// Whether the Segment Editor plugin is installed and active. Looked up once per
+// page lifetime; a failed lookup is not cached so the next action bar retries.
+let segmentEditorActive: Promise<boolean> | null = null;
+
+function isSegmentEditorActive(): Promise<boolean> {
+    if (segmentEditorActive) return segmentEditorActive;
+    const lookup = api.checkPlugins().then(
+        (plugins) => plugins.some((p) => p.Id === SEGMENT_EDITOR_PLUGIN_ID && p.Status === "Active"),
+        (err: unknown) => {
+            segmentEditorActive = null;
+            throw err;
+        },
+    );
+    segmentEditorActive = lookup;
+    return lookup;
+}
+
+type ActionBarOptions = {
     onScanComplete: () => void | Promise<void>;
 };
 
@@ -76,25 +55,25 @@ export function actionBar(opts: ActionBarOptions): {
     const container = el("div", { className: "ts-action-bar" });
     container.id = "ts-action-panel";
 
-    const actionSelects: Record<string, HTMLSelectElement> = {};
+    const actionSelects = new Map<keyof AnalyzerActions, HTMLSelectElement>();
     const analyzerGroup = el("div", { className: "ts-analyzer-group" });
 
-    for (const action of ANALYZER_ACTION_ORDER) {
+    for (const mode of ANALYZER_MODES) {
         const item = el("div", { className: "ts-analyzer-item" });
-        const selectId = "ts-analyzer-" + action.key.toLowerCase();
+        const selectId = "ts-analyzer-" + mode.key.toLowerCase();
         const labelEl = el(
             "label",
             { className: "ts-analyzer-label", for: selectId },
-            action.label,
+            mode.label,
         );
         const select = el("select", {
             id: selectId,
-            name: "analyzer-" + action.key.toLowerCase(),
-        }) as HTMLSelectElement;
-        for (const opt of action.options) {
-            select.append(el("option", { value: opt.value }, opt.label));
+            name: "analyzer-" + mode.key.toLowerCase(),
+        });
+        for (const action of mode.actions) {
+            select.append(el("option", { value: action }, action));
         }
-        actionSelects[action.key] = select;
+        actionSelects.set(mode.key, select);
         item.append(labelEl);
         item.append(select);
         analyzerGroup.append(item);
@@ -162,20 +141,15 @@ export function actionBar(opts: ActionBarOptions): {
 
         try {
             await withDashboardLoading(async () => {
-                const actions: AnalyzerActions = {
-                    Introduction: actionSelects["Introduction"].value,
-                    Credits: actionSelects["Credits"].value,
-                    Recap: actionSelects["Recap"].value,
-                    Preview: actionSelects["Preview"].value,
-                    Commercial: actionSelects["Commercial"].value,
-                };
+                const actions: AnalyzerActions = {};
+                for (const [key, select] of actionSelects) {
+                    actions[key] = select.value;
+                }
                 await api.updateAnalyzerActions(currentSeasonId, actions);
             });
             statusMessage.show("Analyzer overrides updated.", "var(--is-success)");
-            window.Dashboard.alert("Analyzer actions updated");
         } catch {
             statusMessage.show("Failed to update analyzer overrides.", "var(--is-error)");
-            window.Dashboard.alert("Failed to update analyzer actions");
         }
     };
 
@@ -225,7 +199,6 @@ export function actionBar(opts: ActionBarOptions): {
             "Scan status polling timed out. Refresh to check results.",
             "var(--is-warning)",
         );
-        window.Dashboard.alert("Scan status polling timed out. Refresh to check results.");
     };
 
     const handleScanClick = async () => {
@@ -246,11 +219,9 @@ export function actionBar(opts: ActionBarOptions): {
 
             if (response.status === 409) {
                 statusMessage.show("A scan is already in progress.", "var(--is-warning)");
-                window.Dashboard.alert("A scan is already in progress.");
             } else if (!response.ok) {
                 resetScanButton();
                 statusMessage.show("Unable to start the scan.", "var(--is-error)");
-                window.Dashboard.alert("Unable to start the scan.");
                 return;
             }
 
@@ -264,7 +235,6 @@ export function actionBar(opts: ActionBarOptions): {
         } catch {
             resetScanButton();
             statusMessage.show("Unable to start the scan.", "var(--is-error)");
-            window.Dashboard.alert("Unable to start the scan.");
         }
     };
 
@@ -272,12 +242,13 @@ export function actionBar(opts: ActionBarOptions): {
         if (destroyed) return;
 
         const label = currentIsMovie ? "movie" : "season";
-        const url = currentIsMovie
-            ? "Intros/Show/" + encodeURIComponent(currentShowId)
-            : "Intros/Show/" +
-              encodeURIComponent(currentShowId) +
-              "/" +
-              encodeURIComponent(currentSeasonId);
+        // A movie's season-state key is its own ID, so it fills both route segments.
+        const seasonId = currentIsMovie ? currentShowId : currentSeasonId;
+        const url =
+            "Intros/Show/" +
+            encodeURIComponent(currentShowId) +
+            "/" +
+            encodeURIComponent(seasonId);
         const result = await confirmDialog({
             title: "Confirm Timestamp Erasure",
             body: "Are you sure you want to erase all timestamps for this " + label + "?",
@@ -291,39 +262,25 @@ export function actionBar(opts: ActionBarOptions): {
             const response = await api.eraseItemTimestamps(url, result.checkboxChecked);
             if (!response.ok) {
                 statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
-                window.Dashboard.alert("Failed to erase timestamps");
                 return;
             }
             statusMessage.show("Timestamps erased.", "var(--is-success)");
-            window.Dashboard.alert("Timestamps erased");
             await Promise.resolve(opts.onScanComplete());
         } catch {
             statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
-            window.Dashboard.alert("Failed to erase timestamps");
         }
     };
 
-    async function resolveEditorLink(): Promise<void> {
-        try {
-            const plugins = await api.checkPlugins();
-            if (destroyed) {
-                return;
-            }
-
-            const isActive = plugins.some(
-                (p) => p.Id === SEGMENT_EDITOR_PLUGIN_ID && p.Status === "Active",
-            );
-            if (isActive) {
+    // Resolve the editor link at construction time so it's ready before the
+    // user navigates to a specific season. A failed lookup leaves the generic
+    // plugin page link in place.
+    isSegmentEditorActive()
+        .then((isActive) => {
+            if (isActive && !destroyed) {
                 editorLink.setAttribute("href", "#/configurationpage?name=Segment%20Editor");
             }
-        } catch {
-            // Leave the generic plugin page link in place if plugin lookup fails.
-        }
-    }
-
-    // Resolve the editor link once at construction time so it's ready
-    // before the user navigates to a specific season.
-    resolveEditorLink().catch(console.error);
+        })
+        .catch(() => {});
 
     applyBtn.addEventListener("click", handleApplyClick);
     scanBtn.addEventListener("click", handleScanClick);
@@ -359,11 +316,9 @@ export function actionBar(opts: ActionBarOptions): {
                 }
 
                 const actions: AnalyzerActions = result.ok && result.data ? result.data : {};
-                actionSelects["Introduction"].value = actions.Introduction ?? "Default";
-                actionSelects["Credits"].value = actions.Credits ?? "Default";
-                actionSelects["Recap"].value = actions.Recap ?? "Default";
-                actionSelects["Preview"].value = actions.Preview ?? "Default";
-                actionSelects["Commercial"].value = actions.Commercial ?? "Default";
+                for (const [key, select] of actionSelects) {
+                    select.value = actions[key] ?? "Default";
+                }
             }
 
             // Disable the button if another scan is already running server-side.

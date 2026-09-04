@@ -9,7 +9,7 @@ import { el } from "./dom.ts";
  * choices or null if cancelled.
  */
 
-export type ConfirmDialogOptions = {
+type ConfirmDialogOptions = {
     title: string;
     body: string;
     confirmLabel?: string;
@@ -19,11 +19,18 @@ export type ConfirmDialogOptions = {
     };
 };
 
-export type ConfirmDialogResult = {
+type ConfirmDialogResult = {
     checkboxChecked: boolean;
 };
 
 let dialogCounter = 0;
+
+/** Jellyfin's own confirm prompt, as a promise. */
+export function confirmDashboard(body: string, title: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        window.Dashboard.confirm(body, title, resolve);
+    });
+}
 
 export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialogResult | null> {
     return new Promise((resolve) => {
@@ -44,7 +51,7 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         if (opts.checkbox) {
             const checkboxId = "is-confirm-checkbox-" + uid;
-            checkbox = el("input", { type: "checkbox", id: checkboxId }) as HTMLInputElement;
+            checkbox = el("input", { type: "checkbox", id: checkboxId });
             const label = el("label", { className: "is-confirm-checkbox-label", for: checkboxId });
             label.append(checkbox, document.createTextNode(" " + opts.checkbox.label));
             const wrapper = el("div", { className: "is-confirm-checkbox-row" });

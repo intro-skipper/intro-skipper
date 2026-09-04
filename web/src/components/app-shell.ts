@@ -1,5 +1,6 @@
 import { validator } from "../validation/validator.ts";
 import { configStore } from "../store/config-store.ts";
+import { confirmDashboard } from "./confirm-dialog.ts";
 import { el } from "./dom.ts";
 
 /** How long the "Changes saved" message stays visible (ms). */
@@ -101,21 +102,14 @@ export function createAppShell(rootEl: HTMLElement): {
         }
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         const errors = validator.validateAll(configStore.getAll());
-        if (errors.size > 0) {
-            // Let the user save through warnings after an explicit confirmation.
-            window.Dashboard.confirm(
-                "There are validation warnings. Save anyway?",
-                "Validation",
-                (result: boolean) => {
-                    if (result) {
-                        void runSave();
-                    }
-                },
-            );
-        } else {
-            void runSave();
+        // Let the user save through warnings after an explicit confirmation.
+        if (
+            errors.size === 0 ||
+            (await confirmDashboard("There are validation warnings. Save anyway?", "Validation"))
+        ) {
+            await runSave();
         }
     };
 
@@ -125,8 +119,12 @@ export function createAppShell(rootEl: HTMLElement): {
         event.returnValue = "";
     };
 
+    const onSaveClick = () => {
+        handleSave().catch(console.error);
+    };
+
     skipLink.addEventListener("click", handleSkipLink);
-    saveButton.addEventListener("click", handleSave);
+    saveButton.addEventListener("click", onSaveClick);
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     const updateDirtyIndicator = () => {
@@ -151,7 +149,7 @@ export function createAppShell(rootEl: HTMLElement): {
         contentEl: content,
         destroy() {
             skipLink.removeEventListener("click", handleSkipLink);
-            saveButton.removeEventListener("click", handleSave);
+            saveButton.removeEventListener("click", onSaveClick);
             window.removeEventListener("beforeunload", handleBeforeUnload);
             configStore.unsubscribe("changed", updateDirtyIndicator);
             configStore.unsubscribe("saved", clearDirtyIndicator);

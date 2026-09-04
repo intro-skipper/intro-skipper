@@ -2,7 +2,6 @@ import type { SupportBundleEntry, SupportBundleSection, Tab } from "../types.ts"
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
 import { bindStatusMessage } from "../components/async-feedback.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 
 // Copies text to the clipboard. Dashboards served over plain HTTP have no
 // navigator.clipboard, so fall back to selecting an offscreen textarea.
@@ -112,7 +111,7 @@ export const informationTab: Tab = {
 
         const supportSections = el("div", {});
         supportSections.setAttribute("aria-labelledby", supportTitle.id);
-        appendTabContent(supportContainer, supportHead, supportStatusEl, supportSections);
+        supportContainer.append(supportHead, supportStatusEl, supportSections);
 
         let markdown = "";
         let manualCopyArea: HTMLTextAreaElement | undefined;
@@ -176,7 +175,7 @@ export const informationTab: Tab = {
         storageStatus.show("Loading storage usage…");
         const storageList = el("div", {});
         storageList.setAttribute("aria-labelledby", storageTitle.id);
-        appendTabContent(storageContainer, storageTitle, storageDesc, storageStatusEl, storageList);
+        storageContainer.append(storageTitle, storageDesc, storageStatusEl, storageList);
 
         function formatSize(bytes: number): string {
             if (bytes <= 0) return "0 B";
@@ -258,6 +257,6 @@ export const informationTab: Tab = {
 
         loadStorageUsage().catch(console.error);
 
-        appendTabContent(container, supportContainer, storageContainer);
+        container.append(supportContainer, storageContainer);
     },
 };
