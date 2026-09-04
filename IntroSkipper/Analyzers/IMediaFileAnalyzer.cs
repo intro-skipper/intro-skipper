@@ -11,7 +11,7 @@ namespace IntroSkipper.Analyzers;
 /// <summary>
 /// Media file analyzer interface.
 /// </summary>
-public interface IMediaFileAnalyzer
+internal interface IMediaFileAnalyzer
 {
     /// <summary>
     /// Analyzes the media files that still need analysis for the mode (see

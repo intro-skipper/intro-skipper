@@ -21,7 +21,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-public sealed partial class ChromaprintAnalyzer(
+internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
@@ -39,6 +39,10 @@ public sealed partial class ChromaprintAnalyzer(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
+
+    // Per-episode recap inputs, reused across every pair the episode takes part in: the
+    // boundary is a segment read and the frames an ffmpeg scan, both inside the O(n^2) loop.
+    private readonly Dictionary<Guid, double> _recapBoundaryCache = [];
     private readonly Dictionary<Guid, IReadOnlyList<BlackFrame>> _recapBlackFrameCache = [];
     private AnalysisMode _analysisMode;
 
@@ -210,7 +214,7 @@ public sealed partial class ChromaprintAnalyzer(
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsPoints">Second episode fingerprint points.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    public (Segment Lhs, Segment Rhs) CompareEpisodes(
+    internal (Segment Lhs, Segment Rhs) CompareEpisodes(
         Guid lhsId,
         uint[] lhsPoints,
         Guid rhsId,
@@ -222,8 +226,6 @@ public sealed partial class ChromaprintAnalyzer(
 
         if (lhsRanges.Count > 0)
         {
-            LogIndexSearchSuccessful();
-
             return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode);
         }
 
@@ -244,22 +246,55 @@ public sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
     /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
+    /// A region starting within 5 s of the episode start is snapped to 0.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
     /// <param name="rhsId">Second episode id.</param>
-    /// <param name="rhsRanges">Second episode shared timecodes.</param>
+    /// <param name="rhsRanges">Second episode shared timecodes, index-aligned with <paramref name="lhsRanges"/>.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>Segments for the first and second episodes.</returns>
+    /// <returns>Segments for the first and second episodes; invalid segments when there is no pair.</returns>
     internal static (Segment Lhs, Segment Rhs) SelectSharedRegion(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,
         List<TimeRange> rhsRanges,
         AnalysisMode mode)
-        => mode == AnalysisMode.Recap
-            ? GetEarliestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges)
-            : GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+    {
+        var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
+        if (pairCount == 0)
+        {
+            return (new Segment(lhsId), new Segment(rhsId));
+        }
+
+        // The lists are index-aligned pairs from the same shift, so the pair is picked by the
+        // left-hand range alone.
+        var selected = 0;
+        for (var i = 1; i < pairCount; i++)
+        {
+            var better = mode == AnalysisMode.Recap
+                ? lhsRanges[i].Start < lhsRanges[selected].Start
+                : lhsRanges[i].Duration > lhsRanges[selected].Duration;
+            if (better)
+            {
+                selected = i;
+            }
+        }
+
+        var lhs = new TimeRange(lhsRanges[selected]);
+        var rhs = new TimeRange(rhsRanges[selected]);
+        if (lhs.Start <= 5)
+        {
+            lhs.Start = 0;
+        }
+
+        if (rhs.Start <= 5)
+        {
+            rhs.Start = 0;
+        }
+
+        return (new Segment(lhsId, lhs), new Segment(rhsId, rhs));
+    }
 
     private int GetMaximumSegmentDuration(QueuedEpisode episode)
     {
@@ -282,11 +317,16 @@ public sealed partial class ChromaprintAnalyzer(
             return null;
         }
 
-        var maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
-            _database,
-            episode,
-            _config,
-            cancellationToken).ConfigureAwait(false);
+        if (!_recapBoundaryCache.TryGetValue(episode.EpisodeId, out var maximumBoundary))
+        {
+            maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+                _database,
+                episode,
+                _config,
+                cancellationToken).ConfigureAwait(false);
+            _recapBoundaryCache[episode.EpisodeId] = maximumBoundary;
+        }
+
         if (maximumBoundary <= card.End)
         {
             return null;
@@ -310,92 +350,6 @@ public sealed partial class ChromaprintAnalyzer(
             blackFrames,
             Math.Max(_config.MinimumRecapDetectionDuration, (int)Math.Ceiling(card.End)),
             maximumBoundary);
-    }
-
-    private static (Segment Lhs, Segment Rhs) GetEarliestTimeRange(
-        Guid lhsId,
-        List<TimeRange> lhsRanges,
-        Guid rhsId,
-        List<TimeRange> rhsRanges)
-    {
-        var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
-        if (pairCount == 0)
-        {
-            return (new Segment(lhsId), new Segment(rhsId));
-        }
-
-        var earliestIndex = 0;
-        for (var i = 1; i < pairCount; i++)
-        {
-            if (lhsRanges[i].Start < lhsRanges[earliestIndex].Start)
-            {
-                earliestIndex = i;
-            }
-        }
-
-        var lhsRecap = new TimeRange(lhsRanges[earliestIndex]);
-        var rhsRecap = new TimeRange(rhsRanges[earliestIndex]);
-
-        if (lhsRecap.Start <= 5)
-        {
-            lhsRecap.Start = 0;
-        }
-
-        if (rhsRecap.Start <= 5)
-        {
-            rhsRecap.Start = 0;
-        }
-
-        return (new Segment(lhsId, lhsRecap), new Segment(rhsId, rhsRecap));
-    }
-
-    /// <summary>
-    /// Locates the longest range of similar audio and returns an Intro class for each range.
-    /// </summary>
-    /// <param name="lhsId">First episode id.</param>
-    /// <param name="lhsRanges">First episode shared timecodes.</param>
-    /// <param name="rhsId">Second episode id.</param>
-    /// <param name="rhsRanges">Second episode shared timecodes.</param>
-    /// <returns>Intros for the first and second episodes.</returns>
-    private static (Segment Lhs, Segment Rhs) GetLongestTimeRange(
-        Guid lhsId,
-        List<TimeRange> lhsRanges,
-        Guid rhsId,
-        List<TimeRange> rhsRanges)
-    {
-        var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
-        if (pairCount == 0)
-        {
-            return (new Segment(lhsId), new Segment(rhsId));
-        }
-
-        // The lists are index-aligned pairs from the same shift, so pick the pair by the
-        // left-hand duration instead of sorting each list on its own.
-        var longestIndex = 0;
-        for (var i = 1; i < pairCount; i++)
-        {
-            if (lhsRanges[i].Duration > lhsRanges[longestIndex].Duration)
-            {
-                longestIndex = i;
-            }
-        }
-
-        var lhsIntro = lhsRanges[longestIndex];
-        var rhsIntro = rhsRanges[longestIndex];
-
-        // If the intro starts early in the episode, move it to the beginning.
-        if (lhsIntro.Start <= 5)
-        {
-            lhsIntro.Start = 0;
-        }
-
-        if (rhsIntro.Start <= 5)
-        {
-            rhsIntro.Start = 0;
-        }
-
-        // Create Intro classes for each time range.
-        return (new Segment(lhsId, lhsIntro), new Segment(rhsId, rhsIntro));
     }
 
     /// <summary>
@@ -422,19 +376,13 @@ public sealed partial class ChromaprintAnalyzer(
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
         // If an exact match is found, calculate the shift that must be used to align the points.
-        foreach (var kvp in lhsIndex)
+        foreach (var (originalPoint, lhsPosition) in lhsIndex)
         {
-            var originalPoint = kvp.Key;
-
             for (var i = -1 * _config.InvertedIndexShift; i <= _config.InvertedIndexShift; i++)
             {
-                var modifiedPoint = (uint)(originalPoint + i);
-
-                if (rhsIndex.TryGetValue(modifiedPoint, out var rhsModifiedPoint))
+                if (rhsIndex.TryGetValue((uint)(originalPoint + i), out var rhsPosition))
                 {
-                    var lhsFirst = lhsIndex[originalPoint];
-                    var rhsFirst = rhsModifiedPoint;
-                    indexShifts.Add(rhsFirst - lhsFirst);
+                    indexShifts.Add(rhsPosition - lhsPosition);
                 }
             }
         }
@@ -456,6 +404,11 @@ public sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Finds the longest contiguous region of similar audio between two fingerprints using the provided shift amount.
     /// </summary>
+    /// <remarks>
+    /// A run-length pass over the sample positions: a run continues while the gap between two
+    /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>; the longest
+    /// run wins, the earlier one on a tie.
+    /// </remarks>
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
@@ -465,54 +418,53 @@ public sealed partial class ChromaprintAnalyzer(
         uint[] rhs,
         int shiftAmount)
     {
-        var leftOffset = 0;
-        var rightOffset = 0;
-
-        // Calculate the offsets for the left and right hand sides.
-        if (shiftAmount < 0)
-        {
-            leftOffset -= shiftAmount;
-        }
-        else
-        {
-            rightOffset += shiftAmount;
-        }
-
-        // Store similar times for the LHS; the RHS times are the same positions shifted by a constant.
-        var lhsTimes = new List<double>();
+        var leftOffset = shiftAmount < 0 ? -shiftAmount : 0;
+        var rightOffset = shiftAmount > 0 ? shiftAmount : 0;
         var upperLimit = Math.Min(lhs.Length, rhs.Length) - Math.Abs(shiftAmount);
 
-        // XOR all elements in LHS and RHS, using the shift amount from above.
+        // Sample positions on the LHS; -1 while no run has started.
+        var bestStart = -1;
+        var bestEnd = -1;
+        var runStart = -1;
+        var runEnd = -1;
+
         for (var i = 0; i < upperLimit; i++)
         {
-            // XOR both samples at the current position.
             var lhsPosition = i + leftOffset;
-            var rhsPosition = i + rightOffset;
-            var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
-
-            // If the difference between the samples is small, flag the time as similar.
-            if (BitOperations.PopCount(diff) > _config.MaximumFingerprintPointDifferences)
+            if (BitOperations.PopCount(lhs[lhsPosition] ^ rhs[i + rightOffset]) > _config.MaximumFingerprintPointDifferences)
             {
                 continue;
             }
 
-            lhsTimes.Add(lhsPosition * ChromaprintConstants.SampleDuration);
+            if (runStart >= 0 && (lhsPosition - runEnd) * ChromaprintConstants.SampleDuration <= _config.MaximumTimeSkip)
+            {
+                runEnd = lhsPosition;
+                continue;
+            }
+
+            if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+            {
+                (bestStart, bestEnd) = (runStart, runEnd);
+            }
+
+            runStart = runEnd = lhsPosition;
         }
 
-        // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous(lhsTimes, _config.MaximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))
+        if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+        {
+            (bestStart, bestEnd) = (runStart, runEnd);
+        }
+
+        if (bestStart < 0 || (bestEnd - bestStart) * ChromaprintConstants.SampleDuration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))
         {
             return (new TimeRange(), new TimeRange());
         }
 
-        // Every RHS position is its LHS position plus the shift, so the RHS range is the LHS range
-        // re-derived from sample positions (rounding recovers the exact integer position).
+        // Every RHS position is its LHS position plus the shift.
         var positionShift = rightOffset - leftOffset;
-        var rContiguous = new TimeRange(
-            (Math.Round(lContiguous.Start / ChromaprintConstants.SampleDuration) + positionShift) * ChromaprintConstants.SampleDuration,
-            (Math.Round(lContiguous.End / ChromaprintConstants.SampleDuration) + positionShift) * ChromaprintConstants.SampleDuration);
-        return (lContiguous, rContiguous);
+        return (
+            new TimeRange(bestStart * ChromaprintConstants.SampleDuration, bestEnd * ChromaprintConstants.SampleDuration),
+            new TimeRange((bestStart + positionShift) * ChromaprintConstants.SampleDuration, (bestEnd + positionShift) * ChromaprintConstants.SampleDuration));
     }
 
     /// <summary>
@@ -521,7 +473,7 @@ public sealed partial class ChromaprintAnalyzer(
     /// <param name="id">Episode ID.</param>
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
     /// <returns>Inverted index.</returns>
-    public Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
+    internal Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
     {
         if (_invertedIndexCache.TryGetValue(id, out var cached))
         {
@@ -546,9 +498,6 @@ public sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
     private partial void LogCaughtFingerprintError(Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Index search successful")]
-    private partial void LogIndexSearchSuccessful();
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
