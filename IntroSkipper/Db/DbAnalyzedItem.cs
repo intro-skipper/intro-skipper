@@ -45,8 +45,8 @@ public sealed class DbAnalyzedItem
     public AnalysisMode Type { get; private set; }
 
     /// <summary>
-    /// Gets the configuration hash the item was analyzed under. Records are replaced, never
-    /// updated in place: the facade's upsert is a delete-then-insert inside one transaction.
+    /// Gets the configuration hash the item was analyzed under. The facade rewrites it
+    /// with a set-based upsert, never through a tracked entity.
     /// </summary>
     public string ConfigHash { get; private set; } = string.Empty;
 }

@@ -75,7 +75,6 @@ public class DetectionCacheDbContext : DbContext
                   .HasDatabaseName("IX_DetectionCache_Unique")
                   .IsUnique();
 
-            entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => e.Mode);
 
             entity.Property(e => e.Start)

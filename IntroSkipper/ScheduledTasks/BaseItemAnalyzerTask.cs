@@ -138,10 +138,14 @@ public partial class BaseItemAnalyzerTask(
             // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
             var utcNow = DateTime.UtcNow;
             var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
+
+            // One season-state read serves both the settle decision and every mode's
+            // analyzer action below.
+            var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, ct).ConfigureAwait(false);
             if (Config.ReanalyzeSettledSeasons &&
                 SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
             {
-                settledResetModes = await GetSettleReanalysisModesAsync(first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
+                settledResetModes = GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
                 if (settledResetModes.Count > 0)
                 {
                     var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, Config.AnimePreviewFromCreditsEnd);
@@ -173,6 +177,7 @@ public partial class BaseItemAnalyzerTask(
                     await AnalyzeItemsAsync(
                         episodes,
                         mode,
+                        seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
                         ffmpegValid,
                         ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, episodes.Count);
@@ -217,14 +222,12 @@ public partial class BaseItemAnalyzerTask(
         }).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
-        Guid seasonId,
+    private static List<AnalysisMode> GetSettleReanalysisModes(
+        IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> settleReanalysisStates,
         IReadOnlyCollection<Guid> episodeIds,
         IReadOnlyCollection<AnalysisMode> modes,
-        bool ffmpegValid,
-        CancellationToken cancellationToken)
+        bool ffmpegValid)
     {
-        var settleReanalysisStates = await _database.GetSettleReanalysisStatesAsync(seasonId, cancellationToken).ConfigureAwait(false);
         var resetModes = new List<AnalysisMode>(modes.Count);
         foreach (var mode in modes)
         {
@@ -288,12 +291,14 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">The season's analyzer action for the mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     private async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        AnalyzerAction action,
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
@@ -312,7 +317,6 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        var action = await _database.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
         var configHash = ConfigHasher.Analysis(Config, mode, action, ffmpegValid);
 
         if (action == AnalyzerAction.None)

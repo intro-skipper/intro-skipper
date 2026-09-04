@@ -31,8 +31,9 @@ internal static partial class LegacyDatabaseImporter
     /// <param name="legacyDbPath">Path of the legacy database file (must exist).</param>
     /// <param name="logger">Logger.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The import counts.</returns>
-    internal static async Task<LegacyImportResult> ImportAsync(
+    /// <returns>The marker row carrying the import counts and shape notes; the caller
+    /// stamps the time and source-file flag before saving it.</returns>
+    internal static async Task<DbImportRecord> ImportAsync(
         IntroSkipperDbContext newDb,
         string legacyDbPath,
         ILogger logger,
@@ -56,7 +57,13 @@ internal static partial class LegacyDatabaseImporter
         var (statesImported, stateNotes) =
             await ImportSeasonStatesAsync(newDb, legacy, logger, cancellationToken).ConfigureAwait(false);
 
-        return new LegacyImportResult(segmentsImported, segmentsSkipped, statesImported, $"{segmentNotes}; {stateNotes}");
+        return new DbImportRecord
+        {
+            SegmentsImported = segmentsImported,
+            SegmentsSkipped = segmentsSkipped,
+            SeasonStatesImported = statesImported,
+            Notes = $"{segmentNotes}; {stateNotes}"
+        };
     }
 
     private static async Task<(int Imported, int Skipped, string Notes)> ImportSegmentsAsync(

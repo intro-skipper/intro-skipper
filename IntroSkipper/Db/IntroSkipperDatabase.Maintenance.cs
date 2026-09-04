@@ -210,19 +210,15 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var staleDisabledIds = await db.DisabledItems
+        // One UNION statement; the set operator already deduplicates.
+        return await db.DisabledItems
             .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
             .Select(e => e.ItemId)
+            .Union(db.AnalyzedItems
+                .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
+                .Select(a => a.ItemId))
             .ToArrayAsync(cancellationToken)
             .ConfigureAwait(false);
-        var staleAnalyzedIds = await db.AnalyzedItems
-            .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
-            .Select(a => a.ItemId)
-            .Distinct()
-            .ToArrayAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        return [.. staleDisabledIds.Union(staleAnalyzedIds)];
     }
 
     /// <inheritdoc/>

@@ -24,7 +24,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 {
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly RetryableInitializationGate<Task> _initialization;
+    private readonly RetryableInitializationGate _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
@@ -45,7 +45,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         // the Lazy monitor until the factory's first incomplete await. Dispatching to
         // the thread pool makes the factory return a Task immediately, so waiters
         // genuinely await instead of blocking.
-        _initialization = new RetryableInitializationGate<Task>(() => Task.Run(InitializeCoreAsync));
+        _initialization = new RetryableInitializationGate(() => Task.Run(InitializeCoreAsync));
     }
 
     /// <inheritdoc/>
@@ -80,7 +80,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
-        await db.ApplyMigrationsAsync().ConfigureAwait(false);
+        await db.Database.MigrateAsync().ConfigureAwait(false);
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
     }
@@ -110,25 +110,19 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
             var transaction = await db.Database.BeginTransactionAsync().ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
-                var result = sourceFileFound
+                var marker = sourceFileFound
                     ? await LegacyDatabaseImporter.ImportAsync(db, legacyPath!, _logger).ConfigureAwait(false)
-                    : new LegacyImportResult(0, 0, 0, "no legacy database");
+                    : new DbImportRecord { Notes = "no legacy database" };
+                marker.ImportedAt = DateTime.UtcNow;
+                marker.SourceFileFound = sourceFileFound;
 
-                db.ImportHistory.Add(new DbImportRecord
-                {
-                    ImportedAt = DateTime.UtcNow,
-                    SourceFileFound = sourceFileFound,
-                    SegmentsImported = result.SegmentsImported,
-                    SegmentsSkipped = result.SegmentsSkipped,
-                    SeasonStatesImported = result.SeasonStatesImported,
-                    Notes = result.Notes
-                });
+                db.ImportHistory.Add(marker);
                 await db.SaveChangesAsync().ConfigureAwait(false);
                 await transaction.CommitAsync().ConfigureAwait(false);
 
                 if (sourceFileFound)
                 {
-                    LogLegacyImportCompleted(_logger, result.SegmentsImported, result.SegmentsSkipped, result.SeasonStatesImported);
+                    LogLegacyImportCompleted(_logger, marker.SegmentsImported, marker.SegmentsSkipped, marker.SeasonStatesImported);
                 }
             }
         }

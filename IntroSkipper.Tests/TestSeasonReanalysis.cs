@@ -345,7 +345,7 @@ public sealed class TestSeasonReanalysisReset
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -418,7 +418,7 @@ public sealed class TestSeasonReanalysisReset
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
 
                 // Automatic intro — should be deleted.
                 db.Segments.Add(new DbSegment(
@@ -543,7 +543,7 @@ public sealed class TestSeasonReanalysisReset
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
 
                 db.Segments.Add(new DbSegment(
                     autoEpisode,
@@ -610,7 +610,7 @@ public sealed class TestSeasonReanalysisReset
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
             }
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -668,7 +668,7 @@ public sealed class TestSeasonReanalysisReset
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
                 db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
                 db.AnalyzedItems.Add(new DbAnalyzedItem(episodeId, AnalysisMode.Introduction, withoutChromaprintHash));
                 await db.SaveChangesAsync();
@@ -738,7 +738,7 @@ public sealed class TestSeasonReanalysisReset
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.ApplyMigrationsAsync();
+                await db.Database.MigrateAsync();
                 db.DisabledItems.Add(new DbDisabledItem(seasonId, episodeId));
                 await db.SaveChangesAsync();
             }
@@ -828,7 +828,7 @@ public sealed class TestSeasonReanalysisReset
         public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
     }
 
-    // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,
+    // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModes,
     // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
     private static async Task<bool> ShouldReanalyzeAsync(
         IntroSkipperDatabase database,

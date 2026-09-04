@@ -39,7 +39,7 @@ public interface IDetectionCacheDatabase
     DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end);
 
     /// <summary>
-    /// Inserts or updates the cache entry for the given key.
+    /// Inserts or updates the cache entry for the given key in one statement.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -51,21 +51,9 @@ public interface IDetectionCacheDatabase
     void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash);
 
     /// <summary>
-    /// Returns whether a cache entry exists for the given key whose configuration hash is
-    /// either empty (legacy entry) or equal to <paramref name="expectedConfigHash"/>.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="type">Cache entry type.</param>
-    /// <param name="start">Start of the analyzed range.</param>
-    /// <param name="end">End of the analyzed range.</param>
-    /// <param name="expectedConfigHash">Expected configuration hash.</param>
-    /// <returns><see langword="true"/> when a usable entry exists.</returns>
-    bool HasEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string expectedConfigHash);
-
-    /// <summary>
     /// Deletes all cache entries for an item. Best-effort: database errors are logged
-    /// and swallowed.
+    /// and swallowed. Synchronous for the library-removed event handler, which is not
+    /// async.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
@@ -73,11 +61,12 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Deletes all cache entries for an analysis mode. Best-effort: database errors are
-    /// logged and swallowed.
+    /// logged and swallowed (cancellation still propagates).
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
-    int DeleteByMode(AnalysisMode mode);
+    Task<int> DeleteByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the distinct item IDs present in the cache that are not part of

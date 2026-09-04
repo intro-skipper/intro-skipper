@@ -40,10 +40,17 @@ public sealed partial class IntroSkipperDatabase
             var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
-                var existing = await db.Segments
-                    .Where(s => s.ItemId == itemId && s.Type == mode)
+                // One read for the mode's rows plus, for a credits write, the active
+                // intros the overlap guard below compares against.
+                var loadIntros = mode == AnalysisMode.Credits;
+                var itemRows = await db.Segments
+                    .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
+                var existing = itemRows.Where(s => s.Type == mode).ToList();
+                var intros = loadIntros
+                    ? itemRows.Where(s => s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active).ToList()
+                    : [];
 
                 var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
                 var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
@@ -57,15 +64,6 @@ public sealed partial class IntroSkipperDatabase
                 var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
                 var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
                 var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
-
-                var intros = mode == AnalysisMode.Credits
-                    ? await db.Segments
-                        .AsNoTracking()
-                        .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active)
-                        .Select(s => new { s.StartTicks, s.EndTicks })
-                        .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false)
-                    : [];
 
                 var accepted = new List<DbSegment>();
                 var rejected = 0;
@@ -91,8 +89,7 @@ public sealed partial class IntroSkipperDatabase
                         continue;
                     }
 
-                    if (mode == AnalysisMode.Credits
-                        && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
+                    if (intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                     {
                         LogCreditsOverlapWithIntro(_logger, itemId);
                         rejected++;
@@ -198,14 +195,33 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        return await AddUserSegmentCoreAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        var exact = await FindExactRangeAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        return await AddUserSegmentCoreAsync(db, itemId, mode, startTicks, endTicks, exact, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Core of <see cref="AddUserSegmentAsync"/> on a caller-owned context. Saves its own
-    /// changes — the concurrency recovery needs the save boundaries. Inside a caller's
-    /// transaction a failed save rolls back to EF's automatic savepoint, not the whole
-    /// transaction, so the recovery paths behave exactly as they do stand-alone.
+    /// The tracked row occupying exactly the range on the item and mode, or
+    /// <see langword="null"/>; the read every exact-range collision rule starts from.
+    /// </summary>
+    private static Task<DbSegment?> FindExactRangeAsync(IntroSkipperDbContext db, Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken)
+        => db.Segments.FirstOrDefaultAsync(
+            s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
+            cancellationToken);
+
+    /// <summary>
+    /// The tracked row with the id on the item, or <see langword="null"/>; ids on other
+    /// items are unknown by contract.
+    /// </summary>
+    private static Task<DbSegment?> FindOwnedRowAsync(IntroSkipperDbContext db, Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+        => db.Segments.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken);
+
+    /// <summary>
+    /// Core of <see cref="AddUserSegmentAsync"/> on a caller-owned context, given the
+    /// caller's read of the exact-range occupant (<paramref name="exact"/>, tracked).
+    /// Saves its own changes because the concurrency recovery needs the save boundaries.
+    /// Inside a caller's transaction a failed save rolls back to EF's automatic
+    /// savepoint, not the whole transaction, so the recovery paths behave exactly as
+    /// they do stand-alone.
     /// </summary>
     private static async Task<DbSegment> AddUserSegmentCoreAsync(
         IntroSkipperDbContext db,
@@ -213,14 +229,9 @@ public sealed partial class IntroSkipperDatabase
         AnalysisMode mode,
         long startTicks,
         long endTicks,
+        DbSegment? exact,
         CancellationToken cancellationToken)
     {
-        var exact = await db.Segments
-            .FirstOrDefaultAsync(
-                s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         if (exact is not null)
         {
             // Promote an automatic row, revive a tombstone, or return the user row unchanged.
@@ -251,11 +262,7 @@ public sealed partial class IntroSkipperDatabase
             // this insert (analyzers do not take the editor's stripe); resolve like the
             // up-front exact match — promote the occupant in place.
             db.ChangeTracker.Clear();
-            var occupant = await db.Segments
-                .FirstOrDefaultAsync(
-                    s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var occupant = await FindExactRangeAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
             if (occupant is null)
             {
                 throw;
@@ -387,35 +394,35 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        return await UpdateSegmentCoreAsync(db, itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        var row = await FindOwnedRowAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        if (row is null || row.State == SegmentState.Suppressed)
+        {
+            return null;
+        }
+
+        return await UpdateSegmentCoreAsync(db, row, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Core of <see cref="UpdateSegmentAsync"/> on a caller-owned context. Saves its own
+    /// Core of <see cref="UpdateSegmentAsync"/> on a caller-owned context, given the
+    /// caller's read of the active tracked <paramref name="row"/>. Saves its own
     /// changes — the concurrency recovery needs the save boundaries (see
     /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
     /// transaction).
     /// </summary>
     private static async Task<DbSegment?> UpdateSegmentCoreAsync(
         IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
+        DbSegment row,
         long startTicks,
         long endTicks,
         CancellationToken cancellationToken)
     {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null || row.State == SegmentState.Suppressed)
-        {
-            return null;
-        }
-
+        var itemId = row.ItemId;
+        var segmentId = row.Id;
         var occupant = await db.Segments
             .FirstOrDefaultAsync(
                 s => s.Id != segmentId
-                    && s.ItemId == row.ItemId
+                    && s.ItemId == itemId
                     && s.Type == row.Type
                     && s.StartTicks == startTicks
                     && s.EndTicks == endTicks,
@@ -479,9 +486,7 @@ public sealed partial class IntroSkipperDatabase
                 throw;
             }
 
-            var movedRow = await db.Segments
-                .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-                .ConfigureAwait(false);
+            var movedRow = await FindOwnedRowAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
             if (movedRow is not null)
             {
                 db.Segments.Remove(movedRow);
@@ -501,12 +506,12 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="DeleteSegmentCoreAsync"/>: tombstones automatic
-    /// rows, hard-deletes user rows; returns a pre-delete snapshot, or
+    /// Single-shot form of <see cref="StageDelete"/>: tombstones automatic rows,
+    /// hard-deletes user rows; returns a pre-delete snapshot, or
     /// <see langword="null"/> when the id is unknown on the item or already
     /// suppressed. Internal on purpose — it does not journal a projection, so
     /// production writes go through <see cref="ApplyChangeAsync"/>; this is the
-    /// domain-semantics test seam over the same core.
+    /// domain-semantics test seam over the same rule.
     /// </summary>
     /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
@@ -517,34 +522,15 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var snapshot = await DeleteSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        if (snapshot is not null)
-        {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        return snapshot;
-    }
-
-    /// <summary>
-    /// Core of <see cref="DeleteSegmentAsync"/> on a caller-owned context. Stages the
-    /// delete (tombstone or removal) without saving; the caller saves and commits.
-    /// </summary>
-    private static async Task<DbSegment?> DeleteSegmentCoreAsync(
-        IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
-        CancellationToken cancellationToken)
-    {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
+        var row = await FindOwnedRowAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
         if (row is null || row.State == SegmentState.Suppressed)
         {
             return null;
         }
 
-        return StageDelete(db, row);
+        var snapshot = StageDelete(db, row);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return snapshot;
     }
 
     /// <summary>
@@ -584,29 +570,28 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        return await RestoreSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Core of <see cref="RestoreSegmentAsync"/> on a caller-owned context. Saves its own
-    /// changes — the concurrency recovery needs the save boundary (see
-    /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
-    /// transaction).
-    /// </summary>
-    private static async Task<DbSegment?> RestoreSegmentCoreAsync(
-        IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
-        CancellationToken cancellationToken)
-    {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
+        var row = await FindOwnedRowAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
         if (row is null || row.State != SegmentState.Suppressed)
         {
             return null;
         }
 
+        return await RestoreSegmentCoreAsync(db, row, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Core of <see cref="RestoreSegmentAsync"/> on a caller-owned context, given the
+    /// caller's read of the suppressed tracked <paramref name="row"/>. Saves its own
+    /// changes — the concurrency recovery needs the save boundary (see
+    /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
+    /// transaction).
+    /// </summary>
+    private static async Task<DbSegment> RestoreSegmentCoreAsync(
+        IntroSkipperDbContext db,
+        DbSegment row,
+        CancellationToken cancellationToken)
+    {
+        var itemId = row.ItemId;
         row.State = SegmentState.Active;
 
         // The delete that tombstoned the row also cleared the item's analysis record
