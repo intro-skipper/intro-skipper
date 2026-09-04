@@ -33,10 +33,10 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public class SegmentsController(
     IIntroSkipperDatabase database,
-    ISegmentChange segmentChange) : ControllerBase
+    SegmentChange segmentChange) : ControllerBase
 {
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly ISegmentChange _segmentChange = segmentChange;
+    private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Gets all stored segments of an item, ordered by type and start time.
@@ -88,8 +88,6 @@ public class SegmentsController(
         [FromBody] CreateSegmentRequest request,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
         if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
@@ -143,8 +141,6 @@ public class SegmentsController(
         [FromBody] UpdateSegmentRequest request,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
         if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();

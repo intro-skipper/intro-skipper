@@ -33,9 +33,6 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     /// <param name="logger">Logger.</param>
     public IntroSkipperDatabase(IDbContextFactory<IntroSkipperDbContext> contextFactory, ILogger<IntroSkipperDatabase> logger)
     {
-        ArgumentNullException.ThrowIfNull(contextFactory);
-        ArgumentNullException.ThrowIfNull(logger);
-
         _contextFactory = contextFactory;
         _logger = logger;
         // Task.Run is load-bearing, not redundant: InitializeCoreAsync may perform the
@@ -153,7 +150,4 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a user-provided segment")]
     private static partial void LogAutoSegmentSkippedForUserOverlap(ILogger logger, Data.AnalysisMode mode, Guid itemId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update segments for item {ItemId}")]
-    private static partial void LogFailedToUpdateSegments(ILogger logger, Exception ex, Guid itemId);
 }

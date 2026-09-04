@@ -56,10 +56,14 @@ internal static class DatabaseTestHelpers
     /// <summary>
     /// Composes the standard mirror over a store and database, the single test home of
     /// the mirror wiring so constructor changes touch one place. Without an explicit
-    /// policy the mirror follows the plugin configuration, as in production.
+    /// policy the mirror follows the plugin configuration, as in production, or is
+    /// simply enabled when the test hosts no plugin instance.
     /// </summary>
     internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
-        => new(store, new SegmentDtoFactory(database), policy ?? new MediaSegmentMirrorPolicy());
+        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy());
+
+    private static IMediaSegmentMirrorPolicy DefaultPolicy()
+        => Plugin.Instance is null ? new FakeMirrorPolicy() : new MediaSegmentMirrorPolicy();
 
     /// <summary>
     /// Composes the durable segment-change coordinator over the real Jellyfin
@@ -70,9 +74,8 @@ internal static class DatabaseTestHelpers
     /// </summary>
     internal static SegmentChange CreateSegmentChange(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
     {
-        policy ??= new MediaSegmentMirrorPolicy();
+        policy ??= DefaultPolicy();
         return new(
-            database,
             database,
             new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database, policy), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
             policy,

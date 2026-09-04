@@ -40,11 +40,8 @@ internal sealed class MediaSegmentMirrorPolicy : IHostedService, IMediaSegmentMi
     /// <inheritdoc />
     public event EventHandler<bool>? EnabledChanged;
 
-    /// <summary>
-    /// Gets a value indicating whether plugin segments are mirrored into Jellyfin.
-    /// Defaults to enabled when no plugin instance is available (unit-test hosts).
-    /// </summary>
-    public bool Enabled => Plugin.Instance?.Configuration.UpdateMediaSegments ?? true;
+    /// <inheritdoc />
+    public bool Enabled => Plugin.Instance!.Configuration.UpdateMediaSegments;
 
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)

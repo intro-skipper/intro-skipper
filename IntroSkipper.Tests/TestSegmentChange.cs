@@ -907,9 +907,9 @@ public sealed class TestSegmentChange : IDisposable
         Assert.False(await journal.CompleteProjectionWorkAsync(itemId, staleVersion, [], CancellationToken.None));
         var surviving = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
         Assert.NotNull(surviving);
-        Assert.Equal(staleVersion + 1, surviving.Item.Version);
+        Assert.Equal(staleVersion + 1, surviving.Value.Item.Version);
 
-        Assert.True(await journal.CompleteProjectionWorkAsync(itemId, surviving.Item.Version, [], CancellationToken.None));
+        Assert.True(await journal.CompleteProjectionWorkAsync(itemId, surviving.Value.Item.Version, [], CancellationToken.None));
         Assert.Null(await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None));
     }
 
@@ -923,8 +923,8 @@ public sealed class TestSegmentChange : IDisposable
         await journal.RecordProjectionFailureAsync(itemId, staleVersion, DateTime.UtcNow.AddMinutes(5), "stale failure", CancellationToken.None);
         var current = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
         Assert.NotNull(current);
-        Assert.Null(current.Item.NextAttemptAt);
-        Assert.Equal(0, current.Item.AttemptCount);
+        Assert.Null(current.Value.Item.NextAttemptAt);
+        Assert.Equal(0, current.Value.Item.AttemptCount);
     }
 
     [Fact]
@@ -981,7 +981,6 @@ public sealed class TestSegmentChange : IDisposable
         adapter.Database = database;
         return new SegmentChange(
             database,
-            database,
             adapter,
             policy ?? new FakeMirrorPolicy(),
             new SegmentMutationLocks(),
@@ -1013,17 +1012,16 @@ public sealed class TestSegmentChange : IDisposable
     /// Journals two changes for one item and returns the first marker's version, which
     /// the second change superseded.
     /// </summary>
-    private async Task<(ISegmentProjectionJournal Journal, Guid ItemId, long StaleVersion)> SeedSupersededWorkAsync()
+    private async Task<(IntroSkipperDatabase Journal, Guid ItemId, long StaleVersion)> SeedSupersededWorkAsync()
     {
         var itemId = Guid.NewGuid();
         var database = CreateDatabase();
-        ISegmentProjectionJournal journal = database;
 
         Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Introduction, 10, 20))).Outcome);
-        var work = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        var work = await database.ReadProjectionWorkAsync(itemId, CancellationToken.None);
         Assert.NotNull(work);
         Assert.Null((await database.ApplyChangeAsync(new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40))).Outcome);
-        return (journal, itemId, work.Item.Version);
+        return (database, itemId, work.Value.Item.Version);
     }
 
     private async Task AssertAnalyzedItemAsync(Guid itemId, AnalysisMode mode, string expectedHash)
@@ -1091,7 +1089,7 @@ public sealed class TestSegmentChange : IDisposable
             return Task.FromResult(ExternalTargets.GetValueOrDefault(externalSegmentId));
         }
 
-        public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
+        public async Task<bool> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
         {
             // Snapshot what the real adapter would push: the item's current servable
             // image (the disable filter applied), read through the facade.
@@ -1107,7 +1105,7 @@ public sealed class TestSegmentChange : IDisposable
 
             if (MirroringDisabledRemaining-- > 0)
             {
-                return ProjectionApplyOutcome.MirroringDisabled;
+                return false;
             }
 
             if (FailuresRemaining-- > 0 || FailingItems.Contains(itemId))
@@ -1117,7 +1115,7 @@ public sealed class TestSegmentChange : IDisposable
 
             Applies.Add(snapshot);
             Applied.TrySetResult(snapshot);
-            return ProjectionApplyOutcome.Applied;
+            return true;
         }
     }
 }

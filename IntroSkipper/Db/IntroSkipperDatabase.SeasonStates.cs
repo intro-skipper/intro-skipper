@@ -16,8 +16,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(analyzerActions);
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         foreach (var (mode, action) in analyzerActions)
@@ -63,9 +61,6 @@ public sealed partial class IntroSkipperDatabase
         IReadOnlyCollection<Guid> episodeIds,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(modes);
-        ArgumentNullException.ThrowIfNull(episodeIds);
-
         if (modes.Count == 0)
         {
             return;

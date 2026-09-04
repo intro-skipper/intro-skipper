@@ -30,9 +30,9 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(ISegmentChange segmentChange) : ControllerBase
+public class SegmentEditorController(SegmentChange segmentChange) : ControllerBase
 {
-    private readonly ISegmentChange _segmentChange = segmentChange;
+    private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <summary>
     /// Plugin meta endpoint.

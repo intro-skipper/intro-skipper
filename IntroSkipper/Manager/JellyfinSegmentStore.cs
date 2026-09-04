@@ -41,8 +41,6 @@ public sealed partial class JellyfinSegmentStore(
     /// <inheritdoc />
     public async Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(segments);
-
         var entities = segments.Select(segment => Map(segment, itemId)).ToList();
 
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

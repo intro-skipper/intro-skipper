@@ -31,7 +31,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(episode, movie);
 
-        var queue = (await queueManager.GetMediaInventoryAsync()).Items;
+        var queue = await queueManager.GetMediaInventoryAsync();
 
         var queuedEpisode = Assert.Single(queue[seasonId]);
         Assert.Equal(episodeId, queuedEpisode.EpisodeId);
@@ -79,7 +79,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(targetEpisode, otherEpisode, movie);
 
-        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [targetSeasonId])).Items;
+        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: [targetSeasonId]);
 
         var queuedEpisode = Assert.Single(queue[targetSeasonId]);
         Assert.Equal(targetEpisode.Id, queuedEpisode.EpisodeId);
@@ -120,7 +120,7 @@ public sealed class TestQueueManager
             ffmpegService: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase());
 
-        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [seasonId])).Items;
+        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: [seasonId]);
 
         Assert.Equal(episode.Id, Assert.Single(queue[seasonId]).EpisodeId);
 
@@ -146,7 +146,7 @@ public sealed class TestQueueManager
 
         var queueManager = CreateQueueManager(host, special);
 
-        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: [hostSeasonId])).Items;
+        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: [hostSeasonId]);
 
         var season = Assert.Single(queue);
         Assert.Equal(hostSeasonId, season.Key);

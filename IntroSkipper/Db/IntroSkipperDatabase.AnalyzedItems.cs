@@ -14,9 +14,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-        ArgumentNullException.ThrowIfNull(configHash);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {

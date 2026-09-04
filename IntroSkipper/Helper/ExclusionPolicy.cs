@@ -11,7 +11,6 @@ internal sealed class ExclusionPolicy
     private readonly HashSet<string> _seriesNames;
     private readonly HashSet<string> _movieNames;
     private readonly IReadOnlyList<string> _pathRoots;
-    private readonly int _broadPathRootCount;
 
     private ExclusionPolicy(
         HashSet<string> seriesNames,
@@ -21,15 +20,15 @@ internal sealed class ExclusionPolicy
         _seriesNames = seriesNames;
         _movieNames = movieNames;
         _pathRoots = pathRoots;
-        _broadPathRootCount = CountBroadPathRoots(pathRoots);
+        BroadPathRootCount = pathRoots.Count(IsBroadPathRoot);
     }
 
-    public int BroadPathRootCount => _broadPathRootCount;
+    // Filesystem roots, drive roots and bare UNC shares among the path exclusions; each
+    // excludes an entire volume, which is worth one warning per inventory.
+    public int BroadPathRootCount { get; }
 
     public static ExclusionPolicy FromConfiguration(PluginConfiguration config)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         return new ExclusionPolicy(
             CreateNameSet(config.SeriesExclusions),
             CreateNameSet(config.MovieExclusions),
@@ -117,20 +116,6 @@ internal sealed class ExclusionPolicy
         }
 
         return roots;
-    }
-
-    private static int CountBroadPathRoots(IEnumerable<string> roots)
-    {
-        var count = 0;
-        foreach (var root in roots)
-        {
-            if (IsBroadPathRoot(root))
-            {
-                count++;
-            }
-        }
-
-        return count;
     }
 
     private ExclusionDecision EvaluatePath(string? path)

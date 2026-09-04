@@ -32,7 +32,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Contains((itemId, foreignId), store.DeletedSegments);
         var (replacedItem, replaced) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItem);
@@ -53,7 +53,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Empty(store.DeletedSegments);
     }
 
@@ -65,7 +65,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(Guid.NewGuid())], CancellationToken.None);
 
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Empty(store.DeletedSegments);
     }
 

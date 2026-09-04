@@ -23,6 +23,7 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -291,22 +292,20 @@ internal static class EntrypointTestHelpers
         throw new InvalidOperationException($"Could not set property or field '{name}' on type '{instance.GetType().FullName}'.");
     }
 
-    internal static void EnsureNonVirtual(object item)
+    // BaseItem.LocationType asks the static BaseItem.FileSystem whether the path is a
+    // file; Jellyfin sets that at server start, so test-built items need a stand-in
+    // that answers "yes" for every path (anything else it is asked throws).
+    internal static void EnsureLocationTypeResolvable()
+        => BaseItem.FileSystem ??= FileSystemProxy.Create();
+
+    private class FileSystemProxy : DispatchProxy
     {
-        for (var type = item.GetType(); type is not null; type = type.BaseType)
-        {
-            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly))
-            {
-                if (field.FieldType == typeof(LocationType))
-                {
-                    field.SetValue(item, LocationType.FileSystem);
-                }
-                else if (field.FieldType == typeof(LocationType?))
-                {
-                    field.SetValue(item, (LocationType?)LocationType.FileSystem);
-                }
-            }
-        }
+        public static IFileSystem Create() => Create<IFileSystem, FileSystemProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == nameof(IFileSystem.IsPathFile)
+                ? true
+                : throw new NotImplementedException(targetMethod?.Name);
     }
 
     internal static string CreateTempCacheDir()
@@ -338,7 +337,6 @@ internal static class EntrypointTestHelpers
             var plugin = (Plugin)FormatterServices.GetUninitializedObject(typeof(Plugin));
 #pragma warning restore SYSLIB0050
 
-            SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
 
             // A default configuration so code reading Plugin.Instance.Configuration (e.g.
             // the media-segment mirror gate) sees defaults instead of an uninitialized

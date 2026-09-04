@@ -33,10 +33,8 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
     }
 
     /// <inheritdoc />
-    public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
+    public async Task<bool> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(externalOperations);
-
         foreach (var operation in externalOperations)
         {
             // The validated shape travels inside the delete predicate, so a row
@@ -46,19 +44,19 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
             // vanished row is an idempotent success either way, so dropping the
             // operation is terminal on purpose: retrying into the same mismatch
             // forever would wedge the item.
-            var outcome = await mirror.DeleteValidatedSegmentAsync(
+            var deleted = await mirror.DeleteValidatedSegmentAsync(
                 itemId,
                 operation.ExternalSegmentId,
                 operation.ExpectedType,
                 operation.StartTicks,
                 operation.EndTicks,
                 cancellationToken).ConfigureAwait(false);
-            if (outcome == MirrorDeleteOutcome.MirroringDisabled)
+            if (deleted is null)
             {
-                return ProjectionApplyOutcome.MirroringDisabled;
+                return false;
             }
 
-            if (outcome == MirrorDeleteOutcome.RowNotFound
+            if (deleted == false
                 && await segmentStore.FindSegmentAsync(operation.ExternalSegmentId, cancellationToken).ConfigureAwait(false) is not null)
             {
                 LogExternalDeleteSuperseded(logger, operation.ExternalSegmentId, itemId);
@@ -68,9 +66,7 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
         // Converges the item's own rows from current truth. The disabled outcome
         // comes from the same policy read that gated the write, so a toggle racing
         // this apply can never complete work the mirror silently skipped.
-        return await mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false) == MirrorSyncOutcome.MirroringDisabled
-            ? ProjectionApplyOutcome.MirroringDisabled
-            : ProjectionApplyOutcome.Applied;
+        return await mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Journaled delete of external segment {SegmentId} on item {ItemId} was dropped: the row no longer matches its validated shape.")]

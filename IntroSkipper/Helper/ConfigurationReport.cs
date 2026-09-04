@@ -31,8 +31,6 @@ public static class ConfigurationReport
     /// <returns>One entry per setting.</returns>
     public static IReadOnlyList<SettingValue> Enumerate(PluginConfiguration config)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var defaults = new PluginConfiguration();
         return [.. SettingProperties.Select(p => new SettingValue(p.Name, Format(p.GetValue(config)), Format(p.GetValue(defaults))))];
     }

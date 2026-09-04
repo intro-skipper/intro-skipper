@@ -93,7 +93,7 @@ public partial class BaseItemAnalyzerTask(
         _ = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
-        var queue = (await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false)).Items;
+        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         if (seasonFilter is not null)
         {

@@ -89,9 +89,7 @@ public partial class TroubleshootingController : ControllerBase
 
     private SupportBundle BuildSupportBundle()
     {
-        ArgumentNullException.ThrowIfNull(Plugin.Instance);
-
-        var plugin = Plugin.Instance;
+        var plugin = Plugin.Instance!;
         var ffmpeg = _ffmpegService.GetCheckResult();
         var settings = ConfigurationReport.Enumerate(plugin.Configuration);
         var detectTask = ScanState.FindDetectTask(_taskManager);

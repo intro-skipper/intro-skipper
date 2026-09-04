@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
@@ -34,7 +33,7 @@ namespace IntroSkipper.Manager;
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService, IIntroSkipperDatabase database)
+internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService, IIntroSkipperDatabase database)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IFileSystem _fileSystem = fileSystem;
@@ -51,20 +50,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private bool? _ffmpegValid;
     private double _analysisPercent;
     private int _enumerationFailures;
-    private ExclusionPolicy? _exclusionPolicy;
-
-    private enum QueueItemResult
-    {
-        Queued,
-        Excluded,
-        Failed,
-    }
 
     /// <summary>
-    /// Gets the number of libraries or individual items that failed to enumerate or queue
-    /// during the most recent <see cref="GetMediaInventoryAsync"/> call.
-    /// A non-zero value means the queue is incomplete; callers that delete data missing from
-    /// the queue must not treat the affected items as stale.
+    /// Gets the number of libraries or individual items that could not be enumerated or
+    /// queued during the most recent <see cref="GetMediaInventoryAsync"/> call.
+    /// A non-zero value means the inventory is incomplete; callers that delete data missing
+    /// from the queue must not treat the affected items as stale.
     /// </summary>
     internal int EnumerationFailureCount => _enumerationFailures;
 
@@ -84,15 +75,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     /// <summary>
-    /// Enumerates the media inventory, grouped by season (movies under their own id), and
-    /// reports whether every library and item was inspected. Cleanup must not delete rows
-    /// absent from an incomplete inventory.
+    /// Enumerates the media inventory, grouped by season (movies under their own id).
+    /// <see cref="EnumerationFailureCount"/> reports whether every library and item was
+    /// inspected; cleanup must not delete rows absent from an incomplete inventory.
     /// </summary>
     /// <param name="includeExcluded">Whether excluded items should be included.</param>
     /// <param name="seasonIds">Season IDs and movie IDs to enqueue, or <see langword="null"/> to enqueue everything.</param>
     /// <param name="cancellationToken">Token used to cancel enumeration.</param>
-    /// <returns>The enumerated media items and a completeness indicator.</returns>
-    internal async Task<MediaInventoryResult> GetMediaInventoryAsync(
+    /// <returns>The enumerated media items keyed by season.</returns>
+    internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaInventoryAsync(
         bool includeExcluded = false,
         IReadOnlyCollection<Guid>? seasonIds = null,
         CancellationToken cancellationToken = default)
@@ -112,26 +103,32 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
+            _enumerationFailures++;
             LogPluginInstanceNull(_logger);
-            return new MediaInventoryResult(_queuedEpisodes, false);
+            return _queuedEpisodes;
         }
 
-        LoadAnalysisSettings(plugin);
+        var config = plugin.Configuration;
+        _analysisPercent = config.AnalysisPercent / 100.0;
+        var policy = ExclusionPolicy.FromConfiguration(config);
+        if (policy.BroadPathRootCount > 0)
+        {
+            LogBroadPathRootExclusions(_logger, policy.BroadPathRootCount);
+        }
 
         if (seasonIds is { Count: 0 })
         {
-            return new MediaInventoryResult(_queuedEpisodes, true);
+            return _queuedEpisodes;
         }
 
         // For selected libraries, enqueue either all contained items or only the requested seasons/movies.
         var virtualFolders = _libraryManager.GetVirtualFolders();
         if (virtualFolders is null)
         {
+            _enumerationFailures++;
             LogLibraryManagerNull(_logger);
-            return new MediaInventoryResult(_queuedEpisodes, false);
+            return _queuedEpisodes;
         }
-
-        var isComplete = true;
 
         // Resolve each requested id to its owning libraries once, so a scoped run queries only
         // the folders that can contain a requested item instead of fanning its queries out to
@@ -176,7 +173,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             // Some virtual folders don't have a proper item id.
             if (!Guid.TryParse(folder.ItemId, out var folderId))
             {
-                isComplete = false;
+                _enumerationFailures++;
                 LogInvalidFolderId(_logger, folder.Name);
                 continue;
             }
@@ -191,10 +188,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
             try
             {
-                if (!await QueueLibraryContents(folderId, includeExcluded, seasonIds, cancellationToken).ConfigureAwait(false))
-                {
-                    isComplete = false;
-                }
+                await QueueLibraryContents(folderId, includeExcluded, seasonIds, policy, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -203,7 +197,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             catch (Exception ex)
             {
                 _enumerationFailures++;
-                isComplete = false;
                 LogFailedEnqueueLibrary(_logger, folder.Name, ex);
             }
         }
@@ -226,43 +219,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        return new MediaInventoryResult(_queuedEpisodes, isComplete);
+        return _queuedEpisodes;
     }
 
-    /// <summary>
-    /// Loads the list of libraries which have been selected for analysis and the minimum intro duration.
-    /// Settings which have been modified from the defaults are logged.
-    /// </summary>
-    private void LoadAnalysisSettings(Plugin plugin)
-    {
-        var config = plugin.Configuration;
-
-        // Store the analysis percent
-        _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
-
-        _exclusionPolicy = ExclusionPolicy.FromConfiguration(config);
-        if (_exclusionPolicy.BroadPathRootCount > 0)
-        {
-            LogBroadPathRootExclusions(_logger, _exclusionPolicy.BroadPathRootCount);
-        }
-
-        // If analysis settings have been changed from the default, log the modified settings.
-        if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
-            || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent
-            || config.MinimumIntroDuration != PluginConfiguration.DefaultMinimumIntroDuration)
-        {
-            LogAnalysisSettingsChanged(_logger, config.AnalysisPercent, config.AnalysisLengthLimit, config.MinimumIntroDuration);
-        }
-    }
-
-    private async Task<bool> QueueLibraryContents(
+    private async Task QueueLibraryContents(
         Guid id,
         bool includeExcluded,
         IReadOnlyCollection<Guid>? seasonIds,
+        ExclusionPolicy policy,
         CancellationToken cancellationToken)
     {
-        LogConstructingQuery(_logger);
-
         var query = BuildLibraryQuery(id, BaseItemKind.Episode, BaseItemKind.Movie);
 
         var items = seasonIds is null
@@ -271,34 +237,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         if (items is null)
         {
+            _enumerationFailures++;
             LogLibraryQueryNull(_logger);
-            return false;
+            return;
         }
 
-        // Queue all supported library items on the server for analysis.
-        LogIteratingLibraryItems(_logger);
-
-        var queuedCount = 0;
-        var isComplete = true;
         foreach (var item in items)
         {
             try
             {
-                if (item is not (Episode or Movie))
-                {
-                    LogItemNotEpisodeOrMovie(_logger, item.Name);
-                    continue;
-                }
-
-                var result = await QueueItem(item, includeExcluded, cancellationToken).ConfigureAwait(false);
-                if (result == QueueItemResult.Queued)
-                {
-                    queuedCount++;
-                }
-                else if (result == QueueItemResult.Failed)
-                {
-                    isComplete = false;
-                }
+                await QueueItem(item, includeExcluded, policy, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -309,13 +257,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 // Count item-level failures too: a live item that failed to queue must not be
                 // classified as stale by cleanup just because its siblings enumerated fine.
                 _enumerationFailures++;
-                isComplete = false;
                 LogErrorProcessingItem(_logger, ex, item.Name, item.Id);
             }
         }
-
-        LogQueuedEpisodes(_logger, queuedCount);
-        return isComplete;
     }
 
     private IEnumerable<BaseItem> GetScopedLibraryItems(Guid libraryId, IReadOnlyCollection<Guid> seasonIds)
@@ -387,15 +331,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return episodes.Concat(specials).Concat(restoredSpecials).Concat(movies).DistinctBy(item => item.Id);
     }
 
-    /// <summary>
-    /// Builds the library query shape shared by the unscoped and scoped enumeration paths. Ordering
-    /// by series name, season and episode number keeps status updates logged in order, and scoped
-    /// callers set only the scoping field (AncestorIds / ItemIds / ParentIndexNumber) that differs
-    /// per query, so both paths stay filtered and ordered identically.
-    /// </summary>
-    /// <param name="parentId">Library (collection folder) id to query within.</param>
-    /// <param name="kinds">Item kinds to include.</param>
-    /// <returns>The query.</returns>
+    // The query shape shared by the unscoped and scoped paths; scoped callers add only their
+    // scoping field (AncestorIds / ItemIds / ParentIndexNumber). The ordering keeps status
+    // updates logged in series, season, episode order.
     private static InternalItemsQuery BuildLibraryQuery(Guid parentId, params BaseItemKind[] kinds) => new()
     {
         ParentId = parentId,
@@ -410,13 +348,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
 
-    private async Task<QueueItemResult> QueueItem(BaseItem item, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task QueueItem(BaseItem item, bool includeExcluded, ExclusionPolicy policy, CancellationToken cancellationToken)
     {
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+        var plugin = Plugin.Instance!;
         var episode = item as Episode;
 
         if (string.IsNullOrEmpty(item.Path))
         {
+            _enumerationFailures++;
             if (episode is null)
             {
                 LogNotQueuingMovieNoPath(_logger, item.Name, item.Id);
@@ -426,17 +365,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 LogNotQueuingEpisodeNoPath(_logger, episode.Name, episode.SeriesName, episode.Id);
             }
 
-            return QueueItemResult.Failed;
+            return;
         }
 
-        var policy = _exclusionPolicy ??= ExclusionPolicy.FromConfiguration(plugin.Configuration);
         var decision = episode is null
             ? policy.EvaluateMovie(item.Name, item.Path)
             : policy.EvaluateSeries(episode.SeriesName, item.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
             LogSkippingExcludedItem(_logger, item.Name, decision.RuleLabel);
-            return QueueItemResult.Excluded;
+            return;
         }
 
         // Movies are queued under their own id; episodes under the resolved season key.
@@ -484,8 +422,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,
         });
-
-        return QueueItemResult.Queued;
     }
 
     private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
@@ -511,8 +447,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)
     {
-        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-        if (!pluginInstance.Configuration.ProbeAudioDuration)
+        if (!Plugin.Instance!.Configuration.ProbeAudioDuration)
         {
             return duration;
         }
@@ -556,10 +491,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 LogFailedResolveSeasonId(_logger, episode.Name, episode.Id);
                 episode.SeasonId = episode.Id; // Use episode ID as fallback to avoid losing this episode entirely, it just won't be grouped with the rest of the season
             }
-            else
-            {
-                LogResolvedSeasonId(_logger, episode.SeasonId, episode.Name, episode.Id);
-            }
         }
 
         return episode.SeasonId;
@@ -575,14 +506,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
     internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
     {
-        if (candidates == null || candidates.Count == 0)
+        if (candidates.Count == 0)
         {
             return [];
         }
 
         var verified = new List<QueuedEpisode>(candidates.Count);
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var policy = _exclusionPolicy ??= ExclusionPolicy.FromConfiguration(plugin.Configuration);
+        var plugin = Plugin.Instance!;
+        // Built from the live configuration, not the inventory-time policy: exclusions saved
+        // between the inventory and this verification must apply.
+        var policy = ExclusionPolicy.FromConfiguration(plugin.Configuration);
         var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         var verifier = new QueueVerifier(plugin.Configuration, modes, snapshot, ffmpegValid);
@@ -655,17 +588,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     [LoggerMessage(Level = LogLevel.Information, Message = "Refreshed metadata for {Count} episodes with invalid SeasonIds")]
     private static partial void LogRefreshedMetadata(ILogger logger, int count);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s")]
-    private static partial void LogAnalysisSettingsChanged(ILogger logger, int percent, int minutes, int minimum);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Constructing anonymous internal query")]
-    private static partial void LogConstructingQuery(ILogger logger);
-
     [LoggerMessage(Level = LogLevel.Error, Message = "Library query result is null")]
     private static partial void LogLibraryQueryNull(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Iterating through library items")]
-    private static partial void LogIteratingLibraryItems(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded item {Name}: matched {RuleLabel}")]
     private static partial void LogSkippingExcludedItem(ILogger logger, string name, string ruleLabel);
@@ -673,14 +597,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Configured path exclusions include {Count} filesystem root or drive root entries")]
     private static partial void LogBroadPathRootExclusions(ILogger logger, int count);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Item {Name} is not an episode or movie")]
-    private static partial void LogItemNotEpisodeOrMovie(ILogger logger, string name);
-
     [LoggerMessage(Level = LogLevel.Error, Message = "Error processing item {Name} ({Id})")]
     private static partial void LogErrorProcessingItem(ILogger logger, Exception ex, string name, Guid id);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Queued {Count} episodes")]
-    private static partial void LogQueuedEpisodes(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin")]
     private static partial void LogNotQueuingEpisodeNoPath(ILogger logger, string name, string series, Guid id);
@@ -694,16 +612,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to resolve SeasonId for episode {Name} ({Id}) after metadata refresh")]
     private static partial void LogFailedResolveSeasonId(ILogger logger, string name, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Successfully resolved SeasonId {SeasonId} for episode {Name} ({Id})")]
-    private static partial void LogResolvedSeasonId(ILogger logger, Guid seasonId, string name, Guid id);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
-
-    internal sealed record MediaInventoryResult(
-        IReadOnlyDictionary<Guid, List<QueuedEpisode>> Items,
-        bool IsComplete);
 }

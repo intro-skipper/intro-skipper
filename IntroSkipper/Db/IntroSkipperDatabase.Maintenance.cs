@@ -17,8 +17,6 @@ public sealed partial class IntroSkipperDatabase
         IEnumerable<Guid> enabledEpisodeIds,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(enabledEpisodeIds);
-
         var enabledIds = enabledEpisodeIds.Distinct().ToArray();
 
         await InitializeAsync().ConfigureAwait(false);
@@ -42,8 +40,6 @@ public sealed partial class IntroSkipperDatabase
         string configHash,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -79,9 +75,7 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // The kernel journals the affected items' projections with the delete, so
-            // rows removed here reach the mirror even when the analyzers detect
-            // nothing new — and even if the process dies before the mirror is pushed.
+            // Journaled with the delete; see docs/segment-database-v2.md.
             var (removed, _) = await DeleteSegmentsAndJournalAsync(db, staleRows, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -92,8 +86,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -140,9 +132,6 @@ public sealed partial class IntroSkipperDatabase
         IReadOnlyCollection<AnalysisMode> modes,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-        ArgumentNullException.ThrowIfNull(modes);
-
         var ids = itemIds.Distinct().ToArray();
         var modeArray = modes.ToArray();
         if (ids.Length == 0 || modeArray.Length == 0)
@@ -166,9 +155,7 @@ public sealed partial class IntroSkipperDatabase
                         && u.Source == SegmentSource.User
                         && u.State == SegmentState.Active));
 
-            // The kernel journals the affected items' projections with the delete, so
-            // a reset's removals reach the mirror even when the recompute finds
-            // nothing — and even if the process dies before the mirror is pushed.
+            // Journaled with the delete; see docs/segment-database-v2.md.
             await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
 
             // Without their records the items are NotAnalyzed on this pass (or a later
@@ -185,8 +172,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleSeasonIdsAsync(IEnumerable<Guid> retainedSeasonIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(retainedSeasonIds);
-
         var retainedIds = retainedSeasonIds.Distinct().ToArray();
 
         await InitializeAsync().ConfigureAwait(false);
@@ -203,8 +188,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleItemStateIdsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(retainedItemIds);
-
         var retainedIds = retainedItemIds.Distinct().ToArray();
 
         await InitializeAsync().ConfigureAwait(false);
@@ -224,8 +207,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(seasonIds);
-
         var retainedIds = seasonIds.Distinct().ToArray();
 
         await InitializeAsync().ConfigureAwait(false);
@@ -242,8 +223,6 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task CleanItemStateAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(retainedItemIds);
-
         var retainedIds = retainedItemIds.Distinct().ToArray();
 
         await InitializeAsync().ConfigureAwait(false);

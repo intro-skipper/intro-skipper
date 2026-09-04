@@ -66,13 +66,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
-        ArgumentNullException.ThrowIfNull(applicationPaths);
-
-        var pluginCachePath = "chromaprints";
-
         // Creates the plugin data directory when missing.
-        var introsDirectory = IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
-        FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
+        IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
 
         MigrateLegacyExcludeSeries();
 
@@ -95,11 +90,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the number of seasons in the queue.
     /// </summary>
     public int TotalSeasons => QueuedMediaItems.Count;
-
-    /// <summary>
-    /// Gets the directory to cache fingerprints in.
-    /// </summary>
-    public string FingerprintCachePath { get; private set; }
 
     /// <summary>
     /// Gets the full path to FFmpeg.
