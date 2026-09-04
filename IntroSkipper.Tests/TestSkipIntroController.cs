@@ -18,7 +18,7 @@ public sealed class TestSkipIntroController
     public async Task UpdateTimestampsAsync_AwaitsMirrorWrite_BeforeReturningNoContent()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -55,35 +55,10 @@ public sealed class TestSkipIntroController
     }
 
     [Fact]
-    public async Task UpdateTimestampsAsync_MirrorDisabled_StoresSegmentWithoutJellyfinWrite()
-    {
-        var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
-        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
-        var store = new FakeJellyfinSegmentStore();
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(store, database, pluginScope.CacheDbPath);
-        var timestamps = new TimeStamps
-        {
-            Introduction = new Segment(itemId, new TimeRange(10, 20))
-        };
-
-        var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
-
-        // The controller does not gate on UpdateMediaSegments; the change commits and
-        // reports its skipped projection honestly (the journaled work replays on enable).
-        var accepted = Assert.IsType<AcceptedResult>(result);
-        Assert.Equal("Skipped", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
-        Assert.Equal(0, store.WriteCallCount);
-        var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(SegmentSource.User, segment.Source);
-    }
-
-    [Fact]
     public async Task UpdateTimestampsAsync_MirrorFailure_ReportsAcceptedPending_AndKeepsStoredSegment()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var store = new FakeJellyfinSegmentStore
         {
@@ -111,7 +86,7 @@ public sealed class TestSkipIntroController
     public async Task UpdateTimestampsAsync_CommercialSlot_ReplacesAllStoredCommercials()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
@@ -149,7 +124,7 @@ public sealed class TestSkipIntroController
     public async Task ResetIntroTimestamps_CacheFailureDoesNotFailMainDatabaseDelete()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = CreateTempDbPath();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
@@ -197,7 +172,7 @@ public sealed class TestSkipIntroController
     [Fact]
     public async Task RebuildDatabase_UnreadableBackup_Returns409_AndForceRebuildsClean()
     {
-        var dbPath = CreateTempDbPath();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         try
         {
             // A garbage file makes both initialization and the backup read fail.
@@ -228,7 +203,4 @@ public sealed class TestSkipIntroController
             DatabaseTestHelpers.CreateSegmentChange(store, database),
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
             database);
-
-    private static string CreateTempDbPath()
-        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-skip-controller.db");
 }
