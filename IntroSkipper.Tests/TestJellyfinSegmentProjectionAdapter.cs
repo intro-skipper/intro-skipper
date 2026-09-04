@@ -35,7 +35,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
             StartTicks = 10,
             EndTicks = 20
         });
-        var own = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40, CancellationToken.None);
+        var own = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40);
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 

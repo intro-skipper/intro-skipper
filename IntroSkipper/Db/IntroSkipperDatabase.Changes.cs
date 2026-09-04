@@ -10,8 +10,8 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Intent-based change application of <see cref="IntroSkipperDatabase"/>: one
-/// transaction that runs the mutation cores the public single-shot methods also use
-/// and journals the resulting projection work (a per-item queue marker, plus durable
+/// transaction that runs the mutation cores and journals the resulting projection
+/// work (a per-item queue marker, plus durable
 /// foreign-row deletes), so a committed change can never lose its projection to a
 /// crash. The journal records work, not data — projection re-derives the item's image
 /// from current truth when it runs.

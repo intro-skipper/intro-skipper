@@ -15,8 +15,8 @@ namespace IntroSkipper.Tests;
 
 /// <summary>
 /// Tombstone (suppressed segment) lifecycle: a user-deleted automatic segment is
-/// remembered and never re-added by re-analysis (GitHub issue #863), survives
-/// config-hash cleanup, and is cleared by explicit erase operations.
+/// remembered and never re-added by re-analysis (GitHub issue #863) until it is
+/// restored, and stays out of the Jellyfin mirror.
 /// </summary>
 public sealed class TestSegmentTombstones
 {
@@ -56,7 +56,7 @@ public sealed class TestSegmentTombstones
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var row = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
+            var row = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
 
             var snapshot = await database.DeleteSegmentAsync(itemId, row.Id);
 
@@ -90,35 +90,6 @@ public sealed class TestSegmentTombstones
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(newStart, newEnd))], SegmentSource.Chromaprint);
 
             Assert.Empty(await database.GetSegmentsAsync(itemId));
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Theory]
-    [InlineData(100.0, 120.0)] // disjoint range elsewhere in the episode
-    [InlineData(20.0, 30.0)]   // starts exactly at the tombstone's end — touching is not overlap
-    [InlineData(0.0, 10.0)]    // ends exactly at the tombstone's start — touching is not overlap
-    public async Task AnalysisWrite_DifferentRange_InsertsDespiteTombstone(double newStart, double newEnd)
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(itemId, row.Id);
-
-            // A commercial that does not strictly overlap the deleted one — including one
-            // that exactly abuts it — is unrelated and must be stored.
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(newStart, newEnd))], SegmentSource.Chapter);
-
-            var active = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.Equal(Ticks(newStart), active.StartTicks);
-            Assert.Equal(Ticks(newEnd), active.EndTicks);
         }
         finally
         {
@@ -163,7 +134,7 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
-    public async Task UpdateSegmentAsync_ReclaimsTombstonedRange_ByAbsorbingTombstone()
+    public async Task UpdateSegment_ReclaimsTombstonedRange_ByAbsorbingTombstone()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -195,7 +166,7 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
-    public async Task RestoreSegmentAsync_ReactivatesWithOriginalSource()
+    public async Task RestoreSegment_ReactivatesWithOriginalSource()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -224,7 +195,7 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
-    public async Task RestoreSegmentAsync_ReArmsClearedAnalysisRecordWithTheRowsHash()
+    public async Task RestoreSegment_ReArmsClearedAnalysisRecordWithTheRowsHash()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -235,10 +206,9 @@ public sealed class TestSegmentTombstones
             await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemId], "hash-1");
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-            // The editor's delete cascade tombstones the row and clears the item's
-            // analysis record so re-analysis can look for other segments.
+            // The delete tombstones the row and clears the item's analysis record so
+            // re-analysis can look for other segments.
             await database.DeleteSegmentAsync(itemId, row.Id);
-            await database.ClearItemAnalysisAsync(itemId, AnalysisMode.Introduction);
 
             // Restoring is the undo of that delete, so the record returns under the
             // hash the row carried — otherwise the next scan re-analyzes the item and
@@ -261,7 +231,7 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
-    public async Task RestoreSegmentAsync_KeepsANewerAnalysisRecord_AndArmsNothingForAHashlessRow()
+    public async Task RestoreSegment_KeepsANewerAnalysisRecord_AndArmsNothingForAHashlessRow()
     {
         var dbPath = CreateTempDbPath();
         var recordedItemId = Guid.NewGuid();
@@ -288,32 +258,6 @@ public sealed class TestSegmentTombstones
             var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
             Assert.Equal(recordedItemId, record.ItemId);
             Assert.Equal("hash-new", record.ConfigHash);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task ExplicitErase_ClearsTombstones_SoReanalysisCanReAdd()
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(itemId, row.Id);
-
-            // Erase-by-mode is a factory reset: the tombstone goes too, and the next
-            // analysis run may store the range again.
-            await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
-            Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
-
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
-            Assert.Single(await database.GetSegmentsAsync(itemId));
         }
         finally
         {

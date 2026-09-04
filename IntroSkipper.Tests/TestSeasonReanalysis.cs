@@ -416,8 +416,7 @@ public sealed class TestSeasonReanalysisReset
                 });
             await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds);
             await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
-            await database.ClearItemAnalysisAsync(episodeA, AnalysisMode.Introduction);
-            await database.ClearItemAnalysisAsync(Guid.NewGuid(), AnalysisMode.Introduction);
+            await database.ResetItemsForReanalysisAsync([episodeA, Guid.NewGuid()], [AnalysisMode.Introduction]);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {

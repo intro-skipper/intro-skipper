@@ -33,7 +33,7 @@ public sealed class TestMediaSegmentMirror
             AnalysisMode.Commercial,
             [new Segment(itemId, new TimeRange(300, 330)), new Segment(itemId, new TimeRange(600, 630))],
             SegmentSource.BlackFrame);
-        await database.AddUserSegmentAsync(
+        await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Recap, TickConversions.FromSeconds(20), TickConversions.FromSeconds(40));
         var rows = await database.GetSegmentsAsync(itemId);
         Assert.Equal(5, rows.Count);

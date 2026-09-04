@@ -37,7 +37,7 @@ public sealed class TestServableWriteJournaling : IDisposable
         Assert.Empty(await QueuedItemIdsAsync());
 
         // A fully rejected write leaves the standing rows untouched and journals nothing.
-        await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(30), DatabaseTestHelpers.Ticks(40));
+        await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(30), DatabaseTestHelpers.Ticks(40));
         await ClearQueueAsync();
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [new Segment(itemId, new TimeRange(30, 40))], SegmentSource.Chapter, "hash");
         Assert.Empty(await QueuedItemIdsAsync());
@@ -49,7 +49,7 @@ public sealed class TestServableWriteJournaling : IDisposable
         var withRows = Guid.NewGuid();
         var withoutRows = Guid.NewGuid();
         var database = CreateDatabase();
-        await database.AddUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
+        await database.SeedUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
         await ClearQueueAsync();
 
         // The zero-row item is journaled too: it may hold ghost Jellyfin rows that
@@ -66,9 +66,9 @@ public sealed class TestServableWriteJournaling : IDisposable
         var second = Guid.NewGuid();
         var untouched = Guid.NewGuid();
         var database = CreateDatabase();
-        await database.AddUserSegmentAsync(first, AnalysisMode.Introduction, 10, 20);
-        await database.AddUserSegmentAsync(second, AnalysisMode.Introduction, 30, 40);
-        await database.AddUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
+        await database.SeedUserSegmentAsync(first, AnalysisMode.Introduction, 10, 20);
+        await database.SeedUserSegmentAsync(second, AnalysisMode.Introduction, 30, 40);
+        await database.SeedUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
         await ClearQueueAsync();
 
         await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
@@ -86,7 +86,7 @@ public sealed class TestServableWriteJournaling : IDisposable
 
         // The user item's automatic row is shielded by its active user row of the
         // same mode, so the reset deletes nothing there and journals nothing.
-        await database.AddUserSegmentAsync(userItem, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(10), DatabaseTestHelpers.Ticks(20));
+        await database.SeedUserSegmentAsync(userItem, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(10), DatabaseTestHelpers.Ticks(20));
         await ClearQueueAsync();
 
         await database.ResetItemsForReanalysisAsync([automaticItem, userItem], [AnalysisMode.Introduction]);

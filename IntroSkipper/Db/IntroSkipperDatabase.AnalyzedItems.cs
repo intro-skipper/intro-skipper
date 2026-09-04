@@ -46,27 +46,9 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="ClearItemAnalysisCoreAsync"/>: removes an
-    /// item's analysis record for the mode so the next scan analyzes it again (a
-    /// no-op when no record exists). Internal on purpose — production callers reach
-    /// the core through <see cref="ApplyChangeAsync"/>; this is the test seam over
-    /// the same core.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task ClearItemAnalysisAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        await ClearItemAnalysisCoreAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Core of <see cref="ClearItemAnalysisAsync"/> on a caller-owned context. The
-    /// delete executes immediately (not staged), scoped by any ambient transaction.
+    /// Removes an item's analysis record for the mode so the next scan analyzes it
+    /// again (a no-op when no record exists). The delete executes immediately (not
+    /// staged), scoped by any ambient transaction of the caller-owned context.
     /// </summary>
     private static async Task ClearItemAnalysisCoreAsync(IntroSkipperDbContext db, Guid itemId, AnalysisMode mode, CancellationToken cancellationToken)
     {

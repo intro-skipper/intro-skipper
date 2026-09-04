@@ -113,7 +113,7 @@ public sealed class SegmentEditorControllerTests
         using var scope = CreateScope();
         var itemId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var row = await database.AddUserSegmentAsync(
+        var row = await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
 
         // Jellyfin segment already gone; the correlated delete commits and the
@@ -196,9 +196,9 @@ public sealed class SegmentEditorControllerTests
         var itemId = Guid.NewGuid();
         var jellyfinRowId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.AddUserSegmentAsync(
+        await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(60));
-        await database.AddUserSegmentAsync(
+        await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
 
         // Two active intros make the mode-wide fallback ambiguous: only the named
@@ -223,7 +223,7 @@ public sealed class SegmentEditorControllerTests
         var itemId = Guid.NewGuid();
         var jellyfinRowId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var commercial = await database.AddUserSegmentAsync(
+        var commercial = await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Commercial, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20));
 
         // Commercials are excluded from the mode-wide fallback even when the item holds

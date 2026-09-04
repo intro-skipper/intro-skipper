@@ -37,7 +37,7 @@ public sealed class TestSegmentsApiController
                 AnalysisMode.Introduction,
                 [new Segment(itemId, new TimeRange(10, 60)), new Segment(itemId, new TimeRange(200, 260))],
                 SegmentSource.Chromaprint);
-            await database.AddUserSegmentAsync(itemId, AnalysisMode.Commercial, Ticks(100), Ticks(120));
+            await database.SeedUserSegmentAsync(itemId, AnalysisMode.Commercial, Ticks(100), Ticks(120));
 
             var controller = CreateController(database, out _);
             var response = await controller.GetSegments(itemId, cancellationToken: CancellationToken.None);
@@ -268,7 +268,7 @@ public sealed class TestSegmentsApiController
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
             var autoRow = Assert.Single(await database.GetSegmentsAsync(itemId));
-            var userRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
+            var userRow = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
             var controller = CreateController(database, out var store);
 
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, autoRow.Id, CancellationToken.None));

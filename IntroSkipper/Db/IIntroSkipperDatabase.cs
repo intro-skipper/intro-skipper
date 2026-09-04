@@ -28,9 +28,9 @@ public interface IIntroSkipperDatabase
     Task InitializeAsync();
 
     /// <summary>
-    /// Applies one closed segment-change intent in a single transaction: the mutation
-    /// (via the same cores the single-shot methods use), its analysis-record
-    /// bookkeeping, and the durable projection journal — a per-item queue marker plus
+    /// Applies one closed segment-change intent in a single transaction: the mutation,
+    /// its analysis-record bookkeeping, and the durable projection journal — a
+    /// per-item queue marker plus
     /// any journaled foreign-row delete — so a committed change can never lose its
     /// projection to a crash. Invalid intents and unowned external targets return
     /// <see cref="Rejected"/> and journal nothing. Intents that already hold return
