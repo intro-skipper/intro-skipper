@@ -75,28 +75,6 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void StreamScopedChromaprintCache_AcceptsMatchingLegacyDefaultHash()
-    {
-        var episodeId = Guid.NewGuid();
-        uint[] fingerprint = [111u, 222u];
-        using var scope = new CachingPluginScope();
-        var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(Plugin.Instance!.Configuration, AnalysisMode.Introduction);
-
-        scope.SeedRow(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600, legacyHash);
-
-        Assert.True(scope.CacheService.TryRead(
-            episodeId,
-            AnalysisMode.Introduction,
-            CacheEntryType.Chromaprint,
-            0,
-            600,
-            out uint[] result,
-            MostChannelsStreamCacheVariant,
-            legacyHash));
-        Assert.Equal(fingerprint, result);
-    }
-
-    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode
@@ -156,16 +134,13 @@ public sealed class TestCacheOperations
     }
 
     // The episode expects an intro fingerprint over 0-600 s and a credits fingerprint
-    // over 1560-1800 s; a row counts only when its range matches and its hash is one a
-    // read path accepts (the pre-stream-selection legacy hash included, so already
-    // analyzed episodes rejoin the Chromaprint comparison pool after an upgrade).
+    // over 1560-1800 s; a row counts only when its range matches.
     [Theory]
-    [InlineData(AnalysisMode.Introduction, false, 0, 0, false, false)]
-    [InlineData(AnalysisMode.Introduction, true, 0, 900, false, false)]
-    [InlineData(AnalysisMode.Introduction, true, 0, 600, false, true)]
-    [InlineData(AnalysisMode.Introduction, true, 0, 600, true, true)]
-    [InlineData(AnalysisMode.Credits, true, 1560, 1800, false, true)]
-    public void HasCachedFingerprint_MatchesRowsByRangeAndAcceptedHash(AnalysisMode mode, bool seedRow, double rowStart, double rowEnd, bool legacyHash, bool expected)
+    [InlineData(AnalysisMode.Introduction, false, 0, 0, false)]
+    [InlineData(AnalysisMode.Introduction, true, 0, 900, false)]
+    [InlineData(AnalysisMode.Introduction, true, 0, 600, true)]
+    [InlineData(AnalysisMode.Credits, true, 1560, 1800, true)]
+    public void HasCachedFingerprint_MatchesRowsByRange(AnalysisMode mode, bool seedRow, double rowStart, double rowEnd, bool expected)
     {
         var episode = new QueuedEpisode
         {
@@ -177,14 +152,7 @@ public sealed class TestCacheOperations
         using var scope = new CachingPluginScope();
         if (seedRow)
         {
-            scope.SeedRow(
-                episode.EpisodeId,
-                mode,
-                CacheEntryType.Chromaprint,
-                EntrypointTestHelpers.EmptyJsonArray,
-                rowStart,
-                rowEnd,
-                legacyHash ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(new PluginConfiguration(), mode) : string.Empty);
+            scope.SeedRow(episode.EpisodeId, mode, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, rowStart, rowEnd);
         }
 
         Assert.Equal(expected, scope.CacheService.HasCachedFingerprint(episode, mode));
@@ -199,10 +167,8 @@ public sealed class TestCacheOperations
         var cacheDatabase = scope.CacheDatabase;
 
         // One row per acceptance path, distinguished by their range keys, plus one row whose
-        // hash no read path accepts any more (e.g. written by the intermediate release that
-        // suffixed the legacy Chromaprint hash input with empty audio tokens).
+        // hash no read path accepts.
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
-        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 200, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, AnalysisMode.Introduction));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Silence, AnalysisMode.Introduction));
@@ -212,7 +178,6 @@ public sealed class TestCacheOperations
 
         Assert.Equal(1, deleted);
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100));
-        Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 200));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500));

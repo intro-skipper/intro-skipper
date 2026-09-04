@@ -127,28 +127,6 @@ internal static class ConfigHasher
     }
 
     /// <summary>
-    /// Computes the cache hash that was written before audio stream selection existed, when
-    /// fingerprints always came from FFmpeg's default stream. It must stay byte-for-byte
-    /// identical to the pre-stream-selection input (no audio tokens), so those rows remain
-    /// readable whenever the effective stream is still FFmpeg's default.
-    /// </summary>
-    /// <remarks>
-    /// WARNING: never modify this input string. It is frozen to what older releases wrote;
-    /// any change silently invalidates every fingerprint cached by those releases and forces
-    /// upgraded servers to refingerprint their entire library. A pinned-hash test guards it.
-    /// </remarks>
-    /// <param name="config">Plugin configuration.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <returns>The legacy default-selection cache hash.</returns>
-    public static string LegacyChromaprintCacheWithoutLanguage(PluginConfiguration config, AnalysisMode mode)
-    {
-        var input = Invariant(
-            $"cache|v1|{CacheEntryType.Chromaprint}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}");
-
-        return ComputeHash(input);
-    }
-
-    /// <summary>
     /// Gets a value indicating whether a cache hash is scoped to an effective audio stream.
     /// </summary>
     /// <param name="cacheHash">Cache hash to inspect.</param>

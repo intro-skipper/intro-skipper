@@ -40,7 +40,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="result">When this method returns, contains the cached result array, or an empty array if the cache was missed. This parameter is treated as uninitialized.</param>
     /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
-    /// <param name="legacyConfigHash">Optional legacy hash that is safe to accept for this effective stream.</param>
     /// <returns><see langword="true"/> if a valid cache entry was found; otherwise, <see langword="false"/>.</returns>
     public bool TryRead<T>(
         Guid itemId,
@@ -49,8 +48,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         double start,
         double end,
         out T[] result,
-        string? cacheVariant = null,
-        string? legacyConfigHash = null)
+        string? cacheVariant = null)
     {
         result = [];
 
@@ -75,12 +73,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             if (!string.IsNullOrEmpty(entry.ConfigHash)
                 && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
             {
-                if (!string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
-                {
-                    return false;
-                }
-
-                LogLegacyDetectionCacheReused(_logger, itemId, mode, type);
+                return false;
             }
 
             result = DecompressBrotli<T[]>(entry.Data) ?? [];
@@ -157,18 +150,14 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var config = Plugin.Instance?.Configuration ?? new();
-            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, mode);
+            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
 
-            // Pre-stream-selection rows are accepted optimistically, like stream-scoped hashes:
-            // whether the effective stream still matches is only decided at read time, and a
-            // mismatch there just refingerprints the episode. The legacy hash comparison runs
-            // last so its SHA-256 is only computed for rows the cheap checks did not settle;
-            // this method is called per episode in the analyzer's queue-filter loop.
+            // Stream-scoped rows are accepted optimistically: whether the effective stream still
+            // matches is only decided at read time, and a mismatch there just refingerprints
+            // the episode.
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal);
+                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash);
         }
         catch (DbException ex)
         {
@@ -180,9 +169,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
     /// <summary>
     /// Deletes cache rows whose configuration hash no read path can accept under the current
-    /// plugin configuration: superseded hash inputs (e.g. the token-suffixed legacy hash an
-    /// intermediate release wrote) and hashes of settings values that have since changed.
-    /// Rows with an empty hash and stream-scoped rows are kept, mirroring the optimistic
+    /// plugin configuration: superseded hash inputs and hashes of settings values that have
+    /// since changed. Rows with an empty hash and stream-scoped rows are kept, mirroring the optimistic
     /// acceptance of the read paths. A row deleted here would be refingerprinted anyway;
     /// the cost of a false delete is one recomputation, never lost analysis results.
     /// </summary>
@@ -193,8 +181,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         var config = Plugin.Instance?.Configuration ?? new();
 
         // Every hash some read path accepts under the current configuration: the current
-        // hash of each (type, mode) pair plus the legacy pre-stream-selection Chromaprint
-        // hash. Inputs that ignore type or mode collapse in the set.
+        // hash of each (type, mode) pair. Inputs that ignore type or mode collapse in the set.
         var acceptedHashes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var mode in Enum.GetValues<AnalysisMode>())
         {
@@ -202,8 +189,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             {
                 acceptedHashes.Add(ConfigHasher.DetectionCache(config, type, mode));
             }
-
-            acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
         }
 
         return await _cacheDatabase
@@ -244,9 +229,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {ItemId} {Mode} {Type}")]
     private static partial void LogDetectionCacheHit(ILogger logger, Guid itemId, AnalysisMode mode, CacheEntryType type);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Reusing pre-stream-selection {Type} cache entry for {ItemId} in {Mode} mode")]
-    private static partial void LogLegacyDetectionCacheReused(ILogger logger, Guid itemId, AnalysisMode mode, CacheEntryType type);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache for {ItemId} {Mode} {Type}")]
     private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, Guid itemId, AnalysisMode mode, CacheEntryType type);
