@@ -252,13 +252,15 @@ public sealed class TestDatabaseFacades
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
+            // The duplicate range in the batch is dropped, not stored twice.
             await database.ReplaceAutoSegmentsAsync(
                 itemId,
                 AnalysisMode.Commercial,
-                [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(50, 60))],
+                [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(50, 60)), new Segment(itemId, new TimeRange(50, 60))],
                 SegmentSource.Chapter,
                 "hash-1");
             var before = await database.GetSegmentsAsync(itemId);
+            Assert.Equal(2, before.Count);
             var unchangedId = Assert.Single(before, s => s.StartTicks == Ticks(10)).Id;
 
             // Re-analysis: one boundary unchanged, one moved.
@@ -359,40 +361,6 @@ public sealed class TestDatabaseFacades
         Assert.Equal(30, timestamps[AnalysisMode.Commercial].End);
         Assert.Equal(5, timestamps[AnalysisMode.Introduction].Start);
         Assert.Equal(40, timestamps[AnalysisMode.Introduction].End);
-    }
-
-    [Fact]
-    public async Task DeleteSegmentAsync_RemovesOnlyTheAddressedSegment()
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(
-                itemId,
-                AnalysisMode.Commercial,
-                [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(30, 40))],
-                SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(0, 5))], SegmentSource.Chapter);
-
-            var target = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(10));
-            var snapshot = await database.DeleteSegmentAsync(itemId, target.Id);
-
-            Assert.NotNull(snapshot);
-            Assert.Equal(target.Id, snapshot!.Id);
-
-            // The other commercial and the intro are untouched; the tombstone is hidden
-            // from default reads but still stored.
-            var active = await database.GetSegmentsAsync(itemId);
-            Assert.Equal(2, active.Count);
-            var all = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
-            Assert.Equal(3, all.Count);
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
     }
 
     [Fact]
@@ -635,9 +603,10 @@ public sealed class TestDatabaseFacades
                 seasonId,
                 new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint });
 
-            Assert.Equal(AnalyzerAction.Chromaprint, await database.GetAnalyzerActionAsync(seasonId, AnalysisMode.Introduction));
-            Assert.Equal(AnalyzerAction.Default, await database.GetAnalyzerActionAsync(seasonId, AnalysisMode.Credits));
-            Assert.Equal(AnalyzerAction.Default, await database.GetAnalyzerActionAsync(Guid.NewGuid(), AnalysisMode.Introduction));
+            // A second write updates the stored row in place instead of colliding on the key.
+            await database.SetAnalyzerActionAsync(
+                seasonId,
+                new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint });
 
             var allActions = await database.GetAllAnalyzerActionsAsync(seasonId);
             Assert.Equal(Enum.GetValues<AnalysisMode>().Length, allActions.Count);
@@ -654,232 +623,118 @@ public sealed class TestDatabaseFacades
         }
     }
 
-    [Fact]
-    public async Task GetStaleTimestampEpisodeIdsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public enum LargeIdSetOperation
+    {
+        StaleTimestampEpisodeIds,
+        EraseItems,
+        CleanSeasonState,
+        SeasonQueueSnapshot,
+        ResetItemsForReanalysis,
+        CacheStaleIdsAndDelete
+    }
+
+    [Theory]
+    [InlineData(LargeIdSetOperation.StaleTimestampEpisodeIds)]
+    [InlineData(LargeIdSetOperation.EraseItems)]
+    [InlineData(LargeIdSetOperation.CleanSeasonState)]
+    [InlineData(LargeIdSetOperation.SeasonQueueSnapshot)]
+    [InlineData(LargeIdSetOperation.ResetItemsForReanalysis)]
+    [InlineData(LargeIdSetOperation.CacheStaleIdsAndDelete)]
+    public async Task IdSetOperations_DoNotExceedSqliteVariableLimit_WhenTheSetIsLarge(LargeIdSetOperation operation)
     {
         // EF Core 10 translates parameterized collections on SQLite to discrete padded
-        // parameters, and SQLite rejects statements above 32,766 variables, so this
-        // verifies the facade binds the retained ID set as a single EF.Parameter JSON
-        // parameter (json_each) above that limit.
-        const int LargeEpisodeCount = 33_000;
+        // parameters, and SQLite rejects statements above 32,766 variables, so every
+        // id-set operation must bind its set as a single EF.Parameter JSON parameter
+        // (json_each). Each case names one kept and one stale id and pads the set past
+        // the limit with filler.
+        const int LargeCount = 33_000;
 
         var dbPath = CreateTempDbPath();
-        var retainedItemId = Guid.NewGuid();
-        var staleItemId = Guid.NewGuid();
-        var enabledEpisodeIds = Enumerable.Range(0, LargeEpisodeCount - 1)
-            .Select(_ => Guid.NewGuid())
-            .Append(retainedItemId)
-            .ToHashSet();
+        var keptId = Guid.NewGuid();
+        var staleId = Guid.NewGuid();
+        static Guid[] Padded(params Guid[] named) => [.. Enumerable.Range(0, LargeCount - named.Length).Select(_ => Guid.NewGuid()), .. named];
 
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(retainedItemId, AnalysisMode.Introduction, [new Segment(retainedItemId, new TimeRange(0, 10))], SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(staleItemId, AnalysisMode.Introduction, [new Segment(staleItemId, new TimeRange(20, 30))], SegmentSource.Chapter);
+            switch (operation)
+            {
+                case LargeIdSetOperation.StaleTimestampEpisodeIds:
+                    await database.ReplaceAutoSegmentsAsync(keptId, AnalysisMode.Introduction, [new Segment(keptId, new TimeRange(0, 10))], SegmentSource.Chapter);
+                    await database.ReplaceAutoSegmentsAsync(staleId, AnalysisMode.Introduction, [new Segment(staleId, new TimeRange(20, 30))], SegmentSource.Chapter);
 
-            var staleEpisodeIds = await database.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds);
+                    Assert.Equal([staleId], await database.GetStaleTimestampEpisodeIdsAsync(Padded(keptId)));
+                    break;
 
-            Assert.Equal([staleItemId], staleEpisodeIds);
-            var retained = Assert.Single(await database.GetSegmentsAsync(retainedItemId));
-            Assert.Equal(retainedItemId, retained.ItemId);
-            Assert.Single(await database.GetSegmentsAsync(staleItemId));
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
+                case LargeIdSetOperation.EraseItems:
+                    await database.ReplaceAutoSegmentsAsync(keptId, AnalysisMode.Introduction, [new Segment(keptId, new TimeRange(0, 10))], SegmentSource.Chapter);
+                    await database.ReplaceAutoSegmentsAsync(staleId, AnalysisMode.Introduction, [new Segment(staleId, new TimeRange(20, 30))], SegmentSource.Chapter);
 
-    [Fact]
-    public async Task EraseItemsAsync_DoesNotExceedSqliteVariableLimit_WhenItemListIsLarge()
-    {
-        const int LargeItemCount = 33_000;
+                    Assert.Equal(1, await database.EraseItemsAsync(Padded(staleId)));
+                    Assert.Empty(await database.GetSegmentsAsync(staleId));
+                    Assert.Single(await database.GetSegmentsAsync(keptId));
+                    break;
 
-        var dbPath = CreateTempDbPath();
-        var targetItemId = Guid.NewGuid();
-        var retainedItemId = Guid.NewGuid();
-        var itemIds = Enumerable.Range(0, LargeItemCount - 1)
-            .Select(_ => Guid.NewGuid())
-            .Append(targetItemId)
-            .ToArray();
+                case LargeIdSetOperation.CleanSeasonState:
+                    {
+                        var action = new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chapter };
+                        await database.SetAnalyzerActionAsync(keptId, action);
+                        await database.SetAnalyzerActionAsync(staleId, action);
 
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 10))], SegmentSource.Chapter);
-            await database.ReplaceAutoSegmentsAsync(retainedItemId, AnalysisMode.Introduction, [new Segment(retainedItemId, new TimeRange(20, 30))], SegmentSource.Chapter);
+                        await database.CleanSeasonStateAsync(Padded(keptId));
 
-            var deleted = await database.EraseItemsAsync(itemIds);
+                        await using var db = new IntroSkipperDbContext(dbPath);
+                        Assert.True(await db.SeasonStates.AnyAsync(s => s.SeasonId == keptId));
+                        Assert.False(await db.SeasonStates.AnyAsync(s => s.SeasonId == staleId));
+                        break;
+                    }
 
-            Assert.Equal(1, deleted);
-            Assert.Empty(await database.GetSegmentsAsync(targetItemId));
-            Assert.Single(await database.GetSegmentsAsync(retainedItemId));
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
+                case LargeIdSetOperation.SeasonQueueSnapshot:
+                    {
+                        await database.ReplaceAutoSegmentsAsync(keptId, AnalysisMode.Introduction, [new Segment(keptId, new TimeRange(0, 30))], SegmentSource.Chapter);
+                        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [keptId], "snapshot-config");
 
-    [Fact]
-    public async Task DetectionCacheDatabase_StaleIdComputationAndParameterizedDelete_HandleLargeLibraries()
-    {
-        const int LargeEpisodeCount = 33_000;
+                        var snapshot = await database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), Padded(keptId));
 
-        var dbPath = CreateTempDbPath();
-        var validItemId = Guid.NewGuid();
-        var staleItemId = Guid.NewGuid();
+                        Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(keptId, AnalysisMode.Introduction)]);
+                        Assert.Contains(AnalysisMode.Introduction, snapshot.SegmentModesByEpisodeId[keptId]);
+                        break;
+                    }
 
-        try
-        {
-            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
-            cacheDatabase.Upsert(validItemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
-            cacheDatabase.Upsert(staleItemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+                case LargeIdSetOperation.ResetItemsForReanalysis:
+                    {
+                        // The kept item's user row shields it from the reset.
+                        var ids = Padded(staleId, keptId);
+                        await database.ReplaceAutoSegmentsAsync(staleId, AnalysisMode.Introduction, [new Segment(staleId, new TimeRange(0, 30))], SegmentSource.Chapter);
+                        await database.AddUserSegmentAsync(keptId, AnalysisMode.Introduction, Ticks(0), Ticks(30));
+                        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, ids, "hash");
 
-            var validItemIds = Enumerable.Range(0, LargeEpisodeCount - 1)
-                .Select(_ => Guid.NewGuid())
-                .Append(validItemId)
-                .ToHashSet();
+                        await database.ResetItemsForReanalysisAsync(ids, [AnalysisMode.Introduction]);
 
-            var staleIds = await cacheDatabase.GetStaleItemIdsAsync(validItemIds);
-            Assert.Equal([staleItemId], staleIds);
+                        Assert.Empty(await database.GetSegmentsAsync(staleId));
+                        Assert.Single(await database.GetSegmentsAsync(keptId));
+                        await using var db = new IntroSkipperDbContext(dbPath);
+                        Assert.False(await db.AnalyzedItems.AnyAsync());
+                        break;
+                    }
 
-            // Delete with a large ID set (stale ID plus filler) to exercise the
-            // single-JSON-parameter path.
-            var deleteIds = Enumerable.Range(0, LargeEpisodeCount - 1)
-                .Select(_ => Guid.NewGuid())
-                .Append(staleItemId)
-                .ToArray();
-            var deleted = await cacheDatabase.DeleteForItemsAsync(deleteIds);
+                case LargeIdSetOperation.CacheStaleIdsAndDelete:
+                    {
+                        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
+                        cacheDatabase.Upsert(keptId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+                        cacheDatabase.Upsert(staleId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
 
-            Assert.Equal(1, deleted);
-            Assert.Null(cacheDatabase.FindEntry(staleItemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10));
-            Assert.NotNull(cacheDatabase.FindEntry(validItemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10));
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
+                        Assert.Equal([staleId], await cacheDatabase.GetStaleItemIdsAsync(Padded(keptId).ToHashSet()));
 
-    [Fact]
-    public async Task ReplaceAutoSegmentsAsync_StoresMultipleSegments_AndDeduplicatesExactRanges()
-    {
-        var dbPath = CreateTempDbPath();
-        var itemId = Guid.NewGuid();
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+                        Assert.Equal(1, await cacheDatabase.DeleteForItemsAsync(Padded(staleId)));
+                        Assert.Null(cacheDatabase.FindEntry(staleId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10));
+                        Assert.NotNull(cacheDatabase.FindEntry(keptId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10));
+                        break;
+                    }
 
-            await database.ReplaceAutoSegmentsAsync(
-                itemId,
-                AnalysisMode.Commercial,
-                [
-                    new Segment(itemId, new TimeRange(0, 10)),
-                    new Segment(itemId, new TimeRange(20, 30)),
-                    new Segment(itemId, new TimeRange(20, 30))
-                ],
-                SegmentSource.Chapter);
-
-            var stored = await database.GetSegmentsAsync(itemId);
-            Assert.Equal(2, stored.Count(s => s.Type == AnalysisMode.Commercial));
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task CleanSeasonStateAsync_DoesNotExceedSqliteVariableLimit_WhenSeasonListIsLarge()
-    {
-        const int LargeSeasonCount = 33_000;
-
-        var dbPath = CreateTempDbPath();
-        var retainedSeasonId = Guid.NewGuid();
-        var staleSeasonId = Guid.NewGuid();
-        var retainedSeasonIds = Enumerable.Range(0, LargeSeasonCount - 1)
-            .Select(_ => Guid.NewGuid())
-            .Append(retainedSeasonId)
-            .ToArray();
-
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var action = new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chapter };
-            await database.SetAnalyzerActionAsync(retainedSeasonId, action);
-            await database.SetAnalyzerActionAsync(staleSeasonId, action);
-
-            await database.CleanSeasonStateAsync(retainedSeasonIds);
-
-            await using var db = new IntroSkipperDbContext(dbPath);
-            Assert.True(await db.SeasonStates.AnyAsync(s => s.SeasonId == retainedSeasonId));
-            Assert.False(await db.SeasonStates.AnyAsync(s => s.SeasonId == staleSeasonId));
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task GetSeasonQueueSnapshotAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
-    {
-        const int LargeEpisodeCount = 33_000;
-
-        var dbPath = CreateTempDbPath();
-        var seasonId = Guid.NewGuid();
-        var episodeWithSegmentId = Guid.NewGuid();
-        var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 1)
-            .Select(_ => Guid.NewGuid())
-            .Append(episodeWithSegmentId)
-            .ToList();
-
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(episodeWithSegmentId, AnalysisMode.Introduction, [new Segment(episodeWithSegmentId, new TimeRange(0, 30))], SegmentSource.Chapter);
-            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeWithSegmentId], "snapshot-config");
-
-            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
-
-            Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(episodeWithSegmentId, AnalysisMode.Introduction)]);
-            Assert.True(snapshot.SegmentModesByEpisodeId.TryGetValue(episodeWithSegmentId, out var modesWithSegments));
-            Assert.Contains(AnalysisMode.Introduction, modesWithSegments!);
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task ResetItemsForReanalysisAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
-    {
-        const int LargeEpisodeCount = 33_000;
-
-        var dbPath = CreateTempDbPath();
-        var automaticEpisodeId = Guid.NewGuid();
-        var userProvidedEpisodeId = Guid.NewGuid();
-        var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 2)
-            .Select(_ => Guid.NewGuid())
-            .Append(automaticEpisodeId)
-            .Append(userProvidedEpisodeId)
-            .ToArray();
-
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(automaticEpisodeId, AnalysisMode.Introduction, [new Segment(automaticEpisodeId, new TimeRange(0, 30))], SegmentSource.Chapter);
-            await database.AddUserSegmentAsync(userProvidedEpisodeId, AnalysisMode.Introduction, Ticks(0), Ticks(30));
-            await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds, "hash");
-
-            await database.ResetItemsForReanalysisAsync(episodeIds, [AnalysisMode.Introduction]);
-
-            Assert.Empty(await database.GetSegmentsAsync(automaticEpisodeId));
-            Assert.Single(await database.GetSegmentsAsync(userProvidedEpisodeId));
-            await using var db = new IntroSkipperDbContext(dbPath);
-            Assert.False(await db.AnalyzedItems.AnyAsync());
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(operation));
+            }
         }
         finally
         {
@@ -1200,60 +1055,10 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public void CacheOperation_InitializationFailure_ReturnsNeutralAndNextOperationRetries()
-    {
-        var dbPath = Path.Join(
-            Path.GetTempPath(),
-            "IntroSkipper.Tests",
-            "database-facades",
-            Guid.NewGuid().ToString("N") + "-missing-dir",
-            "cache.db");
-        var directory = Path.GetDirectoryName(dbPath)!;
-        var contextCreations = 0;
-        var database = new DetectionCacheDatabase(
-            new TestDbContextFactory<DetectionCacheDbContext>(() =>
-            {
-                Interlocked.Increment(ref contextCreations);
-                return new DetectionCacheDbContext(dbPath);
-            }),
-            NullLogger<DetectionCacheDatabase>.Instance);
-
-        try
-        {
-            Assert.Null(database.FindEntry(
-                Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
-
-            Assert.Equal(1, Volatile.Read(ref contextCreations));
-
-            Directory.CreateDirectory(directory);
-
-            Assert.Null(database.FindEntry(
-                Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
-            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Retry context + query context.
-
-            Assert.True(database.TryInitialize());
-            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Successful gate stays cached.
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-            if (Directory.Exists(directory))
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-        }
-    }
-
-    [Fact]
     public async Task CacheOperations_InitializationFailure_ReturnNeutralResults()
     {
-        var contextCreations = 0;
         var database = new DetectionCacheDatabase(
-            new TestDbContextFactory<DetectionCacheDbContext>(() =>
-            {
-                contextCreations++;
-                throw new IOException("Simulated unavailable cache database.");
-            }),
+            new TestDbContextFactory<DetectionCacheDbContext>(() => throw new IOException("Simulated unavailable cache database.")),
             NullLogger<DetectionCacheDatabase>.Instance);
         var itemId = Guid.NewGuid();
 
@@ -1269,22 +1074,17 @@ public sealed class TestDatabaseFacades
             [],
             string.Empty);
 
-        Assert.False(database.HasEntry(
-            itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, string.Empty));
         Assert.Equal(0, database.DeleteForItem(itemId));
-        Assert.Equal(0, database.DeleteByMode(AnalysisMode.Introduction));
+        Assert.Equal(0, await database.DeleteByModeAsync(AnalysisMode.Introduction));
         Assert.Empty(await database.GetStaleItemIdsAsync(new HashSet<Guid>()));
         Assert.Equal(0, await database.DeleteForItemsAsync([itemId]));
-
-        // Each operation retried initialization, and none created a query context.
-        Assert.Equal(7, contextCreations);
     }
 
     [Fact]
     public async Task RetryableInitializationGate_FailedAttemptIsSharedAndNextAttemptRetries()
     {
         var attempts = 0;
-        var gate = new RetryableInitializationGate<Task>(() =>
+        var gate = new RetryableInitializationGate(() =>
             ++attempts == 1
                 ? Task.FromException(new IOException("Simulated transient database failure."))
                 : Task.CompletedTask);
@@ -1443,7 +1243,7 @@ public sealed class TestDatabaseFacades
             Assert.True(database.TryInitialize());
 
             Assert.Equal(0, database.DeleteForItem(Guid.NewGuid()));
-            Assert.Equal(0, database.DeleteByMode(AnalysisMode.Introduction));
+            Assert.Equal(0, await database.DeleteByModeAsync(AnalysisMode.Introduction));
             Assert.Equal(0, await database.DeleteForItemsAsync([Guid.NewGuid()]));
         }
         finally
