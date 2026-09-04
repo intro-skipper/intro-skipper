@@ -6,17 +6,11 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -32,14 +26,8 @@ public sealed class TestQueueManager
         var seasonId = Guid.Parse("22222222-2222-2222-2222-222222222222");
         var episodeId = Guid.Parse("33333333-3333-3333-3333-333333333333");
         var movieId = Guid.Parse("44444444-4444-4444-4444-444444444444");
-        var episode = CreateEpisode(episodeId, seriesId, seasonId);
-        var movie = new Movie
-        {
-            Id = movieId,
-            Name = "Feature",
-            Path = "/media/feature.mkv",
-            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
-        };
+        var episode = JellyfinItems.Episode(episodeId, seriesId, seasonId);
+        var movie = JellyfinItems.Movie(movieId);
 
         var queueManager = CreateQueueManager(episode, movie);
 
@@ -85,15 +73,9 @@ public sealed class TestQueueManager
         var seriesId = Guid.NewGuid();
         var targetSeasonId = Guid.NewGuid();
         var otherSeasonId = Guid.NewGuid();
-        var targetEpisode = CreateEpisode(Guid.NewGuid(), seriesId, targetSeasonId);
-        var otherEpisode = CreateEpisode(Guid.NewGuid(), seriesId, otherSeasonId);
-        var movie = new Movie
-        {
-            Id = Guid.NewGuid(),
-            Name = "Unrelated feature",
-            Path = "/media/unrelated.mkv",
-            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
-        };
+        var targetEpisode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, targetSeasonId);
+        var otherEpisode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, otherSeasonId);
+        var movie = JellyfinItems.Movie(Guid.NewGuid(), "Unrelated feature", "/media/unrelated.mkv");
 
         var queueManager = CreateQueueManager(targetEpisode, otherEpisode, movie);
 
@@ -123,10 +105,10 @@ public sealed class TestQueueManager
 
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var episode = CreateEpisode(Guid.NewGuid(), seriesId, seasonId);
-        var owningFolder = NewFolder("Media");
-        var unrelatedFolder = new VirtualFolderInfo { Name = "Other", ItemId = Guid.NewGuid().ToString() };
-        var libraryManager = QueueLibraryManager.Create(
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId);
+        var owningFolder = JellyfinItems.Folder("Media");
+        var unrelatedFolder = JellyfinItems.Folder("Other");
+        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
             [owningFolder, unrelatedFolder],
             [episode],
             new Dictionary<Guid, Guid> { [seasonId] = Guid.Parse(owningFolder.ItemId!) });
@@ -142,7 +124,7 @@ public sealed class TestQueueManager
 
         Assert.Equal(episode.Id, Assert.Single(queue[seasonId]).EpisodeId);
 
-        var fake = (QueueLibraryManager)(object)libraryManager;
+        var fake = (EntrypointTestHelpers.FakeLibraryManager)(object)libraryManager;
         Assert.Contains(Guid.Parse(owningFolder.ItemId!), fake.QueriedLibraryIds);
         Assert.DoesNotContain(Guid.Parse(unrelatedFolder.ItemId!), fake.QueriedLibraryIds);
     }
@@ -156,8 +138,8 @@ public sealed class TestQueueManager
         var seriesId = Guid.NewGuid();
         var hostSeasonId = Guid.NewGuid();
         var specialsSeasonId = Guid.NewGuid();
-        var host = CreateEpisode(Guid.NewGuid(), seriesId, hostSeasonId);
-        var special = CreateEpisode(Guid.NewGuid(), seriesId, specialsSeasonId);
+        var host = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var special = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId);
         special.ParentIndexNumber = 0;
         special.AirsBeforeSeasonNumber = 1;
         special.Name = "Special";
@@ -188,113 +170,10 @@ public sealed class TestQueueManager
     private static QueueManager CreateQueueManager(params BaseItem[] items)
         => new(
             NullLogger<QueueManager>.Instance,
-            QueueLibraryManager.Create([NewFolder("Media")], [.. items]),
+            EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items),
             providerManager: null!,
             fileSystem: null!,
             ffmpegService: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase());
 
-    private static Episode CreateEpisode(Guid episodeId, Guid seriesId, Guid seasonId)
-    {
-        var episode = new Episode
-        {
-            Name = "Pilot",
-            SeriesId = seriesId,
-            SeasonId = seasonId,
-            ParentIndexNumber = 1,
-            IndexNumber = 1,
-            Path = "/media/series/s01e01.mkv",
-            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
-        };
-        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
-        EntrypointTestHelpers.SetPropertyOrField(episode, "SeriesName", "Series");
-        EntrypointTestHelpers.EnsureNonVirtual(episode);
-        return episode;
-    }
-
-    private static VirtualFolderInfo NewFolder(string name)
-        => new()
-        {
-            Name = name,
-            ItemId = Guid.Parse("55555555-5555-5555-5555-555555555555").ToString(),
-        };
-
-    private class QueueLibraryManager : DispatchProxy
-    {
-        private List<VirtualFolderInfo> _folders = [];
-        private List<BaseItem> _items = [];
-        private Dictionary<Guid, Guid> _owningFolderIds = [];
-
-        // ParentId of every GetItemList query, so tests can assert which libraries were queried.
-        public List<Guid> QueriedLibraryIds { get; } = [];
-
-        public static ILibraryManager Create(List<VirtualFolderInfo> folders, List<BaseItem> items, Dictionary<Guid, Guid>? owningFolderIds = null)
-        {
-            var proxy = Create<ILibraryManager, QueueLibraryManager>();
-            var fake = (QueueLibraryManager)(object)proxy;
-            fake._folders = folders;
-            fake._items = items;
-            fake._owningFolderIds = owningFolderIds ?? [];
-            return proxy;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            return targetMethod?.Name switch
-            {
-                nameof(ILibraryManager.GetVirtualFolders) => _folders,
-                nameof(ILibraryManager.GetItemList) => GetItems(args),
-                nameof(ILibraryManager.GetItemById) => ResolveItem(args),
-                nameof(ILibraryManager.GetCollectionFolders) => CollectionFoldersFor(args),
-                _ => throw new NotImplementedException(targetMethod?.Name),
-            };
-        }
-
-        // Season/movie ids requested by scoped runs must resolve to some item; ids without a
-        // backing item resolve to a Season stub, as the season entities are not part of _items.
-        private BaseItem ResolveItem(object?[]? args)
-        {
-            var id = (Guid)args![0]!;
-            return _items.FirstOrDefault(item => item.Id == id) ?? new Season { Id = id };
-        }
-
-        // Owning libraries per requested id; ids without a mapping are owned by every folder,
-        // which preserves the query-every-library behavior for tests that don't care.
-        private List<Folder> CollectionFoldersFor(object?[]? args)
-        {
-            var item = (BaseItem)args![0]!;
-            IEnumerable<Guid> folderIds = _owningFolderIds.TryGetValue(item.Id, out var owner)
-                ? [owner]
-                : _folders.Select(folder => Guid.Parse(folder.ItemId!));
-            return [.. folderIds.Select(id => new Folder { Id = id })];
-        }
-
-        private List<BaseItem> GetItems(object?[]? args)
-        {
-            var query = args?.OfType<InternalItemsQuery>().SingleOrDefault();
-            if (query is not null)
-            {
-                QueriedLibraryIds.Add(query.ParentId);
-            }
-
-            if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
-            {
-                return [.. _items.Where(item => item is Episode episode &&
-                    episode.ParentIndexNumber == query.ParentIndexNumber &&
-                    query.AncestorIds.Contains(episode.SeriesId))];
-            }
-
-            if (query?.AncestorIds is { Length: > 0 })
-            {
-                return [.. _items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];
-            }
-
-            if (query?.ItemIds is { Length: > 0 })
-            {
-                return [.. _items.Where(item => query.ItemIds.Contains(item.Id))];
-            }
-
-            return [.. _items];
-        }
-    }
 }

@@ -19,9 +19,9 @@ namespace IntroSkipper.Tests;
 /// </summary>
 public sealed class TestDbSegmentStorage : IDisposable
 {
-    private readonly string _dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-storage.db");
+    private readonly TempSegmentDb _db = new();
 
-    public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
+    public void Dispose() => _db.Dispose();
 
     [Theory]
     [InlineData(AnalysisMode.Introduction)]
@@ -101,7 +101,7 @@ public sealed class TestDbSegmentStorage : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
 
-        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
+        using (var db = _db.Context())
         {
             await db.Database.MigrateAsync();
             var suppressed = new DbSegment(episodeId, AnalysisMode.Preview, TickConversions.FromSeconds(100), TickConversions.FromSeconds(120), SegmentSource.Chapter)
@@ -115,7 +115,7 @@ public sealed class TestDbSegmentStorage : IDisposable
             await db.SaveChangesAsync();
         }
 
-        var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(_dbPath).GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
+        var snapshot = await _db.Database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
 
         // A mode whose only rows are tombstones has no active segment and must not be reported.
         var modes = snapshot.SegmentModesByEpisodeId[episodeId];
@@ -128,7 +128,7 @@ public sealed class TestDbSegmentStorage : IDisposable
     [Fact]
     public async Task Segments_RejectDegenerateRange_AtTheDatabase()
     {
-        using var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath);
+        using var db = _db.Context();
         await db.Database.MigrateAsync();
 
         // Every facade write validates the range; the CHECK constraint is the backstop
@@ -146,7 +146,7 @@ public sealed class TestDbSegmentStorage : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
 
-        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
+        using (var db = _db.Context())
         {
             await db.Database.MigrateAsync();
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -157,7 +157,7 @@ public sealed class TestDbSegmentStorage : IDisposable
             await db.SaveChangesAsync();
         }
 
-        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
+        using (var db = _db.Context())
         {
             var seasonState = await db.SeasonStates.SingleAsync();
             var analyzed = await db.AnalyzedItems.SingleAsync();

@@ -1,35 +1,35 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
-using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
 namespace IntroSkipper.Tests;
 
-public sealed class TestSkipIntroController
+public sealed class TestSkipIntroController : IDisposable
 {
+    private readonly SegmentChangeHarness _h = new();
+
+    public void Dispose() => _h.Dispose();
+
     [Fact]
     public async Task UpdateTimestampsAsync_AwaitsMirrorWrite_BeforeReturningNoContent()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
             WriteEntered = writeEntered,
             WriteGate = writeGate,
             BlockedItemId = itemId
         };
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(store, database, pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -46,9 +46,9 @@ public sealed class TestSkipIntroController
         var result = await actionTask;
 
         Assert.IsType<NoContentResult>(result);
-        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        var (replacedItemId, pushed) = Assert.Single(_h.Store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
-        var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
+        var segment = Assert.Single(await _h.Database.GetSegmentsAsync(itemId));
         Assert.Equal(AnalysisMode.Introduction, segment.Type);
         Assert.Equal(SegmentSource.User, segment.Source);
         Assert.Equal(segment.Id, Assert.Single(pushed).Id);
@@ -58,14 +58,12 @@ public sealed class TestSkipIntroController
     public async Task UpdateTimestampsAsync_MirrorFailure_ReportsAcceptedPending_AndKeepsStoredSegment()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
             WriteException = new InvalidOperationException("boom")
         };
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(store, database, pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -77,8 +75,8 @@ public sealed class TestSkipIntroController
 
         var accepted = Assert.IsType<AcceptedResult>(result);
         Assert.Equal("Pending", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
-        Assert.Equal(1, store.WriteCallCount);
-        var segment = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(1, _h.Store.WriteCallCount);
+        var segment = Assert.Single(await _h.Database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.User, segment.Source);
     }
 
@@ -86,9 +84,8 @@ public sealed class TestSkipIntroController
     public async Task UpdateTimestampsAsync_CommercialSlot_ReplacesAllStoredCommercials()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(
             itemId,
             AnalysisMode.Commercial,
@@ -99,7 +96,7 @@ public sealed class TestSkipIntroController
             AnalysisMode.Introduction,
             [new Segment(itemId, new TimeRange(10, 20))],
             SegmentSource.Chapter);
-        var controller = CreateController(new FakeJellyfinSegmentStore(), database, pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
             Commercial = new Segment(itemId, new TimeRange(400, 430))
@@ -124,38 +121,21 @@ public sealed class TestSkipIntroController
     public async Task ResetIntroTimestamps_CacheFailureDoesNotFailMainDatabaseDelete()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
         using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(
             itemId,
             AnalysisMode.Introduction,
             [new Segment(itemId, new TimeRange(10, 20))],
             SegmentSource.Chapter);
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-        var missingCachePath = Path.Join(
-            Path.GetTempPath(),
-            "IntroSkipper.Tests",
-            "skip-controller",
-            Guid.NewGuid().ToString("N"),
-            "cache.db");
 
         // The row is mirrored; the erase must converge it away despite the cache failure.
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaBrowser.Model.MediaSegments.MediaSegmentDto
-                {
-                    Id = row.Id,
-                    ItemId = itemId,
-                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
-                    StartTicks = row.StartTicks,
-                    EndTicks = row.EndTicks,
-                }
-            ],
+            ExistingSegments = [SegmentChangeHarness.MirroredDto(itemId, row.Id, MediaSegmentType.Intro, row.StartTicks, row.EndTicks)],
         };
-        var controller = CreateController(store, database, missingCachePath);
+        var controller = CreateController(SegmentChangeHarness.MissingCachePath());
 
         var result = await controller.ResetIntroTimestamps(
             AnalysisMode.Introduction,
@@ -166,41 +146,26 @@ public sealed class TestSkipIntroController
         Assert.Empty(await database.GetSegmentsAsync(itemId));
         // The erase journaled the item's projection and the request converged it, so
         // Jellyfin stops serving the rows.
-        Assert.Empty(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
+        Assert.Empty(await _h.Store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
     }
 
     [Fact]
     public async Task RebuildDatabase_UnreadableBackup_Returns409_AndForceRebuildsClean()
     {
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-skip-controller.db");
-        try
-        {
-            // A garbage file makes both initialization and the backup read fail.
-            await File.WriteAllTextAsync(dbPath, "this is not a sqlite database file");
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            var controller = CreateController(new FakeJellyfinSegmentStore(), database, DatabaseTestHelpers.CreateTempCacheDbPath());
+        // A garbage file makes both initialization and the backup read fail.
+        await File.WriteAllTextAsync(_h.DbPath, "this is not a sqlite database file");
+        var controller = CreateController(DatabaseTestHelpers.CreateTempCacheDbPath());
 
-            // Without force the endpoint reports the unreadable backup as a conflict,
-            // so the dashboard can ask for explicit consent instead of losing data.
-            Assert.IsType<ConflictObjectResult>(await controller.RebuildDatabase());
+        // Without force the endpoint reports the unreadable backup as a conflict,
+        // so the dashboard can ask for explicit consent instead of losing data.
+        Assert.IsType<ConflictObjectResult>(await controller.RebuildDatabase());
 
-            // With force the unreadable file is discarded and the rebuild succeeds;
-            // the facade is operational over the recreated database.
-            Assert.IsType<NoContentResult>(await controller.RebuildDatabase(forceCleanOnBackupFailure: true));
-            Assert.Empty(await database.GetSegmentsAsync(Guid.NewGuid()));
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
+        // With force the unreadable file is discarded and the rebuild succeeds;
+        // the facade is operational over the recreated database.
+        Assert.IsType<NoContentResult>(await controller.RebuildDatabase(forceCleanOnBackupFailure: true));
+        Assert.Empty(await _h.Database.GetSegmentsAsync(Guid.NewGuid()));
     }
 
-    private static SkipIntroController CreateController(
-        IJellyfinSegmentStore store,
-        IntroSkipperDatabase database,
-        string cacheDbPath)
-        => new(
-            DatabaseTestHelpers.CreateSegmentChange(store, database),
-            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-            database);
+    private SkipIntroController CreateController(string cacheDbPath)
+        => new(_h.Change, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Database);
 }

@@ -10,13 +10,9 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using IntroSkipper.SegmentChanges;
 using Jellyfin.Database.Implementations.Enums;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,32 +21,34 @@ using Xunit;
 
 namespace IntroSkipper.Tests;
 
-public sealed class TestVisualizationController
+public sealed class TestVisualizationController : IDisposable
 {
+    private readonly SegmentChangeHarness _h = new();
+
+    public void Dispose() => _h.Dispose();
+
     [Fact]
     public async Task EraseSeasonAsync_AwaitsMirrorConvergence_BeforeReturningNoContent()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-visualization.db");
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
-        await SeedSeasonAsync(dbPath, seasonId, episodeIds);
+        await SeedSeasonAsync(seasonId, episodeIds);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Both episodes' rows are mirrored, so the post-erase convergence has real
         // writes; the first one parks so the pre-completion assertion cannot race.
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = [CreateMirroredDto(episodeIds[0]), CreateMirroredDto(episodeIds[1])],
+            ExistingSegments = [SegmentChangeHarness.MirroredDto(episodeIds[0]), SegmentChangeHarness.MirroredDto(episodeIds[1])],
             WriteGate = writeGate,
             WriteEntered = writeEntered,
             BlockedItemId = episodeIds[0]
         };
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        await database.InitializeAsync();
-        var controller = CreateController(database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+        await _h.Database.InitializeAsync();
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
         await writeEntered.Task;
@@ -63,9 +61,9 @@ public sealed class TestVisualizationController
         var result = await actionTask;
 
         Assert.IsType<NoContentResult>(result);
-        Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[0], CancellationToken.None));
-        Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[1], CancellationToken.None));
-        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
+        Assert.Empty(await _h.Store.GetOwnSegmentsAsync(episodeIds[0], CancellationToken.None));
+        Assert.Empty(await _h.Store.GetOwnSegmentsAsync(episodeIds[1], CancellationToken.None));
+        await using var db = _h.Context();
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
@@ -78,10 +76,9 @@ public sealed class TestVisualizationController
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-visualization.db");
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
-        await SeedSeasonAsync(dbPath, seasonId, episodeIds);
-        var controller = CreateController(DatabaseTestHelpers.CreateSegmentDatabase(dbPath), MissingCachePath());
+        await SeedSeasonAsync(seasonId, episodeIds);
+        var controller = CreateController(SegmentChangeHarness.MissingCachePath());
 
         var result = await controller.EraseSeasonAsync(
             seriesId,
@@ -90,7 +87,7 @@ public sealed class TestVisualizationController
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
-        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
+        await using var db = _h.Context();
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
@@ -106,26 +103,26 @@ public sealed class TestVisualizationController
         var seasonId = Guid.NewGuid();
         var excludedId = Guid.NewGuid();
         var includedId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath($"{Guid.NewGuid():N}-visualization.db");
         var config = new PluginConfiguration
         {
             UpdateMediaSegments = true,
             SeriesExclusions = { "Excluded Show" }
         };
         using var pluginScope = CreatePluginScope(seriesId, seasonId, [excludedId, includedId], config);
-        await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
+        await SeedSeasonAsync(seasonId, [excludedId, includedId]);
         SeedCache(pluginScope.CacheDbPath, excludedId, includedId);
 
         // The controller enumerates the library through a fresh queue manager, so the
         // exclusion policy decides from the enumerated series names.
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
-            [new VirtualFolderInfo { Name = "Shows", ItemId = Guid.NewGuid().ToString() }],
-            _ => [CreateLibraryEpisode(excludedId, seriesId, seasonId, "Excluded Show"), CreateLibraryEpisode(includedId, seriesId, seasonId, "Included Show")]);
+            [JellyfinItems.Folder("Shows")],
+            _ =>
+            [
+                JellyfinItems.Episode(excludedId, seriesId, seasonId, "Excluded Show", path: "/media/excluded/s01e01.mkv"),
+                JellyfinItems.Episode(includedId, seriesId, seasonId, "Included Show", path: "/media/included/s01e01.mkv")
+            ]);
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
-        var controller = CreateController(
-            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
-            cacheAvailable ? pluginScope.CacheDbPath : MissingCachePath(),
-            libraryManager: libraryManager);
+        var controller = CreateController(cacheAvailable ? pluginScope.CacheDbPath : SegmentChangeHarness.MissingCachePath(), libraryManager);
 
         var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
 
@@ -139,7 +136,7 @@ public sealed class TestVisualizationController
         Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(expectedRemovedCacheEntries, response.RemovedCacheEntries);
 
-        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
+        await using var db = _h.Context();
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
@@ -160,8 +157,8 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var database = _h.Database;
 
         // Steady state before the toggle: an automatic segment already mirrored to
         // Jellyfin. Disabling pushes the empty replace that withdraws it; enabling
@@ -169,16 +166,16 @@ public sealed class TestVisualizationController
         await database.ReplaceAutoSegmentsAsync(
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
         var mirroredRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = [CreateMirroredDto(episodeIds[0], mirroredRow.Id, mirroredRow.StartTicks, mirroredRow.EndTicks)]
+            ExistingSegments = [SegmentChangeHarness.MirroredDto(episodeIds[0], mirroredRow.Id, startTicks: mirroredRow.StartTicks, endTicks: mirroredRow.EndTicks)]
         };
-        var controller = CreateController(database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
         Assert.IsType<NoContentResult>(putResult);
-        Assert.Equal(episodeIds[0], Assert.Single(store.ReplacedItems).ItemId);
+        Assert.Equal(episodeIds[0], Assert.Single(_h.Store.ReplacedItems).ItemId);
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
 
         var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
@@ -192,7 +189,7 @@ public sealed class TestVisualizationController
         Assert.IsType<NoContentResult>(deleteResult);
 
         // Both directions resync the item's mirror through the change coordinator.
-        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal(2, _h.Store.WriteCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
@@ -210,9 +207,9 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(orphanId, Guid.Empty)));
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var controller = CreateController(database, pluginScope.CacheDbPath);
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));
+        var database = _h.Database;
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var result = await controller.DisableItem(orphanId, CancellationToken.None);
 
@@ -232,15 +229,15 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var store = new FakeJellyfinSegmentStore();
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var controller = CreateController(database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        _h.Store = new FakeJellyfinSegmentStore();
+        var database = _h.Database;
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(unknown);
-        Assert.Equal(0, store.WriteCallCount);
+        Assert.Equal(0, _h.Store.WriteCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
@@ -256,8 +253,8 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var database = _h.Database;
 
         // A stored automatic segment gives the sync rows to push (enable) or withdraw
         // (disable, where the row is also mirrored), so it is a real (failing) write
@@ -269,12 +266,12 @@ public sealed class TestVisualizationController
             await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
         }
 
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = disable ? [CreateMirroredDto(episodeIds[0])] : [],
+            ExistingSegments = disable ? [SegmentChangeHarness.MirroredDto(episodeIds[0])] : [],
             WriteException = new InvalidOperationException("mirror write failed")
         };
-        var controller = CreateController(database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateSegmentChange(store, database));
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var result = disable
             ? await controller.DisableItem(episodeIds[0], CancellationToken.None)
@@ -298,26 +295,25 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
 
         // Steady state: the automatic segment is already mirrored, so A's disable-sync
         // has a row to withdraw and parks in a real write instead of skipping.
         var introRow = Assert.Single(await database.GetSegmentsAsync(episodeIds[0]));
-        var store = new FakeJellyfinSegmentStore
+        _h.Store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = [CreateMirroredDto(episodeIds[0], introRow.Id, introRow.StartTicks, introRow.EndTicks)],
+            ExistingSegments = [SegmentChangeHarness.MirroredDto(episodeIds[0], introRow.Id, startTicks: introRow.StartTicks, endTicks: introRow.EndTicks)],
             WriteGate = writeGate,
             WriteEntered = writeEntered,
             BlockedItemId = episodeIds[0]
         };
-        var segmentChange = DatabaseTestHelpers.CreateSegmentChange(store, database);
-        var controller = CreateController(database, pluginScope.CacheDbPath, segmentChange);
-        var segmentsController = new SegmentsController(database, segmentChange);
+        var controller = CreateController(pluginScope.CacheDbPath);
+        var segmentsController = new SegmentsController(_h.Database, _h.Change);
 
         // Request A commits the disable flag, then parks inside its projection write
         // while holding the item's mutation stripe.
@@ -330,7 +326,7 @@ public sealed class TestVisualizationController
             episodeIds[0], new CreateSegmentRequest(AnalysisMode.Commercial, 100, 120), CancellationToken.None);
         await Task.Yield();
         Assert.False(requestB.IsCompleted);
-        Assert.Equal(1, store.WriteCallCount);
+        Assert.Equal(1, _h.Store.WriteCallCount);
 
         // A's mirror write now fails: the committed flag stands (no rollback), A
         // reports accepted-plus-pending, and B proceeds against the disabled item.
@@ -344,8 +340,8 @@ public sealed class TestVisualizationController
         // automatic segment and carries only the new user segment (which keeps
         // syncing on disabled items), converging the mirror A's failure left behind.
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
-        Assert.Equal(2, store.WriteCallCount);
-        var finalPush = store.ReplacedItems[^1];
+        Assert.Equal(2, _h.Store.WriteCallCount);
+        var finalPush = _h.Store.ReplacedItems[^1];
         Assert.Equal(episodeIds[0], finalPush.ItemId);
         var pushedSegment = Assert.Single(finalPush.Segments);
         Assert.Equal(MediaSegmentType.Commercial, pushedSegment.Type);
@@ -356,14 +352,12 @@ public sealed class TestVisualizationController
     {
         var movieId = Guid.NewGuid();
         using var pluginScope = CreatePluginScope(Guid.NewGuid(), Guid.NewGuid(), [Guid.NewGuid(), Guid.NewGuid()], updateMediaSegments: true);
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", movieId);
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(movie));
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var controller = CreateController(database, pluginScope.CacheDbPath);
+            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Movie(movieId)));
+        var database = _h.Database;
+        var controller = CreateController(pluginScope.CacheDbPath);
 
         var result = await controller.DisableItem(movieId, CancellationToken.None);
 
@@ -380,8 +374,8 @@ public sealed class TestVisualizationController
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seasonId = Guid.NewGuid();
         QueueSeason(seasonId, Guid.NewGuid(), (Guid.NewGuid(), "Episode"));
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var controller = CreateController(database, scope.CacheDbPath);
+        var database = _h.Database;
+        var controller = CreateController(scope.CacheDbPath);
 
         Assert.IsType<NotFoundResult>((await controller.GetAnalyzerAction(Guid.NewGuid())).Result);
 
@@ -407,7 +401,7 @@ public sealed class TestVisualizationController
         var firstEpisodeId = Guid.NewGuid();
         var secondEpisodeId = Guid.NewGuid();
         QueueSeason(seasonId, seriesId, (firstEpisodeId, "First"), (secondEpisodeId, "Second"));
-        var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath);
 
         var result = controller.GetSeasonEpisodes(seriesId, seasonId);
 
@@ -422,7 +416,7 @@ public sealed class TestVisualizationController
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seasonId = Guid.NewGuid();
         QueueSeason(seasonId, Guid.NewGuid(), (Guid.NewGuid(), "Episode"));
-        var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath);
 
         var missingSeason = controller.GetSeasonEpisodes(Guid.NewGuid(), Guid.NewGuid());
         var wrongSeries = controller.GetSeasonEpisodes(Guid.NewGuid(), seasonId);
@@ -435,7 +429,7 @@ public sealed class TestVisualizationController
     public void GetScanStatus_ReflectsHeldScanLease()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath);
         Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
 
         var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
@@ -468,7 +462,7 @@ public sealed class TestVisualizationController
     public void ScanSeason_ReturnsConflict_WhenScanLeaseIsHeld()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath);
         var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
         try
         {
@@ -488,7 +482,7 @@ public sealed class TestVisualizationController
     public async Task ScanSeason_ReturnsAccepted_AndReleasesItsBackgroundLease()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(DatabaseTestHelpers.CreateTempSegmentDatabase(), scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath);
 
         var result = controller.ScanSeason(Guid.NewGuid(), Guid.NewGuid(), new CancellationToken(canceled: true));
 
@@ -501,60 +495,10 @@ public sealed class TestVisualizationController
         Assert.False(ScheduledTaskSemaphore.IsBusy);
     }
 
-    private static Episode CreateEpisodeItem(Guid episodeId, Guid seasonId)
-    {
-        var episode = new Episode();
-        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
-        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
-        return episode;
-    }
-
-    // An episode the queue manager can enumerate: it needs a path, a season and a series name.
-    private static Episode CreateLibraryEpisode(Guid episodeId, Guid seriesId, Guid seasonId, string seriesName)
-    {
-        var episode = new Episode
-        {
-            Name = "Episode",
-            SeriesId = seriesId,
-            SeasonId = seasonId,
-            ParentIndexNumber = 1,
-            IndexNumber = 1,
-            Path = $"/media/{seriesName}/s01e01.mkv",
-            RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
-        };
-        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
-        EntrypointTestHelpers.SetPropertyOrField(episode, "SeriesName", seriesName);
-        EntrypointTestHelpers.EnsureNonVirtual(episode);
-        return episode;
-    }
-
-    /// <summary>
-    /// A row already mirrored to Jellyfin. Seeded so a sync whose intended push differs
-    /// (a disable withdrawing it, or a plugin-side change) is a real write rather than
-    /// a skipped no-op; defaults produce a row matching no plugin row.
-    /// </summary>
-    private static MediaSegmentDto CreateMirroredDto(Guid itemId, Guid? id = null, long? startTicks = null, long? endTicks = null)
-        => new()
-        {
-            Id = id ?? Guid.NewGuid(),
-            ItemId = itemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = startTicks ?? TickConversions.FromSeconds(10),
-            EndTicks = endTicks ?? TickConversions.FromSeconds(20)
-        };
-
-    // A cache database path whose directory does not exist, so every cache operation fails.
-    private static string MissingCachePath()
-        => Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "visualization-controller", Guid.NewGuid().ToString("N"), "cache.db");
-
-    private static VisualizationController CreateController(
-        IntroSkipperDatabase database,
-        string cacheDbPath,
-        SegmentChange? segmentChange = null,
-        ILibraryManager? libraryManager = null)
+    private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null)
         => new(
             NullLogger<VisualizationController>.Instance,
-            segmentChange ?? DatabaseTestHelpers.CreateSegmentChange(new FakeJellyfinSegmentStore(), database),
+            _h.Change,
             new AnalyzerTaskFactory(
                 NullLoggerFactory.Instance,
                 libraryManager!,
@@ -562,8 +506,8 @@ public sealed class TestVisualizationController
                 fileSystem: null!,
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-                database),
-            database,
+                _h.Database),
+            _h.Database,
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
             EntrypointTestHelpers.CreateTaskManager());
 
@@ -585,9 +529,9 @@ public sealed class TestVisualizationController
         => Plugin.Instance!.QueuedMediaItems[seasonId] =
             [.. episodes.Select(e => new QueuedEpisode { EpisodeId = e.EpisodeId, SeasonId = seasonId, SeriesId = seriesId, Name = e.Name })];
 
-    private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
+    private async Task SeedSeasonAsync(Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
-        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
+        await using var db = _h.Context();
         await db.Database.MigrateAsync();
         db.Segments.AddRange(
             new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),

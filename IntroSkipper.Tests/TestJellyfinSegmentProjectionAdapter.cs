@@ -27,14 +27,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, database) = Create(new MediaSegmentDto
-        {
-            Id = foreignId,
-            ItemId = itemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = 10,
-            EndTicks = 20
-        });
+        var (adapter, store, database) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, MediaSegmentType.Intro, 10, 20));
         var own = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40);
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
@@ -56,14 +49,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, _) = Create(new MediaSegmentDto
-        {
-            Id = foreignId,
-            ItemId = itemId,
-            Type = currentType,
-            StartTicks = currentStart,
-            EndTicks = currentEnd
-        });
+        var (adapter, store, _) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, currentType, currentStart, currentEnd));
 
         var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 
@@ -88,14 +74,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var otherItemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
-        var (adapter, _, _) = Create(new MediaSegmentDto
-        {
-            Id = segmentId,
-            ItemId = otherItemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = 10,
-            EndTicks = 20
-        });
+        var (adapter, _, _) = Create(SegmentChangeHarness.MirroredDto(otherItemId, segmentId, MediaSegmentType.Intro, 10, 20));
 
         var target = await adapter.ResolveExternalTargetAsync(Guid.NewGuid(), segmentId, CancellationToken.None);
 

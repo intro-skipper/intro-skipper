@@ -5,7 +5,6 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
-using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
@@ -81,13 +80,6 @@ internal static class DatabaseTestHelpers
             TimeProvider.System,
             NullLogger<SegmentChange>.Instance);
     }
-
-    /// <summary>
-    /// Composes the editor controller over the standard segment-change wiring, the
-    /// single test home of the controller composition chain.
-    /// </summary>
-    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IntroSkipperDatabase database)
-        => new(CreateSegmentChange(store, database));
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.

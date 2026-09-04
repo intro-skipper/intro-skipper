@@ -7,10 +7,7 @@ using System;
 using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Xunit;
 
@@ -24,7 +21,7 @@ public sealed class TestEntrypointEvents
         using var scope = CreateScope(autoDetectIntros: true);
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
         Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
@@ -37,7 +34,7 @@ public sealed class TestEntrypointEvents
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
         var movieId = Guid.NewGuid();
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(movieId), ItemUpdateType.None);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(movieId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
         Assert.Contains(movieId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
@@ -50,10 +47,7 @@ public sealed class TestEntrypointEvents
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var episode = new Episode();
-        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", itemId);
-        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
-        EntrypointTestHelpers.EnsureNonVirtual(episode);
+        var episode = JellyfinItems.Episode(itemId, Guid.NewGuid(), seasonId);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
@@ -68,7 +62,7 @@ public sealed class TestEntrypointEvents
         using var scope = CreateScope(autoDetectIntros: false);
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(Guid.NewGuid()), ItemUpdateType.None);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
         Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
@@ -87,7 +81,7 @@ public sealed class TestEntrypointEvents
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(cacheDbPath: cacheDbPath);
         SeedCacheRows(cacheDbPath, removedId, otherId);
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(removedId), ItemUpdateType.None);
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(removedId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
         using var db = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
@@ -97,14 +91,6 @@ public sealed class TestEntrypointEvents
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool autoDetectIntros, string? cacheDbPath = null)
         => EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { AutoDetectIntros = autoDetectIntros }, cacheDbPath);
-
-    private static Movie CreateMovie(Guid id)
-    {
-        var movie = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", id);
-        EntrypointTestHelpers.EnsureNonVirtual(movie);
-        return movie;
-    }
 
     private static void SeedCacheRows(string cacheDbPath, params Guid[] itemIds)
     {

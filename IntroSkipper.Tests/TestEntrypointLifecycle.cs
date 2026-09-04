@@ -6,7 +6,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
-using IntroSkipper.FFmpeg;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Xunit;
@@ -19,13 +18,13 @@ public sealed class TestEntrypointLifecycle
     public async Task StartAsync_SubscribesHandlersUntilStopAsync()
     {
         var libraryManager = LibraryManagerEventProxy.Create(out var libraryManagerService);
-        var ffmpegService = FFmpegVersionProxy.Create(out var ffmpegServiceProxy);
+        var ffmpegService = new StubFFmpegService { VersionCheck = () => true };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { AutoDetectIntros = true });
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(libraryManagerService, ffmpegService);
 
         await entrypoint.StartAsync(CancellationToken.None);
 
-        Assert.Equal(1, ffmpegServiceProxy.CheckVersionCallCount);
+        Assert.Equal(1, ffmpegService.VersionCheckCalls);
         Assert.Equal(1, libraryManager.ItemAddedSubscriberCount);
         Assert.Equal(1, libraryManager.ItemUpdatedSubscriberCount);
         Assert.Equal(1, libraryManager.ItemRemovedSubscriberCount);
@@ -93,29 +92,6 @@ public sealed class TestEntrypointLifecycle
                 default:
                     throw new NotImplementedException(targetMethod?.Name);
             }
-        }
-    }
-
-    private class FFmpegVersionProxy : DispatchProxy
-    {
-        internal int CheckVersionCallCount { get; private set; }
-
-        internal static IFFmpegService Create(out FFmpegVersionProxy proxy)
-        {
-            var service = Create<IFFmpegService, FFmpegVersionProxy>();
-            proxy = (FFmpegVersionProxy)(object)service;
-            return service;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(IFFmpegService.CheckFFmpegVersionAsync))
-            {
-                CheckVersionCallCount++;
-                return Task.FromResult(true);
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
         }
     }
 }

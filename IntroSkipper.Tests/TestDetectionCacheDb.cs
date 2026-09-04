@@ -20,9 +20,9 @@ using Xunit;
 /// </summary>
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
-    private readonly string _dbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+    private readonly TempCacheDb _cache = new();
 
-    public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
+    public void Dispose() => _cache.Dispose();
 
     [Fact]
     public void UniqueIndex_PreventsUpsertDuplicate()
@@ -71,9 +71,9 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         // delete-and-recreate recovery path.
         var garbage = new byte[4096];
         Array.Fill(garbage, (byte)0xDE);
-        File.WriteAllBytes(_dbPath, garbage);
+        File.WriteAllBytes(_cache.Path, garbage);
 
-        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(_dbPath);
+        var cacheDatabase = _cache.Database;
         Assert.True(cacheDatabase.TryInitialize());
 
         // The recreated database must be fully operational: Upsert/FindEntry
@@ -92,7 +92,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     [Fact]
     public void EnsureSchema_RecreatesIncompatibleCacheSchema()
     {
-        using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+        using (var connection = new SqliteConnection($"Data Source={_cache.Path}"))
         {
             connection.Open();
             using var command = connection.CreateCommand();
@@ -118,5 +118,5 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         }
     }
 
-    private DetectionCacheDbContext CreateContext() => DatabaseTestHelpers.CreateCacheContext(_dbPath);
+    private DetectionCacheDbContext CreateContext() => _cache.Context();
 }

@@ -122,21 +122,14 @@ public sealed class TestInjector
         bool autoSkipIntro = false,
         bool autoSkipCredits = false,
         int skipButtonVisibleSeconds = 0)
-    {
-        var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(
-            Plugin.Instance!,
-            "Configuration",
-            new PluginConfiguration
-            {
-                UseFileTransformationPlugin = true,
-                SkipbuttonHideDelay = skipbuttonHideDelay,
-                AutoSkipIntro = autoSkipIntro,
-                AutoSkipCredits = autoSkipCredits,
-                SkipButtonVisibleSeconds = skipButtonVisibleSeconds,
-            });
-        return scope;
-    }
+        => EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration
+        {
+            UseFileTransformationPlugin = true,
+            SkipbuttonHideDelay = skipbuttonHideDelay,
+            AutoSkipIntro = autoSkipIntro,
+            AutoSkipCredits = autoSkipCredits,
+            SkipButtonVisibleSeconds = skipButtonVisibleSeconds,
+        });
 
     private static string Transform(string contents) => Injector.FileTransformer(new PayloadRequest { Contents = contents });
 }

@@ -24,8 +24,8 @@ public sealed class TestConfigHasher
         void Case(string name, string first, string second, bool expectEqual) => data.Add(name, first, second, expectEqual);
         static string Cache(PluginConfiguration config, CacheEntryType type, AnalysisMode mode, string? variant = null)
             => ConfigHasher.DetectionCache(config, type, mode, variant);
-        static string Analysis(PluginConfiguration config, AnalysisMode mode)
-            => ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true);
+        static string Analysis(PluginConfiguration config, AnalysisMode mode, bool ffmpegValid = true)
+            => ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid);
 
         var threshold32 = new PluginConfiguration { BlackFrameThreshold = 32 };
         var threshold64 = new PluginConfiguration { BlackFrameThreshold = 64 };
@@ -70,6 +70,14 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with DetectNonBlackCredits", Analysis(nonBlackOn, AnalysisMode.Credits), Analysis(nonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis changes when legacy analyzer selected", Analysis(nonBlackOff, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis ignores DetectNonBlackCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), true);
+
+        // Chromaprint availability changes what the Chromaprint-backed modes can produce;
+        // the chapter-only modes never consult it.
+        Case("Introduction analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Introduction), Analysis(defaults, AnalysisMode.Introduction, ffmpegValid: false), false);
+        Case("Credits analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Credits), Analysis(defaults, AnalysisMode.Credits, ffmpegValid: false), false);
+        Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);
+        Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
+        Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
         return data;
     }

@@ -20,7 +20,7 @@ using Xunit;
 /// <summary>Durability and semantics tests for the segment change coordinator.</summary>
 public sealed class TestSegmentChange : IDisposable
 {
-    private readonly string _dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-changes.db");
+    private readonly TempSegmentDb _db = new();
 
     /// <summary>What the resolver reports for an uncorrelated editor delete.</summary>
     public enum ResolvedRow
@@ -973,7 +973,7 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
+    public void Dispose() => _db.Dispose();
 
     private SegmentChange CreateService(RecordingProjectionAdapter adapter, FakeMirrorPolicy? policy = null)
     {
@@ -989,9 +989,9 @@ public sealed class TestSegmentChange : IDisposable
             NullLogger<SegmentChange>.Instance);
     }
 
-    private IntroSkipperDatabase CreateDatabase() => DatabaseTestHelpers.CreateSegmentDatabase(_dbPath);
+    private IntroSkipperDatabase CreateDatabase() => _db.CreateDatabase();
 
-    private IntroSkipperDbContext CreateContext() => DatabaseTestHelpers.CreateSegmentContext(_dbPath);
+    private IntroSkipperDbContext CreateContext() => _db.Context();
 
     private async Task SeedAsync(params DbSegment[] segments)
     {
