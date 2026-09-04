@@ -2,12 +2,12 @@ import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { appendFieldMeta } from "./field-meta.ts";
 
-export type ExclusionListFieldId =
+type ExclusionListFieldId =
     | "SeriesExclusions"
     | "MovieExclusions"
     | "PathExclusions";
 
-export type ExclusionListFieldOptions = {
+type ExclusionListFieldOptions = {
     id: ExclusionListFieldId;
     label: string;
     description?: string;

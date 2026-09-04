@@ -63,7 +63,7 @@ const ANALYZER_ACTION_ORDER: ReadonlyArray<{
 
 const SEGMENT_EDITOR_PLUGIN_ID = "ace21d44a4e54a85ae75acd2e24a9574";
 
-export type ActionBarOptions = {
+type ActionBarOptions = {
     onScanComplete: () => void | Promise<void>;
 };
 
@@ -272,12 +272,13 @@ export function actionBar(opts: ActionBarOptions): {
         if (destroyed) return;
 
         const label = currentIsMovie ? "movie" : "season";
-        const url = currentIsMovie
-            ? "Intros/Show/" + encodeURIComponent(currentShowId)
-            : "Intros/Show/" +
-              encodeURIComponent(currentShowId) +
-              "/" +
-              encodeURIComponent(currentSeasonId);
+        // A movie's season-state key is its own ID, so it fills both route segments.
+        const seasonId = currentIsMovie ? currentShowId : currentSeasonId;
+        const url =
+            "Intros/Show/" +
+            encodeURIComponent(currentShowId) +
+            "/" +
+            encodeURIComponent(seasonId);
         const result = await confirmDialog({
             title: "Confirm Timestamp Erasure",
             body: "Are you sure you want to erase all timestamps for this " + label + "?",

@@ -1,6 +1,6 @@
 import { el } from "./dom.ts";
 
-export type StatusMessageController = {
+type StatusMessageController = {
     element: HTMLElement;
     show: (text: string, color?: string) => void;
     clear: () => void;

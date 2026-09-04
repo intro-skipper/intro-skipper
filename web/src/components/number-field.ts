@@ -55,8 +55,7 @@ export function numberField(opts: NumberFieldOptions): HTMLElement {
             if (input.value === "") return; // ignore empty — user is still typing
             const num = Number(input.value);
             if (Number.isNaN(num)) return;
-            configStore.set(fieldKey, num);
-            opts.onChange?.(num);
+            configStore.set(fieldKey, num);
         }, INPUT_DEBOUNCE_MS);
     });
 

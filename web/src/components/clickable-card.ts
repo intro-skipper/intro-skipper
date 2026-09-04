@@ -1,12 +1,12 @@
 import { el } from "./dom.ts";
 
-export type ClickableCardOptions = {
+type ClickableCardOptions = {
     title: string;
     subtitle?: string;
     onClick: () => void;
 };
 
-export type ClickableCardResult = {
+type ClickableCardResult = {
     container: HTMLElement;
     subtitleEl: HTMLElement | null;
 };

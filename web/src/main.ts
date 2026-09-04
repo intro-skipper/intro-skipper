@@ -13,7 +13,7 @@ import { detectionTab } from "./tabs/detection.ts";
 import { blackFrameTab } from "./tabs/black-frame.ts";
 import { chaptersTab } from "./tabs/chapters.ts";
 import { ffmpegTab } from "./tabs/ffmpeg.ts";
-import { timestampsTab } from "./tabs/timestamps.ts";
+import { timestampsTab } from "./tabs/timestamps-browser.ts";
 import { toolsTab } from "./tabs/tools.ts";
 import { informationTab } from "./tabs/information.ts";
 

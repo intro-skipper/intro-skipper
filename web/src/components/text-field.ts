@@ -48,8 +48,7 @@ export function textField(opts: TextFieldOptions): HTMLElement {
     input.addEventListener("input", () => {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            configStore.set(fieldKey, input.value);
-            opts.onChange?.(input.value);
+            configStore.set(fieldKey, input.value);
         }, INPUT_DEBOUNCE_MS);
     });
 

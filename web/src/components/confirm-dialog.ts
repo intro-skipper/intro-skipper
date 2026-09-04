@@ -9,7 +9,7 @@ import { el } from "./dom.ts";
  * choices or null if cancelled.
  */
 
-export type ConfirmDialogOptions = {
+type ConfirmDialogOptions = {
     title: string;
     body: string;
     confirmLabel?: string;
@@ -19,7 +19,7 @@ export type ConfirmDialogOptions = {
     };
 };
 
-export type ConfirmDialogResult = {
+type ConfirmDialogResult = {
     checkboxChecked: boolean;
 };
 

@@ -19,19 +19,6 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
-    const legacyConfig = loadedConfig as PluginConfig & {
-        UseAlternativeBlackFrameAnalyzer?: unknown;
-    };
-
-    // The old flag selected the modern analyzer, so invert it when the renamed flag is absent.
-    if (
-        typeof legacyConfig.UseLegacyBlackFrameAnalyzer !== "boolean" &&
-        typeof legacyConfig.UseAlternativeBlackFrameAnalyzer === "boolean"
-    ) {
-        loadedConfig.UseLegacyBlackFrameAnalyzer = !legacyConfig.UseAlternativeBlackFrameAnalyzer;
-    }
-    delete legacyConfig.UseAlternativeBlackFrameAnalyzer;
-
     loadedConfig.SeriesExclusions = normalizeStringList(loadedConfig.SeriesExclusions);
     loadedConfig.MovieExclusions = normalizeStringList(loadedConfig.MovieExclusions);
     loadedConfig.PathExclusions = normalizeStringList(loadedConfig.PathExclusions);

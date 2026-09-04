@@ -3,14 +3,12 @@ import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { selectField } from "../components/select-field.ts";
 import { textField } from "../components/text-field.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 
 export const ffmpegTab: Tab = {
     id: "ffmpeg",
     label: "FFmpeg",
     render(container) {
-        appendTabContent(
-            container,
+        container.append(
             numberField({
                 id: "MaxParallelism",
                 label: "Maximum degree of parallelism",

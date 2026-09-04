@@ -1,7 +1,7 @@
 import { configStore } from "../store/config-store.ts";
 
 /** Field options used by the shared binding helper. */
-export type BindFieldOpts = {
+type BindFieldOpts = {
     id: string;
     disabled?: () => boolean;
     visible?: () => boolean;

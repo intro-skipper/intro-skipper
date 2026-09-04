@@ -256,25 +256,6 @@ textarea {
     box-sizing: border-box;
 }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th {
-    padding: 8px;
-    text-align: left;
-    border-bottom: 2px solid var(--is-border-strong);
-}
-
-td {
-    padding: 4px 8px;
-}
-
-tr {
-    border-bottom: 1px solid var(--is-border);
-}
-
 .status-message {
     margin-top: 8px;
     font-size: 0.9em;

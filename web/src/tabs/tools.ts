@@ -2,7 +2,6 @@ import type { Tab } from "../types.ts";
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 
 export const toolsTab: Tab = {
@@ -112,8 +111,7 @@ export const toolsTab: Tab = {
             }
         });
 
-        appendTabContent(
-            container,
+        container.append(
             globalSelectGroup,
             globalEraseBtn,
             rebuildBtn,

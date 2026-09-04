@@ -3,7 +3,6 @@ import { configStore } from "../store/config-store.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { fieldGroup } from "../components/field-group.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 
 export const detectionTab: Tab = {
     id: "detection",
@@ -11,8 +10,7 @@ export const detectionTab: Tab = {
     render(container) {
         const silenceVisible = () => configStore.get("AdjustIntroBasedOnSilence") === true;
 
-        appendTabContent(
-            container,
+        container.append(
             checkboxField({
                 id: "AdjustIntroBasedOnSilence",
                 label: "Enable silence detection",

@@ -4,7 +4,7 @@ import type { SeasonItem } from "../types.ts";
 
 let seasonTabsCounter = 0;
 
-export type SeasonTabsOptions = {
+type SeasonTabsOptions = {
     seasons: SeasonItem[];
     activeSeasonId: string | null;
     panelId?: string;

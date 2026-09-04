@@ -2,7 +2,6 @@ import type { Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 
 const isLegacyAnalyzerEnabled = (): boolean =>
     configStore.get("UseLegacyBlackFrameAnalyzer") === true;
@@ -11,8 +10,7 @@ export const blackFrameTab: Tab = {
     id: "black-frame",
     label: "Black Frame",
     render(container) {
-        appendTabContent(
-            container,
+        container.append(
             checkboxField({
                 id: "DetectRecapUsingBlackFrames",
                 label: "Detect recap using black frames",
@@ -54,7 +52,7 @@ export const blackFrameTab: Tab = {
                 min: 16,
                 max: 255,
                 description:
-                    "The threshold below which a pixel value is considered black. Defaults to 32.",
+                    "The threshold below which a pixel value is considered black. Defaults to 28.",
             }),
         );
     },

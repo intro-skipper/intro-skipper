@@ -297,11 +297,6 @@
     background: var(--is-hover-strong);
 }
 
-.ts-search-result:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: -2px;
-}
-
 .ts-search-empty {
     padding: 8px 10px;
     color: var(--is-text-muted);

@@ -33,8 +33,7 @@ export function checkboxField(opts: CheckboxFieldOptions): HTMLElement {
     });
 
     input.addEventListener("change", () => {
-        configStore.set(fieldKey, input.checked);
-        opts.onChange?.(input.checked);
+        configStore.set(fieldKey, input.checked);
     });
 
     return container;

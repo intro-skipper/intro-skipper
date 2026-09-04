@@ -34,8 +34,7 @@ export function selectField(opts: SelectFieldOptions): HTMLElement {
     });
 
     select.addEventListener("change", () => {
-        configStore.set(fieldKey, select.value);
-        opts.onChange?.(select.value);
+        configStore.set(fieldKey, select.value);
     });
 
     return container;

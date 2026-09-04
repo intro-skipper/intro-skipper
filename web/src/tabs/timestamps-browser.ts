@@ -1,15 +1,31 @@
-import type { ShowItem, SeasonItem, EpisodeItem } from "../types.ts";
+import type { ShowItem, SeasonItem, EpisodeItem, Tab } from "../types.ts";
 import { createNavState } from "./timestamp-nav.ts";
-import * as tsData from "./timestamp-data.ts";
+import { getEpisodesWithSegments, getDisabledItemIds } from "./timestamp-data.ts";
+import { getLibraries, getSeasons } from "../store/jellyfin-client.ts";
+import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
 import { breadcrumbNav, type BreadcrumbSegment } from "../components/breadcrumb-nav.ts";
 import { seasonTabs } from "../components/season-tabs.ts";
 import { episodeList } from "../components/episode-list.ts";
 import { actionBar } from "../components/action-bar.ts";
 import { clickableCard } from "../components/clickable-card.ts";
-import { createManageBar } from "../components/manage-bar.ts";
+import { appendManageToggle } from "../components/manage-bar.ts";
 
-export function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
+let activeBrowser: { destroy: () => void } | null = null;
+
+export const timestampsTab: Tab = {
+    id: "timestamps",
+    label: "Timestamps",
+    render(container) {
+        activeBrowser = createTimestampsBrowser(container);
+    },
+    destroy() {
+        activeBrowser?.destroy();
+        activeBrowser = null;
+    },
+};
+
+function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
     const nav$ = createNavState();
     let currentSeasonTabs: ReturnType<typeof seasonTabs> | null = null;
 
@@ -88,7 +104,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const libraries = await tsData.getLibraries();
+            const libraries = await getLibraries();
             if (!nav$.isCurrentView(viewToken)) return;
 
             for (const lib of libraries) {
@@ -207,7 +223,8 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             nav$.setState({ view: "episodes", show, seasonId: show.Id, seasonName: "" });
             updateBreadcrumbs();
 
-            const { container: movieBar } = createManageBar({
+            const movieBar = el("div", { className: "ts-season-bar" });
+            appendManageToggle(movieBar, {
                 managePanelId: actions.container.id,
                 onManageToggle: (open) => actions.toggle(open),
             });
@@ -219,7 +236,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const seasons = await tsData.getSeasons(show.Id);
+            const seasons = await getSeasons(show.Id);
             if (!nav$.isCurrentView(viewToken)) return;
 
             if (seasons.length === 0) {
@@ -284,7 +301,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const { episodes, segments, disabledItemIds } = await tsData.getEpisodesWithSegments(
+            const { episodes, segments, disabledItemIds } = await getEpisodesWithSegments(
                 show.Id,
                 season.Id,
             );
@@ -335,9 +352,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             };
 
             const [result, disabledItemIds] = await Promise.all([
-                tsData.getMovieSegments(show.Id),
+                api.getEpisodeSegments(show.Id),
                 // A movie's season-state key is its own ID.
-                tsData.getDisabledItemIds(show.Id),
+                getDisabledItemIds(show.Id),
             ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
@@ -380,7 +397,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
     }
 
     async function updateItemDisabled(itemId: string, disabled: boolean): Promise<void> {
-        const result = await tsData.setItemDisabled(itemId, disabled);
+        const result = await api.setItemDisabled(itemId, disabled);
         if (!result.ok) {
             // The toggle handler owns the user-facing message; this is only a signal.
             throw new Error("setItemDisabled failed");

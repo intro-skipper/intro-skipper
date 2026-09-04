@@ -2,7 +2,7 @@ import type { PluginConfig } from "../types.ts";
 import { validationRules, CROSS_FIELD_PAIRS } from "./rules.ts";
 
 // Runs field-level and paired min/max validation for the config store.
-export class Validator {
+class Validator {
     /**
      * Run every rule for one field and return the first error.
      */

@@ -39,7 +39,6 @@ export interface PluginConfig {
     ChapterAnalyzerPreviewPattern: string;
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
-    ExcludeSeries: string;
     PreferredAudioLanguage: string;
     SeriesExclusions: string[];
     MovieExclusions: string[];
@@ -51,8 +50,6 @@ export interface PluginConfig {
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseLegacyBlackFrameAnalyzer: boolean;
-    /** @deprecated Read only for migration of dashboard/server payloads. */
-    UseAlternativeBlackFrameAnalyzer?: boolean;
     RefineCreditsBoundary: boolean;
     DetectNonBlackCredits: boolean;
     UseChapterMarkersBlackFrame: boolean;
@@ -250,30 +247,28 @@ export type EpisodeItem = {
 };
 
 // Shared options for generated form controls.
-export interface FieldOptions<T> {
+export interface FieldOptions {
     id: string;
     label: string;
     description?: string;
     warning?: string;
-    validate?: (value: T) => string | null;
     disabled?: () => boolean;
     visible?: () => boolean;
-    onChange?: (value: T) => void;
 }
 
-export type CheckboxFieldOptions = FieldOptions<boolean>;
+export type CheckboxFieldOptions = FieldOptions;
 
-export type NumberFieldOptions = FieldOptions<number> & {
+export type NumberFieldOptions = FieldOptions & {
     min?: number;
     max?: number;
     step?: number;
 };
 
-export type TextFieldOptions = FieldOptions<string> & {
+export type TextFieldOptions = FieldOptions & {
     placeholder?: string;
 };
 
-export type SelectFieldOptions = FieldOptions<string> & {
+export type SelectFieldOptions = FieldOptions & {
     options: Array<{ value: string; label: string }>;
 };
 

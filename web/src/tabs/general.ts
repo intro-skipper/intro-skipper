@@ -9,7 +9,6 @@ import {
 import { getLibraries, getShowsInLibrary } from "../store/jellyfin-client.ts";
 import { el, htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
@@ -182,8 +181,7 @@ export const generalTab: Tab = {
             clearStatus.element,
         );
 
-        appendTabContent(
-            container,
+        container.append(
             checkboxField({
                 id: "AutoDetectIntros",
                 label: "Automatically Analyze New Media",

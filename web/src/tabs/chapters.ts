@@ -1,7 +1,6 @@
 import type { Tab, PluginConfig } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
-import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 
@@ -50,8 +49,7 @@ export const chaptersTab: Tab = {
     id: "chapters",
     label: "Chapters",
     render(container) {
-        appendTabContent(
-            container,
+        container.append(
             patternField("ChapterAnalyzerIntroductionPattern", "Introductions", "introduction"),
             patternField("ChapterAnalyzerEndCreditsPattern", "Credits", "credits"),
             patternField("ChapterAnalyzerPreviewPattern", "Preview", "preview"),

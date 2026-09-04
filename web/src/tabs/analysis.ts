@@ -2,7 +2,7 @@ import type { Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
-import { appendTabContent, fieldRow } from "../components/tab-layout.ts";
+import { fieldRow } from "../components/tab-layout.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
@@ -38,8 +38,7 @@ export const analysisTab: Tab = {
 
         const chaptersOff = () => configStore.get("FullLengthChapters") !== true;
 
-        appendTabContent(
-            container,
+        container.append(
             checkboxField({
                 id: "PreferChromaprint",
                 label: "Prefer Chromaprint Analysis",

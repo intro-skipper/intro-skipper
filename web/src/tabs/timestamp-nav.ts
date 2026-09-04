@@ -1,8 +1,8 @@
 import type { ShowItem } from "../types.ts";
-import * as tsData from "./timestamp-data.ts";
+import { getShowsInLibrary } from "../store/jellyfin-client.ts";
 
 // Navigation state discriminated union.
-export type NavState =
+type NavState =
     | { view: "libraries" }
     | { view: "shows"; libraryId: string; libraryName: string }
     | { view: "episodes"; show: ShowItem; seasonId: string; seasonName: string };
@@ -87,8 +87,7 @@ export function createNavState() {
         const inFlight = libraryLoaders.get(libraryId);
         if (inFlight) return inFlight;
 
-        const loadPromise = tsData
-            .getShowsInLibrary(libraryId, libraryName)
+        const loadPromise = getShowsInLibrary(libraryId, libraryName)
             .then((shows: ShowItem[]) => {
                 if (!isAlive()) return [];
                 libraryShows.set(libraryId, shows);
