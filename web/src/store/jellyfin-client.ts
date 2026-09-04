@@ -24,26 +24,39 @@ function isSupportedCollectionType(
     return collectionType == null || SUPPORTED_COLLECTION_TYPES.has(collectionType);
 }
 
-export async function getLibraries(): Promise<LibraryInfo[]> {
-    const result = await getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews");
-    if (!result.ok) {
-        console.error("Failed to load libraries", result.error);
-        return [];
-    }
-    const items = result.data?.Items ?? [];
-    return items
-        .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
-        .map((item) => ({
-            Id: item.Id!,
-            Name: item.Name ?? "Unknown",
-            CollectionType: (item.CollectionType ?? null) as SupportedCollectionType,
-        }));
+// Library and show listings are cached for the page lifetime and shared by the
+// exclusion suggestions and the timestamps browser. Only successful responses
+// are kept, so a failed request is retried on the next call.
+let librariesCache: Promise<LibraryInfo[]> | null = null;
+const showsByLibrary = new Map<string, Promise<ShowItem[]>>();
+
+export function getLibraries(): Promise<LibraryInfo[]> {
+    if (librariesCache) return librariesCache;
+
+    const loading = getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews").then(
+        (result) => {
+            if (!result.ok) {
+                librariesCache = null;
+                console.error("Failed to load libraries", result.error);
+                return [];
+            }
+            return (result.data?.Items ?? [])
+                .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
+                .map((item) => ({
+                    Id: item.Id!,
+                    Name: item.Name ?? "Unknown",
+                    CollectionType: (item.CollectionType ?? null) as SupportedCollectionType,
+                }));
+        },
+    );
+    librariesCache = loading;
+    return loading;
 }
 
-export async function getShowsInLibrary(
-    libraryId: string,
-    libraryName: string,
-): Promise<ShowItem[]> {
+export function getShowsInLibrary(libraryId: string, libraryName: string): Promise<ShowItem[]> {
+    const cached = showsByLibrary.get(libraryId);
+    if (cached) return cached;
+
     const params = new URLSearchParams({
         parentId: libraryId,
         includeItemTypes: "Series,Movie",
@@ -51,23 +64,36 @@ export async function getShowsInLibrary(
         sortOrder: "Ascending",
         recursive: "true",
     });
-    const result = await getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
+    const loading = getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
         `Items?${params.toString()}`,
+    ).then((result) => {
+        if (!result.ok) {
+            showsByLibrary.delete(libraryId);
+            console.error("Failed to load shows for library", libraryId, result.error);
+            return [];
+        }
+        return (result.data?.Items ?? [])
+            .filter((item) => item.Id)
+            .map((item) => ({
+                Id: item.Id!,
+                Name: item.Name ?? "Unknown",
+                ProductionYear: item.ProductionYear ?? null,
+                Type: item.Type === "Movie" ? "Movie" : "Series",
+                LibraryId: libraryId,
+                LibraryName: libraryName,
+            }));
+    });
+    showsByLibrary.set(libraryId, loading);
+    return loading;
+}
+
+// Every show and movie across the supported libraries.
+export async function getAllShows(): Promise<ShowItem[]> {
+    const libraries = await getLibraries();
+    const groups = await Promise.all(
+        libraries.map((library) => getShowsInLibrary(library.Id, library.Name)),
     );
-    if (!result.ok) {
-        console.error("Failed to load shows for library", libraryId, result.error);
-        return [];
-    }
-    return (result.data?.Items ?? [])
-        .filter((item) => item.Id)
-        .map((item) => ({
-            Id: item.Id!,
-            Name: item.Name ?? "Unknown",
-            ProductionYear: item.ProductionYear ?? null,
-            Type: item.Type === "Movie" ? "Movie" : "Series",
-            LibraryId: libraryId,
-            LibraryName: libraryName,
-        }));
+    return groups.flat();
 }
 
 export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {

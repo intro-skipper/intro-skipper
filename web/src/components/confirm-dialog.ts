@@ -25,6 +25,13 @@ type ConfirmDialogResult = {
 
 let dialogCounter = 0;
 
+/** Jellyfin's own confirm prompt, as a promise. */
+export function confirmDashboard(body: string, title: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        window.Dashboard.confirm(body, title, resolve);
+    });
+}
+
 export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialogResult | null> {
     return new Promise((resolve) => {
         const uid = String(++dialogCounter);

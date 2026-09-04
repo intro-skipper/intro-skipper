@@ -6,16 +6,16 @@ import {
     getStorageUsage,
     injectSkipButtonCss,
 } from "../store/api.ts";
-import { getLibraries, getShowsInLibrary } from "../store/jellyfin-client.ts";
+import { getAllShows } from "../store/jellyfin-client.ts";
 import { el, htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
-import { checkboxField } from "../components/checkbox-field.ts";
-import { numberField } from "../components/number-field.ts";
+import { inputField } from "../components/input-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
 import { exclusionListField } from "../components/exclusion-list-field.ts";
-import { confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
+import { errorText, pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
     let normalized = value.trim().replace(/\\/g, "/");
@@ -35,12 +35,6 @@ function isBroadPathRoot(value: string): boolean {
     return normalized.startsWith("//") && normalized.split("/").filter(Boolean).length === 2;
 }
 
-function confirmDashboard(body: string, title: string): Promise<boolean> {
-    return new Promise((resolve) => {
-        window.Dashboard.confirm(body, title, resolve);
-    });
-}
-
 async function confirmPathExclusion(value: string): Promise<boolean> {
     if (!isBroadPathRoot(value)) {
         return true;
@@ -53,13 +47,7 @@ async function confirmPathExclusion(value: string): Promise<boolean> {
 }
 
 async function loadMediaNameSuggestions(type: "Series" | "Movie"): Promise<string[]> {
-    const libraries = await getLibraries();
-    const groups = await Promise.all(
-        libraries.map((library) => getShowsInLibrary(library.Id, library.Name)),
-    );
-
-    return groups
-        .flat()
+    return (await getAllShows())
         .filter((item) => item.Type === type)
         .map((item) => item.Name)
         .sort((a, b) => a.localeCompare(b));
@@ -78,10 +66,6 @@ async function loadStoragePathSuggestions(): Promise<string[]> {
     }
 
     return paths;
-}
-
-function countLabel(count: number, singular: string, plural: string): string {
-    return `${String(count)} ${count === 1 ? singular : plural}`;
 }
 
 export const generalTab: Tab = {
@@ -119,8 +103,7 @@ export const generalTab: Tab = {
                         );
                     }
                 } catch (error: unknown) {
-                    const msg = error instanceof Error ? error.message : "Unknown error";
-                    statusMessage.show(`Failed to inject CSS: ${msg}`, "var(--is-error)");
+                    statusMessage.show(`Failed to inject CSS: ${errorText(error)}`, "var(--is-error)");
                 }
             }),
         );
@@ -174,7 +157,7 @@ export const generalTab: Tab = {
                 }
 
                 clearStatus.show(
-                    `Cleared ${countLabel(response.data.RemovedSegments, "timestamp row", "timestamp rows")} and ${countLabel(response.data.RemovedCacheEntries, "cache row", "cache rows")} for ${countLabel(response.data.AffectedItems, "excluded item", "excluded items")}.`,
+                    `Cleared ${pluralize(response.data.RemovedSegments, "timestamp row", "timestamp rows")} and ${pluralize(response.data.RemovedCacheEntries, "cache row", "cache rows")} for ${pluralize(response.data.AffectedItems, "excluded item", "excluded items")}.`,
                     "var(--is-success)",
                 );
             }),
@@ -182,19 +165,22 @@ export const generalTab: Tab = {
         );
 
         container.append(
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "AutoDetectIntros",
                 label: "Automatically Analyze New Media",
                 description:
                     'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "ReanalyzeSettledSeasons",
                 label: "Re-analyze settled seasons",
                 description:
                     "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
             }),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "SettledSeasonDelayHours",
                 label: "Settled season delay (hours)",
                 min: 0,
@@ -204,7 +190,8 @@ export const generalTab: Tab = {
                     "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "UpdateMediaSegments",
                 label: "Update Missing Segments During Scan",
                 description:
@@ -243,19 +230,22 @@ export const generalTab: Tab = {
                 { id: "ScanPreview", label: "Preview" },
                 { id: "ScanCommercial", label: "Commercials" },
             ]),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "AnalyzeSeasonZero",
                 label: "Analyze Season 0 (Specials / Extras)",
                 description:
                     "Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.",
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "UseFileTransformationPlugin",
                 label: "Use File Transformation Plugin to patch the web interface",
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),
             ftWarning,
-            numberField({
+            inputField({
+                kind: "number",
                 id: "SkipbuttonHideDelay",
                 label: "Skip button hide delay (in seconds)",
                 min: 0,
@@ -266,21 +256,24 @@ export const generalTab: Tab = {
                 warning:
                     "Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.",
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "AutoSkipIntro",
                 label: "Auto-skip intros",
                 description:
                     "Automatically skip intro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
                 visible: () => configStore.get("UseFileTransformationPlugin") === true,
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "AutoSkipCredits",
                 label: "Auto-skip credits/outros",
                 description:
                     "Automatically skip credits/outro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
                 visible: () => configStore.get("UseFileTransformationPlugin") === true,
             }),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "SkipButtonVisibleSeconds",
                 label: "Hide skip button before segment end (seconds)",
                 min: 0,
@@ -291,7 +284,8 @@ export const generalTab: Tab = {
                 visible: () => configStore.get("UseFileTransformationPlugin") === true,
             }),
             injectSection,
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "EnableMainMenu",
                 label: "Show Intro Skipper in Main Menu",
                 description:

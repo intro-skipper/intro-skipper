@@ -1,4 +1,5 @@
 import { el } from "./dom.ts";
+import { showTitle } from "../utils.ts";
 import type { ShowItem } from "../types.ts";
 
 /** Delay before executing a search query (ms). */
@@ -191,8 +192,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         for (const libraryName of Object.keys(grouped)) {
             resultsEl.append(el("div", { className: "ts-search-group-label" }, libraryName));
             for (const show of grouped[libraryName]) {
-                const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
-                appendSearchOption(show, show.Name + yearStr);
+                appendSearchOption(show, showTitle(show));
             }
         }
 

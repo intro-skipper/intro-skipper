@@ -246,35 +246,36 @@ export type EpisodeItem = {
     SeriesName: string | null;
 };
 
-// Shared options for generated form controls.
-export interface FieldOptions {
-    id: string;
+// Config keys whose value has type V, so a control binds only to keys it can hold.
+export type ConfigKeysOfType<V> = {
+    [K in keyof PluginConfig]: PluginConfig[K] extends V ? K : never;
+}[keyof PluginConfig];
+
+// Options for generated form controls; `kind` picks the control and the key type.
+type FieldBase<K extends keyof PluginConfig> = {
+    id: K;
     label: string;
     description?: string;
     warning?: string;
     disabled?: () => boolean;
     visible?: () => boolean;
-}
-
-export type CheckboxFieldOptions = FieldOptions;
-
-export type NumberFieldOptions = FieldOptions & {
-    min?: number;
-    max?: number;
-    step?: number;
 };
 
-export type TextFieldOptions = FieldOptions & {
-    placeholder?: string;
-};
+export type InputFieldOptions =
+    | (FieldBase<ConfigKeysOfType<boolean>> & { kind: "checkbox" })
+    | (FieldBase<ConfigKeysOfType<number>> & {
+          kind: "number";
+          min?: number;
+          max?: number;
+          step?: number;
+      })
+    | (FieldBase<ConfigKeysOfType<string>> & { kind: "text"; placeholder?: string })
+    | (FieldBase<ConfigKeysOfType<string>> & {
+          kind: "select";
+          options: Array<{ value: string; label: string }>;
+      });
 
-export type SelectFieldOptions = FieldOptions & {
-    options: Array<{ value: string; label: string }>;
-};
-
-// Store and routing contracts used across tabs.
-export type StoreEvent = "loaded" | "changed" | "saved" | "validation";
-
+// Routing contract used across tabs.
 export interface Tab {
     id: string;
     label: string;

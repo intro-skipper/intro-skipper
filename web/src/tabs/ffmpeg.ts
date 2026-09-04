@@ -1,21 +1,20 @@
 import type { Tab } from "../types.ts";
-import { checkboxField } from "../components/checkbox-field.ts";
-import { numberField } from "../components/number-field.ts";
-import { selectField } from "../components/select-field.ts";
-import { textField } from "../components/text-field.ts";
+import { inputField } from "../components/input-field.ts";
 
 export const ffmpegTab: Tab = {
     id: "ffmpeg",
     label: "FFmpeg",
     render(container) {
         container.append(
-            numberField({
+            inputField({
+                kind: "number",
                 id: "MaxParallelism",
                 label: "Maximum degree of parallelism",
                 min: 1,
                 description: "Maximum number of simultaneous async episode analysis operations.",
             }),
-            selectField({
+            inputField({
+                kind: "select",
                 id: "ProcessPriority",
                 label: "FFmpeg Priority",
                 options: [
@@ -29,7 +28,8 @@ export const ffmpegTab: Tab = {
                 description:
                     "Sets the relative priority of the analysis FFmpeg process to other parallel operations.",
             }),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "ProcessThreads",
                 label: "FFmpeg Threads",
                 min: 0,
@@ -37,26 +37,30 @@ export const ffmpegTab: Tab = {
                 description:
                     "Number of simultaneous processes to use for FFmpeg operations. Setting 0 (default) uses the maximum threads available.",
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "ProbeAudioDuration",
                 label: "Probe audio duration for credits",
                 description:
                     "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
             }),
-            textField({
+            inputField({
+                kind: "text",
                 id: "PreferredAudioLanguage",
                 label: "Preferred stream audio language",
                 placeholder: "eng",
                 description:
                     "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "PreferAudioStreamWithMostChannels",
                 label: "Prefer highest audio channel count",
                 description:
                     "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
             }),
-            selectField({
+            inputField({
+                kind: "select",
                 id: "CacheCompressionLevel",
                 label: "Cache Compression Level",
                 options: [

@@ -4,6 +4,7 @@ import { getEpisodesWithSegments, getDisabledItemIds } from "./timestamp-data.ts
 import { getLibraries, getSeasons } from "../store/jellyfin-client.ts";
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
+import { errorText, showTitle } from "../utils.ts";
 import { breadcrumbNav, type BreadcrumbSegment } from "../components/breadcrumb-nav.ts";
 import { seasonTabs } from "../components/season-tabs.ts";
 import { episodeList } from "../components/episode-list.ts";
@@ -53,7 +54,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
 
     void navigateToLibraries().catch(console.error);
 
-    function createStatusMessage(message: string, color?: string): HTMLElement {
+    function statusLine(message: string, color?: string): HTMLElement {
         const attrs: Record<string, string> = { className: "ts-status-msg" };
         if (color) {
             attrs.style = "color: " + color;
@@ -117,14 +118,13 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
 
                 const card = clickableCard({
                     title: lib.Name,
-                    subtitle: "Loading items\u2026",
+                    subtitle: countEl,
                     onClick: () => {
                         void navigateToShows(lib.Id, lib.Name).catch(console.error);
                     },
                 });
 
-                if (card.subtitleEl) card.subtitleEl.replaceWith(countEl);
-                contentEl.append(card.container);
+                contentEl.append(card);
             }
 
             void Promise.all(
@@ -145,9 +145,9 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         } catch (err) {
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
-                createStatusMessage(
+                statusLine(
                     "Failed to load libraries: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                        errorText(err),
                     "var(--is-error)",
                 ),
             );
@@ -166,7 +166,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         let libShows = nav$.getCachedShows(libraryId);
 
         if (!libShows) {
-            contentEl.append(createStatusMessage("Loading shows\u2026"));
+            contentEl.append(statusLine("Loading shows\u2026"));
             nav$.showDashboardLoading();
             try {
                 libShows = await nav$.ensureLibraryShows(
@@ -182,9 +182,9 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
                 if (!nav$.isCurrentView(viewToken)) return;
                 contentEl.replaceChildren();
                 contentEl.append(
-                    createStatusMessage(
+                    statusLine(
                         "Failed to load shows: " +
-                            (err instanceof Error ? err.message : "Unknown error"),
+                            errorText(err),
                         "var(--is-error)",
                     ),
                 );
@@ -197,20 +197,19 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         if (!nav$.isCurrentView(viewToken)) return;
 
         if (!libShows || libShows.length === 0) {
-            contentEl.append(createStatusMessage("No shows found in this library."));
+            contentEl.append(statusLine("No shows found in this library."));
             return;
         }
 
         for (const show of libShows) {
-            const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
             const card = clickableCard({
-                title: show.Name + yearStr,
+                title: showTitle(show),
                 subtitle: show.Type,
                 onClick: () => {
                     void navigateToShow(show).catch(console.error);
                 },
             });
-            contentEl.append(card.container);
+            contentEl.append(card);
         }
     }
 
@@ -240,7 +239,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
             if (!nav$.isCurrentView(viewToken)) return;
 
             if (seasons.length === 0) {
-                contentEl.append(createStatusMessage("No seasons found."));
+                contentEl.append(statusLine("No seasons found."));
                 return;
             }
 
@@ -271,9 +270,9 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         } catch (err) {
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
-                createStatusMessage(
+                statusLine(
                     "Failed to load seasons: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                        errorText(err),
                     "var(--is-error)",
                 ),
             );
@@ -322,7 +321,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
                 "Failed to load episodes: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                    errorText(err),
                 "var(--is-error)",
             );
         } finally {
@@ -368,7 +367,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
                 "Failed to load timestamps: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                    errorText(err),
                 "var(--is-error)",
             );
         } finally {
@@ -469,10 +468,8 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
 
         if (state.view === "episodes") {
             const show = state.show;
-            const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
-
             segments.push({
-                label: show.Name + yearStr,
+                label: showTitle(show),
                 onClick:
                     show.Type !== "Movie"
                         ? () => {

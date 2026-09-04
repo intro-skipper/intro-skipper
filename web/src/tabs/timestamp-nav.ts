@@ -1,5 +1,6 @@
 import type { ShowItem } from "../types.ts";
 import { getShowsInLibrary } from "../store/jellyfin-client.ts";
+import { pluralize } from "../utils.ts";
 
 // Navigation state discriminated union.
 type NavState =
@@ -9,7 +10,7 @@ type NavState =
 
 /**
  * Manages navigation state, staleness guards, loading indicators,
- * and the per-library show cache for the timestamps browser.
+ * and the resolved per-library show lists for the timestamps browser.
  */
 export function createNavState() {
     let destroyed = false;
@@ -18,8 +19,9 @@ export function createNavState() {
     let loadingDepth = 0;
     let state: NavState = { view: "libraries" };
 
+    // Resolved show lists, for synchronous reads (search index, cached views).
+    // The fetch itself is deduplicated and cached by jellyfin-client.
     const libraryShows = new Map<string, ShowItem[]>();
-    const libraryLoaders = new Map<string, Promise<ShowItem[]>>();
 
     function nextViewVersion(): number {
         viewVersion += 1;
@@ -66,44 +68,27 @@ export function createNavState() {
     }
 
     /**
-     * Returns shows for a library, fetching and caching on first access.
-     * Deduplicates in-flight requests for the same library.
+     * Returns shows for a library and records them for synchronous access.
      *
      * @param onCount Called with the formatted item count when available.
      * @param onError Called when the fetch fails.
      */
-    function ensureLibraryShows(
+    async function ensureLibraryShows(
         libraryId: string,
         libraryName: string,
         onCount?: (count: string) => void,
         onError?: () => void,
     ): Promise<ShowItem[]> {
-        const cached = libraryShows.get(libraryId);
-        if (cached) {
-            onCount?.(formatItemCount(cached.length));
-            return Promise.resolve(cached);
+        try {
+            const shows = await getShowsInLibrary(libraryId, libraryName);
+            if (!isAlive()) return [];
+            libraryShows.set(libraryId, shows);
+            onCount?.(pluralize(shows.length, "item"));
+            return shows;
+        } catch (err) {
+            if (isAlive()) onError?.();
+            throw err;
         }
-
-        const inFlight = libraryLoaders.get(libraryId);
-        if (inFlight) return inFlight;
-
-        const loadPromise = getShowsInLibrary(libraryId, libraryName)
-            .then((shows: ShowItem[]) => {
-                if (!isAlive()) return [];
-                libraryShows.set(libraryId, shows);
-                onCount?.(formatItemCount(shows.length));
-                return shows;
-            })
-            .catch((err) => {
-                if (isAlive()) onError?.();
-                throw err;
-            })
-            .finally(() => {
-                libraryLoaders.delete(libraryId);
-            });
-
-        libraryLoaders.set(libraryId, loadPromise);
-        return loadPromise;
     }
 
     function getCachedShows(libraryId: string): ShowItem[] | undefined {
@@ -112,10 +97,6 @@ export function createNavState() {
 
     function getAllCachedShows(): ShowItem[] {
         return Array.from(libraryShows.values()).flat();
-    }
-
-    function formatItemCount(count: number): string {
-        return count === 1 ? "1 item" : count + " items";
     }
 
     function getState(): NavState {
