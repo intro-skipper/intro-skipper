@@ -99,7 +99,7 @@ export function seasonTabs(opts: SeasonTabsOptions): {
                     type: "button",
                 },
                 label,
-            ) as HTMLButtonElement;
+            );
 
             tab.title = season.Name;
             tab.setAttribute("role", "tab");

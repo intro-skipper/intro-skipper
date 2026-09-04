@@ -43,7 +43,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         className: "ts-search-input",
         type: "search",
         placeholder: "Search all shows\u2026",
-    }) as HTMLInputElement;
+    });
     searchInput.setAttribute("aria-label", "Search all shows");
     searchInput.setAttribute("autocomplete", "off");
     searchInput.setAttribute("name", "show-search");

@@ -51,7 +51,7 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         if (opts.checkbox) {
             const checkboxId = "is-confirm-checkbox-" + uid;
-            checkbox = el("input", { type: "checkbox", id: checkboxId }) as HTMLInputElement;
+            checkbox = el("input", { type: "checkbox", id: checkboxId });
             const label = el("label", { className: "is-confirm-checkbox-label", for: checkboxId });
             label.append(checkbox, document.createTextNode(" " + opts.checkbox.label));
             const wrapper = el("div", { className: "is-confirm-checkbox-row" });

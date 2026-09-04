@@ -16,7 +16,7 @@ export function appendManageToggle(
         "button",
         { className: "ts-manage-toggle", type: "button" },
         "⚙ Manage",
-    ) as HTMLButtonElement;
+    );
     btn.setAttribute("aria-label", "Toggle management panel");
     btn.setAttribute("aria-expanded", "false");
     if (opts.managePanelId) {
