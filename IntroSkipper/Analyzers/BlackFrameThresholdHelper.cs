@@ -10,6 +10,9 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 internal static class BlackFrameThresholdHelper
 {
+    // Caps the darkness floor so one very dark scan cannot push the thresholds past usefulness.
+    private const int MaximumFloor = 30;
+
     /// <summary>
     /// Normalizes black-frame thresholds against the darkest frames in a scan.
     /// </summary>
@@ -22,12 +25,25 @@ internal static class BlackFrameThresholdHelper
     {
         ArgumentOutOfRangeException.ThrowIfZero(frames.Count, nameof(frames));
 
-        var orderedFrames = frames.OrderBy(f => f.Percentage).ToList();
+        // The floor is the 1st-percentile black percentage, capped at MaximumFloor. Percentages at
+        // or above the cap all map to the cap, so a histogram of MaximumFloor + 1 buckets replaces
+        // sorting the whole scan.
+        var counts = new int[MaximumFloor + 1];
+        foreach (var frame in frames)
+        {
+            counts[Math.Clamp(frame.Percentage, 0, MaximumFloor)]++;
+        }
+
         // Clamp into range: for short/sparse scans, frames.Count * 0.01 floors to 0,
-        // so the floor becomes the single least-black frame. The 30-cap bounds that
-        // frame's influence.
-        var percentileIndex = Math.Clamp((int)(frames.Count * 0.01), 0, frames.Count - 1);
-        var floor = Math.Min(orderedFrames[percentileIndex].Percentage, 30);
+        // so the floor becomes the single least-black frame.
+        var remaining = Math.Clamp((int)(frames.Count * 0.01), 0, frames.Count - 1);
+        var floor = 0;
+        while (remaining >= counts[floor])
+        {
+            remaining -= counts[floor];
+            floor++;
+        }
+
         var minimum = (minimumPercentage * (100 - floor) / 100) + floor;
         var sceneChange = (95 * (100 - floor) / 100) + floor;
         return (minimum, sceneChange);

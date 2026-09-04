@@ -162,6 +162,14 @@ public static class ConfigHasher
     public static bool IsStreamScopedDetectionCacheHash(string? cacheHash)
         => cacheHash?.StartsWith(StreamScopedDetectionCacheHashPrefix, StringComparison.Ordinal) == true;
 
+    /// <summary>
+    /// Normalizes the configured preferred audio language (trimmed, lower-cased) so stream
+    /// selection and hashing agree on how the value is interpreted.
+    /// </summary>
+    /// <param name="language">Configured language code.</param>
+    /// <returns>The normalized language code, or an empty string when unset.</returns>
+    public static string NormalizeAudioLanguage(string? language) => language?.Trim().ToLowerInvariant() ?? string.Empty;
+
     // DetectNonBlackCredits only affects output when the default analyzer is active; including it
     // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
     // cannot observe the setting (the UI also hides it there).
@@ -172,7 +180,7 @@ public static class ConfigHasher
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
-            $"|audioLanguage={AudioLanguageHelper.Normalize(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+            $"|audioLanguage={NormalizeAudioLanguage(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated

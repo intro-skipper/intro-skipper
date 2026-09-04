@@ -171,13 +171,12 @@ internal static class CreditSceneBuilder
     private static List<CreditScene> ShiftStartsToTransitionFrames(List<BlackFrame> frames, List<CreditScene> scenes, int sceneChange)
     {
         var finalScenes = new List<CreditScene>(scenes.Count);
-        var searchStart = 0;
         foreach (var scene in scenes)
         {
             var startFrame = scene.StartFrame;
             var startTime = scene.StartTime;
 
-            for (var i = searchStart; i < frames.Count; i++)
+            for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
             {
                 var frame = frames[i];
                 if (frame.Frame > scene.EndFrame)
@@ -185,19 +184,11 @@ internal static class CreditSceneBuilder
                     break;
                 }
 
-                if (frame.Frame >= startFrame)
+                if (frame.Percentage >= sceneChange)
                 {
-                    if (searchStart < i)
-                    {
-                        searchStart = i;
-                    }
-
-                    if (frame.Percentage >= sceneChange)
-                    {
-                        startFrame = frame.Frame;
-                        startTime = frame.Time;
-                        break;
-                    }
+                    startFrame = frame.Frame;
+                    startTime = frame.Time;
+                    break;
                 }
             }
 
@@ -221,14 +212,9 @@ internal static class CreditSceneBuilder
 
     private static int FindStartFrame(List<BlackFrame> frames, CreditScene scene, double startTime, int minimum)
     {
-        for (var i = 0; i < frames.Count; i++)
+        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
         {
             var frame = frames[i];
-            if (frame.Frame < scene.StartFrame)
-            {
-                continue;
-            }
-
             if (frame.Frame > scene.EndFrame)
             {
                 break;
@@ -246,14 +232,9 @@ internal static class CreditSceneBuilder
     private static int FindEndFrame(List<BlackFrame> frames, CreditScene scene, double endTime, int minimum)
     {
         var endFrame = scene.StartFrame;
-        for (var i = 0; i < frames.Count; i++)
+        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
         {
             var frame = frames[i];
-            if (frame.Frame < scene.StartFrame)
-            {
-                continue;
-            }
-
             if (frame.Frame > scene.EndFrame)
             {
                 break;

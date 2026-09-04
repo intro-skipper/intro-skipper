@@ -9,7 +9,7 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Episode queued for analysis.
 /// </summary>
-public class QueuedEpisode
+public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
 
@@ -42,11 +42,6 @@ public class QueuedEpisode
     /// Gets or sets the series id.
     /// </summary>
     public Guid SeriesId { get; set; }
-
-    /// <summary>
-    /// Gets a value indicating whether this media has been already analyzed.
-    /// </summary>
-    public IReadOnlyList<EpisodeState> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.

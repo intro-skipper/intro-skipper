@@ -19,21 +19,7 @@ public class TestTimeRanges
             100, 100.5, 101, 101.5
         };
 
-        var expected = new TimeRange(1, 4);
-        var actual = TimeRangeHelpers.FindContiguous(times, 2);
-
-        Assert.Equal(expected, actual);
-    }
-
-    [Fact]
-    public void TestSingleContiguousRange()
-    {
-        var times = new[] { 1.0, 2.0, 3.0, 4.0 };
-
-        var expected = new TimeRange(1, 4);
-        var actual = TimeRangeHelpers.FindContiguous(times, 2);
-
-        Assert.Equal(expected, actual);
+        AssertRange(1, 4, TimeRangeHelpers.FindContiguous(times, 2));
     }
 
     [Fact]
@@ -41,10 +27,7 @@ public class TestTimeRanges
     {
         var times = new[] { 1.0, 2.0, 10.0, 11.0, 12.0, 13.0 };
 
-        var expected = new TimeRange(10, 13);
-        var actual = TimeRangeHelpers.FindContiguous(times, 2);
-
-        Assert.Equal(expected, actual);
+        AssertRange(10, 13, TimeRangeHelpers.FindContiguous(times, 2));
     }
 
     [Fact]
@@ -57,10 +40,7 @@ public class TestTimeRanges
             55, 55.5, 55.6, 55.7
         };
 
-        var expected = new TimeRange(1, 5.3128);
-        var actual = TimeRangeHelpers.FindContiguous(times, 2);
-
-        Assert.Equal(expected, actual);
+        AssertRange(1, 5.3128, TimeRangeHelpers.FindContiguous(times, 2));
     }
 
     [Fact]
@@ -95,10 +75,7 @@ public class TestTimeRanges
             295.04, 295.168, 313.984, 325.504, 333.568, 335.872, 336.384
         };
 
-        var expected = new TimeRange(16, 45.184);
-        var actual = TimeRangeHelpers.FindContiguous(times, 2);
-
-        Assert.Equal(expected, actual);
+        AssertRange(16, 45.184, TimeRangeHelpers.FindContiguous(times, 2));
     }
 
     /// <summary>
@@ -122,5 +99,12 @@ public class TestTimeRanges
         var testRange = new TimeRange(start, end);
 
         Assert.Equal(expected, large.Intersects(testRange));
+    }
+
+    private static void AssertRange(double expectedStart, double expectedEnd, TimeRange? actual)
+    {
+        Assert.NotNull(actual);
+        Assert.Equal(expectedStart, actual.Start);
+        Assert.Equal(expectedEnd, actual.End);
     }
 }

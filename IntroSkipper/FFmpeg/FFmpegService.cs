@@ -5,8 +5,9 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using IntroSkipper.Data;
@@ -18,178 +19,64 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Provides FFmpeg-based media analysis operations.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="FFmpegService"/> class.
-/// </remarks>
-/// <param name="logger">The logger instance.</param>
-/// <param name="cacheService">The detection cache service.</param>
-public sealed partial class FFmpegService(
-    ILogger<FFmpegService> logger,
-    IDetectionCacheService cacheService) : IFFmpegService
+public sealed partial class FFmpegService : IFFmpegService
 {
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
+    private const int MaximumMemoizedAudioStreamSelections = 8192;
 
-    // Bounds one shared version probe. Generous: the probe is four fast ffmpeg info queries,
-    // each capped at 2 s of process-exit wait (see CheckFFmpegRequirementAsync), so ~8 s covers
-    // a healthy run — but the output drain is awaited before that cap applies, and the probe
-    // deliberately ignores caller tokens, so without this lifetime a hung ffmpeg would wedge
-    // the gate until a plugin reload.
+    // Generous: the probe is four fast ffmpeg info queries, each capped at 2 s of process-exit
+    // wait (see CheckFFmpegRequirementAsync), so ~8 s covers a healthy run, but the output drain
+    // is awaited before that cap applies.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
 
-    private readonly ILogger<FFmpegService> _logger = logger;
-    private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
-    private readonly TimeSpan _versionProbeTimeout = DefaultVersionProbeTimeout;
+    private readonly ILogger<FFmpegService> _logger;
+    private readonly IDetectionCacheService _cacheService;
+    private readonly FFmpegProcessRunner _processRunner;
+    private readonly FFmpegVersionGate _versionGate;
 
-    // Deliberately NOT RetryableInitializationGate: that gate replaces an attempt only
-    // when it throws, but this one must also reset on a successful probe whose verdict
-    // is false (an incompatible ffmpeg is an expected, re-queryable state), keep success
-    // sticky for the service lifetime, and publish a false verdict and its reset
-    // atomically so the next caller is guaranteed a fresh probe. A Lazy-based attempt
-    // can express none of that.
-    private readonly Lock _versionProbeLock = new();
+    // Audio stream selection is probed with ffprobe once per file and configuration; intro and
+    // credits fingerprinting of the same file share the result. The service is a singleton, so a
+    // file remuxed with a different stream layout is only re-probed after a plugin reload or when
+    // the cap below clears the memo. Failed probes are not memoized.
+    private readonly ConcurrentDictionary<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
 
-    // Published under _versionProbeLock by the probe attempt whose verdict the gate's waiters
-    // observe (an abandoned timed-out probe cannot write it) and read concurrently by the
-    // support bundle endpoint, so each run publishes a new immutable snapshot.
-    private volatile FFmpegCheckResult _checkResult = FFmpegCheckResult.NotRun;
-
-    private Task<bool>? _versionProbeTask;
-    private volatile bool _versionProbeSucceeded;
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FFmpegService"/> class.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="cacheService">The detection cache service.</param>
+    public FFmpegService(ILogger<FFmpegService> logger, IDetectionCacheService cacheService)
+    {
+        _logger = logger;
+        _cacheService = cacheService;
+        _processRunner = new FFmpegProcessRunner(logger);
+        _versionGate = new FFmpegVersionGate(logger, ProbeFFmpegVersionAsync, DefaultVersionProbeTimeout);
+    }
 
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         IDetectionCacheService cacheService,
         Func<CancellationToken, Task<bool>> versionProbe,
         TimeSpan? versionProbeTimeout = null)
-        : this(logger, cacheService)
     {
-        _versionProbe = versionProbe;
-        _versionProbeTimeout = versionProbeTimeout ?? DefaultVersionProbeTimeout;
+        _logger = logger;
+        _cacheService = cacheService;
+        _processRunner = new FFmpegProcessRunner(logger);
+        _versionGate = new FFmpegVersionGate(
+            logger,
+            async cancellationToken => (await versionProbe(cancellationToken).ConfigureAwait(false), null),
+            versionProbeTimeout ?? DefaultVersionProbeTimeout);
     }
 
     /// <inheritdoc/>
-    public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
+    public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
+        => _versionGate.CheckAsync(cancellationToken);
 
-        if (_versionProbeSucceeded)
-        {
-            return true;
-        }
+    /// <inheritdoc/>
+    public FFmpegCheckResult GetCheckResult() => _versionGate.CheckResult;
 
-        TaskCompletionSource<bool>? probeCompletion = null;
-        Task<bool> probeTask;
-        lock (_versionProbeLock)
-        {
-            if (_versionProbeSucceeded)
-            {
-                return true;
-            }
-
-            if (_versionProbeTask is null)
-            {
-                probeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                _versionProbeTask = probeCompletion.Task;
-            }
-
-            probeTask = _versionProbeTask;
-        }
-
-        if (probeCompletion is not null)
-        {
-            _ = RunVersionProbeAsync(probeCompletion);
-        }
-
-        return await probeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task RunVersionProbeAsync(TaskCompletionSource<bool> completion)
-    {
-        // The probe is shared, so no single caller's token may cancel it; a
-        // service-owned lifetime bounds it instead. WaitAsync keeps the gate safe
-        // even against a probe that ignores its token: the attempt fails, the gate
-        // resets, the next call retries, and the abandoned probe's eventual result
-        // is discarded.
-        using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
-        try
-        {
-            bool valid;
-            FFmpegCheckResult? checkResult = null;
-            if (_versionProbe is not null)
-            {
-                valid = await _versionProbe(probeLifetime.Token)
-                    .WaitAsync(probeLifetime.Token)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                (valid, checkResult) = await ProbeFFmpegVersionAsync(probeLifetime.Token)
-                    .WaitAsync(probeLifetime.Token)
-                    .ConfigureAwait(false);
-            }
-
-            lock (_versionProbeLock)
-            {
-                // The verdict's side effects are published only by the attempt the gate's
-                // waiters actually observe: an abandoned probe that outran its lifetime
-                // completes into a discarded task and can no longer overwrite the check
-                // result or warning flag of a newer attempt.
-                if (checkResult is not null)
-                {
-                    _checkResult = checkResult;
-                    if (!valid)
-                    {
-                        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                    }
-                }
-
-                if (valid)
-                {
-                    _versionProbeSucceeded = true;
-                }
-
-                completion.SetResult(valid);
-                if (!valid)
-                {
-                    _versionProbeTask = null;
-                }
-            }
-        }
-        catch (OperationCanceledException) when (probeLifetime.IsCancellationRequested)
-        {
-            // A probe that outran its service-owned lifetime is a failed attempt, not a
-            // cancellation of its waiters: CheckFFmpegVersionAsync documents false on
-            // any error, and callers such as Entrypoint.StartAsync await it unguarded.
-            // Exception propagation stays reserved for unexpected probe failures.
-            LogFfmpegVersionProbeTimedOut(_logger, _versionProbeTimeout);
-
-            // The abandoned probe finishes in the background and its result is discarded; an
-            // unobserved fault there is inert (since .NET Core it cannot tear down the process).
-            // This attempt is the one the gate's waiters observe, so it also publishes the
-            // verdict's side effects: without them the support bundle would keep reporting a
-            // stale (possibly "okay") check while every caller receives false, and the
-            // dashboard would show no ffmpeg warning at all.
-            lock (_versionProbeLock)
-            {
-                _checkResult = new FFmpegCheckResult("timed_out", []);
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                completion.SetResult(false);
-                _versionProbeTask = null;
-            }
-        }
-        catch (Exception ex)
-        {
-            lock (_versionProbeLock)
-            {
-                completion.SetException(ex);
-                _versionProbeTask = null;
-            }
-        }
-    }
-
-    private async Task<(bool Valid, FFmpegCheckResult Result)> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
+    private async Task<(bool Valid, FFmpegCheckResult? Result)> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
     {
         var outputs = new List<FFmpegCheckOutput>();
         try
@@ -256,7 +143,7 @@ public sealed partial class FFmpegService(
             return Fail("unknown_error");
         }
 
-        (bool Valid, FFmpegCheckResult Result) Fail(string status)
+        (bool Valid, FFmpegCheckResult? Result) Fail(string status)
             => (false, new FFmpegCheckResult(status, [.. outputs]));
     }
 
@@ -270,29 +157,21 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public async Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
         LogDetectingSilence(_logger, episode.Path, range.Start, range.End, episode.EpisodeId);
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
         var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-vn", "-sn", "-dn",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-af", $"silencedetect=noise={noise}dB:duration=0.1",
             "-f", "null", "-",
-        };
+        ];
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -300,12 +179,7 @@ public sealed partial class FFmpegService(
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var result = FFmpegOutputParser.ParseSilence(raw, range.Start);
-        cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, result);
-
-        return result;
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -317,72 +191,47 @@ public sealed partial class FFmpegService(
         AnalysisMode mode,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return [.. cached.Where(bf => bf.Percentage >= minimum)];
-        }
-
         // Recap scans report every frame (amount=0) so adaptive threshold normalization can
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackframe=amount={amount}:threshold={threshold}",
             "-f", "null", "-",
-        };
+        ];
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
-        cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
-
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
     /// <inheritdoc/>
-    public async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         // Seek to the start of the time range and get the black level of each frame.
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-skip_frame", "nokey",
             "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
             "-vf", $"blackframe=amount=0:threshold={threshold}",
             "-f", "null", "-",
-        };
+        ];
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
-        cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, allFrames);
-
-        return allFrames;
+        return RunCachedScanAsync(episode, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
-        cancellationToken.ThrowIfCancellationRequested();
 
         // Bound the scan to the configured credits window; FindCreditRange selects the latest
         // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
@@ -390,20 +239,14 @@ public sealed partial class FFmpegService(
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
 
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, out KeyframeVisual[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
-
         // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
         // saturation per keyframe so credits rendered on a near-uniform low-saturation card (which the black-frame
         // scan is blind to) can be recognised by their near-uniform, low-entropy background.
         // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
         // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify
         // consistently rather than missing muted cards.
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-skip_frame", "nokey",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
@@ -411,41 +254,34 @@ public sealed partial class FFmpegService(
             "-an", "-dn", "-sn",
             "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
             "-f", "null", "-",
-        };
-
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        ];
 
         // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
         // requested duration. Clip parsed visuals to the window before caching (times are relative to
         // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
         // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
         // outside the configured scan window.
-        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw)
-            .Where(v => v.Time >= 0 && v.Time <= range.Duration)
-            .ToArray();
-        cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, visuals);
-
-        return visuals;
+        return RunCachedScanAsync(
+            episode,
+            AnalysisMode.Credits,
+            CacheEntryType.KeyframeVisual,
+            range.Start,
+            range.End,
+            args,
+            raw => FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= range.Duration).ToArray(),
+            cancellationToken);
     }
 
     /// <inheritdoc/>
-    public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, out BlackInterval[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-skip_frame", "noref",
             "-i", episode.Path,
@@ -453,18 +289,24 @@ public sealed partial class FFmpegService(
             "-an", "-dn", "-sn",
             "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
             "-f", "null", "-",
-        };
+        ];
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw);
         var offset = range.Start - episode.CreditsFingerprintStart;
-        var intervals = offset == 0
-            ? rangeIntervals
-            : [.. rangeIntervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
-        cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, intervals);
-
-        return intervals;
+        return RunCachedScanAsync(
+            episode,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackInterval,
+            range.Start,
+            range.End,
+            args,
+            raw =>
+            {
+                var intervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+                return offset == 0
+                    ? intervals
+                    : [.. intervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
+            },
+            cancellationToken);
     }
 
     // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff
@@ -489,18 +331,10 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
-
-        var args = new List<string>
-        {
+        string[] args =
+        [
             "-skip_frame", "nokey",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
@@ -508,12 +342,45 @@ public sealed partial class FFmpegService(
             "-an", "-dn", "-sn",
             "-vf", "showinfo",
             "-f", "null", "-",
-        };
+        ];
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var result = FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger);
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken);
+    }
+
+    /// <summary>
+    /// Serves a detection scan from the cache or runs ffmpeg, parses its stderr and caches the result.
+    /// </summary>
+    /// <typeparam name="T">Element type of the scan result.</typeparam>
+    /// <param name="episode">Episode being scanned.</param>
+    /// <param name="mode">Analysis mode the cache row is keyed by.</param>
+    /// <param name="entryType">Cache entry type.</param>
+    /// <param name="start">Cache key start; must be the exact value used when the row was written.</param>
+    /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
+    /// <param name="args">ffmpeg arguments.</param>
+    /// <param name="parse">Parses ffmpeg's stderr into the scan result.</param>
+    /// <param name="cancellationToken">Cancels the scan.</param>
+    /// <returns>The cached or freshly parsed result.</returns>
+    private async Task<T[]> RunCachedScanAsync<T>(
+        QueuedEpisode episode,
+        AnalysisMode mode,
+        CacheEntryType entryType,
+        double start,
+        double end,
+        IReadOnlyList<string> args,
+        Func<string, T[]> parse,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, result);
+
+        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached))
+        {
+            return cached;
+        }
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        var result = parse(raw);
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
 
         return result;
     }
@@ -526,16 +393,16 @@ public sealed partial class FFmpegService(
         try
         {
             var ffprobePath = GetFFprobePath();
-            var args = new List<string>
-            {
+            string[] args =
+            [
                 "-v", "error",
                 "-select_streams", "a:0",
                 "-show_entries", "stream=duration:stream_tags=DURATION",
                 "-of", "csv=p=0",
                 filePath,
-            };
+            ];
 
-            var output = Encoding.UTF8.GetString(await GetProcessOutputAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(output))
             {
                 return null;
@@ -566,9 +433,6 @@ public sealed partial class FFmpegService(
 
         return null;
     }
-
-    /// <inheritdoc/>
-    public FFmpegCheckResult GetCheckResult() => _checkResult;
 
     /// <summary>
     /// Run an FFmpeg command with the provided arguments and validate that the output contains
@@ -632,7 +496,7 @@ public sealed partial class FFmpegService(
         processArgs.Add(logLevel);
         processArgs.AddRange(args);
 
-        return GetProcessOutputAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+        return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
 
     private static bool UsesInfoLogLevel(IReadOnlyList<string> args)
@@ -658,130 +522,6 @@ public sealed partial class FFmpegService(
         return firstArg.StartsWith("-version", StringComparison.Ordinal) ||
             firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
             firstArg.StartsWith("-h", StringComparison.Ordinal);
-    }
-
-    internal async Task<byte[]> GetProcessOutputAsync(
-        string processPath,
-        IReadOnlyList<string> args,
-        bool stderr = false,
-        int timeout = 60 * 1000,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var info = new ProcessStartInfo(processPath)
-        {
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            ErrorDialog = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        foreach (var arg in args)
-        {
-            info.ArgumentList.Add(arg);
-        }
-
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
-        }
-
-        using var process = new Process { StartInfo = info };
-        process.Start();
-
-        try
-        {
-            try
-            {
-                process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-            }
-            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-            {
-                LogFfmpegPriorityNotModified(_logger, e.Message);
-            }
-
-            using var ms = new MemoryStream();
-            // Draining must not use the caller token: on cancellation or timeout the process is
-            // killed first, then its remaining output is drained so the pipes cannot deadlock.
-            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, CancellationToken.None);
-            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, CancellationToken.None);
-
-            using var timeoutCts = new CancellationTokenSource(timeout);
-            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            var timedOut = false;
-            try
-            {
-                await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                KillProcessTree(process);
-            }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-            {
-                LogFfmpegExitTimeout(_logger, timeout);
-                KillProcessTree(process);
-                timedOut = true;
-            }
-
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-
-            cancellationToken.ThrowIfCancellationRequested();
-            if (timedOut)
-            {
-                throw new TimeoutException($"ffmpeg process was killed after not exiting within {timeout}ms");
-            }
-
-            return ms.ToArray();
-        }
-        finally
-        {
-            KillProcessTree(process);
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4096];
-        int bytesRead;
-        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
-        {
-            if (destination is not null)
-            {
-                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
-            }
-        }
-    }
-
-    private void KillProcessTree(Process process)
-    {
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch (InvalidOperationException ex)
-        {
-            LogFfmpegProcessAlreadyGone(_logger, ex);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or AggregateException)
-        {
-            // Kill(entireProcessTree: true) reports partial failures as an AggregateException, and
-            // this runs from a cancellation-token callback on a timer thread, where an escaping
-            // exception would be unhandled.
-            LogFfmpegKillFailed(_logger, ex.Message);
-        }
-        catch (NotSupportedException ex)
-        {
-            LogFfmpegKillNotSupported(_logger, ex.Message);
-        }
     }
 
     private static string GetFFprobePath()
@@ -811,18 +551,24 @@ public sealed partial class FFmpegService(
             return new AudioStreamSelection(null, "policy=most-channels", true);
         }
 
+        var memoKey = (filePath, preferredLanguage, preferMostChannels);
+        if (_audioStreamSelections.TryGetValue(memoKey, out var memoized))
+        {
+            return memoized;
+        }
+
         try
         {
-            var args = new List<string>
-            {
+            string[] args =
+            [
                 "-v", "error",
                 "-select_streams", "a",
                 "-show_entries", "stream=index,channels:stream_tags=language",
                 "-of", "json",
                 filePath,
-            };
+            ];
 
-            var output = Encoding.UTF8.GetString(await GetProcessOutputAsync(
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
                 GetFFprobePath(),
                 args,
                 stderr: false,
@@ -877,10 +623,18 @@ public sealed partial class FFmpegService(
 
             // Legacy rows were fingerprinted from FFmpeg's default stream (most channels, then
             // lowest index), so they are only reusable when that is still the effective stream.
-            return new AudioStreamSelection(
+            var selection = new AudioStreamSelection(
                 preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
                 cacheVariant,
                 selectsDefaultMostStream);
+
+            if (_audioStreamSelections.Count >= MaximumMemoizedAudioStreamSelections)
+            {
+                _audioStreamSelections.Clear();
+            }
+
+            _audioStreamSelections[memoKey] = selection;
+            return selection;
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -904,7 +658,7 @@ public sealed partial class FFmpegService(
         cancellationToken.ThrowIfCancellationRequested();
 
         var configuration = Plugin.Instance?.Configuration;
-        var preferredLanguage = AudioLanguageHelper.Normalize(configuration?.PreferredAudioLanguage);
+        var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
         var streamSelection = await FindAudioStreamSelectionAsync(
             episode.Path,
             preferredLanguage,
@@ -917,7 +671,7 @@ public sealed partial class FFmpegService(
 
         // Resolve the stream before reading the cache so a language preference can reuse a fingerprint
         // generated with the same effective stream under the default selection.
-        if (LoadCachedFingerprint(episode, mode, start, end, cacheVariant, legacyConfigHash, out uint[] cachedFingerprint))
+        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, legacyConfigHash))
         {
             LogFingerprintCacheHit(_logger, episode.Path);
             cancellationToken.ThrowIfCancellationRequested();
@@ -964,50 +718,13 @@ public sealed partial class FFmpegService(
             throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
         }
 
-        var results = new List<uint>();
-        for (var i = 0; i < rawPoints.Length; i += 4)
-        {
-            var rawPoint = rawPoints.AsSpan(i, 4);
-            results.Add(BitConverter.ToUInt32(rawPoint));
-        }
+        var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
 
         // Try to cache this fingerprint.
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. results], cacheVariant);
+        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, results, cacheVariant);
 
-        return [.. results];
-    }
-
-    /// <summary>
-    /// Tries to load an episode's fingerprint from cache. If caching is not enabled, calling this function is a no-op.
-    /// </summary>
-    /// <param name="episode">Episode to try to load from cache.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="start">Start time (in seconds) used when the fingerprint was cached.</param>
-    /// <param name="end">End time (in seconds) used when the fingerprint was cached.</param>
-    /// <param name="cacheVariant">Effective audio stream selection identity.</param>
-    /// <param name="legacyConfigHash">Legacy no-language hash accepted when the selected stream is unchanged.</param>
-    /// <param name="fingerprint">Array to store the fingerprint in.</param>
-    /// <returns><c>true</c> if the episode was successfully loaded from cache; otherwise <c>false</c>.</returns>
-    private bool LoadCachedFingerprint(
-        QueuedEpisode episode,
-        AnalysisMode mode,
-        double start,
-        double end,
-        string? cacheVariant,
-        string? legacyConfigHash,
-        out uint[] fingerprint)
-    {
-        fingerprint = [];
-        return _cacheService.TryRead(
-            episode.EpisodeId,
-            mode,
-            CacheEntryType.Chromaprint,
-            start,
-            end,
-            out fingerprint,
-            cacheVariant,
-            legacyConfigHash);
+        return results;
     }
 
     private static (int Index, int Channels, string? Language) SelectAudioStream(
@@ -1022,21 +739,6 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
     private static partial void LogFfmpegVersionCheckFailed(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "FFmpeg version check did not finish within {Timeout}; treating the installed FFmpeg as invalid until a later check succeeds")]
-    private static partial void LogFfmpegVersionProbeTimedOut(ILogger logger, TimeSpan timeout);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "ffmpeg priority could not be modified. {Message}")]
-    private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "ffmpeg did not exit within {TimeoutMs}ms; killing process")]
-    private static partial void LogFfmpegExitTimeout(ILogger logger, int timeoutMs);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill ffmpeg process tree: {Message}")]
-    private static partial void LogFfmpegKillFailed(ILogger logger, string message);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Killing the ffmpeg process tree is not supported on this platform: {Message}")]
-    private static partial void LogFfmpegKillNotSupported(ILogger logger, string message);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);
@@ -1067,9 +769,6 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
-    private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);
 
     private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool LegacyDefaultCompatible);
 }

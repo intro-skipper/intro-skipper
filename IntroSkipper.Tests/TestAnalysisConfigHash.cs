@@ -12,36 +12,22 @@ namespace IntroSkipper.Tests;
 
 public sealed class TestAnalysisConfigHash
 {
-    [Fact]
-    public void MinimumIntroDuration_InvalidatesCreditsHash()
+    public static TheoryData<AnalysisMode, PluginConfiguration, PluginConfiguration, AnalyzerAction> InvalidatingChanges => new()
     {
-        var before = new PluginConfiguration { MinimumIntroDuration = 15 };
-        var after = new PluginConfiguration { MinimumIntroDuration = 30 };
+        // MinimumIntroDuration bounds the Chromaprint credits region, so it belongs to the credits hash.
+        { AnalysisMode.Credits, new PluginConfiguration { MinimumIntroDuration = 15 }, new PluginConfiguration { MinimumIntroDuration = 30 }, AnalyzerAction.Default },
+        { AnalysisMode.Preview, new PluginConfiguration { AnimePreviewFromCreditsEnd = false }, new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalyzerAction.Default },
+        { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { MaximumFingerprintPointDifferences = new PluginConfiguration().MaximumFingerprintPointDifferences + 1 }, AnalyzerAction.Default },
+        { AnalysisMode.Introduction, new PluginConfiguration(), new PluginConfiguration(), AnalyzerAction.Chapter },
+    };
 
-        Assert.NotEqual(
-            ConfigHasher.Analysis(before, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
-            ConfigHasher.Analysis(after, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
-    }
-
-    [Fact]
-    public void AnimePreviewSetting_InvalidatesPreviewHash()
+    [Theory]
+    [MemberData(nameof(InvalidatingChanges))]
+    public void Analysis_ChangesWhenRelevantInputChanges(AnalysisMode mode, PluginConfiguration before, PluginConfiguration after, AnalyzerAction afterAction)
     {
-        var before = new PluginConfiguration { AnimePreviewFromCreditsEnd = false };
-        var after = new PluginConfiguration { AnimePreviewFromCreditsEnd = true };
-
         Assert.NotEqual(
-            ConfigHasher.Analysis(before, AnalysisMode.Preview, AnalyzerAction.Default, ffmpegValid: true),
-            ConfigHasher.Analysis(after, AnalysisMode.Preview, AnalyzerAction.Default, ffmpegValid: true));
-    }
-
-    [Fact]
-    public void AnalyzerAction_InvalidatesHash()
-    {
-        var config = new PluginConfiguration();
-
-        Assert.NotEqual(
-            ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true),
-            ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Chapter, ffmpegValid: true));
+            ConfigHasher.Analysis(before, mode, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(after, mode, afterAction, ffmpegValid: true));
     }
 
     [Fact]

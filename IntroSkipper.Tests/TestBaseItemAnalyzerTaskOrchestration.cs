@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -32,9 +31,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             EntrypointTestHelpers.CreateLibraryManager(),
             providerManager: null!,
             fileSystem: null!,
-            ffmpegService: new FFmpegService(
-                NullLogger<FFmpegService>.Instance,
-                DatabaseTestHelpers.CreateTempCacheService()),
+            ffmpegService: FfmpegTestHelpers.CreateFFmpegService(),
             cacheService: null!,
             database: null!).CreateAnalyzerTask();
 
@@ -65,7 +62,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
         var libraryManager = QueueLibraryManager.Create(episode);
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
-        var ffmpegService = CountingFfmpegService.Create(out var ffmpegProxy);
+        var ffmpegService = new StubFFmpegService { VersionCheck = () => false };
         var analyzer = new AnalyzerTaskFactory(
             NullLoggerFactory.Instance,
             libraryManager,
@@ -77,32 +74,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
         await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
 
-        Assert.Equal(1, ffmpegProxy.VersionCheckCount);
-    }
-
-    private class CountingFfmpegService : DispatchProxy
-    {
-        private int _versionCheckCount;
-
-        public int VersionCheckCount => Volatile.Read(ref _versionCheckCount);
-
-        public static IFFmpegService Create(out CountingFfmpegService proxy)
-        {
-            var service = Create<IFFmpegService, CountingFfmpegService>();
-            proxy = (CountingFfmpegService)(object)service;
-            return service;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(IFFmpegService.CheckFFmpegVersionAsync))
-            {
-                Interlocked.Increment(ref _versionCheckCount);
-                return Task.FromResult(false);
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
-        }
+        Assert.Equal(1, ffmpegService.VersionCheckCalls);
     }
 
     private class QueueLibraryManager : DispatchProxy

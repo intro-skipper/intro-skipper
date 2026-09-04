@@ -15,4 +15,4 @@ namespace IntroSkipper.Data;
 /// <param name="Percentage">Percentage of the frame that is black.</param>
 /// <param name="Time">Time this frame appears at.</param>
 /// <param name="Frame">Frame number.</param>
-public record BlackFrame(int Percentage, double Time, int Frame);
+public sealed record BlackFrame(int Percentage, double Time, int Frame);

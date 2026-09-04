@@ -27,8 +27,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     private readonly ILogger<DetectionCacheService> _logger = logger;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
-    /// <inheritdoc/>
-    public bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
+    private static bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
 
     /// <inheritdoc/>
     public bool TryRead<T>(
@@ -204,7 +203,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <typeparam name="T">The type of the value to serialize.</typeparam>
     /// <param name="value">The value to serialize and compress.</param>
     /// <returns>The Brotli-compressed data.</returns>
-    public static byte[] CompressBrotli<T>(T value)
+    internal static byte[] CompressBrotli<T>(T value)
     {
         var level = Plugin.Instance?.Configuration.CacheCompressionLevel ?? CompressionLevel.Optimal;
         using var output = new MemoryStream();
@@ -222,7 +221,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <typeparam name="T">The type to deserialize to.</typeparam>
     /// <param name="compressed">The Brotli-compressed data.</param>
     /// <returns>The deserialized value, or the default if deserialization returns null.</returns>
-    public static T? DecompressBrotli<T>(byte[] compressed)
+    internal static T? DecompressBrotli<T>(byte[] compressed)
     {
         using var input = new MemoryStream(compressed);
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
