@@ -14,10 +14,12 @@ namespace IntroSkipper.FFmpeg;
 /// concurrent caller shares one in-flight probe.
 /// </summary>
 /// <remarks>
-/// Deliberately not <c>RetryableInitializationGate</c>: that gate replaces an attempt only when
-/// it throws, but this one must also reset on a successful probe whose verdict is false (an
-/// incompatible ffmpeg is an expected, re-queryable state), keep success sticky, and publish a
-/// false verdict and its reset atomically so the next caller is guaranteed a fresh probe.
+/// Not <c>RetryableInitializationGate</c>: that gate replaces an attempt only when it throws,
+/// but an incompatible ffmpeg is an expected, re-queryable state, so a false verdict must also
+/// reset the gate. A probe that outruns <paramref name="timeout"/> is treated as a false verdict
+/// (callers such as <c>Entrypoint.StartAsync</c> await the check unguarded); the abandoned probe
+/// finishes in the background into a discarded task and cannot publish anything, so the check
+/// result and the dashboard warning always come from the attempt the waiters observed.
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="probe">Runs one probe. Returns the verdict and, for the real ffmpeg probe, the
@@ -34,8 +36,7 @@ internal sealed partial class FFmpegVersionGate(
     private readonly TimeSpan _timeout = timeout;
     private readonly Lock _lock = new();
 
-    // Published under _lock by the attempt whose verdict the waiters observe (an abandoned
-    // timed-out probe cannot write it) and read concurrently by the support bundle endpoint.
+    // Published under _lock, read concurrently by the support bundle endpoint.
     private volatile FFmpegCheckResult _checkResult = FFmpegCheckResult.NotRun;
     private Task<bool>? _probeTask;
     private volatile bool _succeeded;
@@ -87,9 +88,7 @@ internal sealed partial class FFmpegVersionGate(
 
     private async Task RunProbeAsync(TaskCompletionSource<bool> completion)
     {
-        // WaitAsync keeps the gate safe even against a probe that ignores its token: the
-        // attempt fails, the gate resets, the next call retries, and the abandoned probe's
-        // eventual result is discarded.
+        // WaitAsync bounds the attempt even when the probe ignores its token.
         using var lifetime = new CancellationTokenSource(_timeout);
         try
         {
@@ -97,9 +96,6 @@ internal sealed partial class FFmpegVersionGate(
 
             lock (_lock)
             {
-                // Side effects are published only by the attempt the waiters observe: an abandoned
-                // probe that outran its lifetime completes into a discarded task and cannot
-                // overwrite the check result or warning flag of a newer attempt.
                 if (checkResult is not null)
                 {
                     _checkResult = checkResult;
@@ -123,12 +119,6 @@ internal sealed partial class FFmpegVersionGate(
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
-            // A probe that outran its lifetime is a failed attempt, not a cancellation of its
-            // waiters: CheckFFmpegVersionAsync documents false on any error, and callers such as
-            // Entrypoint.StartAsync await it unguarded. The abandoned probe finishes in the
-            // background; an unobserved fault there is inert. This attempt is the one the
-            // waiters observe, so it also publishes the verdict to the support bundle and the
-            // dashboard warning instead of leaving a stale "okay" snapshot.
             LogFfmpegVersionProbeTimedOut(_logger, _timeout);
 
             lock (_lock)

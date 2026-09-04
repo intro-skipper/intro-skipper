@@ -5,7 +5,6 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,54 +18,62 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Provides FFmpeg-based media analysis operations.
 /// </summary>
-public sealed partial class FFmpegService : IFFmpegService
+internal sealed partial class FFmpegService : IFFmpegService
 {
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
-    private const int MaximumMemoizedAudioStreamSelections = 8192;
 
     // Generous: the probe is four fast ffmpeg info queries, each capped at 2 s of process-exit
-    // wait (see CheckFFmpegRequirementAsync), so ~8 s covers a healthy run, but the output drain
+    // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
 
+    // Probed in order; the first unmet requirement decides the check status. The output of every
+    // probe that ran is kept for the support bundle under its bundle name.
+    private static readonly (string Arguments, string MustContain, string BundleName, string ErrorMessage, string FailureStatus)[] Requirements =
+    [
+        ("-version", "ffmpeg", "version", "Unknown error with FFmpeg version", "unknown_error"),
+        ("-muxers", "chromaprint", "muxer list", "The installed version of ffmpeg does not support chromaprint", "chromaprint_not_supported"),
+        ("-h muxer=chromaprint", "binary raw fingerprint", "chromaprint options", "The installed version of ffmpeg does not support raw binary fingerprints", "fp_format_not_supported"),
+        ("-h filter=silencedetect", "noise tolerance", "silencedetect options", "The installed version of ffmpeg does not support the silencedetect filter", "silencedetect_not_supported"),
+    ];
+
     private readonly ILogger<FFmpegService> _logger;
-    private readonly IDetectionCacheService _cacheService;
+    private readonly DetectionCacheService _cacheService;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
-
-    // Audio stream selection is probed with ffprobe once per file and configuration; intro and
-    // credits fingerprinting of the same file share the result. The service is a singleton, so a
-    // file remuxed with a different stream layout is only re-probed after a plugin reload or after
-    // the memo grows past MaximumMemoizedAudioStreamSelections and is cleared. Failed probes are
-    // not memoized.
-    private readonly ConcurrentDictionary<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
-    public FFmpegService(ILogger<FFmpegService> logger, IDetectionCacheService cacheService)
+    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService)
+        : this(logger, cacheService, null, null)
     {
-        _logger = logger;
-        _cacheService = cacheService;
-        _processRunner = new FFmpegProcessRunner(logger);
-        _versionGate = new FFmpegVersionGate(logger, ProbeFFmpegVersionAsync, DefaultVersionProbeTimeout);
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FFmpegService"/> class with a replaced version probe (tests only).
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="cacheService">The detection cache service.</param>
+    /// <param name="versionProbe">Replaces the ffmpeg version probe; <see langword="null"/> runs the real one.</param>
+    /// <param name="versionProbeTimeout">Bounds one probe attempt; <see langword="null"/> uses the default.</param>
     internal FFmpegService(
         ILogger<FFmpegService> logger,
-        IDetectionCacheService cacheService,
-        Func<CancellationToken, Task<bool>> versionProbe,
-        TimeSpan? versionProbeTimeout = null)
+        DetectionCacheService cacheService,
+        Func<CancellationToken, Task<bool>>? versionProbe,
+        TimeSpan? versionProbeTimeout)
     {
         _logger = logger;
         _cacheService = cacheService;
         _processRunner = new FFmpegProcessRunner(logger);
         _versionGate = new FFmpegVersionGate(
             logger,
-            async cancellationToken => (await versionProbe(cancellationToken).ConfigureAwait(false), null),
+            versionProbe is null
+                ? ProbeFFmpegVersionAsync
+                : async cancellationToken => (await versionProbe(cancellationToken).ConfigureAwait(false), null),
             versionProbeTimeout ?? DefaultVersionProbeTimeout);
     }
 
@@ -82,55 +89,23 @@ public sealed partial class FFmpegService : IFFmpegService
         var outputs = new List<FFmpegCheckOutput>();
         try
         {
-            // Always log ffmpeg's version information.
-            if (!await CheckFFmpegRequirementAsync(
-                "-version",
-                "ffmpeg",
-                "version",
-                "Unknown error with FFmpeg version",
-                outputs,
-                cancellationToken).ConfigureAwait(false))
+            foreach (var (arguments, mustContain, bundleName, errorMessage, failureStatus) in Requirements)
             {
-                return Fail("unknown_error");
-            }
+                var output = Encoding.UTF8.GetString(await GetOutputAsync(
+                    arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                    stderr: false,
+                    infoQuery: true,
+                    timeout: 2000,
+                    cancellationToken).ConfigureAwait(false));
+                LogFfmpegOutput(_logger, arguments, output);
+                outputs.Add(new FFmpegCheckOutput(bundleName, output));
 
-            // First, validate that the installed version of ffmpeg supports chromaprint at all.
-            if (!await CheckFFmpegRequirementAsync(
-                "-muxers",
-                "chromaprint",
-                "muxer list",
-                "The installed version of ffmpeg does not support chromaprint",
-                outputs,
-                cancellationToken).ConfigureAwait(false))
-            {
-                return Fail("chromaprint_not_supported");
+                if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogFfmpegRequirementFailed(_logger, errorMessage);
+                    return (false, new FFmpegCheckResult(failureStatus, [.. outputs]));
+                }
             }
-
-            // Second, validate that the Chromaprint muxer understands the "-fp_format raw" option.
-            if (!await CheckFFmpegRequirementAsync(
-                "-h muxer=chromaprint",
-                "binary raw fingerprint",
-                "chromaprint options",
-                "The installed version of ffmpeg does not support raw binary fingerprints",
-                outputs,
-                cancellationToken).ConfigureAwait(false))
-            {
-                return Fail("fp_format_not_supported");
-            }
-
-            // Third, validate that ffmpeg supports all of the required silencedetect options.
-            if (!await CheckFFmpegRequirementAsync(
-                "-h filter=silencedetect",
-                "noise tolerance",
-                "silencedetect options",
-                "The installed version of ffmpeg does not support the silencedetect filter",
-                outputs,
-                cancellationToken).ConfigureAwait(false))
-            {
-                return Fail("silencedetect_not_supported");
-            }
-
-            LogFfmpegVersionValid(_logger);
 
             return (true, new FFmpegCheckResult("okay", [.. outputs]));
         }
@@ -141,11 +116,8 @@ public sealed partial class FFmpegService : IFFmpegService
         catch (Exception ex)
         {
             LogFfmpegVersionCheckFailed(_logger, ex);
-            return Fail("unknown_error");
+            return (false, new FFmpegCheckResult("unknown_error", [.. outputs]));
         }
-
-        (bool Valid, FFmpegCheckResult? Result) Fail(string status)
-            => (false, new FFmpegCheckResult(status, [.. outputs]));
     }
 
     /// <inheritdoc/>
@@ -160,8 +132,6 @@ public sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        LogDetectingSilence(_logger, episode.Path, range.Start, range.End, episode.EpisodeId);
-
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
         var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
         string[] args =
@@ -213,8 +183,6 @@ public sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         // Seek to the start of the time range and get the black level of each frame.
         string[] args =
         [
@@ -232,8 +200,6 @@ public sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         // Bound the scan to the configured credits window; FindCreditRange selects the latest
         // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
         // pick up a muted tail (e.g. trailing video after the probed audio duration) as credits.
@@ -276,8 +242,6 @@ public sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
@@ -378,7 +342,7 @@ public sealed partial class FFmpegService : IFFmpegService
             return cached;
         }
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
@@ -436,93 +400,35 @@ public sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <summary>
-    /// Run an FFmpeg command with the provided arguments and validate that the output contains
-    /// the provided string.
-    /// </summary>
-    /// <param name="arguments">Arguments to pass to FFmpeg.</param>
-    /// <param name="mustContain">String that the output must contain. Case-insensitive.</param>
-    /// <param name="bundleName">Support bundle name to report FFmpeg's output under.</param>
-    /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
-    /// <param name="outputs">Per-run list that receives the captured output, whether or not the requirement is met.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>true on success, false on error.</returns>
-    private async Task<bool> CheckFFmpegRequirementAsync(
-        string arguments,
-        string mustContain,
-        string bundleName,
-        string errorMessage,
-        List<FFmpegCheckOutput> outputs,
-        CancellationToken cancellationToken)
-    {
-        LogCheckingRequirement(_logger, arguments);
-
-        var output = Encoding.UTF8.GetString(await GetOutputAsync(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000, cancellationToken).ConfigureAwait(false));
-        LogFfmpegOutput(_logger, arguments, output);
-
-        outputs.Add(new FFmpegCheckOutput(bundleName, output));
-
-        if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
-        {
-            LogFfmpegRequirementFailed(_logger, errorMessage);
-            return false;
-        }
-
-        LogFfmpegRequirementMet(_logger, arguments);
-        return true;
-    }
-
-    /// <summary>
     /// Runs ffmpeg and returns standard output (or error).
     /// </summary>
     /// <param name="args">Arguments to pass to ffmpeg as individual tokens.</param>
-    /// <param name="stderr">If standard error should be returned.</param>
-    /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
+    /// <param name="stderr"><see langword="true"/> to return standard error, where the detection
+    /// filters print their results at info log level; otherwise, <see langword="false"/> for
+    /// standard output at warning level.</param>
+    /// <param name="infoQuery"><see langword="true"/> for a version or help query, which takes no
+    /// input and rejects a trailing <c>-threads</c> option; otherwise, <see langword="false"/>.</param>
+    /// <param name="timeout">Timeout (in milliseconds) to wait for ffmpeg to exit.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     private Task<byte[]> GetOutputAsync(
         IReadOnlyList<string> args,
-        bool stderr = false,
-        int timeout = 60 * 1000,
-        CancellationToken cancellationToken = default)
+        bool stderr,
+        bool infoQuery,
+        int timeout,
+        CancellationToken cancellationToken)
     {
-        var logLevel = UsesInfoLogLevel(args) ? "info" : "warning";
-
         var processArgs = new List<string> { "-hide_banner" };
-        if (!IsInfoQuery(args))
+        if (!infoQuery)
         {
             processArgs.Add("-threads");
             processArgs.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
         }
 
         processArgs.Add("-loglevel");
-        processArgs.Add(logLevel);
+        processArgs.Add(stderr ? "info" : "warning");
         processArgs.AddRange(args);
 
         return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
-    }
-
-    private static bool UsesInfoLogLevel(IReadOnlyList<string> args)
-    {
-        // Detection filters emit their result data at info log level.
-        return args.Any(argument =>
-            argument.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
-            argument.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
-            argument.Contains("blackdetect", StringComparison.OrdinalIgnoreCase) ||
-            argument.Contains("metadata=print", StringComparison.OrdinalIgnoreCase) ||
-            argument.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsInfoQuery(IReadOnlyList<string> args)
-    {
-        if (args.Count == 0)
-        {
-            return false;
-        }
-
-        // Do not add thread count to quick info queries; ffmpeg treats it as a trailing option.
-        var firstArg = args[0];
-        return firstArg.StartsWith("-version", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
     private static string GetFFprobePath()
@@ -552,12 +458,8 @@ public sealed partial class FFmpegService : IFFmpegService
             return new AudioStreamSelection(null, "policy=most-channels", true);
         }
 
-        var memoKey = (filePath, preferredLanguage, preferMostChannels);
-        if (_audioStreamSelections.TryGetValue(memoKey, out var memoized))
-        {
-            return memoized;
-        }
-
+        // Probed on every fingerprint rather than memoized: the service is a singleton, and a file
+        // replaced at the same path with a different stream layout must not keep a stale index.
         try
         {
             string[] args =
@@ -624,18 +526,10 @@ public sealed partial class FFmpegService : IFFmpegService
 
             // Legacy rows were fingerprinted from FFmpeg's default stream (most channels, then
             // lowest index), so they are only reusable when that is still the effective stream.
-            var selection = new AudioStreamSelection(
+            return new AudioStreamSelection(
                 preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
                 cacheVariant,
                 selectsDefaultMostStream);
-
-            if (_audioStreamSelections.Count >= MaximumMemoizedAudioStreamSelections)
-            {
-                _audioStreamSelections.Clear();
-            }
-
-            _audioStreamSelections[memoKey] = selection;
-            return selection;
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -674,7 +568,6 @@ public sealed partial class FFmpegService : IFFmpegService
         // generated with the same effective stream under the default selection.
         if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, legacyConfigHash))
         {
-            LogFingerprintCacheHit(_logger, episode.Path);
             cancellationToken.ThrowIfCancellationRequested();
             return cachedFingerprint;
         }
@@ -706,7 +599,7 @@ public sealed partial class FFmpegService : IFFmpegService
         byte[] rawPoints;
         try
         {
-            rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {
@@ -735,29 +628,14 @@ public sealed partial class FFmpegService : IFFmpegService
             ? streams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
             : streams.OrderBy(stream => stream.Index).First();
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Installed version of ffmpeg meets fingerprinting requirements")]
-    private static partial void LogFfmpegVersionValid(ILogger logger);
-
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
     private static partial void LogFfmpegVersionCheckFailed(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
-    private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Checking FFmpeg requirement {Arguments}")]
-    private static partial void LogCheckingRequirement(ILogger logger, string arguments);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Output of ffmpeg {Arguments}: {Output}")]
     private static partial void LogFfmpegOutput(ILogger logger, string arguments, string output);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{ErrorMessage}")]
     private static partial void LogFfmpegRequirementFailed(ILogger logger, string errorMessage);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg requirement {Arguments} met")]
-    private static partial void LogFfmpegRequirementMet(ILogger logger, string arguments);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Fingerprint cache hit on {File}")]
-    private static partial void LogFingerprintCacheHit(ILogger logger, string file);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})")]
     private static partial void LogFingerprinting(ILogger logger, double start, double end, string file, Guid id);

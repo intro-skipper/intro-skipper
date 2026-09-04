@@ -24,7 +24,7 @@ namespace IntroSkipper.Analyzers;
 public sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService,
+    DetectionCacheService cacheService,
     IIntroSkipperDatabase database,
     PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
@@ -36,7 +36,7 @@ public sealed partial class ChromaprintAnalyzer(
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
     private readonly Dictionary<Guid, IReadOnlyList<BlackFrame>> _recapBlackFrameCache = [];

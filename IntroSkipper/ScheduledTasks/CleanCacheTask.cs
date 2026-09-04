@@ -33,7 +33,7 @@ public partial class CleanCacheTask(
     ILibraryManager libraryManager,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
-    IDetectionCacheService cacheService,
+    DetectionCacheService cacheService,
     ISegmentChange segmentChange) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
@@ -41,7 +41,7 @@ public partial class CleanCacheTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly DetectionCacheService _cacheService = cacheService;
     private readonly ISegmentChange _segmentChange = segmentChange;
 
     /// <summary>

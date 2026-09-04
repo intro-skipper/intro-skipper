@@ -59,7 +59,7 @@ namespace IntroSkipper
             // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
             // therefore created fresh by this factory instead of being singletons.
             serviceCollection.AddSingleton<AnalyzerTaskFactory>();
-            serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
+            serviceCollection.AddSingleton<DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             // Shared plugin-to-Jellyfin segment conversion plus the direct writer into
             // Jellyfin's MediaSegments table; the provider stays registered so

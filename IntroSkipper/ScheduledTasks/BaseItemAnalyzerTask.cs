@@ -36,7 +36,7 @@ public partial class BaseItemAnalyzerTask(
     ILoggerFactory loggerFactory,
     AnalyzerTaskFactory analyzerFactory,
     IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService,
+    DetectionCacheService cacheService,
     IIntroSkipperDatabase database)
 {
     /// <summary>
@@ -50,7 +50,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
