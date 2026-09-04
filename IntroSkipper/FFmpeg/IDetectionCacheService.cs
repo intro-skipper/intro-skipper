@@ -10,10 +10,6 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public interface IDetectionCacheService
 {
-    /// <summary>Gets a value indicating whether caching is enabled in plugin config.</summary>
-    /// <value><see langword="true"/> if caching is enabled; otherwise, <see langword="false"/>.</value>
-    bool IsEnabled { get; }
-
     /// <summary>
     /// Tries to read a cached detection result from the SQLite DB.
     /// </summary>

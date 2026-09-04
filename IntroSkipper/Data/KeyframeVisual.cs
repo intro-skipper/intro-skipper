@@ -15,4 +15,4 @@ namespace IntroSkipper.Data;
 /// <param name="Time">Keyframe time relative to the credits fingerprint start.</param>
 /// <param name="Entropy">Normalised luma histogram entropy (0..1); low values mark a near-uniform "card" background.</param>
 /// <param name="Saturation">Mean saturation (<c>SATAVG</c>, 0..255); low values mark greyscale/muted backgrounds.</param>
-public record KeyframeVisual(double Time, double Entropy, double Saturation);
+public sealed record KeyframeVisual(double Time, double Entropy, double Saturation);

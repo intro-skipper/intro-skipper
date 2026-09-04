@@ -2,13 +2,11 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using MediaBrowser.Controller.Chapters;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -25,7 +23,7 @@ public sealed class TestChapterAnalyzerOrchestration
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
             ConfigurePlugin();
-            var chapterManager = NullChapterManager.Create(out var chapterManagerProxy);
+            var chapterManager = ChapterManagerStub.Create(null, out var chapterManagerProxy);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_chapterRepository", chapterManager);
             var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, database);
 
@@ -53,7 +51,7 @@ public sealed class TestChapterAnalyzerOrchestration
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
             ConfigurePlugin();
-            var chapterManager = NullChapterManager.Create(out var chapterManagerProxy);
+            var chapterManager = ChapterManagerStub.Create(null, out var chapterManagerProxy);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_chapterRepository", chapterManager);
             var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, database);
             using var cancellationSource = new CancellationTokenSource();
@@ -91,27 +89,4 @@ public sealed class TestChapterAnalyzerOrchestration
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-chapter-analyzer.db");
-
-    private class NullChapterManager : DispatchProxy
-    {
-        public int GetChaptersCallCount { get; private set; }
-
-        public static IChapterManager Create(out NullChapterManager proxy)
-        {
-            var chapterManager = DispatchProxy.Create<IChapterManager, NullChapterManager>();
-            proxy = (NullChapterManager)(object)chapterManager;
-            return chapterManager;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(IChapterManager.GetChapters))
-            {
-                GetChaptersCallCount++;
-                return null;
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
-        }
-    }
 }

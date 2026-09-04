@@ -9,7 +9,7 @@ namespace IntroSkipper.Data;
 /// Result of fingerprinting and analyzing two episodes in a season.
 /// All times are measured in seconds relative to the beginning of the media file.
 /// </summary>
-public class TimeStamps
+public sealed class TimeStamps
 {
     /// <summary>
     /// Gets or sets Introduction.

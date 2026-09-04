@@ -20,14 +20,20 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
-public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IFFmpegService ffmpegService, IDetectionCacheService cacheService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
+/// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+public sealed partial class ChromaprintAnalyzer(
+    ILogger<ChromaprintAnalyzer> logger,
+    IFFmpegService ffmpegService,
+    IDetectionCacheService cacheService,
+    IIntroSkipperDatabase database,
+    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
     /// </summary>
     private const double RecapCardMinimumDuration = 3.0;
 
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
@@ -94,16 +100,15 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             }
         }
 
-        // While there are still episodes in the queue
-        while (episodeAnalysisQueue.Count > 0)
+        for (var current = 0; current < episodeAnalysisQueue.Count; current++)
         {
-            // Pop the first episode from the queue
-            var currentEpisode = episodeAnalysisQueue[0];
-            episodeAnalysisQueue.RemoveAt(0);
+            var currentEpisode = episodeAnalysisQueue[current];
 
             // Search through all remaining episodes.
-            foreach (var remainingEpisode in episodeAnalysisQueue)
+            for (var remaining = current + 1; remaining < episodeAnalysisQueue.Count; remaining++)
             {
+                var remainingEpisode = episodeAnalysisQueue[remaining];
+
                 // Compare the current episode to all remaining episodes in the queue.
                 var (currentIntro, remainingIntro) = CompareEpisodes(
                     currentEpisode.EpisodeId,
@@ -358,17 +363,25 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         Guid rhsId,
         List<TimeRange> rhsRanges)
     {
-        if (lhsRanges.Count == 0 || rhsRanges.Count == 0)
+        var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
+        if (pairCount == 0)
         {
             return (new Segment(lhsId), new Segment(rhsId));
         }
 
-        // Store the longest time range as the introduction.
-        lhsRanges.Sort();
-        rhsRanges.Sort();
+        // The lists are index-aligned pairs from the same shift, so pick the pair by the
+        // left-hand duration instead of sorting each list on its own.
+        var longestIndex = 0;
+        for (var i = 1; i < pairCount; i++)
+        {
+            if (lhsRanges[i].Duration > lhsRanges[longestIndex].Duration)
+            {
+                longestIndex = i;
+            }
+        }
 
-        var lhsIntro = lhsRanges[0];
-        var rhsIntro = rhsRanges[0];
+        var lhsIntro = lhsRanges[longestIndex];
+        var rhsIntro = rhsRanges[longestIndex];
 
         // If the intro starts early in the episode, move it to the beginning.
         if (lhsIntro.Start <= 5)
@@ -446,6 +459,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
+    /// <returns>The shared range in each fingerprint, or two empty ranges when none is long enough.</returns>
     private (TimeRange Lhs, TimeRange Rhs) FindContiguous(
         uint[] lhs,
         uint[] rhs,
@@ -464,9 +478,8 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             rightOffset += shiftAmount;
         }
 
-        // Store similar times for both LHS and RHS.
+        // Store similar times for the LHS; the RHS times are the same positions shifted by a constant.
         var lhsTimes = new List<double>();
-        var rhsTimes = new List<double>();
         var upperLimit = Math.Min(lhs.Length, rhs.Length) - Math.Abs(shiftAmount);
 
         // XOR all elements in LHS and RHS, using the shift amount from above.
@@ -477,28 +490,28 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             var rhsPosition = i + rightOffset;
             var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
 
-            // If the difference between the samples is small, flag both times as similar.
-            if (CountBits(diff) > _config.MaximumFingerprintPointDifferences)
+            // If the difference between the samples is small, flag the time as similar.
+            if (BitOperations.PopCount(diff) > _config.MaximumFingerprintPointDifferences)
             {
                 continue;
             }
 
-            var lhsTime = lhsPosition * ChromaprintConstants.SampleDuration;
-            var rhsTime = rhsPosition * ChromaprintConstants.SampleDuration;
-
-            lhsTimes.Add(lhsTime);
-            rhsTimes.Add(rhsTime);
+            lhsTimes.Add(lhsPosition * ChromaprintConstants.SampleDuration);
         }
 
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
+        var lContiguous = TimeRangeHelpers.FindContiguous(lhsTimes, _config.MaximumTimeSkip);
         if (lContiguous is null || lContiguous.Duration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))
         {
             return (new TimeRange(), new TimeRange());
         }
 
-        // Since LHS had a contiguous time range, RHS must have one also.
-        var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], _config.MaximumTimeSkip)!;
+        // Every RHS position is its LHS position plus the shift, so the RHS range is the LHS range
+        // re-derived from sample positions (rounding recovers the exact integer position).
+        var positionShift = rightOffset - leftOffset;
+        var rContiguous = new TimeRange(
+            (Math.Round(lContiguous.Start / ChromaprintConstants.SampleDuration) + positionShift) * ChromaprintConstants.SampleDuration,
+            (Math.Round(lContiguous.End / ChromaprintConstants.SampleDuration) + positionShift) * ChromaprintConstants.SampleDuration);
         return (lContiguous, rContiguous);
     }
 
@@ -529,16 +542,6 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         _invertedIndexCache[id] = invIndex;
 
         return invIndex;
-    }
-
-    /// <summary>
-    /// Count the number of bits that are set in the provided number.
-    /// </summary>
-    /// <param name="number">Number to count bits in.</param>
-    /// <returns>Number of bits that are equal to 1.</returns>
-    public static int CountBits(uint number)
-    {
-        return BitOperations.PopCount(number);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]

@@ -26,7 +26,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-public partial class ChapterAnalyzer(
+public sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
     IIntroSkipperDatabase database,
@@ -201,10 +201,11 @@ public partial class ChapterAnalyzer(
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
+        var step = reversed ? -1 : 1;
         var (minDuration, maxDuration) = GetBounds(mode, episode);
+        var traceEnabled = _logger.IsEnabled(LogLevel.Trace);
 
-        // Check all chapters
-        for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
+        for (var i = reversed ? count - 1 : 0; i >= 0 && i < count; i += step)
         {
             var chapter = chapters[i];
             var next = chapters.ElementAtOrDefault(i + 1) ??
@@ -219,13 +220,16 @@ public partial class ChapterAnalyzer(
                 TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds,
                 TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
 
-            var baseMessage = string.Format(
+            // Only trace logs consume the message; skip the formatting when they are off.
+            var baseMessage = traceEnabled
+                ? string.Format(
                     CultureInfo.InvariantCulture,
                     "{0}: Chapter \"{1}\" ({2} - {3})",
                     episode.Path,
                     chapter.Name,
                     currentRange.Start,
-                    currentRange.End);
+                    currentRange.End)
+                : string.Empty;
 
             if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
             {
@@ -300,7 +304,12 @@ public partial class ChapterAnalyzer(
             return null;
         }
 
-        var blackFrames = await DetectAdaptiveRecapBlackFramesAsync(episode, maxRecapBoundary, cancellationToken).ConfigureAwait(false);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(
+            _ffmpegService,
+            episode,
+            maxRecapBoundary,
+            _config,
+            cancellationToken).ConfigureAwait(false);
 
         return BuildRecapFromBlackFrames(
             episode.EpisodeId,
@@ -308,12 +317,6 @@ public partial class ChapterAnalyzer(
             _config.MinimumRecapDetectionDuration,
             maxRecapBoundary);
     }
-
-    internal Task<BlackFrame[]> DetectAdaptiveRecapBlackFramesAsync(
-        QueuedEpisode episode,
-        double maxRecapBoundary,
-        CancellationToken cancellationToken)
-        => RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(_ffmpegService, episode, maxRecapBoundary, _config, cancellationToken);
 
     internal static Segment? BuildRecapFromBlackFrames(
         Guid episodeId,
@@ -345,8 +348,6 @@ public partial class ChapterAnalyzer(
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         if (_config.FullLengthChapters)
         {
             // Leave 1 second buffer at start and end

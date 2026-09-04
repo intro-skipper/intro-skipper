@@ -9,15 +9,8 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Exception raised when an error is encountered analyzing audio.
 /// </summary>
-public class FingerprintException : Exception
+public sealed class FingerprintException : Exception
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="FingerprintException"/> class.
-    /// </summary>
-    public FingerprintException()
-    {
-    }
-
     /// <summary>
     /// Initializes a new instance of the <see cref="FingerprintException"/> class.
     /// </summary>

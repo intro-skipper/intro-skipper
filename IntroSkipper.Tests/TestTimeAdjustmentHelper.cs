@@ -15,9 +15,16 @@ namespace IntroSkipper.Tests;
 
 public class TestTimeAdjustmentHelper
 {
-    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null, AnalysisMode mode = AnalysisMode.Introduction)
+    [Theory]
+    [InlineData(2, true, 0, 60, 1.2, 10, 2, 10)]   // start within snap threshold: snapped to 0, then offset applied
+    [InlineData(2, true, 0, 60, 0, 10, 2, 10)]     // start at 0: offset applied when opted in
+    [InlineData(2, false, 0, 60, 0, 10, 0, 10)]    // start at 0: offset not applied when snapping and option is off
+    [InlineData(2, true, 0, 60, 1, 2, 0, 0)]       // offset consumes the whole intro: invalid segment
+    [InlineData(2, false, 0, 60, 5, 12, 7, 12)]    // not snapping: offset always applied
+    [InlineData(0, false, 100, 30, -5, 200, 0, 30)] // negative start snaps to 0; end offset cannot push end past 0 or duration
+    public async Task StartAndEndOffsets(int startOffset, bool includeStartOffsetWhenSnapping, int endOffset, double duration, double start, double end, double expectedStart, double expectedEnd)
     {
-        cfg ??= new PluginConfiguration
+        var config = new PluginConfiguration
         {
             EndSnapThreshold = 2.0,
             AdjustIntroBasedOnChapters = false,
@@ -25,105 +32,18 @@ public class TestTimeAdjustmentHelper
             SnapToKeyframe = false,
             AdjustWindowInward = 2.0,
             AdjustWindowOutward = 2.0,
-            IntroStartOffset = 0,
-            IntroEndOffset = 0,
+            IntroStartOffset = startOffset,
+            IncludeIntroStartOffsetWhenSnapping = includeStartOffsetWhenSnapping,
+            IntroEndOffset = endOffset,
         };
-
-        return (new TimeAdjustmentHelper(NullLogger.Instance, cfg, mode, null!), cfg);
-    }
-
-    [Fact]
-    public async Task StartOffset_IsApplied_When_SnappingToEpisodeStart()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 2; // user-configured offset
-        cfg.IncludeIntroStartOffsetWhenSnapping = true;
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
-        var original = new Segment(episode.EpisodeId) { Start = 1.2, End = 10 };
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Introduction, null!);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = duration };
+        var original = new Segment(episode.EpisodeId) { Start = start, End = end };
 
         var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
 
-        Assert.Equal(2, adjusted.Start);
-        Assert.Equal(10, adjusted.End);
-    }
-
-    [Fact]
-    public async Task StartOffset_IsApplied_When_IntroStartsAtZero()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 2;
-        cfg.IncludeIntroStartOffsetWhenSnapping = true;
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
-        var original = new Segment(episode.EpisodeId) { Start = 0, End = 10 };
-
-        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
-
-        Assert.Equal(2, adjusted.Start);
-        Assert.Equal(10, adjusted.End);
-    }
-
-    [Fact]
-    public async Task StartOffset_IsNotApplied_When_SnappingAndOptionIsDisabled()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 2;
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
-        var original = new Segment(episode.EpisodeId) { Start = 0, End = 10 };
-
-        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
-
-        Assert.Equal(0, adjusted.Start);
-        Assert.Equal(10, adjusted.End);
-    }
-
-    [Fact]
-    public async Task OffsetThatConsumesSnappedIntro_ReturnsInvalidSegment()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 2;
-        cfg.IncludeIntroStartOffsetWhenSnapping = true;
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
-        var original = new Segment(episode.EpisodeId) { Start = 1, End = 2 };
-
-        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
-
-        Assert.False(adjusted.Valid);
-        Assert.Equal(0, adjusted.Start);
-        Assert.Equal(0, adjusted.End);
-    }
-
-    [Fact]
-    public async Task StartOffset_IsApplied_When_NotSnapping()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 2;
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
-        var original = new Segment(episode.EpisodeId) { Start = 5, End = 12 };
-
-        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
-
-        Assert.Equal(7, adjusted.Start);
-        Assert.Equal(12, adjusted.End);
-    }
-
-    [Fact]
-    public async Task Start_And_End_Are_Clamped_To_Duration()
-    {
-        var (helper, cfg) = CreateHelper();
-        cfg.IntroStartOffset = 0;
-        cfg.IntroEndOffset = 100; // will try to push end negative
-
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 30 };
-        var original = new Segment(episode.EpisodeId) { Start = -5, End = 200 };
-
-        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
-
-        Assert.Equal(0, adjusted.Start); // clamped from -5 to 0 and snapped
-        Assert.Equal(30, adjusted.End);  // clamped from 200 to duration before end logic kicks in
+        Assert.Equal(expectedStart, adjusted.Start);
+        Assert.Equal(expectedEnd, adjusted.End);
+        Assert.Equal(expectedEnd > 0, adjusted.Valid);
     }
 }

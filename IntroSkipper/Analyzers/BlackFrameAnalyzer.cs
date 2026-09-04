@@ -22,7 +22,12 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
-public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger, IFFmpegService ffmpegService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
+/// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+public sealed partial class BlackFrameAnalyzer(
+    ILogger<BlackFrameAnalyzer> logger,
+    IFFmpegService ffmpegService,
+    IIntroSkipperDatabase database,
+    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Maximum distance, in seconds, between a chapter marker and the start of the black run
@@ -33,9 +38,9 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     /// </summary>
     private const double MaxChapterOffsetFromBlackRunStart = 15;
 
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
-    private readonly ILogger<BlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -138,7 +143,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     /// <param name="minimumBlackPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Credits segment if found; otherwise null.</returns>
+    /// <returns>Credits segment if found; otherwise null. Probe failures propagate to the caller, which marks the episode failed.</returns>
     public async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -154,74 +159,61 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
         double? firstBlackFrameTime = null;
 
-        try
+        // Continue binary search until the precision threshold is reached
+        while (searchStart - searchEnd > _maximumError)
         {
-            // Continue binary search until the precision threshold is reached
-            while (searchStart - searchEnd > _maximumError)
+            // Calculate midpoint and scan window
+            var midpoint = (searchStart + searchEnd) / 2;
+            var scanTime = episode.Duration - midpoint.TotalSeconds;
+            var timeRange = new TimeRange(scanTime, scanTime + 2);
+
+            // Detect black frames in the current time range
+            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+
+            LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
+
+            if (blackFrames.Length == 0)
             {
-                // Calculate midpoint and scan window
-                var midpoint = (searchStart + searchEnd) / 2;
-                var scanTime = episode.Duration - midpoint.TotalSeconds;
-                var timeRange = new TimeRange(scanTime, scanTime + 2);
+                // No black frames found, move search range toward the end
+                searchStart = midpoint - TimeSpan.FromSeconds(2);
 
-                // Detect black frames in the current time range
-                var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
-
-                LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
-
-                if (blackFrames.Length == 0)
+                // If we're close to the lower limit, expand search range
+                if (midpoint.TotalSeconds - lowerLimit < _maximumError.TotalSeconds)
                 {
-                    // No black frames found, move search range toward the end
-                    searchStart = midpoint - TimeSpan.FromSeconds(2);
+                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
+                    searchEnd = TimeSpan.FromSeconds(lowerLimit);
 
-                    // If we're close to the lower limit, expand search range
-                    if (midpoint.TotalSeconds - lowerLimit < _maximumError.TotalSeconds)
-                    {
-                        lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
-                        searchEnd = TimeSpan.FromSeconds(lowerLimit);
-
-                        LogExpandedSearchLowerLimit(_logger, lowerLimit);
-                    }
-                }
-                else
-                {
-                    // Black frames found, move search range toward the beginning
-                    searchEnd = midpoint;
-                    firstBlackFrameTime = blackFrames[0].Time + scanTime;
-
-                    // If we're close to the upper limit, expand search range
-                    if (upperLimit - midpoint.TotalSeconds < _maximumError.TotalSeconds)
-                    {
-                        upperLimit = Math.Min(
-                            upperLimit + (0.5 * searchDistance),
-                            episode.Duration - episode.CreditsFingerprintStart);
-                        searchStart = TimeSpan.FromSeconds(upperLimit);
-
-                        LogExpandedSearchUpperLimit(_logger, upperLimit);
-                    }
+                    LogExpandedSearchLowerLimit(_logger, lowerLimit);
                 }
             }
-
-            // Return a segment if we found black frames
-            if (firstBlackFrameTime.HasValue && firstBlackFrameTime.Value > 0)
+            else
             {
-                return new Segment(
-                    episode.EpisodeId,
-                    new TimeRange(firstBlackFrameTime.Value, episode.Duration));
-            }
+                // Black frames found, move search range toward the beginning
+                searchEnd = midpoint;
+                firstBlackFrameTime = blackFrames[0].Time + scanTime;
 
-            return null;
+                // If we're close to the upper limit, expand search range
+                if (upperLimit - midpoint.TotalSeconds < _maximumError.TotalSeconds)
+                {
+                    upperLimit = Math.Min(
+                        upperLimit + (0.5 * searchDistance),
+                        episode.Duration - episode.CreditsFingerprintStart);
+                    searchStart = TimeSpan.FromSeconds(upperLimit);
+
+                    LogExpandedSearchUpperLimit(_logger, upperLimit);
+                }
+            }
         }
-        catch (OperationCanceledException)
+
+        // Return a segment if we found black frames
+        if (firstBlackFrameTime.HasValue && firstBlackFrameTime.Value > 0)
         {
-            throw;
+            return new Segment(
+                episode.EpisodeId,
+                new TimeRange(firstBlackFrameTime.Value, episode.Duration));
         }
-        catch (Exception ex)
-        {
-            episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
-            LogErrorDuringAnalysis(_logger, ex, episode.Name);
-            return null;
-        }
+
+        return null;
     }
 
     /// <summary>
@@ -325,8 +317,6 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     /// <returns>Search start position in seconds from the end of the file.</returns>
     private async Task<double> FindSearchStartAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         // Initial search parameters
         var searchStart = 3d * _config.MinimumCreditsDuration;
         var maxSearchStart = episode.Duration - episode.CreditsFingerprintStart;
@@ -378,9 +368,6 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Expanded search range: new upper limit = {Limit:F2}s")]
     private static partial void LogExpandedSearchUpperLimit(ILogger logger, double limit);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error during black frame analysis for {Episode}")]
-    private static partial void LogErrorDuringAnalysis(ILogger logger, Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "No suitable chapters found for {Episode}")]
     private static partial void LogNoSuitableChaptersFound(ILogger logger, string episode);

@@ -22,9 +22,14 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
-public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameAnalyzer> logger, IFFmpegService ffmpegService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
+/// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+public sealed partial class CreditsBlackFrameAnalyzer(
+    ILogger<CreditsBlackFrameAnalyzer> logger,
+    IFFmpegService ffmpegService,
+    IIntroSkipperDatabase database,
+    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IIntroSkipperDatabase _database = database;
@@ -147,7 +152,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     /// <returns>A task that returns the detected credits segment, or <see langword="null" /> when no valid black-frame credits exist.</returns>
     private async Task<Segment?> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
-        var (minimum, sceneChange) = NormalizeThreshold(blackFrames, minimumPercentage);
+        var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, minimumPercentage);
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
         var blackIntervals = Array.Empty<BlackInterval>();
 
@@ -176,18 +181,11 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
             }
         }
 
-        var ranked = RankCreditCandidates(scenes, blackIntervals);
-        var boundaryRefiner = _config.RefineCreditsBoundary ? new CreditsBoundaryRefiner(_ffmpegService) : null;
-
-        foreach (var scene in ranked)
+        foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
         {
-            var refinedStartTime = scene.StartTime;
-            if (boundaryRefiner is not null)
-            {
-                refinedStartTime = await boundaryRefiner
-                    .RefineAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, LogRefinedBoundary, cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            var refinedStartTime = _config.RefineCreditsBoundary
+                ? await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
+                : scene.StartTime;
 
             var segment = new Segment(
                 episode.EpisodeId,
@@ -274,21 +272,61 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     }
 
     /// <summary>
-    /// Normalizes black-frame thresholds against the darkest frames in the credits scan.
+    /// Refines a scene start time when a targeted blackframe probe of the keyframe gap before the
+    /// scene finds an earlier black transition. Probes only when the gap could change whether the
+    /// scene reaches the minimum duration.
     /// </summary>
-    /// <param name="frames">The keyframe black-frame scan results.</param>
-    /// <param name="minimumPercentage">The configured minimum black percentage.</param>
-    /// <returns>The normalized black-frame and scene-change thresholds.</returns>
-    internal static (int Minimum, int SceneChange) NormalizeThreshold(List<BlackFrame> frames, int minimumPercentage)
+    /// <returns>The refined start time, or the original scene start when no valid refinement exists.</returns>
+    private async Task<double> RefineBoundaryAsync(
+        QueuedEpisode episode,
+        List<BlackFrame> frames,
+        CreditScene scene,
+        int sceneChange,
+        int threshold,
+        int minimumDuration,
+        CancellationToken cancellationToken)
     {
-        return BlackFrameThresholdHelper.NormalizeThreshold(frames, minimumPercentage);
+        var boundary = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
+        if (boundary is null)
+        {
+            return scene.StartTime;
+        }
+
+        var (lastKeyframeTime, firstBlackTime) = boundary.Value;
+        if (!CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime, minimumDuration))
+        {
+            return scene.StartTime;
+        }
+
+        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange);
+        var probeRange = new TimeRange(
+            lastKeyframeTime + episode.CreditsFingerprintStart,
+            firstBlackTime + episode.CreditsFingerprintStart);
+
+        var probeFrames = await _ffmpegService
+            .DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (probeFrames.Length == 0)
+        {
+            return scene.StartTime;
+        }
+
+        var refinedTime = CreditsBoundaryHelper.TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
+        if (refinedTime is null)
+        {
+            return scene.StartTime;
+        }
+
+        LogRefinedBoundary(scene.StartTime, refinedTime.Value);
+        return refinedTime.Value;
     }
 
     /// <summary>
     /// Builds bounded blackdetect probe ranges for candidate scenes.
     /// </summary>
     /// <param name="candidates">The candidate scenes that bound interval probes.</param>
-    /// <param name="minimumDuration">The minimum credit duration used as probe padding.</param>
+    /// <param name="minimumDuration">The minimum credit duration, also used as probe padding on each side.</param>
     /// <param name="fingerprintStart">The absolute start of the credits fingerprint window.</param>
     /// <param name="fingerprintEnd">The absolute end of the credits fingerprint window.</param>
     /// <returns>The merged probe ranges clamped to the fingerprint window.</returns>
@@ -298,11 +336,10 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
         double fingerprintStart,
         double fingerprintEnd)
     {
-        var padding = CreditDetectionPolicy.IntervalProbePadding(minimumDuration);
         var ranges = candidates
             .Select(candidate => new TimeRange(
-                Math.Max(fingerprintStart, fingerprintStart + candidate.StartTime - padding),
-                Math.Min(fingerprintEnd, fingerprintStart + candidate.EndTime + padding)))
+                Math.Max(fingerprintStart, fingerprintStart + candidate.StartTime - minimumDuration),
+                Math.Min(fingerprintEnd, fingerprintStart + candidate.EndTime + minimumDuration)))
             .Where(range => range.Duration > 0)
             .OrderBy(range => range.Start)
             .ToList();
