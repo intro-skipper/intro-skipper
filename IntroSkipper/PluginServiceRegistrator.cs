@@ -51,7 +51,10 @@ namespace IntroSkipper
             // request that arrives earlier.
             serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
 
-            serviceCollection.AddHostedService<Entrypoint>();
+            // One instance serves both roles: the hosted library-event listener and the
+            // automatic-analysis owner that DetectSegmentsTask cancels before it starts.
+            serviceCollection.AddSingleton<Entrypoint>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
             // Owns the shared dependency set of the per-run analysis objects
             // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
             // therefore created fresh by this factory instead of being singletons.
