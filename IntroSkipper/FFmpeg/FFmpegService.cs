@@ -37,8 +37,9 @@ public sealed partial class FFmpegService : IFFmpegService
 
     // Audio stream selection is probed with ffprobe once per file and configuration; intro and
     // credits fingerprinting of the same file share the result. The service is a singleton, so a
-    // file remuxed with a different stream layout is only re-probed after a plugin reload or when
-    // the cap below clears the memo. Failed probes are not memoized.
+    // file remuxed with a different stream layout is only re-probed after a plugin reload or after
+    // the memo grows past MaximumMemoizedAudioStreamSelections and is cleared. Failed probes are
+    // not memoized.
     private readonly ConcurrentDictionary<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
 
     /// <summary>
