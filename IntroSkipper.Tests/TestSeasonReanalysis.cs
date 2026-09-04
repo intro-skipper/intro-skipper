@@ -13,7 +13,6 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
-using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -134,13 +133,13 @@ public sealed class TestSeasonReanalysisPlanner
         bool ffmpegValid,
         bool expected)
     {
-        Assert.Equal(expected, BaseItemAnalyzerTask.CanSettleReanalysisRun(mode, action, ffmpegValid));
+        Assert.Equal(expected, SeasonReanalysisPlanner.CanSettleReanalysisRun(mode, action, ffmpegValid));
     }
 
     [Fact]
     public void ExpandSettledResetModesForDerivedSegments_AddsPreview_WhenCreditsGenerateAnimePreview()
     {
-        var resetModes = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
+        var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
 
         Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], resetModes);
     }
@@ -148,34 +147,13 @@ public sealed class TestSeasonReanalysisPlanner
     [Fact]
     public void ExpandSettledResetModesForDerivedSegments_DoesNotAddPreview_WhenDisabledOrAlreadyPresent()
     {
-        var disabled = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], false);
-        var alreadyPresent = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments(
+        var disabled = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], false);
+        var alreadyPresent = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
             [AnalysisMode.Credits, AnalysisMode.Preview],
             true);
 
         Assert.Equal([AnalysisMode.Credits], disabled);
         Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], alreadyPresent);
-    }
-
-    // NoSegments is a negative-cache result for the current configuration: the season pass
-    // is skipped until an episode is reset to NotAnalyzed (new episode, config or
-    // Chromaprint-availability change, settled-season reanalysis), and one such episode
-    // reopens the whole season, giving the settled NoSegments episodes another chance via
-    // NeedsAnalysis().
-    [Theory]
-    [InlineData(new[] { EpisodeState.NoSegments }, false)]
-    [InlineData(new[] { EpisodeState.NoSegments, EpisodeState.NotAnalyzed }, true)]
-    [InlineData(new[] { EpisodeState.Analyzed, EpisodeState.UserProvided }, false)]
-    public void HasUncachedAnalysisWork(EpisodeState[] states, bool expected)
-    {
-        var episodes = states.Select(state =>
-        {
-            var episode = new QueuedEpisode();
-            episode.SetAnalyzed(AnalysisMode.Introduction, state);
-            return episode;
-        }).ToList();
-
-        Assert.Equal(expected, BaseItemAnalyzerTask.HasUncachedAnalysisWork(episodes, AnalysisMode.Introduction));
     }
 
     private static List<QueuedEpisode> Season(
@@ -307,7 +285,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         IReadOnlyCollection<AnalysisMode> resetModes = [
             AnalysisMode.Introduction,
-            .. BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true)
+            .. SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true)
         ];
         await _db.Database.ResetItemsForReanalysisAsync(
             [autoEpisode, userEpisode, mixedEpisode, userPreviewEpisode],
@@ -420,7 +398,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(fixture.EpisodeId, Assert.Single(verified).EpisodeId);
     }
 
-    // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,
+    // Mirrors the production eligibility decision in SeasonReanalysisPlanner.GetSettleReanalysisModes,
     // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
     private static async Task<bool> ShouldReanalyzeAsync(
         IntroSkipperDatabase database,
@@ -430,7 +408,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     {
         var states = await database.GetSettleReanalysisStatesAsync(seasonId);
         return !states.TryGetValue(mode, out var state)
-            || AnalysisHelpers.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
+            || SeasonReanalysisPlanner.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
     }
 
     /// <summary>
