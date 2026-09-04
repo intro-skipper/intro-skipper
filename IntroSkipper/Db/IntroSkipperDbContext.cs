@@ -231,16 +231,6 @@ public class IntroSkipperDbContext : DbContext
         base.OnModelCreating(modelBuilder);
     }
 
-    /// <summary>
-    /// Asynchronously applies any pending migrations to the database.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task ApplyMigrationsAsync(CancellationToken cancellationToken = default)
-    {
-        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <inheritdoc/>
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {

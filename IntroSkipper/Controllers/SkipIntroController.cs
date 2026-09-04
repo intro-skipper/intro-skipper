@@ -199,9 +199,9 @@ public partial class SkipIntroController(
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
             // Best-effort cache cleanup (the facade logs and swallows database errors),
-            // run off the request thread and not bound to request cancellation: the main
-            // database rows are already gone, so make one complete cleanup attempt.
-            await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
+            // not bound to request cancellation: the main database rows are already
+            // gone, so make one complete cleanup attempt.
+            await _cacheDatabase.DeleteByModeAsync(mode, CancellationToken.None).ConfigureAwait(false);
         }
 
         // The erase journaled every affected item's projection; converge exactly those

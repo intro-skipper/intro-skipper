@@ -614,7 +614,7 @@ public sealed class TestVisualizationController
     private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
-        await db.ApplyMigrationsAsync();
+        await db.Database.MigrateAsync();
         db.Segments.AddRange(
             new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),
             new DbSegment(episodeIds[1], AnalysisMode.Introduction, TickConversions.FromSeconds(30), TickConversions.FromSeconds(40), SegmentSource.Chapter),

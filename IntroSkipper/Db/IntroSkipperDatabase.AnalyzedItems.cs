@@ -26,18 +26,21 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        // Delete-then-insert inside one transaction is the upsert: a tracked insert over
-        // an existing composite key would fail, and one statement per set beats a
-        // read-modify-write per item.
+        // One transaction so a cancelled pass cannot leave the season half-recorded.
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await db.AnalyzedItems
-                .Where(a => a.Type == mode && EF.Parameter(ids).Contains(a.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-            db.AnalyzedItems.AddRange(ids.Select(id => new DbAnalyzedItem(id, mode, configHash)));
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var id in ids)
+            {
+                await db.Database.ExecuteSqlAsync(
+                    $"""
+                    INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash")
+                    VALUES ({id}, {(int)mode}, {configHash})
+                    ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash"
+                    """,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
     }

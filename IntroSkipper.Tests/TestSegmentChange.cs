@@ -487,7 +487,7 @@ public sealed class TestSegmentChange : IDisposable
         Assert.Equal(SegmentChangeRejectedReason.ExternalSegmentNotFound, mismatchedPairing.Reason);
 
         await using var db = CreateContext();
-        await db.ApplyMigrationsAsync();
+        await db.Database.MigrateAsync();
         Assert.Empty(await db.ProjectionQueue.ToListAsync());
         Assert.Empty(await db.ProjectionExternalOperations.ToListAsync());
     }
@@ -864,7 +864,7 @@ public sealed class TestSegmentChange : IDisposable
     {
         await using (var db = CreateContext())
         {
-            await db.ApplyMigrationsAsync();
+            await db.Database.MigrateAsync();
         }
 
         var adapter = new RecordingProjectionAdapter { ResolveException = new InvalidOperationException("resolver unavailable") };
@@ -1117,7 +1117,7 @@ public sealed class TestSegmentChange : IDisposable
     private async Task SeedAsync(params DbSegment[] segments)
     {
         await using var db = CreateContext();
-        await db.ApplyMigrationsAsync();
+        await db.Database.MigrateAsync();
         db.Segments.AddRange(segments);
         await db.SaveChangesAsync();
     }
@@ -1125,7 +1125,7 @@ public sealed class TestSegmentChange : IDisposable
     private async Task SeedAnalyzedItemAsync(params DbAnalyzedItem[] items)
     {
         await using var db = CreateContext();
-        await db.ApplyMigrationsAsync();
+        await db.Database.MigrateAsync();
         db.AnalyzedItems.AddRange(items);
         await db.SaveChangesAsync();
     }

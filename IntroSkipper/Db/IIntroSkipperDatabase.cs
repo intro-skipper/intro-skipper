@@ -194,7 +194,9 @@ public interface IIntroSkipperDatabase
     Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the settled-season reanalysis state for all modes in a season.
+    /// Returns the analyzer action and settled-season reanalysis state for every mode
+    /// of a season that has a stored row; modes without a row are absent and mean
+    /// <see cref="AnalyzerAction.Default"/>.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -235,15 +237,6 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Analyzer actions keyed by analysis mode.</returns>
     Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Returns the analyzer action for a season and mode.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The stored analyzer action, or <see cref="AnalyzerAction.Default"/>.</returns>
-    Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns a snapshot of the season's analyzer actions, the episodes' analysis records
