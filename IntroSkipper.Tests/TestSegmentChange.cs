@@ -13,6 +13,7 @@ using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.SegmentChanges;
 using Jellyfin.Database.Implementations.Enums;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -1013,6 +1014,38 @@ public sealed class TestSegmentChange : IDisposable
 
         Assert.True(await journal.CompleteProjectionWorkAsync(itemId, surviving.Item.Version, [], CancellationToken.None));
         Assert.Null(await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CompleteWork_WhenQueueDeleteFails_RetainsExternalOperations()
+    {
+        var itemId = Guid.NewGuid();
+        var row = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User);
+        await SeedAsync(row);
+        var database = CreateDatabase();
+        ISegmentProjectionJournal journal = database;
+
+        Assert.Null((await database.ApplyChangeAsync(
+            new EditorDeleteSegmentIntent(itemId, row.Id, MediaSegmentType.Intro))).Outcome);
+        var work = await journal.ReadProjectionWorkAsync(itemId, CancellationToken.None);
+        Assert.NotNull(work);
+        var operation = Assert.Single(work.Operations);
+
+        await using (var db = CreateContext())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER FailProjectionCompletion BEFORE DELETE ON ProjectionQueue BEGIN SELECT RAISE(ABORT, 'completion failed'); END;");
+        }
+
+        await Assert.ThrowsAsync<SqliteException>(() => journal.CompleteProjectionWorkAsync(
+            itemId,
+            work.Item.Version,
+            [operation.Id],
+            CancellationToken.None));
+
+        await using var verify = CreateContext();
+        Assert.Single(await verify.ProjectionQueue.ToListAsync());
+        Assert.Equal(operation.Id, Assert.Single(await verify.ProjectionExternalOperations.ToListAsync()).Id);
     }
 
     [Fact]

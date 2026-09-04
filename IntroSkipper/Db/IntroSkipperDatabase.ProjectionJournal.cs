@@ -71,18 +71,24 @@ public sealed partial class IntroSkipperDatabase : ISegmentProjectionJournal
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        if (processedOperationIds.Count > 0)
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
         {
-            await db.ProjectionExternalOperations
-                .Where(o => o.ItemId == itemId && EF.Parameter(processedOperationIds).Contains(o.Id))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
+            if (processedOperationIds.Count > 0)
+            {
+                await db.ProjectionExternalOperations
+                    .Where(o => o.ItemId == itemId && EF.Parameter(processedOperationIds).Contains(o.Id))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
-        return await db.ProjectionQueue
-            .Where(q => q.ItemId == itemId && q.Version == version)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false) > 0;
+            var completed = await db.ProjectionQueue
+                .Where(q => q.ItemId == itemId && q.Version == version)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false) > 0;
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return completed;
+        }
     }
 
     /// <inheritdoc/>
