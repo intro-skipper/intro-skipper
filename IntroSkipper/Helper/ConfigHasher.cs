@@ -11,7 +11,7 @@ namespace IntroSkipper.Helper;
 /// <summary>
 /// Computes deterministic hashes for the configuration subsets that affect analysis output.
 /// </summary>
-public static class ConfigHasher
+internal static class ConfigHasher
 {
     /// <summary>
     /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
@@ -31,8 +31,6 @@ public static class ConfigHasher
     /// <returns>A compact hex hash.</returns>
     public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -97,8 +95,6 @@ public static class ConfigHasher
         AnalysisMode mode,
         string? audioStreamIdentity)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var streamToken = type == CacheEntryType.Chromaprint && !string.IsNullOrWhiteSpace(audioStreamIdentity)
             ? FormattableString.Invariant($"|audioStream={audioStreamIdentity}")
             : ChromaprintStreamToken(config);
@@ -146,8 +142,6 @@ public static class ConfigHasher
     /// <returns>The legacy default-selection cache hash.</returns>
     public static string LegacyChromaprintCacheWithoutLanguage(PluginConfiguration config, AnalysisMode mode)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var input = Invariant(
             $"cache|v1|{CacheEntryType.Chromaprint}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}");
 

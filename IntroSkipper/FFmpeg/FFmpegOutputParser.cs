@@ -14,7 +14,7 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Parses FFmpeg output into Intro Skipper data types.
 /// </summary>
-public static partial class FFmpegOutputParser
+internal static partial class FFmpegOutputParser
 {
     private static readonly Regex _silenceDetectionExpression = SilenceRegex();
 

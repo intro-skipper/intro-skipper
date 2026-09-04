@@ -5,7 +5,7 @@
 using System;
 using System.Linq;
 using IntroSkipper.Data;
-using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Analyzers;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -56,12 +56,12 @@ public class TestAnimePreviewRefresh
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public void ComputeAnimePreviewFromCredits(double? creditsEnd, double duration, (double Start, double End)[] existingPreviews, double? expectedStart)
+    public void Compute(double? creditsEnd, double duration, (double Start, double End)[] existingPreviews, double? expectedStart)
     {
         var credits = creditsEnd is null ? null : new Segment(EpisodeId, new TimeRange(1200.0, creditsEnd.Value));
         var previews = existingPreviews.Select(p => new Segment(EpisodeId, new TimeRange(p.Start, p.End))).ToList();
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, duration, credits, previews);
+        var result = AnimePreviewDeriver.Compute(EpisodeId, duration, credits, previews);
 
         if (expectedStart is null)
         {

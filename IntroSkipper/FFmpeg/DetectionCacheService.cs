@@ -22,14 +22,26 @@ namespace IntroSkipper.FFmpeg;
 /// </remarks>
 /// <param name="logger">The logger instance.</param>
 /// <param name="cacheDatabase">The detection cache database facade.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, IDetectionCacheDatabase cacheDatabase) : IDetectionCacheService
+public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, IDetectionCacheDatabase cacheDatabase)
 {
     private readonly ILogger<DetectionCacheService> _logger = logger;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     private static bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Tries to read a cached detection result from the SQLite DB.
+    /// </summary>
+    /// <typeparam name="T">The element type of the cached result array.</typeparam>
+    /// <param name="itemId">The media item ID.</param>
+    /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
+    /// <param name="type">One of the enumeration values that specifies the cache entry type.</param>
+    /// <param name="start">The start position used as a cache key component.</param>
+    /// <param name="end">The end position used as a cache key component.</param>
+    /// <param name="result">When this method returns, contains the cached result array, or an empty array if the cache was missed. This parameter is treated as uninitialized.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
+    /// <param name="legacyConfigHash">Optional legacy hash that is safe to accept for this effective stream.</param>
+    /// <returns><see langword="true"/> if a valid cache entry was found; otherwise, <see langword="false"/>.</returns>
     public bool TryRead<T>(
         Guid itemId,
         AnalysisMode mode,
@@ -72,29 +84,29 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             }
 
             result = DecompressBrotli<T[]>(entry.Data) ?? [];
-
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                var cacheKey = $"{itemId:N}-{mode}-{type}";
-                LogDetectionCacheHit(_logger, cacheKey);
-            }
-
+            LogDetectionCacheHit(_logger, itemId, mode, type);
             return true;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException or DbException)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                var cacheKey = $"{itemId:N}-{mode}-{type}";
-                LogDetectionCacheReadError(_logger, ex, cacheKey);
-            }
-
+            LogDetectionCacheReadError(_logger, ex, itemId, mode, type);
             return false;
         }
     }
 
-    /// <inheritdoc/>
-    public bool Write<T>(
+    /// <summary>
+    /// Writes a detection result to the SQLite cache. A failed write is logged and swallowed:
+    /// the cache is an optimization and must never discard a valid analysis result.
+    /// </summary>
+    /// <typeparam name="T">The element type of the result array to cache.</typeparam>
+    /// <param name="itemId">The media item ID.</param>
+    /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
+    /// <param name="type">One of the enumeration values that specifies the cache entry type.</param>
+    /// <param name="start">The start position used as a cache key component.</param>
+    /// <param name="end">The end position used as a cache key component.</param>
+    /// <param name="items">The result array to cache.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
+    public void Write<T>(
         Guid itemId,
         AnalysisMode mode,
         CacheEntryType type,
@@ -105,7 +117,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     {
         if (!IsEnabled)
         {
-            return false;
+            return;
         }
 
         var data = CompressBrotli(items);
@@ -114,23 +126,20 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash);
-            return true;
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                var cacheKey = $"{itemId:N}-{mode}-{type}";
-                LogDetectionCacheWriteError(_logger, ex, cacheKey);
-            }
-
-            // Suppress duplicate-insert races and database-level cache failures. The cache is a
-            // performance optimization; write failures should never discard valid analysis results.
-            return false;
+            LogDetectionCacheWriteError(_logger, ex, itemId, mode, type);
         }
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Checks if a fingerprint cache entry exists for the episode.
+    /// </summary>
+    /// <param name="episode">The queued episode to check.</param>
+    /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
+    /// <remarks>Stream-scoped entries are considered present here; the fingerprint read validates the exact stream and configuration before reuse.</remarks>
+    /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
         if (!IsEnabled)
@@ -163,17 +172,22 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         }
         catch (DbException ex)
         {
-            if (_logger.IsEnabled(LogLevel.Warning))
-            {
-                var cacheKey = $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}";
-                LogDetectionCacheReadError(_logger, ex, cacheKey);
-            }
+            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, mode, CacheEntryType.Chromaprint);
         }
 
         return false;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Deletes cache rows whose configuration hash no read path can accept under the current
+    /// plugin configuration: superseded hash inputs (e.g. the token-suffixed legacy hash an
+    /// intermediate release wrote) and hashes of settings values that have since changed.
+    /// Rows with an empty hash and stream-scoped rows are kept, mirroring the optimistic
+    /// acceptance of the read paths. A row deleted here would be refingerprinted anyway;
+    /// the cost of a false delete is one recomputation, never lost analysis results.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     public async Task<int> DeleteUnreadableEntriesAsync(CancellationToken cancellationToken = default)
     {
         var config = Plugin.Instance?.Configuration ?? new();
@@ -228,15 +242,15 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         return JsonSerializer.Deserialize<T>(brotli);
     }
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
-    private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {ItemId} {Mode} {Type}")]
+    private static partial void LogDetectionCacheHit(ILogger logger, Guid itemId, AnalysisMode mode, CacheEntryType type);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Reusing pre-stream-selection {Type} cache entry for {ItemId} in {Mode} mode")]
     private static partial void LogLegacyDetectionCacheReused(ILogger logger, Guid itemId, AnalysisMode mode, CacheEntryType type);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
-    private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache for {ItemId} {Mode} {Type}")]
+    private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, Guid itemId, AnalysisMode mode, CacheEntryType type);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
-    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {ItemId} {Mode} {Type}")]
+    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, Guid itemId, AnalysisMode mode, CacheEntryType type);
 }

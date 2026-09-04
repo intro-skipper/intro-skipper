@@ -14,7 +14,7 @@ namespace IntroSkipper.Analyzers;
 /// <summary>
 /// Helper class for adjusting intro times.
 /// </summary>
-public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config, AnalysisMode mode, IFFmpegService ffmpegService)
+internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config, AnalysisMode mode, IFFmpegService ffmpegService)
 {
     private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
@@ -30,16 +30,12 @@ public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigura
     /// <param name="adjustIntroBasedOnChapters">Whether to adjust based on chapters (overrides _config if true).</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg-based adjustment probes.</param>
     /// <returns>A task that returns a new Segment with adjusted intro times.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if episode or originalIntro is null.</exception>
     public async Task<Segment> AdjustIntroTimesAsync(
         QueuedEpisode episode,
         Segment originalIntro,
         bool? adjustIntroBasedOnChapters = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-        ArgumentNullException.ThrowIfNull(originalIntro);
-
         // Config checks
         if (_config.EndSnapThreshold < 0 || _config.AdjustWindowInward < 0 || _config.AdjustWindowOutward < 0)
         {
@@ -85,7 +81,6 @@ public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigura
         {
             // Snap the detected boundary first; IntroStartOffset is applied below so it also
             // takes effect when the detected intro starts at (or near) the episode start.
-            LogSnappingIntroStart(_logger, episode.EpisodeId, episode.Name, _config.EndSnapThreshold);
             adjustedStart = 0;
         }
 
@@ -117,15 +112,7 @@ public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigura
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
             if (_config.AdjustIntroBasedOnSilence)
             {
-                var silenceAdjusted = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
-                if (silenceAdjusted != adjustedEnd)
-                {
-                    adjustedEnd = silenceAdjusted;
-                }
-                else
-                {
-                    LogNoSilenceFound(_logger, episode.EpisodeId, episode.Name, silenceRange.Start, silenceRange.End);
-                }
+                adjustedEnd = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
             }
 
             if (_config.SnapToKeyframe)
@@ -181,20 +168,8 @@ public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigura
         try
         {
             var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
-            if (silence is not { Length: > 0 })
-            {
-                LogNoSilenceDetected(_logger, episode.EpisodeId, episode.Name);
-                return currentEnd;
-            }
-
             foreach (var currentRange in silence)
             {
-                LogSilenceDetected(
-                    _logger,
-                    episode.EpisodeId,
-                    episode.Name,
-                    currentRange.Start,
-                    currentRange.End);
                 if (
                     !searchRange.Intersects(currentRange) ||
                     currentRange.Duration < silenceDetectionMinimumDuration ||
@@ -266,23 +241,11 @@ public sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigura
     [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0")]
     private static partial void LogNegativeIntroStart(ILogger logger, Guid episodeId, string name, double start);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: Snapping intro start to 0 (within threshold {Threshold})")]
-    private static partial void LogSnappingIntroStart(ILogger logger, Guid episodeId, string name, double threshold);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: No suitable silence found for intro end in range {Start}-{End}")]
-    private static partial void LogNoSilenceFound(ILogger logger, Guid episodeId, string name, double start, double end);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, discarding segment")]
     private static partial void LogAdjustedStartAfterEnd(ILogger logger, Guid episodeId, string name, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name} adjusted intro: {Start} - {End}")]
     private static partial void LogAdjustedIntro(ILogger logger, Guid episodeId, string name, double start, double end);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name}: No silence detected")]
-    private static partial void LogNoSilenceDetected(ILogger logger, Guid episodeId, string name);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{EpisodeId} {Name} silence: {Start} - {End}")]
-    private static partial void LogSilenceDetected(ILogger logger, Guid episodeId, string name, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Error detecting silence: {Error}")]
     private static partial void LogErrorDetectingSilence(ILogger logger, Guid episodeId, string name, string error);

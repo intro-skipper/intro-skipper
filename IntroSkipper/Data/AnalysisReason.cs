@@ -6,7 +6,7 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Why an item remains queued for analysis instead of being restored from stored state.
 /// </summary>
-public enum AnalysisReason
+internal enum AnalysisReason
 {
     /// <summary>
     /// Stored analysis state matches the current configuration.

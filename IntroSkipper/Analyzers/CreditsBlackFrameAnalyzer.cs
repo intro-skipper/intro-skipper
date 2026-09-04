@@ -23,14 +23,14 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-public sealed partial class CreditsBlackFrameAnalyzer(
+internal sealed partial class CreditsBlackFrameAnalyzer(
     ILogger<CreditsBlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
     IIntroSkipperDatabase database,
     PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -90,12 +90,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [credit], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                LogAnalysisCancelled();
-                throw;
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
                 LogErrorAnalyzingCredits(ex, episode.Name);
@@ -158,7 +153,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(
 
         if (scenes.Count == 0)
         {
-            var candidates = CreditSceneBuilder.DetectCreditSceneCandidates(blackFrames, minimum);
+            var candidates = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
             if (candidates.Count == 0)
             {
                 return null;
@@ -379,9 +374,6 @@ public sealed partial class CreditsBlackFrameAnalyzer(
         IReadOnlyList<CreditScene> scenes,
         IReadOnlyList<BlackInterval> intervals)
     {
-        ArgumentNullException.ThrowIfNull(scenes);
-        ArgumentNullException.ThrowIfNull(intervals);
-
         return [.. scenes
             .Select((scene, index) => new
             {
@@ -420,9 +412,6 @@ public sealed partial class CreditsBlackFrameAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s")]
     private partial void LogFoundCredits(string episode, double start);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Analysis cancelled by user")]
-    private partial void LogAnalysisCancelled();
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
     private partial void LogErrorAnalyzingCredits(Exception ex, string episode);

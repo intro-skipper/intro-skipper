@@ -31,7 +31,7 @@ public class AnalyzerTaskFactory(
     IProviderManager providerManager,
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService,
+    DetectionCacheService cacheService,
     IIntroSkipperDatabase database)
 {
     /// <summary>

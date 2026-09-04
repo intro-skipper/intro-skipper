@@ -23,9 +23,7 @@ internal static class FfmpegTestHelpers
     /// <param name="versionProbeTimeout">Bounds one probe attempt.</param>
     /// <returns>The service.</returns>
     internal static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>>? versionProbe = null, TimeSpan? versionProbeTimeout = null)
-        => versionProbe is null
-            ? new FFmpegService(NullLogger<FFmpegService>.Instance, DatabaseTestHelpers.CreateTempCacheService())
-            : new FFmpegService(NullLogger<FFmpegService>.Instance, DatabaseTestHelpers.CreateTempCacheService(), versionProbe, versionProbeTimeout);
+        => new(NullLogger<FFmpegService>.Instance, DatabaseTestHelpers.CreateTempCacheService(), versionProbe, versionProbeTimeout);
 
     /// <summary>
     /// Queues a fixture file for analysis.

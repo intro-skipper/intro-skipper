@@ -23,7 +23,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-public sealed partial class BlackFrameAnalyzer(
+internal sealed partial class BlackFrameAnalyzer(
     ILogger<BlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
     IIntroSkipperDatabase database,
@@ -144,10 +144,8 @@ public sealed partial class BlackFrameAnalyzer(
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Credits segment if found; otherwise null. Probe failures propagate to the caller, which marks the episode failed.</returns>
-    public async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold, CancellationToken cancellationToken = default)
+    internal async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         // Calculate search boundaries
         var searchDistance = 2 * _config.MinimumCreditsDuration;
         var upperLimit = Math.Min(initialStart, episode.Duration - episode.CreditsFingerprintStart);
@@ -226,8 +224,6 @@ public sealed partial class BlackFrameAnalyzer(
     /// <returns>Credits segment if found using chapters; otherwise null.</returns>
     internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(episode);
-
         // Get chapters that fall within the valid credits duration range
         var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
             .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)

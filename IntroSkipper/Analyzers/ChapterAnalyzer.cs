@@ -4,8 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Immutable;
-using System.Globalization;
+using System.Collections.Frozen;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -26,7 +25,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-public sealed partial class ChapterAnalyzer(
+internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
     IIntroSkipperDatabase database,
@@ -36,33 +35,27 @@ public sealed partial class ChapterAnalyzer(
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private static readonly ImmutableHashSet<string> _ambiguousSponsorBlockChapterLabels =
-        ImmutableHashSet.Create(
-            StringComparer.OrdinalIgnoreCase,
-            "intermission/intro animation",
-            "preview/recap",
-            "preview/recap/hook",
-            "hook",
-            "hook/greetings");
 
-    private static readonly ImmutableDictionary<AnalysisMode, ImmutableHashSet<string>> _sponsorBlockChapterLabels =
-        new Dictionary<AnalysisMode, ImmutableHashSet<string>>
+    // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which
+    // skips them all, treats them as a match.
+    private static readonly string[] _ambiguousSponsorBlockChapterLabels =
+    [
+        "intermission/intro animation",
+        "preview/recap",
+        "preview/recap/hook",
+        "hook",
+        "hook/greetings",
+    ];
+
+    private static readonly FrozenDictionary<AnalysisMode, FrozenSet<string>> _sponsorBlockChapterLabels =
+        new Dictionary<AnalysisMode, FrozenSet<string>>
         {
-            [AnalysisMode.Introduction] = ImmutableHashSet.Create(
-                StringComparer.OrdinalIgnoreCase,
-                "intro"),
-            [AnalysisMode.Credits] = ImmutableHashSet.Create(
-                StringComparer.OrdinalIgnoreCase,
-                "outro",
-                "endcards/credits"),
-            [AnalysisMode.Preview] = ImmutableHashSet.Create(
-                StringComparer.OrdinalIgnoreCase,
-                "preview"),
-            [AnalysisMode.Recap] = ImmutableHashSet.Create(
-                StringComparer.OrdinalIgnoreCase,
-                "recap"),
-            [AnalysisMode.Commercial] = ImmutableHashSet.Create(
-                StringComparer.OrdinalIgnoreCase,
+            [AnalysisMode.Introduction] = Labels(["intro"]),
+            [AnalysisMode.Credits] = Labels(["outro", "endcards/credits"]),
+            [AnalysisMode.Preview] = Labels(["preview"]),
+            [AnalysisMode.Recap] = Labels(["recap"]),
+            [AnalysisMode.Commercial] = Labels(
+            [
                 "sponsor",
                 "selfpromo",
                 "self promotion",
@@ -75,8 +68,10 @@ public sealed partial class ChapterAnalyzer(
                 "tangents/jokes",
                 "music_offtopic",
                 "music: non-music section",
-                "non-music section").Union(_ambiguousSponsorBlockChapterLabels)
-        }.ToImmutableDictionary();
+                "non-music section",
+                .. _ambiguousSponsorBlockChapterLabels,
+            ]),
+        }.ToFrozenDictionary();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -178,7 +173,6 @@ public sealed partial class ChapterAnalyzer(
     /// <summary>
     /// Searches a list of chapter names for all that match the provided regular expression,
     /// in mode-specific scan order (reversed for credits and previews).
-    /// Only public to allow for unit testing.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="chapters">Media item chapters.</param>
@@ -186,7 +180,7 @@ public sealed partial class ChapterAnalyzer(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
     /// <returns>All matching skippable time ranges; empty when no chapter matched.</returns>
-    public IReadOnlyList<Segment> FindMatchingChapters(
+    internal IReadOnlyList<Segment> FindMatchingChapters(
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
@@ -203,7 +197,6 @@ public sealed partial class ChapterAnalyzer(
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
         var step = reversed ? -1 : 1;
         var (minDuration, maxDuration) = GetBounds(mode, episode);
-        var traceEnabled = _logger.IsEnabled(LogLevel.Trace);
 
         for (var i = reversed ? count - 1 : 0; i >= 0 && i < count; i += step)
         {
@@ -220,20 +213,9 @@ public sealed partial class ChapterAnalyzer(
                 TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds,
                 TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
 
-            // Only trace logs consume the message; skip the formatting when they are off.
-            var baseMessage = traceEnabled
-                ? string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{0}: Chapter \"{1}\" ({2} - {3})",
-                    episode.Path,
-                    chapter.Name,
-                    currentRange.Start,
-                    currentRange.End)
-                : string.Empty;
-
             if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
             {
-                LogIgnoringInvalidDuration(baseMessage);
+                LogIgnoringInvalidDuration(episode.Path, chapter.Name, currentRange.Start, currentRange.End);
                 continue;
             }
 
@@ -241,7 +223,7 @@ public sealed partial class ChapterAnalyzer(
 
             if (!match)
             {
-                LogIgnoringNoRegexMatch(baseMessage);
+                LogIgnoringNoRegexMatch(episode.Path, chapter.Name, currentRange.Start, currentRange.End);
                 continue;
             }
 
@@ -264,13 +246,13 @@ public sealed partial class ChapterAnalyzer(
 
                     if (overlap)
                     {
-                        LogIgnoringAdjacentMatch(baseMessage);
+                        LogIgnoringAdjacentMatch(episode.Path, chapter.Name, currentRange.Start, currentRange.End);
                         continue;
                     }
                 }
             }
 
-            LogChapterOk(baseMessage);
+            LogChapterOk(episode.Path, chapter.Name, currentRange.Start, currentRange.End);
             matches.Add(new Segment(episode.EpisodeId, currentRange));
             if (!AllowsMultipleMatches(mode))
             {
@@ -395,6 +377,8 @@ public sealed partial class ChapterAnalyzer(
             TimeSpan.FromSeconds(1));
     }
 
+    private static FrozenSet<string> Labels(string[] labels) => labels.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
     private static bool TryGetSponsorBlockChapterLabel(string chapterName, out string label)
     {
         const string Prefix = "[SponsorBlock]:";
@@ -409,17 +393,17 @@ public sealed partial class ChapterAnalyzer(
         return true;
     }
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (invalid duration)")]
-    private partial void LogIgnoringInvalidDuration(string @base);
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Path}: Chapter \"{Name}\" ({Start} - {End}): ignoring (invalid duration)")]
+    private partial void LogIgnoringInvalidDuration(string path, string name, double start, double end);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (does not match regular expression)")]
-    private partial void LogIgnoringNoRegexMatch(string @base);
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Path}: Chapter \"{Name}\" ({Start} - {End}): ignoring (does not match regular expression)")]
+    private partial void LogIgnoringNoRegexMatch(string path, string name, double start, double end);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (adjacent chapter also matches)")]
-    private partial void LogIgnoringAdjacentMatch(string @base);
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Path}: Chapter \"{Name}\" ({Start} - {End}): ignoring (adjacent chapter also matches)")]
+    private partial void LogIgnoringAdjacentMatch(string path, string name, double start, double end);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: okay")]
-    private partial void LogChapterOk(string @base);
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Path}: Chapter \"{Name}\" ({Start} - {End}): okay")]
+    private partial void LogChapterOk(string path, string name, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);

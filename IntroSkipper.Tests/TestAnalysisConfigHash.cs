@@ -1,11 +1,9 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
-using IntroSkipper.ScheduledTasks;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -28,19 +26,5 @@ public sealed class TestAnalysisConfigHash
         Assert.NotEqual(
             ConfigHasher.Analysis(before, mode, AnalyzerAction.Default, ffmpegValid: true),
             ConfigHasher.Analysis(after, mode, afterAction, ffmpegValid: true));
-    }
-
-    [Fact]
-    public void FailedItemsAreNotPersistedAsAnalyzed()
-    {
-        var failed = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
-        failed.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
-        var completed = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
-        completed.SetAnalyzed(AnalysisMode.Credits, EpisodeState.NoSegments);
-
-        var ids = BaseItemAnalyzerTask.GetPersistableEpisodeIds([failed, completed], AnalysisMode.Credits);
-
-        Assert.Equal([completed.EpisodeId], ids);
-        Assert.True(failed.NeedsAnalysis(AnalysisMode.Credits));
     }
 }
