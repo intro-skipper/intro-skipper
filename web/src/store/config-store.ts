@@ -8,8 +8,6 @@ import { validator } from "../validation/validator.ts";
 let config: PluginConfig | null = null;
 let snapshot: PluginConfig | null = null;
 
-// Fields whose current value differs from the last loaded or saved snapshot.
-const dirtyFields = new Set<keyof PluginConfig>();
 
 // Event name to listener argument tuple.
 type StoreEvents = {
@@ -39,8 +37,12 @@ function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): v
     }
 }
 
+// Entries are trimmed on load as well as on write, so a stale untrimmed entry
+// from the server cannot keep a field dirty after the user touches it.
 function normalizeStringList(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+    return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim())
+        : [];
 }
 
 function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
@@ -61,7 +63,6 @@ function sameValue(a: PluginConfig[keyof PluginConfig], b: PluginConfig[keyof Pl
 
 function takeSnapshot(source: PluginConfig): void {
     snapshot = JSON.parse(JSON.stringify(source)) as PluginConfig;
-    dirtyFields.clear();
 }
 
 export const configStore = {
@@ -124,12 +125,6 @@ export const configStore = {
         (config as unknown as Record<string, PluginConfig[keyof PluginConfig]>)[field as string] =
             value;
 
-        if (sameValue(value, snapshot[field])) {
-            dirtyFields.delete(field);
-        } else {
-            dirtyFields.add(field);
-        }
-
         // Run direct validation first.
         let error = validator.validate(field, value);
 
@@ -169,6 +164,11 @@ export const configStore = {
     },
 
     isDirty(): boolean {
-        return dirtyFields.size > 0;
+        if (!config || !snapshot) return false;
+        const current = config;
+        const saved = snapshot;
+        return (Object.keys(saved) as (keyof PluginConfig)[]).some(
+            (field) => !sameValue(current[field], saved[field]),
+        );
     },
 };
