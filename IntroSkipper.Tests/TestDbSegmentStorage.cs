@@ -101,7 +101,7 @@ public sealed class TestDbSegmentStorage : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
 
-        using (var db = new IntroSkipperDbContext(_dbPath))
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
         {
             await db.Database.MigrateAsync();
             var suppressed = new DbSegment(episodeId, AnalysisMode.Preview, TickConversions.FromSeconds(100), TickConversions.FromSeconds(120), SegmentSource.Chapter)
@@ -128,7 +128,7 @@ public sealed class TestDbSegmentStorage : IDisposable
     [Fact]
     public async Task Segments_RejectDegenerateRange_AtTheDatabase()
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath);
         await db.Database.MigrateAsync();
 
         // Every facade write validates the range; the CHECK constraint is the backstop
@@ -146,7 +146,7 @@ public sealed class TestDbSegmentStorage : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
 
-        using (var db = new IntroSkipperDbContext(_dbPath))
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
         {
             await db.Database.MigrateAsync();
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -157,7 +157,7 @@ public sealed class TestDbSegmentStorage : IDisposable
             await db.SaveChangesAsync();
         }
 
-        using (var db = new IntroSkipperDbContext(_dbPath))
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(_dbPath))
         {
             var seasonState = await db.SeasonStates.SingleAsync();
             var analyzed = await db.AnalyzedItems.SingleAsync();

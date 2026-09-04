@@ -66,7 +66,7 @@ public sealed class TestLegacyImporter
         var database = DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path);
         await database.InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var imported = await db.Segments.AsNoTracking().ToListAsync();
         Assert.Equal(3, imported.Count);
         Assert.All(imported, s => Assert.Equal(SegmentState.Active, s.State));
@@ -125,7 +125,7 @@ public sealed class TestLegacyImporter
 
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var row = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
         Assert.Equal(SegmentSource.User, row.Source);
     }
@@ -146,7 +146,7 @@ public sealed class TestLegacyImporter
         // import question, so nothing is imported again.
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         Assert.Equal(1, await db.Segments.CountAsync());
         Assert.Equal(1, await db.ImportHistory.CountAsync());
     }
@@ -190,7 +190,7 @@ public sealed class TestLegacyImporter
 
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var row = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
         Assert.Equal(itemId, row.ItemId);
         Assert.Equal(SegmentSource.User, row.Source);

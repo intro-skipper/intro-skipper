@@ -242,7 +242,7 @@ public sealed class TestSeasonReanalysisReset
 
         try
         {
-            using (var db = new IntroSkipperDbContext(dbPath))
+            using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 await db.Database.MigrateAsync();
             }
@@ -290,7 +290,7 @@ public sealed class TestSeasonReanalysisReset
 
         try
         {
-            using (var db = new IntroSkipperDbContext(dbPath))
+            using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 await db.Database.MigrateAsync();
 
@@ -338,16 +338,7 @@ public sealed class TestSeasonReanalysisReset
             }
 
             var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
-            using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
-            {
-                cacheDb.EnsureSchema();
-                cacheDb.DetectionCache.Add(new DbDetectionCache(
-                    autoEpisode,
-                    AnalysisMode.Introduction,
-                    CacheEntryType.Chromaprint,
-                    EntrypointTestHelpers.EmptyJsonArray));
-                await cacheDb.SaveChangesAsync();
-            }
+            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath).Upsert(autoEpisode, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
 
             IReadOnlyCollection<AnalysisMode> resetModes = [
                 AnalysisMode.Introduction,
@@ -358,12 +349,12 @@ public sealed class TestSeasonReanalysisReset
                 resetModes);
 
             // The reset reuses the cached fingerprints; only the derived results go.
-            using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
+            using (var cacheDb = DatabaseTestHelpers.CreateCacheContext(cacheDbPath))
             {
                 Assert.True(cacheDb.DetectionCache.Any(e => e.ItemId == autoEpisode && e.Mode == AnalysisMode.Introduction));
             }
 
-            using (var db = new IntroSkipperDbContext(dbPath))
+            using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 Assert.False(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active));
                 Assert.True(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Suppressed));
@@ -401,7 +392,7 @@ public sealed class TestSeasonReanalysisReset
 
         try
         {
-            using (var db = new IntroSkipperDbContext(dbPath))
+            using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 await db.Database.MigrateAsync();
             }
@@ -418,7 +409,7 @@ public sealed class TestSeasonReanalysisReset
             await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
             await database.ResetItemsForReanalysisAsync([episodeA, Guid.NewGuid()], [AnalysisMode.Introduction]);
 
-            using (var db = new IntroSkipperDbContext(dbPath))
+            using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 var state = await db.SeasonStates.SingleAsync();
                 Assert.Equal(seasonId, state.SeasonId);
@@ -444,7 +435,7 @@ public sealed class TestSeasonReanalysisReset
         using var fixture = new VerifyQueueFixture(config);
         var withoutChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
 
-        using (var db = new IntroSkipperDbContext(fixture.DbPath))
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
         {
             await db.Database.MigrateAsync();
             db.SeasonStates.Add(new DbSeasonState(fixture.SeasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
@@ -464,7 +455,7 @@ public sealed class TestSeasonReanalysisReset
     {
         using var fixture = new VerifyQueueFixture(new PluginConfiguration());
 
-        using (var db = new IntroSkipperDbContext(fixture.DbPath))
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
         {
             await db.Database.MigrateAsync();
             db.DisabledItems.Add(new DbDisabledItem(fixture.SeasonId, fixture.EpisodeId));

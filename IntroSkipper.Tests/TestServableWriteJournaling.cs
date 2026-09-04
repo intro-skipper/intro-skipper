@@ -139,7 +139,7 @@ public sealed class TestServableWriteJournaling : IDisposable
 
     private IntroSkipperDatabase CreateDatabase() => DatabaseTestHelpers.CreateSegmentDatabase(_dbPath);
 
-    private IntroSkipperDbContext CreateContext() => new(_dbPath);
+    private IntroSkipperDbContext CreateContext() => DatabaseTestHelpers.CreateSegmentContext(_dbPath);
 
     private async Task<Guid[]> QueuedItemIdsAsync()
     {

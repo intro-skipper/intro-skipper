@@ -65,7 +65,7 @@ public sealed class TestVisualizationController
         Assert.IsType<NoContentResult>(result);
         Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[0], CancellationToken.None));
         Assert.Empty(await store.GetOwnSegmentsAsync(episodeIds[1], CancellationToken.None));
-        await using var db = new IntroSkipperDbContext(dbPath);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
@@ -90,7 +90,7 @@ public sealed class TestVisualizationController
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
-        await using var db = new IntroSkipperDbContext(dbPath);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
 
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
@@ -114,7 +114,7 @@ public sealed class TestVisualizationController
         };
         using var pluginScope = CreatePluginScope(seriesId, seasonId, [excludedId, includedId], config);
         await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
-        await SeedCacheAsync(pluginScope.CacheDbPath, excludedId, includedId);
+        SeedCache(pluginScope.CacheDbPath, excludedId, includedId);
 
         // The controller enumerates the library through a fresh queue manager, so the
         // exclusion policy decides from the enumerated series names.
@@ -139,13 +139,13 @@ public sealed class TestVisualizationController
         Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(expectedRemovedCacheEntries, response.RemovedCacheEntries);
 
-        await using var db = new IntroSkipperDbContext(dbPath);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
 
-        using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
+        using var cacheDb = DatabaseTestHelpers.CreateCacheContext(pluginScope.CacheDbPath);
         Assert.Equal(!cacheAvailable, await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
         Assert.True(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == includedId));
     }
@@ -587,7 +587,7 @@ public sealed class TestVisualizationController
 
     private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
-        await using var db = new IntroSkipperDbContext(dbPath);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
         await db.Database.MigrateAsync();
         db.Segments.AddRange(
             new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),
@@ -609,13 +609,13 @@ public sealed class TestVisualizationController
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedCacheAsync(string cacheDbPath, Guid excludedId, Guid includedId)
+    private static void SeedCache(string cacheDbPath, params Guid[] itemIds)
     {
-        using var cacheDb = new DetectionCacheDbContext(cacheDbPath);
-        cacheDb.DetectionCache.AddRange(
-            new DbDetectionCache(excludedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray),
-            new DbDetectionCache(includedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
-        await cacheDb.SaveChangesAsync();
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+        foreach (var itemId in itemIds)
+        {
+            cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+        }
     }
 
     private class ScheduledTaskWorkerStub : System.Reflection.DispatchProxy

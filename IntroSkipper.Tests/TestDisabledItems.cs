@@ -44,7 +44,7 @@ public sealed class TestDisabledItems
             await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
             await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.Equal(1, await db.DisabledItems.CountAsync(e => e.ItemId == itemId));
         }
         finally
@@ -88,7 +88,7 @@ public sealed class TestDisabledItems
 
             // Raw insert against the migrated file: the migration's DDL, not just
             // the EF model, must enforce the one-row-per-item invariant.
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
 
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());

@@ -965,10 +965,7 @@ public sealed class TestSegmentChange : IDisposable
         adapter.ExternalTargets[externalId] = new ExternalSegmentTarget(externalId, itemId, MediaSegmentType.Intro, 10, 20);
         await CreateService(adapter).ApplyAsync(new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro));
 
-        await using (var db = CreateContext())
-        {
-            await db.RebuildDatabaseAsync(CreateContext);
-        }
+        await CreateDatabase().RebuildDatabaseAsync();
 
         await using var verify = CreateContext();
         Assert.Single(await verify.ProjectionQueue.ToListAsync());
@@ -992,13 +989,9 @@ public sealed class TestSegmentChange : IDisposable
             NullLogger<SegmentChange>.Instance);
     }
 
-    private IntroSkipperDatabase CreateDatabase()
-    {
-        var factory = new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(_dbPath));
-        return new IntroSkipperDatabase(factory, NullLogger<IntroSkipperDatabase>.Instance);
-    }
+    private IntroSkipperDatabase CreateDatabase() => DatabaseTestHelpers.CreateSegmentDatabase(_dbPath);
 
-    private IntroSkipperDbContext CreateContext() => new(_dbPath);
+    private IntroSkipperDbContext CreateContext() => DatabaseTestHelpers.CreateSegmentContext(_dbPath);
 
     private async Task SeedAsync(params DbSegment[] segments)
     {

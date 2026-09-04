@@ -27,34 +27,27 @@ public sealed class TestCacheOperations
     public async Task DeleteByMode_DeletesOnlyThatModesEntries(AnalysisMode mode)
     {
         var itemId = Guid.NewGuid();
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-
-        var entries = new DbDetectionCache[]
+        using var scope = new CachingPluginScope();
+        var entries = new (AnalysisMode Mode, CacheEntryType Type, double Start, double End)[]
         {
-            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray),
-            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, EntrypointTestHelpers.EmptyJsonArray, 100.5, 0),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, EntrypointTestHelpers.EmptyJsonArray, 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, EntrypointTestHelpers.EmptyJsonArray, 0, 30),
+            (AnalysisMode.Credits, CacheEntryType.Chromaprint, 0, 0),
+            (AnalysisMode.Credits, CacheEntryType.BlackFrame, 100.5, 0),
+            (AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0),
+            (AnalysisMode.Introduction, CacheEntryType.Silence, 0, 30),
+            (AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30),
+            (AnalysisMode.Introduction, CacheEntryType.BlackFrame, 0, 30),
         };
-
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-
-        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
+        foreach (var (entryMode, type, start, end) in entries)
         {
-            db.DetectionCache.AddRange(entries);
-            await db.SaveChangesAsync();
+            scope.SeedRow(itemId, entryMode, type, EntrypointTestHelpers.EmptyJsonArray, start, end);
         }
 
-        var deleted = await DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath).DeleteByModeAsync(mode);
+        var deleted = await scope.CacheDatabase.DeleteByModeAsync(mode);
 
         Assert.Equal(entries.Count(e => e.Mode == mode), deleted);
-        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
-        {
-            Assert.False(db.DetectionCache.Any(e => e.ItemId == itemId && e.Mode == mode));
-            Assert.Equal(entries.Count(e => e.Mode != mode), db.DetectionCache.Count(e => e.ItemId == itemId));
-        }
+        using var db = DatabaseTestHelpers.CreateCacheContext(scope.CacheDbPath);
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == itemId && e.Mode == mode));
+        Assert.Equal(entries.Count(e => e.Mode != mode), db.DetectionCache.Count(e => e.ItemId == itemId));
     }
 
     /// <summary>
@@ -69,33 +62,14 @@ public sealed class TestCacheOperations
             EpisodeId = Guid.NewGuid(),
             Path = "/does/not/exist.mkv",
         };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-
         var range = new TimeRange(0, 30);
+        using var scope = new CachingPluginScope();
 
         // The cache row must be Brotli-compressed because DetectionCacheService.TryRead decompresses DB payloads.
-        var compressedEmpty = DetectionCacheService.CompressBrotli(Array.Empty<TimeRange>());
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheService.CompressBrotli(Array.Empty<TimeRange>()), range.Start, range.End);
 
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-
-        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
-        {
-            db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId,
-                AnalysisMode.Introduction,
-                CacheEntryType.Silence,
-                compressedEmpty,
-                range.Start,
-                range.End));
-            await db.SaveChangesAsync();
-        }
-
-        TimeRange[] result;
-        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
-        {
-            // If the empty-array bug were present this would throw FingerprintException (file not found).
-            result = await cachingScope.CreateFFmpegService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
-        }
+        // If the empty-array bug were present this would throw FingerprintException (file not found).
+        var result = await scope.CreateFFmpegService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
 
         Assert.Empty(result);
     }
@@ -104,23 +78,13 @@ public sealed class TestCacheOperations
     public void StreamScopedChromaprintCache_AcceptsMatchingLegacyDefaultHash()
     {
         var episodeId = Guid.NewGuid();
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
         uint[] fingerprint = [111u, 222u];
+        using var scope = new CachingPluginScope();
+        var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(Plugin.Instance!.Configuration, AnalysisMode.Introduction);
 
-        using var cachingScope = new CachingPluginScope(cacheDir);
-        var config = Plugin.Instance!.Configuration;
-        var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, AnalysisMode.Introduction);
+        scope.SeedRow(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600, legacyHash);
 
-        DatabaseTestHelpers.CreateCacheDatabase(cachingScope.CacheDbPath).Upsert(
-            episodeId,
-            AnalysisMode.Introduction,
-            CacheEntryType.Chromaprint,
-            0,
-            600,
-            DetectionCacheService.CompressBrotli(fingerprint),
-            legacyHash);
-
-        Assert.True(cachingScope.CacheService.TryRead(
+        Assert.True(scope.CacheService.TryRead(
             episodeId,
             AnalysisMode.Introduction,
             CacheEntryType.Chromaprint,
@@ -143,31 +107,11 @@ public sealed class TestCacheOperations
             CreditsFingerprintEnd = 1800,
             Duration = 2400,
         };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
         var intervals = new BlackInterval[] { new(10, 20), new(30.5, 35) };
-        var compressed = DetectionCacheService.CompressBrotli(intervals);
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, DetectionCacheService.CompressBrotli(intervals), 1560, 1800);
 
-        string cacheDbPath;
-        using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
-            db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId,
-                AnalysisMode.Credits,
-                CacheEntryType.BlackInterval,
-                compressed,
-                1560,
-                1800));
-            await db.SaveChangesAsync();
-        }
-
-        BlackInterval[] result;
-        using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
-        {
-            result = await cachingScope.CreateFFmpegService()
-                .DetectBlackIntervalsAsync(episode, new TimeRange(1560, 1800), 32, 85);
-        }
+        var result = await scope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(1560, 1800), 32, 85);
 
         Assert.Equal(intervals, result);
     }
@@ -181,33 +125,13 @@ public sealed class TestCacheOperations
             Path = "/does/not/exist.mkv",
             IntroFingerprintEnd = 600,
         };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-
-        // Pre-populate the DB with a fingerprint at the correct start/end.
         var fingerprint = new uint[] { 111u, 222u, 333u };
-        var compressed = DetectionCacheService.CompressBrotli(fingerprint);
+        using var scope = new CachingPluginScope();
 
-        string cacheDbPath;
-        using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
-            db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId,
-                AnalysisMode.Introduction,
-                CacheEntryType.Chromaprint,
-                compressed,
-                0,        // start
-                600));    // end = IntroFingerprintEnd
-            await db.SaveChangesAsync();
-        }
+        // A row at the episode's real range (start 0, end = IntroFingerprintEnd) is the hit.
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600);
 
-        uint[] result;
-        using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
-        {
-            // Should hit cache because start=0, end=600 matches
-            result = await cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
-        }
+        var result = await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
 
         Assert.Equal(fingerprint, result);
     }
@@ -221,30 +145,14 @@ public sealed class TestCacheOperations
             Path = "/does/not/exist.mkv",
             IntroFingerprintEnd = 600,
         };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var compressed = DetectionCacheService.CompressBrotli(new uint[] { 111u, 222u, 333u });
-
-        string cacheDbPath;
-        using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
-            db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId,
-                AnalysisMode.Introduction,
-                CacheEntryType.Chromaprint,
-                compressed,
-                0,
-                600));
-            await db.SaveChangesAsync();
-        }
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(new uint[] { 111u, 222u, 333u }), 0, 600);
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        using var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath);
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction, cts.Token));
+            () => scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction, cts.Token));
     }
 
     // The episode expects an intro fingerprint over 0-600 s and a credits fingerprint
@@ -266,37 +174,29 @@ public sealed class TestCacheOperations
             CreditsFingerprintStart = 1560,
             Duration = 1800,
         };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-
+        using var scope = new CachingPluginScope();
         if (seedRow)
         {
-            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
-            db.DetectionCache.Add(new DbDetectionCache(
+            scope.SeedRow(
                 episode.EpisodeId,
                 mode,
                 CacheEntryType.Chromaprint,
                 EntrypointTestHelpers.EmptyJsonArray,
                 rowStart,
                 rowEnd,
-                legacyHash ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(new PluginConfiguration(), mode) : string.Empty));
-            db.SaveChanges();
+                legacyHash ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(new PluginConfiguration(), mode) : string.Empty);
         }
 
-        using var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath);
-        Assert.Equal(expected, cachingScope.CacheService.HasCachedFingerprint(episode, mode));
+        Assert.Equal(expected, scope.CacheService.HasCachedFingerprint(episode, mode));
     }
 
     [Fact]
     public async Task DeleteUnreadableEntriesAsync_DeletesOnlyRowsNoReadPathAccepts()
     {
         var itemId = Guid.NewGuid();
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-
-        using var cachingScope = new CachingPluginScope(cacheDir);
+        using var scope = new CachingPluginScope();
         var config = Plugin.Instance!.Configuration;
-        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cachingScope.CacheDbPath);
+        var cacheDatabase = scope.CacheDatabase;
 
         // One row per acceptance path, distinguished by their range keys, plus one row whose
         // hash no read path accepts any more (e.g. written by the intermediate release that
@@ -308,7 +208,7 @@ public sealed class TestCacheOperations
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Silence, AnalysisMode.Introduction));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600, EntrypointTestHelpers.EmptyJsonArray, "0123456789ABCDEF");
 
-        var deleted = await cachingScope.CacheService.DeleteUnreadableEntriesAsync();
+        var deleted = await scope.CacheService.DeleteUnreadableEntriesAsync();
 
         Assert.Equal(1, deleted);
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100));
@@ -320,39 +220,35 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// Sets up Plugin.Instance with a real cache dir and CacheFingerprints enabled.
+    /// A plugin instance with fingerprint caching enabled over a fresh cache database,
+    /// plus the cache facade and service the ffmpeg service reads through.
     /// </summary>
     private sealed class CachingPluginScope : IDisposable
     {
         private readonly EntrypointTestHelpers.PluginInstanceScope _inner;
 
-        public CachingPluginScope(string cacheDir, string? cacheDbPath = null)
+        public CachingPluginScope()
         {
-            _inner = new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath);
-            var plugin = Plugin.Instance;
-            if (plugin is not null)
-            {
-                EntrypointTestHelpers.SetPropertyOrField(
-                    plugin,
-                    "Configuration",
-                    new PluginConfiguration { CacheFingerprints = true });
-            }
-
-            CacheService = DatabaseTestHelpers.CreateCacheService(_inner.CacheDbPath);
+            _inner = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { CacheFingerprints = true });
+            CacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(_inner.CacheDbPath);
+            CacheService = new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, CacheDatabase);
         }
+
+        public DetectionCacheDatabase CacheDatabase { get; }
 
         public DetectionCacheService CacheService { get; }
 
         public string CacheDbPath => _inner.CacheDbPath;
 
-        public FFmpegService CreateFFmpegService()
-        {
-            return new FFmpegService(NullLogger<FFmpegService>.Instance, CacheService);
-        }
+        public FFmpegService CreateFFmpegService() => new(NullLogger<FFmpegService>.Instance, CacheService);
 
-        public void Dispose()
-        {
-            _inner.Dispose();
-        }
+        /// <summary>
+        /// Stores one raw cache row. Pass the bytes a read path expects (Brotli for
+        /// payloads the service decompresses).
+        /// </summary>
+        public void SeedRow(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0, string configHash = "")
+            => CacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash);
+
+        public void Dispose() => _inner.Dispose();
     }
 }

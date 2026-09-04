@@ -118,5 +118,5 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         }
     }
 
-    private DetectionCacheDbContext CreateContext() => new(_dbPath);
+    private DetectionCacheDbContext CreateContext() => DatabaseTestHelpers.CreateCacheContext(_dbPath);
 }

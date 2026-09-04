@@ -218,7 +218,7 @@ public sealed class TestSegmentTombstones
             Assert.NotNull(restored);
             Assert.Equal(string.Empty, restored!.ConfigHash);
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
             Assert.Equal(itemId, record.ItemId);
             Assert.Equal(AnalysisMode.Introduction, record.Type);
@@ -254,7 +254,7 @@ public sealed class TestSegmentTombstones
             await database.DeleteSegmentAsync(hashlessItemId, hashlessRow.Id);
             Assert.NotNull(await database.RestoreSegmentAsync(hashlessItemId, hashlessRow.Id));
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
             Assert.Equal(recordedItemId, record.ItemId);
             Assert.Equal("hash-new", record.ConfigHash);

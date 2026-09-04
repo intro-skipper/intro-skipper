@@ -151,7 +151,7 @@ public sealed class TestCleanCacheTask
             Assert.Null(cacheDatabase.FindEntry(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Null(cacheDatabase.FindEntry(staleEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
                 db.SeasonStates, s => s.SeasonId == movieId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
@@ -223,7 +223,7 @@ public sealed class TestCleanCacheTask
 
             // The facade's servable read filters disabled items, so assert row survival
             // against the raw context.
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
                 db.Segments, s => s.ItemId == disabledLibraryEpisodeId));
             Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
@@ -344,7 +344,7 @@ public sealed class TestCleanCacheTask
         Assert.NotEmpty(await database.GetSegmentsAsync(episodeId));
         Assert.NotNull(cacheDatabase.FindEntry(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
 
-        await using var db = new IntroSkipperDbContext(dbPath);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
         Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
             db.SeasonStates, s => s.SeasonId == episodeId));
     }

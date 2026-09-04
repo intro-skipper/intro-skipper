@@ -13,6 +13,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -23,8 +24,26 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// </summary>
 internal static class DatabaseTestHelpers
 {
+    /// <summary>
+    /// Builds context options over a SQLite file the way production does (provider plus
+    /// the per-connection pragma interceptor), so test contexts share its pragma policy.
+    /// </summary>
+    internal static DbContextOptions<TContext> CreateContextOptions<TContext>(string dbPath)
+        where TContext : DbContext
+    {
+        var builder = new DbContextOptionsBuilder<TContext>();
+        SqlitePragmas.Configure(builder, dbPath);
+        return builder.Options;
+    }
+
+    internal static IntroSkipperDbContext CreateSegmentContext(string dbPath)
+        => new(CreateContextOptions<IntroSkipperDbContext>(dbPath));
+
+    internal static DetectionCacheDbContext CreateCacheContext(string dbPath)
+        => new(CreateContextOptions<DetectionCacheDbContext>(dbPath));
+
     internal static IntroSkipperDatabase CreateSegmentDatabase(string dbPath)
-        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath)), NullLogger<IntroSkipperDatabase>.Instance);
+        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => CreateSegmentContext(dbPath)), NullLogger<IntroSkipperDatabase>.Instance);
 
     /// <summary>
     /// Creates a segment database facade over a fresh temp-file path, for consumers
@@ -76,7 +95,7 @@ internal static class DatabaseTestHelpers
     internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
-        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);
+        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => CreateCacheContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);
 
     internal static DetectionCacheService CreateCacheService(string dbPath)
         => new(NullLogger<DetectionCacheService>.Instance, CreateCacheDatabase(dbPath));

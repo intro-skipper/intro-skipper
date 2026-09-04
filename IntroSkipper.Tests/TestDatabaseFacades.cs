@@ -38,7 +38,7 @@ public sealed class TestDatabaseFacades
             var segments = await database.GetSegmentsAsync(Guid.NewGuid());
             Assert.Empty(segments);
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
 
             // With no legacy file next to the database, the import question is answered
@@ -441,7 +441,7 @@ public sealed class TestDatabaseFacades
             Assert.Contains(itemA, erasedItemIds);
             Assert.Contains(itemB, erasedItemIds);
 
-            await using (var db = new IntroSkipperDbContext(dbPath))
+            await using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 var remaining = await db.Segments.AsNoTracking().ToListAsync();
                 Assert.Equal(2, remaining.Count);
@@ -565,7 +565,7 @@ public sealed class TestDatabaseFacades
             var removed = await database.EraseItemsAsync([targetItemId]);
 
             Assert.Equal(2, removed);
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId));
             Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
             Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
@@ -593,7 +593,7 @@ public sealed class TestDatabaseFacades
             await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, episodeIds.Where(id => id == rehashedEpisodeId), "hash-2");
 
             // A later pass overwrites only the items it covered; the rest keep their record.
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             var records = await db.AnalyzedItems.AsNoTracking().ToDictionaryAsync(a => a.ItemId, a => a.ConfigHash);
             Assert.Equal(2, records.Count);
             Assert.Equal("hash-1", records[retainedEpisodeId]);
@@ -697,7 +697,7 @@ public sealed class TestDatabaseFacades
 
                         await database.CleanSeasonStateAsync(Padded(keptId));
 
-                        await using var db = new IntroSkipperDbContext(dbPath);
+                        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
                         Assert.True(await db.SeasonStates.AnyAsync(s => s.SeasonId == keptId));
                         Assert.False(await db.SeasonStates.AnyAsync(s => s.SeasonId == staleId));
                         break;
@@ -727,7 +727,7 @@ public sealed class TestDatabaseFacades
 
                         Assert.Empty(await database.GetSegmentsAsync(staleId));
                         Assert.Single(await database.GetSegmentsAsync(keptId));
-                        await using var db = new IntroSkipperDbContext(dbPath);
+                        await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
                         Assert.False(await db.AnalyzedItems.AnyAsync());
                         break;
                     }
@@ -799,7 +799,7 @@ public sealed class TestDatabaseFacades
             Assert.Empty(await database.GetSegmentsAsync(staleItemId));
             Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config"));
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             var remaining = await db.Segments.AsNoTracking().ToListAsync();
             Assert.Equal(4, remaining.Count);
             Assert.Single(remaining, s => s.ItemId == userProvidedItemId && s.Type == AnalysisMode.Introduction && s.Source == SegmentSource.User);
@@ -841,7 +841,7 @@ public sealed class TestDatabaseFacades
 
             await database.RebuildDatabaseAsync();
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
 
             var segments = await db.Segments.AsNoTracking().ToListAsync();
@@ -887,7 +887,7 @@ public sealed class TestDatabaseFacades
             // Repair-era or corrupted files can hold exact-range duplicates the unique
             // index would normally reject; plant them with the index dropped, automatic
             // rows first so a first-wins dedupe would keep the wrong row.
-            await using (var db = new IntroSkipperDbContext(dbPath))
+            await using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_Segments_ItemId_Type_StartTicks_EndTicks\"");
                 foreach (var (itemId, source, state) in new[]
@@ -908,7 +908,7 @@ public sealed class TestDatabaseFacades
 
             await database.RebuildDatabaseAsync();
 
-            await using var rebuilt = new IntroSkipperDbContext(dbPath);
+            await using var rebuilt = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             var segments = await rebuilt.Segments.AsNoTracking().ToListAsync();
             Assert.Equal(2, segments.Count);
 
@@ -973,7 +973,7 @@ public sealed class TestDatabaseFacades
             // schema is recreated at the current migration level. No import marker is
             // synthesized: with the rebuilt file empty, the legacy database may be the
             // only copy of the user's data, so the next start must import it.
-            await using (var db = new IntroSkipperDbContext(dbPath))
+            await using (var db = DatabaseTestHelpers.CreateSegmentContext(dbPath))
             {
                 Assert.Empty(await db.Database.GetPendingMigrationsAsync());
                 Assert.Empty(await db.Segments.AsNoTracking().ToListAsync());
@@ -1040,7 +1040,7 @@ public sealed class TestDatabaseFacades
             new TestDbContextFactory<IntroSkipperDbContext>(() =>
             {
                 Interlocked.Increment(ref contextCreations);
-                return new IntroSkipperDbContext(dbPath);
+                return DatabaseTestHelpers.CreateSegmentContext(dbPath);
             }),
             NullLogger<IntroSkipperDatabase>.Instance);
 
@@ -1165,7 +1165,7 @@ public sealed class TestDatabaseFacades
             var results = await Task.WhenAll(taskA, taskB);
             Assert.All(results, segments => Assert.Empty(segments));
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
 
             // Both gates may have answered the (no-legacy-file) import question before
@@ -1251,7 +1251,7 @@ public sealed class TestDatabaseFacades
         var contextCreations = 0;
         var database = new DetectionCacheDatabase(
             new TestDbContextFactory<DetectionCacheDbContext>(() =>
-                new DetectionCacheDbContext(Interlocked.Increment(ref contextCreations) == 1 ? goodPath : badPath)),
+                CreateCacheContext(Interlocked.Increment(ref contextCreations) == 1 ? goodPath : badPath)),
             NullLogger<DetectionCacheDatabase>.Instance);
 
         try
@@ -1344,12 +1344,12 @@ public sealed class TestDatabaseFacades
         Func<IntroSkipperDbContext, Task>? hook = null;
         var database = new IntroSkipperDatabase(
             new TestDbContextFactory<IntroSkipperDbContext>(
-                () => new BeforeSaveHookContext(dbPath, () => Interlocked.Exchange(ref hook, null))),
+                () => new BeforeSaveHookContext(CreateContextOptions<IntroSkipperDbContext>(dbPath), () => Interlocked.Exchange(ref hook, null))),
             NullLogger<IntroSkipperDatabase>.Instance);
         return (database, callback => hook = callback);
     }
 
-    private sealed class BeforeSaveHookContext(string dbPath, Func<Func<IntroSkipperDbContext, Task>?> takeHook) : IntroSkipperDbContext(dbPath)
+    private sealed class BeforeSaveHookContext(DbContextOptions<IntroSkipperDbContext> options, Func<Func<IntroSkipperDbContext, Task>?> takeHook) : IntroSkipperDbContext(options)
     {
         public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {

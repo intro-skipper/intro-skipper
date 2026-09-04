@@ -90,7 +90,7 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(CreateMovie(removedId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-        using var db = new DetectionCacheDbContext(cacheDbPath);
+        using var db = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
         Assert.Equal(!expectDeleted, db.DetectionCache.Any(e => e.ItemId == removedId));
         Assert.True(db.DetectionCache.Any(e => e.ItemId == otherId));
     }
@@ -108,12 +108,10 @@ public sealed class TestEntrypointEvents
 
     private static void SeedCacheRows(string cacheDbPath, params Guid[] itemIds)
     {
-        using var db = new DetectionCacheDbContext(cacheDbPath);
-        db.DetectionCache.AddRange(itemIds.Select(id => new DbDetectionCache(
-            id,
-            AnalysisMode.Introduction,
-            CacheEntryType.Chromaprint,
-            EntrypointTestHelpers.EmptyJsonArray)));
-        db.SaveChanges();
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+        foreach (var itemId in itemIds)
+        {
+            cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+        }
     }
 }

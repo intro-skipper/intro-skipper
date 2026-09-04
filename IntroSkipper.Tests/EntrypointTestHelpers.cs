@@ -255,12 +255,11 @@ internal static class EntrypointTestHelpers
         public PluginInstanceScope(string cacheDir, string? cacheDbPath = null)
         {
             CacheDir = cacheDir;
-            // Place the cache DB outside cacheDir to avoid accidental inclusion in legacy file sweeps.
-            var cacheBaseDir = Path.Combine(
-                Path.GetTempPath(),
-                Path.GetFileName("IntroSkipper.Tests"));
-            CacheDbPath = cacheDbPath ?? Path.Combine(
-                cacheBaseDir, Guid.NewGuid().ToString("N") + "-cache.db");
+
+            // The cache DB lives outside cacheDir so legacy file sweeps cannot touch it.
+            // Nothing creates it here: the cache facade builds the schema on first use,
+            // so tests that never reach the cache pay for no database file.
+            CacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
             var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
             Assert.NotNull(instanceProp);
@@ -283,11 +282,6 @@ internal static class EntrypointTestHelpers
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
 
-            // Ensure the schema exists so tests can write to the cache DB. Create the
-            // containing directory first so this scope works regardless of test order.
-            Directory.CreateDirectory(Path.GetDirectoryName(CacheDbPath)!);
-            using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
-            cacheDb.EnsureSchema();
         }
 
         public string CacheDir { get; }
