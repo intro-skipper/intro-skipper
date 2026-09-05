@@ -5,8 +5,7 @@ using System;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.FFmpeg;
-using IntroSkipper.Services;
+using IntroSkipper.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Xunit;
@@ -19,52 +18,39 @@ public sealed class TestEntrypointLifecycle
     public async Task StartAsync_SubscribesHandlersUntilStopAsync()
     {
         var libraryManager = LibraryManagerEventProxy.Create(out var libraryManagerService);
-        var taskManager = TaskManagerEventProxy.Create(out var taskManagerService);
-        var ffmpegService = FFmpegVersionProxy.Create(out var ffmpegServiceProxy);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
-        EntrypointTestHelpers.SetPrivateField(entrypoint, "_libraryManager", libraryManagerService);
-        EntrypointTestHelpers.SetPrivateField(entrypoint, "_taskManager", taskManagerService);
-        EntrypointTestHelpers.SetPrivateField(entrypoint, "_ffmpegService", ffmpegService);
-
-        using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var ffmpegService = new StubFFmpegService { VersionCheck = () => true };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { AutoDetectIntros = true });
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(libraryManagerService, ffmpegService);
 
         await entrypoint.StartAsync(CancellationToken.None);
 
-        Assert.Equal(1, ffmpegServiceProxy.CheckVersionCallCount);
+        Assert.Equal(1, ffmpegService.VersionCheckCalls);
         Assert.Equal(1, libraryManager.ItemAddedSubscriberCount);
         Assert.Equal(1, libraryManager.ItemUpdatedSubscriberCount);
         Assert.Equal(1, libraryManager.ItemRemovedSubscriberCount);
-        Assert.Equal(1, taskManager.TaskCompletedSubscriberCount);
 
         await entrypoint.StopAsync(CancellationToken.None);
 
         Assert.Equal(0, libraryManager.ItemAddedSubscriberCount);
         Assert.Equal(0, libraryManager.ItemUpdatedSubscriberCount);
         Assert.Equal(0, libraryManager.ItemRemovedSubscriberCount);
-        Assert.Equal(0, taskManager.TaskCompletedSubscriberCount);
-        Assert.Equal(TaskState.Idle, Entrypoint.AutomaticTaskState);
+        Assert.Equal(TaskState.Idle, entrypoint.AutomaticTaskState);
     }
 
     [Fact]
     public async Task CancelAutomaticTaskAsync_CancelsActiveTaskAndRetainsCancellingState()
     {
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
         using var cancellationSource = new CancellationTokenSource();
         var cancellationObserved = false;
         using var registration = cancellationSource.Token.Register(() => cancellationObserved = true);
-        EntrypointTestHelpers.SetPrivateStaticField(typeof(Entrypoint), "_cancellationTokenSource", cancellationSource);
+        EntrypointTestHelpers.SetPrivateField(entrypoint, "_cancellationTokenSource", cancellationSource);
 
-        try
-        {
-            await Entrypoint.CancelAutomaticTaskAsync(CancellationToken.None);
+        await entrypoint.CancelAutomaticTaskAsync(CancellationToken.None);
 
-            Assert.True(cancellationObserved);
-            Assert.True(cancellationSource.IsCancellationRequested);
-            Assert.Equal(TaskState.Cancelling, Entrypoint.AutomaticTaskState);
-        }
-        finally
-        {
-            EntrypointTestHelpers.SetPrivateStaticField(typeof(Entrypoint), "_cancellationTokenSource", null);
-        }
+        Assert.True(cancellationObserved);
+        Assert.True(cancellationSource.IsCancellationRequested);
+        Assert.Equal(TaskState.Cancelling, entrypoint.AutomaticTaskState);
     }
 
     private class LibraryManagerEventProxy : DispatchProxy
@@ -106,55 +92,6 @@ public sealed class TestEntrypointLifecycle
                 default:
                     throw new NotImplementedException(targetMethod?.Name);
             }
-        }
-    }
-
-    private class TaskManagerEventProxy : DispatchProxy
-    {
-        internal int TaskCompletedSubscriberCount { get; private set; }
-
-        internal static TaskManagerEventProxy Create(out ITaskManager service)
-        {
-            service = Create<ITaskManager, TaskManagerEventProxy>();
-            return (TaskManagerEventProxy)(object)service;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            switch (targetMethod?.Name)
-            {
-                case "add_TaskCompleted":
-                    TaskCompletedSubscriberCount++;
-                    return null;
-                case "remove_TaskCompleted":
-                    TaskCompletedSubscriberCount--;
-                    return null;
-                default:
-                    throw new NotImplementedException(targetMethod?.Name);
-            }
-        }
-    }
-
-    private class FFmpegVersionProxy : DispatchProxy
-    {
-        internal int CheckVersionCallCount { get; private set; }
-
-        internal static IFFmpegService Create(out FFmpegVersionProxy proxy)
-        {
-            var service = Create<IFFmpegService, FFmpegVersionProxy>();
-            proxy = (FFmpegVersionProxy)(object)service;
-            return service;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(IFFmpegService.CheckFFmpegVersionAsync))
-            {
-                CheckVersionCallCount++;
-                return Task.FromResult(true);
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
         }
     }
 }

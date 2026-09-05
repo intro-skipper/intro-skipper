@@ -11,7 +11,7 @@ namespace IntroSkipper.Helper;
 /// <summary>
 /// Computes deterministic hashes for the configuration subsets that affect analysis output.
 /// </summary>
-public static class ConfigHasher
+internal static class ConfigHasher
 {
     /// <summary>
     /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
@@ -31,8 +31,6 @@ public static class ConfigHasher
     /// <returns>A compact hex hash.</returns>
     public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -97,8 +95,6 @@ public static class ConfigHasher
         AnalysisMode mode,
         string? audioStreamIdentity)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var streamToken = type == CacheEntryType.Chromaprint && !string.IsNullOrWhiteSpace(audioStreamIdentity)
             ? FormattableString.Invariant($"|audioStream={audioStreamIdentity}")
             : ChromaprintStreamToken(config);
@@ -132,27 +128,21 @@ public static class ConfigHasher
 
     /// <summary>
     /// Computes the cache hash that was written before audio stream selection existed, when
-    /// fingerprints always came from FFmpeg's default stream. It must stay byte-for-byte
-    /// identical to the pre-stream-selection input (no audio tokens), so those rows remain
-    /// readable whenever the effective stream is still FFmpeg's default.
+    /// fingerprints always came from FFmpeg's default stream. Rows carrying it stay readable
+    /// whenever the effective stream is still FFmpeg's default, so already-analyzed episodes
+    /// keep their place in the Chromaprint comparison pool after an upgrade.
     /// </summary>
     /// <remarks>
     /// WARNING: never modify this input string. It is frozen to what older releases wrote;
-    /// any change silently invalidates every fingerprint cached by those releases and forces
-    /// upgraded servers to refingerprint their entire library. A pinned-hash test guards it.
+    /// any change silently invalidates every fingerprint cached by those releases and drops
+    /// their episodes out of the comparison pool. A pinned-hash test guards it.
     /// </remarks>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>The legacy default-selection cache hash.</returns>
     public static string LegacyChromaprintCacheWithoutLanguage(PluginConfiguration config, AnalysisMode mode)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-
-        var input = Invariant(
-            $"cache|v1|{CacheEntryType.Chromaprint}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}");
-
-        return ComputeHash(input);
-    }
+        => ComputeHash(Invariant(
+            $"cache|v1|{CacheEntryType.Chromaprint}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"));
 
     /// <summary>
     /// Gets a value indicating whether a cache hash is scoped to an effective audio stream.
@@ -161,6 +151,14 @@ public static class ConfigHasher
     /// <returns><see langword="true"/> when the hash includes an audio stream identity.</returns>
     public static bool IsStreamScopedDetectionCacheHash(string? cacheHash)
         => cacheHash?.StartsWith(StreamScopedDetectionCacheHashPrefix, StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// Normalizes the configured preferred audio language (trimmed, lower-cased) so stream
+    /// selection and hashing agree on how the value is interpreted.
+    /// </summary>
+    /// <param name="language">Configured language code.</param>
+    /// <returns>The normalized language code, or an empty string when unset.</returns>
+    public static string NormalizeAudioLanguage(string? language) => language?.Trim().ToLowerInvariant() ?? string.Empty;
 
     // DetectNonBlackCredits only affects output when the default analyzer is active; including it
     // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
@@ -172,7 +170,7 @@ public static class ConfigHasher
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
-            $"|audioLanguage={AudioLanguageHelper.Normalize(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+            $"|audioLanguage={NormalizeAudioLanguage(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated

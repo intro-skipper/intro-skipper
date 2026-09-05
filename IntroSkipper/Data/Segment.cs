@@ -14,7 +14,7 @@ namespace IntroSkipper.Data;
 /// All times are measured in seconds relative to the beginning of the media file.
 /// </summary>
 [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper.Segment")]
-public class Segment
+public sealed class Segment
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="Segment"/> class.
@@ -37,17 +37,6 @@ public class Segment
         EpisodeId = episode;
         Start = 0.0;
         End = 0.0;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Segment"/> class.
-    /// </summary>
-    /// <param name="segment">Segment to copy.</param>
-    public Segment(Segment segment)
-    {
-        EpisodeId = segment.EpisodeId;
-        Start = segment.Start;
-        End = segment.End;
     }
 
     /// <summary>

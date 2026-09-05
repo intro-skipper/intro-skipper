@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using Microsoft.Extensions.Logging;
 
@@ -8,8 +9,8 @@ namespace IntroSkipper.SegmentChanges;
 
 /// <summary>
 /// Default <see cref="ISegmentProjectionAdapter"/>: every write goes through the
-/// mirror — <see cref="MediaSegmentMirror.DeleteValidatedSegmentAsync"/> for foreign
-/// rows and <see cref="MediaSegmentMirror.SyncItemAsync"/> for the item's own image —
+/// mirror (<see cref="MediaSegmentMirror.DeleteValidatedSegmentAsync"/> for foreign
+/// rows and <see cref="MediaSegmentMirror.SyncItemAsync"/> for the item's own image),
 /// so projection shares the single documented write path, its per-item stripes, and
 /// its disabled-mirror signaling.
 /// </summary>
@@ -32,32 +33,30 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
     }
 
     /// <inheritdoc />
-    public async Task<ProjectionApplyOutcome> ApplyAsync(Guid itemId, IReadOnlyList<ProjectedExternalOperation> externalOperations, CancellationToken cancellationToken)
+    public async Task<bool> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(externalOperations);
-
         foreach (var operation in externalOperations)
         {
             // The validated shape travels inside the delete predicate, so a row
             // rewritten under its stable id since validation (an apply can run hours
-            // later on backoff, or days later with mirroring off) is left alone —
+            // later on backoff, or days later with mirroring off) is left alone:
             // deleting it would remove content the user never approved. An already
             // vanished row is an idempotent success either way, so dropping the
             // operation is terminal on purpose: retrying into the same mismatch
             // forever would wedge the item.
-            var outcome = await mirror.DeleteValidatedSegmentAsync(
+            var deleted = await mirror.DeleteValidatedSegmentAsync(
                 itemId,
                 operation.ExternalSegmentId,
                 operation.ExpectedType,
                 operation.StartTicks,
                 operation.EndTicks,
                 cancellationToken).ConfigureAwait(false);
-            if (outcome == MirrorDeleteOutcome.MirroringDisabled)
+            if (deleted is null)
             {
-                return ProjectionApplyOutcome.MirroringDisabled;
+                return false;
             }
 
-            if (outcome == MirrorDeleteOutcome.RowNotFound
+            if (deleted == false
                 && await segmentStore.FindSegmentAsync(operation.ExternalSegmentId, cancellationToken).ConfigureAwait(false) is not null)
             {
                 LogExternalDeleteSuperseded(logger, operation.ExternalSegmentId, itemId);
@@ -67,9 +66,7 @@ internal sealed partial class JellyfinSegmentProjectionAdapter(
         // Converges the item's own rows from current truth. The disabled outcome
         // comes from the same policy read that gated the write, so a toggle racing
         // this apply can never complete work the mirror silently skipped.
-        return await mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false) == MirrorSyncOutcome.MirroringDisabled
-            ? ProjectionApplyOutcome.MirroringDisabled
-            : ProjectionApplyOutcome.Applied;
+        return await mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Journaled delete of external segment {SegmentId} on item {ItemId} was dropped: the row no longer matches its validated shape.")]

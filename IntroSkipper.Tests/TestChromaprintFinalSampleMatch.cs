@@ -15,19 +15,6 @@ public sealed class TestChromaprintFinalSampleMatch
     [Fact]
     public void CompareEpisodes_ReturnsMatchEndingAtFinalSample()
     {
-        using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var plugin = Plugin.Instance;
-        Assert.NotNull(plugin);
-        EntrypointTestHelpers.SetPropertyOrField(
-            plugin,
-            "Configuration",
-            new PluginConfiguration
-            {
-                MinimumIntroDuration = 1,
-                MaximumFingerprintPointDifferences = 0,
-                MaximumTimeSkip = 0.2,
-                InvertedIndexShift = 0,
-            });
         uint[] fingerprint = [
             0x1000u, 0x1100u, 0x1200u, 0x1300u, 0x1400u,
             0x1500u, 0x1600u, 0x1700u, 0x1800u, 0x1900u,
@@ -38,7 +25,14 @@ public sealed class TestChromaprintFinalSampleMatch
             NullLogger<ChromaprintAnalyzer>.Instance,
             null!,
             null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            new PluginConfiguration
+            {
+                MinimumIntroDuration = 1,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+            });
 
         var (lhs, rhs) = analyzer.CompareEpisodes(lhsId, fingerprint, rhsId, fingerprint);
 

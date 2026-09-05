@@ -86,3 +86,16 @@ export async function mapWithConcurrency<T, R>(
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export function errorText(err: unknown): string {
+    return err instanceof Error ? err.message : "Unknown error";
+}
+
+export function pluralize(count: number, singular: string, plural = singular + "s"): string {
+    return count + " " + (count === 1 ? singular : plural);
+}
+
+/** Show name with the production year in parentheses when known. */
+export function showTitle(show: { Name: string; ProductionYear: number | null }): string {
+    return show.ProductionYear ? show.Name + " (" + show.ProductionYear + ")" : show.Name;
+}

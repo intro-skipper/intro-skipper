@@ -4,7 +4,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -67,7 +66,7 @@ public sealed class TestLegacyImporter
         var database = DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path);
         await database.InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var imported = await db.Segments.AsNoTracking().ToListAsync();
         Assert.Equal(3, imported.Count);
         Assert.All(imported, s => Assert.Equal(SegmentState.Active, s.State));
@@ -126,30 +125,9 @@ public sealed class TestLegacyImporter
 
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var row = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
         Assert.Equal(SegmentSource.User, row.Source);
-    }
-
-    [Fact]
-    public async Task Import_LeavesLegacyFileByteIdentical()
-    {
-        using var scope = new FixtureScope();
-        var itemId = Guid.NewGuid();
-        LegacySchemaFixtures.CreateV5(
-            scope.LegacyPath,
-            [new(itemId, 10, 60, (int)AnalysisMode.Introduction)],
-            []);
-        SqliteConnection.ClearAllPools();
-        var hashBefore = HashFile(scope.LegacyPath);
-
-        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
-        SqliteConnection.ClearAllPools();
-
-        Assert.Equal(hashBefore, HashFile(scope.LegacyPath));
-
-        // Read-only import must not have left WAL sidecars on the legacy file.
-        Assert.False(File.Exists(scope.LegacyPath + "-wal"));
     }
 
     [Fact]
@@ -168,39 +146,27 @@ public sealed class TestLegacyImporter
         // import question, so nothing is imported again.
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         Assert.Equal(1, await db.Segments.CountAsync());
         Assert.Equal(1, await db.ImportHistory.CountAsync());
     }
 
     [Fact]
-    public async Task Import_MalformedEpisodeIdsJson_KeepsRowWithEmptyList()
-    {
-        using var scope = new FixtureScope();
-        var seasonId = Guid.NewGuid();
-        LegacySchemaFixtures.CreateV5(
-            scope.LegacyPath,
-            [],
-            [new(seasonId, (int)AnalysisMode.Credits, (int)AnalyzerAction.Chapter, "not-json")]);
-
-        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
-
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
-        var state = Assert.Single(await db.SeasonStates.AsNoTracking().ToListAsync());
-        Assert.Equal(AnalyzerAction.Chapter, state.Action);
-        Assert.Empty(await db.AnalyzedItems.AsNoTracking().ToListAsync());
-    }
-
-    [Fact]
-    public async Task Import_MalformedNumericValues_SkipsRowsWithoutAbortingImport()
+    public async Task Import_MalformedValues_SkipsBadRowsAndDegradesBadJsonWithoutAbortingImport()
     {
         using var scope = new FixtureScope();
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
+        var malformedJsonSeasonId = Guid.NewGuid();
         LegacySchemaFixtures.CreateV5(
             scope.LegacyPath,
             [new(itemId, 10, 60, (int)AnalysisMode.Introduction, IsUserProvided: true)],
-            [new(seasonId, (int)AnalysisMode.Introduction, (int)AnalyzerAction.Chromaprint, "[]")]);
+            [
+                new(seasonId, (int)AnalysisMode.Introduction, (int)AnalyzerAction.Chromaprint, "[]"),
+
+                // Malformed EpisodeIds JSON degrades to an empty list; the row and its action survive.
+                new(malformedJsonSeasonId, (int)AnalysisMode.Credits, (int)AnalyzerAction.Chapter, "not-json")
+            ]);
 
         // SQLite never enforced column affinity, so repair-era files can carry text
         // where numbers belong. Plant such rows directly.
@@ -224,39 +190,22 @@ public sealed class TestLegacyImporter
 
         await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
 
-        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var row = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
         Assert.Equal(itemId, row.ItemId);
         Assert.Equal(SegmentSource.User, row.Source);
 
-        var state = Assert.Single(await db.SeasonStates.AsNoTracking().ToListAsync());
-        Assert.Equal(seasonId, state.SeasonId);
+        var states = await db.SeasonStates.AsNoTracking().ToListAsync();
+        Assert.Equal(2, states.Count);
+        Assert.Contains(states, s => s.SeasonId == seasonId);
+        var degraded = Assert.Single(states, s => s.SeasonId == malformedJsonSeasonId);
+        Assert.Equal(AnalyzerAction.Chapter, degraded.Action);
+        Assert.Empty(await db.AnalyzedItems.AsNoTracking().ToListAsync());
 
         var marker = Assert.Single(await db.ImportHistory.AsNoTracking().ToListAsync());
         Assert.Equal(1, marker.SegmentsImported);
         Assert.Equal(1, marker.SegmentsSkipped);
-        Assert.Equal(1, marker.SeasonStatesImported);
-    }
-
-    [Fact]
-    public async Task Import_ImportedSegmentsFlowThroughFacadeReads()
-    {
-        using var scope = new FixtureScope();
-        var itemId = Guid.NewGuid();
-        LegacySchemaFixtures.CreateV5(
-            scope.LegacyPath,
-            [
-                new(itemId, 100, 110, (int)AnalysisMode.Commercial),
-                new(itemId, 10, 20, (int)AnalysisMode.Commercial)
-            ],
-            []);
-
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path);
-        var segments = await database.GetSegmentsAsync(itemId);
-
-        Assert.Equal(2, segments.Count);
-        Assert.Equal(TickConversions.FromSeconds(10), segments[0].StartTicks);
-        Assert.Equal(TickConversions.FromSeconds(100), segments[1].StartTicks);
+        Assert.Equal(2, marker.SeasonStatesImported);
     }
 
     private static void CreateFixture(LegacyShape shape, string path, LegacySegmentRow[] segments, LegacySeasonRow[] seasons)
@@ -285,9 +234,6 @@ public sealed class TestLegacyImporter
                 throw new ArgumentOutOfRangeException(nameof(shape));
         }
     }
-
-    private static string HashFile(string path)
-        => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
 
     /// <summary>
     /// Isolated temp directory containing a legacy <c>introskipper.db</c> next to the

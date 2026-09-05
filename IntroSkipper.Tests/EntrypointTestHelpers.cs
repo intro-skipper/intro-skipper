@@ -9,11 +9,10 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -21,9 +20,10 @@ using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -33,48 +33,58 @@ internal static class EntrypointTestHelpers
 {
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
 
-    internal static Entrypoint CreateEntrypoint(bool autoDetectIntros, string? cacheDbPath = null)
+    /// <summary>
+    /// Builds an entrypoint over a fresh segment database and the given (or a fresh)
+    /// cache database. The entrypoint reads its configuration from
+    /// <see cref="Plugin.Instance"/>, so tests scope one via <see cref="CreatePluginScope"/>.
+    /// </summary>
+    internal static Entrypoint CreateEntrypoint(
+        ILibraryManager? libraryManager = null,
+        IFFmpegService? ffmpegService = null,
+        string? cacheDbPath = null)
     {
-        // Entrypoint's ctor reads Plugin.Instance?.Configuration. Ensure Plugin.Instance is null during construction.
-        using var _ = new PluginInstanceNullScope();
-
-        var loggerFactory = LoggerFactory.Create(builder => { });
-        var logger = loggerFactory.CreateLogger<Entrypoint>();
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
         // The Entrypoint and its analyzer factory see the same segment database, as
         // they do in production DI.
         var segmentDatabase = DatabaseTestHelpers.CreateTempSegmentDatabase();
 
-        var entrypoint = new Entrypoint(
-            libraryManager: null!,
-            taskManager: null!,
-            cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
-            database: segmentDatabase,
-            ffmpegService: null!,
-            logger: logger,
-            analyzerFactory: new AnalyzerTaskFactory(
-                loggerFactory,
-                libraryManager: null!,
+        return new Entrypoint(
+            libraryManager!,
+            DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
+            segmentDatabase,
+            ffmpegService!,
+            NullLogger<Entrypoint>.Instance,
+            new AnalyzerTaskFactory(
+                NullLoggerFactory.Instance,
+                libraryManager!,
                 providerManager: null!,
                 fileSystem: null!,
-                ffmpegService: null!,
+                ffmpegService!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
                 database: segmentDatabase));
-
-        SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
-        return entrypoint;
     }
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
     // and returns null for any other id. Shared by the controller test suites.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
-        => LibraryManagerProxy.Create(items);
+        => FakeLibraryManager.Create([], _ => [], id => items.FirstOrDefault(item => item.Id == id));
 
     // ITaskManager stub with no scheduled task workers, for controllers that look up the
     // detection task's worker state.
     internal static ITaskManager CreateTaskManager()
         => TaskManagerProxy.Create();
+
+    /// <summary>
+    /// Scopes a plugin instance carrying the given configuration and an empty analysis queue.
+    /// </summary>
+    internal static PluginInstanceScope CreatePluginScope(PluginConfiguration configuration, string? cacheDbPath = null)
+    {
+        var scope = new PluginInstanceScope(CreateTempCacheDir(), cacheDbPath);
+        SetPropertyOrField(Plugin.Instance!, "Configuration", configuration);
+        SetPropertyOrField(Plugin.Instance!, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        return scope;
+    }
 
     /// <summary>
     /// Scopes a plugin instance around a single movie library item: the library manager
@@ -83,15 +93,9 @@ internal static class EntrypointTestHelpers
     /// </summary>
     internal static PluginInstanceScope CreateMoviePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
     {
-        var scope = new PluginInstanceScope(CreateTempCacheDir());
-        item = new Movie();
-        SetPropertyOrField(item, "Id", itemId);
-        EnsureNonVirtual(item);
-
-        var plugin = Plugin.Instance!;
-        SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
-        SetPrivateField(plugin, "_libraryManager", CreateLibraryManager(item));
-        SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        var scope = CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+        item = JellyfinItems.Movie(itemId);
+        SetPrivateField(Plugin.Instance!, "_libraryManager", CreateLibraryManager(item));
         return scope;
     }
 
@@ -111,31 +115,109 @@ internal static class EntrypointTestHelpers
         }
     }
 
-    private class LibraryManagerProxy : DispatchProxy
+    /// <summary>
+    /// ILibraryManager stub for the queue-building path. Returns the configured virtual
+    /// folders and answers GetItemList either from a per-library delegate (which may throw
+    /// to simulate a failed library enumeration; ids then resolve through the given
+    /// resolver, null by default: "the server does not know this item") or from a fixed
+    /// item list filtered the way the queue manager queries it (by season ancestors, by
+    /// in-season specials, by explicit ids). The item-list form resolves ids without a
+    /// backing item to a Season stub, so scoped runs can ask for a season's owning
+    /// libraries through GetCollectionFolders.
+    /// </summary>
+    internal class FakeLibraryManager : DispatchProxy
     {
-        private Dictionary<Guid, BaseItem> _items = [];
+        private List<VirtualFolderInfo> _folders = [];
+        private Func<InternalItemsQuery?, List<BaseItem>> _getItemList = _ => [];
+        private Func<Guid, BaseItem?> _getItemById = _ => null;
+        private Dictionary<Guid, Guid> _owningFolderIds = [];
 
-        public static ILibraryManager Create(BaseItem[] items)
+        /// <summary>Gets the ParentId of every GetItemList query, so tests can assert which libraries were queried.</summary>
+        public List<Guid> QueriedLibraryIds { get; } = [];
+
+        public static ILibraryManager Create(
+            List<VirtualFolderInfo> folders,
+            Func<Guid, List<BaseItem>> getItemList,
+            Func<Guid, BaseItem?>? getItemById = null)
+            => Create(folders, query => getItemList(query?.ParentId ?? Guid.Empty), getItemById ?? (_ => null), []);
+
+        public static ILibraryManager Create(
+            List<VirtualFolderInfo> folders,
+            IReadOnlyList<BaseItem> items,
+            Dictionary<Guid, Guid>? owningFolderIds = null)
+            => Create(
+                folders,
+                query => Filter(items, query),
+                id => items.FirstOrDefault(item => item.Id == id) ?? new Season { Id = id },
+                owningFolderIds ?? []);
+
+        private static ILibraryManager Create(
+            List<VirtualFolderInfo> folders,
+            Func<InternalItemsQuery?, List<BaseItem>> getItemList,
+            Func<Guid, BaseItem?> getItemById,
+            Dictionary<Guid, Guid> owningFolderIds)
         {
-            var proxy = Create<ILibraryManager, LibraryManagerProxy>();
-            var map = new Dictionary<Guid, BaseItem>();
-            foreach (var item in items)
-            {
-                map[item.Id] = item;
-            }
-
-            ((LibraryManagerProxy)(object)proxy)._items = map;
+            var proxy = Create<ILibraryManager, FakeLibraryManager>();
+            var fake = (FakeLibraryManager)(object)proxy;
+            fake._folders = folders;
+            fake._getItemList = getItemList;
+            fake._getItemById = getItemById;
+            fake._owningFolderIds = owningFolderIds;
             return proxy;
         }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod?.Name == nameof(ILibraryManager.GetItemById) && args is [Guid id])
+            return targetMethod?.Name switch
             {
-                return _items.TryGetValue(id, out var item) ? item : null;
+                nameof(ILibraryManager.GetVirtualFolders) => _folders,
+                nameof(ILibraryManager.GetItemList) => GetItems(args?.OfType<InternalItemsQuery>().FirstOrDefault()),
+                nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
+                nameof(ILibraryManager.GetCollectionFolders) => CollectionFoldersFor((BaseItem)args![0]!),
+                _ => throw new NotImplementedException(targetMethod?.Name),
+            };
+        }
+
+        private static List<BaseItem> Filter(IReadOnlyList<BaseItem> items, InternalItemsQuery? query)
+        {
+            if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
+            {
+                return [.. items.Where(item => item is Episode episode &&
+                    episode.ParentIndexNumber == query.ParentIndexNumber &&
+                    query.AncestorIds.Contains(episode.SeriesId))];
             }
 
-            throw new NotImplementedException(targetMethod?.Name);
+            if (query?.AncestorIds is { Length: > 0 })
+            {
+                return [.. items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];
+            }
+
+            if (query?.ItemIds is { Length: > 0 })
+            {
+                return [.. items.Where(item => query.ItemIds.Contains(item.Id))];
+            }
+
+            return [.. items];
+        }
+
+        private List<BaseItem> GetItems(InternalItemsQuery? query)
+        {
+            if (query is not null)
+            {
+                QueriedLibraryIds.Add(query.ParentId);
+            }
+
+            return _getItemList(query);
+        }
+
+        // Owning libraries per requested id; ids without a mapping are owned by every folder,
+        // which preserves the query-every-library behavior for tests that don't care.
+        private List<Folder> CollectionFoldersFor(BaseItem item)
+        {
+            IEnumerable<Guid> folderIds = _owningFolderIds.TryGetValue(item.Id, out var owner)
+                ? [owner]
+                : _folders.Select(folder => Guid.Parse(folder.ItemId!));
+            return [.. folderIds.Select(id => new Folder { Id = id })];
         }
     }
 
@@ -153,25 +235,6 @@ internal static class EntrypointTestHelpers
 
         SetPropertyOrField(args, "Item", item);
         SetPropertyOrField(args, "UpdateReason", updateReason);
-        return args;
-    }
-
-    internal static TaskResult CreateTaskResult(string key, TaskCompletionStatus status)
-    {
-#pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
-        var result = (TaskResult)FormatterServices.GetUninitializedObject(typeof(TaskResult));
-#pragma warning restore SYSLIB0050
-        SetPropertyOrField(result, "Key", key);
-        SetPropertyOrField(result, "Status", status);
-        return result;
-    }
-
-    internal static TaskCompletionEventArgs CreateTaskCompletionEventArgs(TaskResult result)
-    {
-#pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
-        var args = (TaskCompletionEventArgs)FormatterServices.GetUninitializedObject(typeof(TaskCompletionEventArgs));
-#pragma warning restore SYSLIB0050
-        SetPropertyOrField(args, "Result", result);
         return args;
     }
 
@@ -194,13 +257,6 @@ internal static class EntrypointTestHelpers
         var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         field!.SetValue(instance, value);
-    }
-
-    internal static void SetPrivateStaticField(Type type, string fieldName, object? value)
-    {
-        var field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        field!.SetValue(null, value);
     }
 
     internal static void SetPropertyOrField(object instance, string name, object value)
@@ -236,22 +292,20 @@ internal static class EntrypointTestHelpers
         throw new InvalidOperationException($"Could not set property or field '{name}' on type '{instance.GetType().FullName}'.");
     }
 
-    internal static void EnsureNonVirtual(object item)
+    // BaseItem.LocationType asks the static BaseItem.FileSystem whether the path is a
+    // file; Jellyfin sets that at server start, so test-built items need a stand-in
+    // that answers "yes" for every path (anything else it is asked throws).
+    internal static void EnsureLocationTypeResolvable()
+        => BaseItem.FileSystem ??= FileSystemProxy.Create();
+
+    private class FileSystemProxy : DispatchProxy
     {
-        for (var type = item.GetType(); type is not null; type = type.BaseType)
-        {
-            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly))
-            {
-                if (field.FieldType == typeof(LocationType))
-                {
-                    field.SetValue(item, LocationType.FileSystem);
-                }
-                else if (field.FieldType == typeof(LocationType?))
-                {
-                    field.SetValue(item, (LocationType?)LocationType.FileSystem);
-                }
-            }
-        }
+        public static IFileSystem Create() => Create<IFileSystem, FileSystemProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == nameof(IFileSystem.IsPathFile)
+                ? true
+                : throw new NotImplementedException(targetMethod?.Name);
     }
 
     internal static string CreateTempCacheDir()
@@ -268,12 +322,11 @@ internal static class EntrypointTestHelpers
         public PluginInstanceScope(string cacheDir, string? cacheDbPath = null)
         {
             CacheDir = cacheDir;
-            // Place the cache DB outside cacheDir to avoid accidental inclusion in legacy file sweeps.
-            var cacheBaseDir = Path.Combine(
-                Path.GetTempPath(),
-                Path.GetFileName("IntroSkipper.Tests"));
-            CacheDbPath = cacheDbPath ?? Path.Combine(
-                cacheBaseDir, Guid.NewGuid().ToString("N") + "-cache.db");
+
+            // The cache DB lives outside cacheDir so legacy file sweeps cannot touch it.
+            // Nothing creates it here: the cache facade builds the schema on first use,
+            // so tests that never reach the cache pay for no database file.
+            CacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
             var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
             Assert.NotNull(instanceProp);
@@ -284,7 +337,6 @@ internal static class EntrypointTestHelpers
             var plugin = (Plugin)FormatterServices.GetUninitializedObject(typeof(Plugin));
 #pragma warning restore SYSLIB0050
 
-            SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
 
             // A default configuration so code reading Plugin.Instance.Configuration (e.g.
             // the media-segment mirror gate) sees defaults instead of an uninitialized
@@ -296,40 +348,11 @@ internal static class EntrypointTestHelpers
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
 
-            // Ensure the schema exists so tests can write to the cache DB. Create the
-            // containing directory first so this scope works regardless of test order.
-            Directory.CreateDirectory(Path.GetDirectoryName(CacheDbPath)!);
-            using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
-            cacheDb.EnsureSchema();
         }
 
         public string CacheDir { get; }
 
         public string CacheDbPath { get; }
-
-        public void Dispose()
-        {
-            var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
-            var setter = instanceProp!.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
-            setter!.Invoke(null, [_original]);
-        }
-    }
-
-    private sealed class PluginInstanceNullScope : IDisposable
-    {
-        private readonly Plugin? _original;
-
-        public PluginInstanceNullScope()
-        {
-            var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
-            Assert.NotNull(instanceProp);
-
-            _original = (Plugin?)instanceProp!.GetValue(null);
-
-            var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
-            Assert.NotNull(setter);
-            setter!.Invoke(null, [null]);
-        }
 
         public void Dispose()
         {

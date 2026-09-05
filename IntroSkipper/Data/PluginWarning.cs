@@ -10,7 +10,7 @@ namespace IntroSkipper.Data;
 /// Support bundle warning.
 /// </summary>
 [Flags]
-public enum PluginWarning
+internal enum PluginWarning
 {
     /// <summary>
     /// No warnings have been added.

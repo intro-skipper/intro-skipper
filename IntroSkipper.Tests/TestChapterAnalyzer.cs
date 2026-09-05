@@ -10,14 +10,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.FFmpeg;
-using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -56,50 +53,27 @@ public class TestChapterAnalyzer
         Assert.Equal(2000, creditsChapter.End);
     }
 
-    [Fact]
-    public void BuildRecapFromBlackFrames_ReturnsSegmentFromStartToLatestFrameInRange()
+    [Theory]
+    [InlineData(new[] { 32.5, 18.25, 45.0 }, 120, 45.0)] // latest frame inside the boundary, regardless of order
+    [InlineData(new[] { 32.5, 72.0, 90.0 }, 80, 72.0)]   // frames past the intro boundary are ignored
+    [InlineData(new[] { 3.5 }, 120, null)]               // frames before the minimum duration are ignored
+    public void BuildRecapFromBlackFrames(double[] frameTimes, double maximumRecapBoundary, double? expectedEnd)
     {
         var episodeId = Guid.NewGuid();
-        var frames = new List<BlackFrame>
-        {
-            new(95, 32.5, 123),
-            new(92, 18.25, 90),
-            new(90, 45, 150),
-        };
+        var frames = frameTimes.Select((time, i) => new BlackFrame(90, time, i)).ToList();
 
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary: 120);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary);
+
+        if (expectedEnd is null)
+        {
+            Assert.Null(recap);
+            return;
+        }
 
         Assert.NotNull(recap);
         Assert.Equal(episodeId, recap.EpisodeId);
         Assert.Equal(0, recap.Start);
-        Assert.Equal(45, recap.End);
-    }
-
-    [Fact]
-    public void BuildRecapFromBlackFrames_ReturnsLatestFrameBeforeIntroBoundary()
-    {
-        var episodeId = Guid.NewGuid();
-        var frames = new List<BlackFrame>
-        {
-            new(95, 32.5, 123),
-            new(92, 72, 250),
-            new(90, 90, 300),
-        };
-
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary: 80);
-
-        Assert.NotNull(recap);
-        Assert.Equal(72, recap.End);
-    }
-
-    [Fact]
-    public void BuildRecapFromBlackFrames_ReturnsNull_WhenFrameBeforeMinimumDuration()
-    {
-        var frames = new List<BlackFrame> { new(90, 3.5, 20) };
-
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(Guid.NewGuid(), frames, minimumRecapDuration: 5, maximumRecapBoundary: 120);
-
-        Assert.Null(recap);
+        Assert.Equal(expectedEnd.Value, recap.End);
     }
 
     [Fact]
@@ -112,7 +86,7 @@ public class TestChapterAnalyzer
             MinimumRecapDetectionDuration = 5,
             MaximumRecapDetectionDuration = 120,
         };
-        var ffmpeg = new RecapBlackFrameFfmpeg(
+        var ffmpeg = RecapScan(
         [
             new(2, 12, 5),
             new(5, 15, 8),
@@ -120,25 +94,21 @@ public class TestChapterAnalyzer
             new(95, 40, 20),
             new(88, 80, 30),
         ]);
-        var analyzer = new ChapterAnalyzer(
-            NullLogger<ChapterAnalyzer>.Instance,
-            ffmpeg,
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
-            config);
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
 
-        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
         var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
         // Baseline (1st percentile) is 2, so the normalized minimum stays at the configured 85.
         Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
         Assert.NotNull(recap);
         Assert.Equal(80, recap.End);
-        Assert.Equal(0, ffmpeg.LastMinimum);
-        Assert.Equal(32, ffmpeg.LastThreshold);
-        Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
-        Assert.Equal(0, ffmpeg.LastRange?.Start);
-        Assert.Equal(120, ffmpeg.LastRange?.End);
+        var scan = Assert.NotNull(ffmpeg.LastRangeScan);
+        Assert.Equal(0, scan.Minimum);
+        Assert.Equal(32, scan.Threshold);
+        Assert.Equal(AnalysisMode.Recap, scan.Mode);
+        Assert.Equal(0, scan.Range.Start);
+        Assert.Equal(120, scan.Range.End);
     }
 
     [Fact]
@@ -147,19 +117,13 @@ public class TestChapterAnalyzer
         // An 87% fade in normal (bright) content must satisfy the default 85% minimum;
         // the adaptive floor may only tighten the threshold for globally dark content.
         var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
-        Assert.Equal(85, config.BlackFrameMinimumPercentage);
 
         BlackFrame[] scan = [.. Enumerable.Range(0, 40)
             .Select(i => new BlackFrame(i % 4, i * 0.5, i))
             .Append(new BlackFrame(87, 42.0, 1008))];
-        var analyzer = new ChapterAnalyzer(
-            NullLogger<ChapterAnalyzer>.Instance,
-            new RecapBlackFrameFfmpeg(scan),
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
-            config);
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
 
-        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
         var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
         var frame = Assert.Single(blackFrames);
@@ -178,14 +142,9 @@ public class TestChapterAnalyzer
         BlackFrame[] scan = [.. Enumerable.Range(0, 100)
             .Select(i => new BlackFrame(45, i * 0.5, i))
             .Append(new BlackFrame(87, 42.0, 1008))];
-        var analyzer = new ChapterAnalyzer(
-            NullLogger<ChapterAnalyzer>.Instance,
-            new RecapBlackFrameFfmpeg(scan),
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
-            config);
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
 
-        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
 
         Assert.Empty(blackFrames);
         Assert.Null(ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
@@ -372,7 +331,7 @@ public class TestChapterAnalyzer
         using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
         {
             var plugin = Plugin.Instance!;
-            EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", NullChapterManager.Create());
+            EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerStub.Create(null, out _));
 
             var chapters = plugin.GetChapters(Guid.NewGuid());
 
@@ -438,71 +397,6 @@ public class TestChapterAnalyzer
         };
     }
 
-    private sealed class RecapBlackFrameFfmpeg(BlackFrame[] frames) : IFFmpegService
-    {
-        public TimeRange? LastRange { get; private set; }
-
-        public int? LastMinimum { get; private set; }
-
-        public int? LastThreshold { get; private set; }
-
-        public AnalysisMode? LastMode { get; private set; }
-
-        public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<BlackFrame[]> DetectBlackFramesAsync(
-            QueuedEpisode episode,
-            TimeRange range,
-            int minimum,
-            int threshold,
-            AnalysisMode mode,
-            CancellationToken cancellationToken = default)
-        {
-            LastRange = range;
-            LastMinimum = minimum;
-            LastThreshold = threshold;
-            LastMode = mode;
-            return Task.FromResult(frames);
-        }
-
-        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
-    }
-
-    private class NullChapterManager : DispatchProxy
-    {
-        public static IChapterManager Create()
-            => DispatchProxy.Create<IChapterManager, NullChapterManager>();
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(IChapterManager.GetChapters))
-            {
-                return null;
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
-        }
-    }
+    private static StubFFmpegService RecapScan(BlackFrame[] frames)
+        => new() { RangeBlackFrames = (_, _, _, _, _) => frames };
 }

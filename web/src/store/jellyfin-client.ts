@@ -24,50 +24,89 @@ function isSupportedCollectionType(
     return collectionType == null || SUPPORTED_COLLECTION_TYPES.has(collectionType);
 }
 
-export async function getLibraries(): Promise<LibraryInfo[]> {
-    const result = await getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews");
-    if (!result.ok) {
-        console.error("Failed to load libraries", result.error);
-        return [];
-    }
-    const items = result.data?.Items ?? [];
-    return items
-        .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
-        .map((item) => ({
-            Id: item.Id!,
-            Name: item.Name ?? "Unknown",
-            CollectionType: (item.CollectionType ?? null) as SupportedCollectionType,
-        }));
+// Library and show listings are shared by the exclusion suggestions and the
+// timestamps browser. Entries older than LISTING_TTL_MS are refetched on the next
+// read, so new media shows up without a page reload while switching tabs stays
+// cheap (the timestamps tab lists every library's shows on open). Only successful
+// responses are kept, so a failed request is retried on the next call.
+const LISTING_TTL_MS = 60_000;
+
+type Listing<T> = { loadedAt: number; value: Promise<T> };
+
+function fresh<T>(listing: Listing<T> | undefined): Promise<T> | null {
+    return listing && Date.now() - listing.loadedAt < LISTING_TTL_MS ? listing.value : null;
 }
 
-export async function getShowsInLibrary(
-    libraryId: string,
-    libraryName: string,
-): Promise<ShowItem[]> {
+let librariesCache: Listing<LibraryInfo[]> | undefined;
+const showsByLibrary = new Map<string, Listing<ShowItem[]>>();
+
+export function getLibraries(): Promise<LibraryInfo[]> {
+    const cached = fresh(librariesCache);
+    if (cached) return cached;
+
+    const loading = getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews").then(
+        (result) => {
+            if (!result.ok) {
+                librariesCache = undefined;
+                console.error("Failed to load libraries", result.error);
+                return [];
+            }
+            return (result.data?.Items ?? [])
+                .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
+                .map((item) => ({
+                    Id: item.Id!,
+                    Name: item.Name ?? "Unknown",
+                    CollectionType: (item.CollectionType ?? null) as SupportedCollectionType,
+                }));
+        },
+    );
+    librariesCache = { loadedAt: Date.now(), value: loading };
+    return loading;
+}
+
+export function getShowsInLibrary(libraryId: string, libraryName: string): Promise<ShowItem[]> {
+    const cached = fresh(showsByLibrary.get(libraryId));
+    if (cached) return cached;
+
     const params = new URLSearchParams({
         parentId: libraryId,
         includeItemTypes: "Series,Movie",
         sortBy: "SortName",
         sortOrder: "Ascending",
         recursive: "true",
+        // The listing needs names and years only; thumbnails are built by URL.
+        enableImages: "false",
     });
-    const result = await getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
+    const loading = getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
         `Items?${params.toString()}`,
+    ).then((result) => {
+        if (!result.ok) {
+            showsByLibrary.delete(libraryId);
+            console.error("Failed to load shows for library", libraryId, result.error);
+            return [];
+        }
+        return (result.data?.Items ?? [])
+            .filter((item) => item.Id)
+            .map((item) => ({
+                Id: item.Id!,
+                Name: item.Name ?? "Unknown",
+                ProductionYear: item.ProductionYear ?? null,
+                Type: item.Type === "Movie" ? "Movie" : "Series",
+                LibraryId: libraryId,
+                LibraryName: libraryName,
+            }));
+    });
+    showsByLibrary.set(libraryId, { loadedAt: Date.now(), value: loading });
+    return loading;
+}
+
+// Every show and movie across the supported libraries.
+export async function getAllShows(): Promise<ShowItem[]> {
+    const libraries = await getLibraries();
+    const groups = await Promise.all(
+        libraries.map((library) => getShowsInLibrary(library.Id, library.Name)),
     );
-    if (!result.ok) {
-        console.error("Failed to load shows for library", libraryId, result.error);
-        return [];
-    }
-    return (result.data?.Items ?? [])
-        .filter((item) => item.Id)
-        .map((item) => ({
-            Id: item.Id!,
-            Name: item.Name ?? "Unknown",
-            ProductionYear: item.ProductionYear ?? null,
-            Type: item.Type === "Movie" ? "Movie" : "Series",
-            LibraryId: libraryId,
-            LibraryName: libraryName,
-        }));
+    return groups.flat();
 }
 
 export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {

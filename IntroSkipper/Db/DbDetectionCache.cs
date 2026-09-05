@@ -23,22 +23,8 @@ public class DbDetectionCache
     /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
-        : this(itemId, mode, type, data, start, end, string.Empty)
-    {
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DbDetectionCache"/> class.
-    /// </summary>
-    /// <param name="itemId">The episode identifier.</param>
-    /// <param name="mode">The analysis mode.</param>
-    /// <param name="type">The type of detection data.</param>
-    /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
-    /// <param name="start">The start time of the analyzed range.</param>
-    /// <param name="end">The end time of the analyzed range.</param>
     /// <param name="configHash">Configuration hash that produced this cache entry.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start, double end, string configHash)
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0, string configHash = "")
     {
         ItemId = itemId;
         Mode = mode;

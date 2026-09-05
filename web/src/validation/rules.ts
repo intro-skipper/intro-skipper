@@ -6,18 +6,18 @@ import {
 } from "../config-limits.ts";
 
 // Small validation helpers shared by the config store and form fields.
-export type ValidationRule<T> = (value: T) => string | null;
+type ValidationRule<T> = (value: T) => string | null;
 
 // Rule factories.
 export function range(min: number, max: number): ValidationRule<number> {
     return (value) => (value < min || value > max ? `Must be between ${min} and ${max}` : null);
 }
 
-export function minValue(min: number): ValidationRule<number> {
+function minValue(min: number): ValidationRule<number> {
     return (value) => (value < min ? `Must be at least ${min}` : null);
 }
 
-export function validRegex(): ValidationRule<string> {
+function validRegex(): ValidationRule<string> {
     return (value) => {
         if (!value || value.trim().length === 0) return null; // empty is OK — falls back to default
         try {

@@ -13,7 +13,7 @@ namespace IntroSkipper.Data;
 /// define the relationship between fingerprint point count and audio duration.
 /// See: <see href="https://oxygene.sk/2011/01/how-does-chromaprint-work/"/>.
 /// </remarks>
-public static class ChromaprintConstants
+internal static class ChromaprintConstants
 {
     /// <summary>
     /// Duration in seconds of one fingerprint point (hop duration).

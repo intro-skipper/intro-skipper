@@ -1,4 +1,4 @@
-import type { PluginConfig, StoreEvent } from "../types.ts";
+import type { PluginConfig } from "../types.ts";
 import { withDashboardLoading } from "../components/async-feedback.ts";
 import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts";
 import { validator } from "../validation/validator.ts";
@@ -7,81 +7,101 @@ import { validator } from "../validation/validator.ts";
 // dirty state, and emits validation updates for bound fields.
 let config: PluginConfig | null = null;
 let snapshot: PluginConfig | null = null;
-const listeners = new Map<StoreEvent, Set<(...args: unknown[]) => void>>();
+
+
+// Event name to listener argument tuple.
+type StoreEvents = {
+    loaded: [];
+    saved: [];
+    changed: [{ field: keyof PluginConfig }];
+    validation: [{ field: keyof PluginConfig; error: string | null }];
+};
+
+type Listener<K extends keyof StoreEvents> = (...args: StoreEvents[K]) => void;
+
+const listeners: { [K in keyof StoreEvents]: Set<Listener<K>> } = {
+    loaded: new Set(),
+    saved: new Set(),
+    changed: new Set(),
+    validation: new Set(),
+};
 
 // Track subscriptions created while a tab renders so they can be removed
 // together when the tab is torn down.
-let scopedListeners: Array<{ event: StoreEvent; callback: (...args: unknown[]) => void }> = [];
+let scopedUnsubscribes: Array<() => void> = [];
 let trackingScope = false;
 
+function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): void {
+    for (const cb of listeners[event]) {
+        cb(...args);
+    }
+}
+
+// The one normalizer for exclusion entries, applied on load and by the field on
+// write, so a stale untrimmed or empty entry from the server cannot keep a field
+// dirty after the user touches it.
+export function trimmedEntries(values: readonly string[]): string[] {
+    return values.map((value) => value.trim()).filter((value) => value.length > 0);
+}
+
 function normalizeStringList(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+    return Array.isArray(value)
+        ? trimmedEntries(value.filter((item): item is string => typeof item === "string"))
+        : [];
 }
 
 function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
-    const legacyConfig = loadedConfig as PluginConfig & {
-        UseAlternativeBlackFrameAnalyzer?: unknown;
-    };
-
-    // The old flag selected the modern analyzer, so invert it when the renamed flag is absent.
-    if (
-        typeof legacyConfig.UseLegacyBlackFrameAnalyzer !== "boolean" &&
-        typeof legacyConfig.UseAlternativeBlackFrameAnalyzer === "boolean"
-    ) {
-        loadedConfig.UseLegacyBlackFrameAnalyzer = !legacyConfig.UseAlternativeBlackFrameAnalyzer;
-    }
-    delete legacyConfig.UseAlternativeBlackFrameAnalyzer;
-
     loadedConfig.SeriesExclusions = normalizeStringList(loadedConfig.SeriesExclusions);
     loadedConfig.MovieExclusions = normalizeStringList(loadedConfig.MovieExclusions);
     loadedConfig.PathExclusions = normalizeStringList(loadedConfig.PathExclusions);
     return loadedConfig;
 }
 
+// Config values are primitives or string arrays, so a shallow element compare
+// is a full equality check.
+function sameValue(a: PluginConfig[keyof PluginConfig], b: PluginConfig[keyof PluginConfig]): boolean {
+    if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every((item, index) => item === b[index]);
+    }
+    return a === b;
+}
+
+function takeSnapshot(source: PluginConfig): void {
+    snapshot = JSON.parse(JSON.stringify(source)) as PluginConfig;
+}
+
 export const configStore = {
-    subscribe(event: StoreEvent, callback: (...args: unknown[]) => void): void {
-        if (!listeners.has(event)) {
-            listeners.set(event, new Set());
-        }
-        listeners.get(event)!.add(callback);
+    subscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
+        listeners[event].add(callback);
         if (trackingScope) {
-            scopedListeners.push({ event, callback });
+            scopedUnsubscribes.push(() => listeners[event].delete(callback));
         }
     },
 
-    unsubscribe(event: StoreEvent, callback: (...args: unknown[]) => void): void {
-        listeners.get(event)?.delete(callback);
+    unsubscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
+        listeners[event].delete(callback);
     },
 
     /** Start tracking subscriptions. Call before rendering a tab. */
     beginScope(): void {
         trackingScope = true;
-        scopedListeners = [];
+        scopedUnsubscribes = [];
     },
 
     /** Remove all subscriptions added since beginScope(). Call on tab destroy. */
     endScope(): void {
-        for (const { event, callback } of scopedListeners) {
-            listeners.get(event)?.delete(callback);
+        for (const unsubscribe of scopedUnsubscribes) {
+            unsubscribe();
         }
-        scopedListeners = [];
+        scopedUnsubscribes = [];
         trackingScope = false;
-    },
-
-    emit(event: StoreEvent, ...args: unknown[]): void {
-        const set = listeners.get(event);
-        if (set) {
-            for (const cb of set) {
-                cb(...args);
-            }
-        }
     },
 
     async load(): Promise<void> {
         try {
             config = normalizePluginConfig(await loadPluginConfig());
-            snapshot = JSON.parse(JSON.stringify(config)) as PluginConfig;
-            this.emit("loaded");
+            takeSnapshot(config);
+            emit("loaded");
         } catch (err) {
             console.error("Failed to load plugin configuration", err);
             window.Dashboard.alert("Failed to load configuration");
@@ -104,7 +124,7 @@ export const configStore = {
     },
 
     set<K extends keyof PluginConfig>(field: K, value: PluginConfig[K]): void {
-        if (!config) throw new Error("Config not loaded");
+        if (!config || !snapshot) throw new Error("Config not loaded");
 
         // The store owns updates, so it can write through the readonly type here.
         (config as unknown as Record<string, PluginConfig[keyof PluginConfig]>)[field as string] =
@@ -125,11 +145,11 @@ export const configStore = {
             if (!linkedError) {
                 linkedError = validator.validateCrossFieldFor(linked, config);
             }
-            this.emit("validation", { field: linked, error: linkedError });
+            emit("validation", { field: linked, error: linkedError });
         }
 
-        this.emit("changed", { field, value });
-        this.emit("validation", { field, error });
+        emit("changed", { field });
+        emit("validation", { field, error });
     },
 
     async save(): Promise<void> {
@@ -142,14 +162,18 @@ export const configStore = {
             updateSkipDuration().catch(console.error);
 
             config = serverConfig;
-            snapshot = JSON.parse(JSON.stringify(serverConfig)) as PluginConfig;
+            takeSnapshot(serverConfig);
             window.Dashboard.processPluginConfigurationUpdateResult(result);
-            this.emit("saved");
+            emit("saved");
         });
     },
 
     isDirty(): boolean {
         if (!config || !snapshot) return false;
-        return JSON.stringify(config) !== JSON.stringify(snapshot);
+        const current = config;
+        const saved = snapshot;
+        return (Object.keys(saved) as (keyof PluginConfig)[]).some(
+            (field) => !sameValue(current[field], saved[field]),
+        );
     },
 };

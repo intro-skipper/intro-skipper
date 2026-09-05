@@ -6,12 +6,10 @@
 
 namespace IntroSkipper.Data;
 
-#pragma warning disable CA1036 // Override methods on comparable types
-
 /// <summary>
 /// Range of contiguous time.
 /// </summary>
-public class TimeRange : IComparable
+public sealed class TimeRange
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="TimeRange"/> class.
@@ -57,21 +55,6 @@ public class TimeRange : IComparable
     /// Gets the duration of this time range (in seconds).
     /// </summary>
     public double Duration => End - Start;
-
-    /// <summary>
-    /// Compare TimeRange durations.
-    /// </summary>
-    /// <param name="obj">Object to compare with.</param>
-    /// <returns>int.</returns>
-    public int CompareTo(object? obj)
-    {
-        if (obj is not TimeRange tr)
-        {
-            throw new ArgumentException("obj must be a TimeRange");
-        }
-
-        return tr.Duration.CompareTo(Duration);
-    }
 
     /// <summary>
     /// Tests if this TimeRange object intersects the provided TimeRange.

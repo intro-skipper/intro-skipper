@@ -23,7 +23,7 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="contextFactory">The server's Jellyfin database context factory.</param>
 /// <param name="logger">Application logger.</param>
-public sealed partial class JellyfinSegmentStore(
+internal sealed partial class JellyfinSegmentStore(
     IDbContextFactory<JellyfinDbContext> contextFactory,
     ILogger<JellyfinSegmentStore> logger) : IJellyfinSegmentStore
 {
@@ -41,8 +41,6 @@ public sealed partial class JellyfinSegmentStore(
     /// <inheritdoc />
     public async Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(segments);
-
         var entities = segments.Select(segment => Map(segment, itemId)).ToList();
 
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);

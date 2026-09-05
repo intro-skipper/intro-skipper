@@ -13,7 +13,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestDisabledItems
 {
     [Fact]
-    public async Task SetItemDisabledAsync_RoundTripsThroughGet()
+    public async Task SetItemDisabled_RoundTripsThroughGet()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var seasonId = Guid.NewGuid();
@@ -29,7 +29,7 @@ public sealed class TestDisabledItems
     }
 
     [Fact]
-    public async Task SetItemDisabledAsync_IsIdempotentInBothDirections()
+    public async Task SetItemDisabled_IsIdempotentInBothDirections()
     {
         var dbPath = DatabaseTestHelpers.CreateTempDbPath("disabled-items-idempotent.db");
         try
@@ -44,7 +44,7 @@ public sealed class TestDisabledItems
             await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
             await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
 
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             Assert.Equal(1, await db.DisabledItems.CountAsync(e => e.ItemId == itemId));
         }
         finally
@@ -54,7 +54,7 @@ public sealed class TestDisabledItems
     }
 
     [Fact]
-    public async Task SetItemDisabledAsync_RewritesSeasonKeyOnDrift()
+    public async Task SetItemDisabled_RewritesSeasonKeyOnDrift()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var itemId = Guid.NewGuid();
@@ -88,7 +88,7 @@ public sealed class TestDisabledItems
 
             // Raw insert against the migrated file: the migration's DDL, not just
             // the EF model, must enforce the one-row-per-item invariant.
-            await using var db = new IntroSkipperDbContext(dbPath);
+            await using var db = DatabaseTestHelpers.CreateSegmentContext(dbPath);
             db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
 
             await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
@@ -108,7 +108,7 @@ public sealed class TestDisabledItems
 
         var intro = new Segment(itemId, new TimeRange(0, 30));
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [intro], SegmentSource.Chromaprint);
-        await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, TickConversions.FromSeconds(60), TickConversions.FromSeconds(90));
+        await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, TickConversions.FromSeconds(60), TickConversions.FromSeconds(90));
 
         Assert.Equal(2, (await database.GetServableSegmentsAsync(itemId)).Count);
 
@@ -164,19 +164,5 @@ public sealed class TestDisabledItems
         await database.CleanItemStateAsync([itemId]);
 
         Assert.Empty(await database.GetServableSegmentsAsync(itemId));
-    }
-
-    [Fact]
-    public async Task RebuildDatabaseAsync_PreservesDisabledItems()
-    {
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var seasonId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-
-        await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
-
-        await database.RebuildDatabaseAsync();
-
-        Assert.Equal([itemId], await database.GetDisabledItemIdsAsync(seasonId));
     }
 }

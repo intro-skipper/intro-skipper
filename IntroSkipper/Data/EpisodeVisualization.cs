@@ -11,4 +11,4 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="Id">Episode id.</param>
 /// <param name="Name">Episode name.</param>
-public record EpisodeVisualization(Guid Id, string Name);
+public sealed record EpisodeVisualization(Guid Id, string Name);

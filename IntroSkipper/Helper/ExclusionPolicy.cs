@@ -11,7 +11,6 @@ internal sealed class ExclusionPolicy
     private readonly HashSet<string> _seriesNames;
     private readonly HashSet<string> _movieNames;
     private readonly IReadOnlyList<string> _pathRoots;
-    private readonly int _broadPathRootCount;
 
     private ExclusionPolicy(
         HashSet<string> seriesNames,
@@ -21,27 +20,23 @@ internal sealed class ExclusionPolicy
         _seriesNames = seriesNames;
         _movieNames = movieNames;
         _pathRoots = pathRoots;
-        _broadPathRootCount = CountBroadPathRoots(pathRoots);
+        BroadPathRootCount = pathRoots.Count(IsBroadPathRoot);
     }
 
-    public static ExclusionPolicy Empty { get; } = new([], [], []);
-
-    public int BroadPathRootCount => _broadPathRootCount;
+    // Filesystem roots, drive roots and bare UNC shares among the path exclusions; each
+    // excludes an entire volume, which is worth one warning per inventory.
+    public int BroadPathRootCount { get; }
 
     public static ExclusionPolicy FromConfiguration(PluginConfiguration config)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         return new ExclusionPolicy(
             CreateNameSet(config.SeriesExclusions),
             CreateNameSet(config.MovieExclusions),
             CreatePathRoots(config.PathExclusions));
     }
 
-    public ExclusionDecision EvaluateSeries(string? seriesName, Guid seriesId, string? path)
+    public ExclusionDecision EvaluateSeries(string? seriesName, string? path)
     {
-        _ = seriesId;
-
         var pathDecision = EvaluatePath(path);
         if (pathDecision.IsExcluded)
         {
@@ -55,14 +50,12 @@ internal sealed class ExclusionPolicy
         }
 
         return _seriesNames.Contains(name)
-            ? new ExclusionDecision(true, ExclusionReason.SeriesName, name)
+            ? new ExclusionDecision(true, name)
             : ExclusionDecision.Included;
     }
 
-    public ExclusionDecision EvaluateMovie(string? movieName, Guid movieId, string? path)
+    public ExclusionDecision EvaluateMovie(string? movieName, string? path)
     {
-        _ = movieId;
-
         var pathDecision = EvaluatePath(path);
         if (pathDecision.IsExcluded)
         {
@@ -71,11 +64,11 @@ internal sealed class ExclusionPolicy
 
         var name = movieName?.Trim() ?? string.Empty;
         return name.Length > 0 && _movieNames.Contains(name)
-            ? new ExclusionDecision(true, ExclusionReason.MovieName, name)
+            ? new ExclusionDecision(true, name)
             : ExclusionDecision.Included;
     }
 
-    public bool IsPathExcluded(string? path)
+    private bool IsPathExcluded(string? path)
     {
         var normalizedPath = NormalizePath(path);
         if (normalizedPath.Length == 0 || _pathRoots.Count == 0)
@@ -125,23 +118,9 @@ internal sealed class ExclusionPolicy
         return roots;
     }
 
-    private static int CountBroadPathRoots(IEnumerable<string> roots)
-    {
-        var count = 0;
-        foreach (var root in roots)
-        {
-            if (IsBroadPathRoot(root))
-            {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
     private ExclusionDecision EvaluatePath(string? path)
         => IsPathExcluded(path)
-            ? new ExclusionDecision(true, ExclusionReason.Path, "PathExclusions")
+            ? new ExclusionDecision(true, "PathExclusions")
             : ExclusionDecision.Included;
 
     private static bool IsPathMatch(string normalizedPath, string root)

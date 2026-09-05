@@ -7,7 +7,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -19,28 +18,28 @@ using Xunit;
 /// </summary>
 public sealed class TestServableWriteJournaling : IDisposable
 {
-    private readonly string _dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-journaling.db");
+    private readonly SegmentChangeHarness _h = new();
 
     [Fact]
     public async Task ReplaceAutoSegments_JournalsOnlyWhenTheImageChanges()
     {
         var itemId = Guid.NewGuid();
-        var database = CreateDatabase();
+        var database = _h.Database;
 
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter, "hash");
-        Assert.Equal([itemId], await QueuedItemIdsAsync());
+        Assert.Equal([itemId], await _h.QueuedItemIdsAsync());
 
         // An identical rewrite keeps the row in place (stable id): nothing servable
         // changed, so no new work is journaled.
-        await ClearQueueAsync();
+        await _h.ClearQueueAsync();
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter, "hash-2");
-        Assert.Empty(await QueuedItemIdsAsync());
+        Assert.Empty(await _h.QueuedItemIdsAsync());
 
         // A fully rejected write leaves the standing rows untouched and journals nothing.
-        await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(30), DatabaseTestHelpers.Ticks(40));
-        await ClearQueueAsync();
+        await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(30), DatabaseTestHelpers.Ticks(40));
+        await _h.ClearQueueAsync();
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [new Segment(itemId, new TimeRange(30, 40))], SegmentSource.Chapter, "hash");
-        Assert.Empty(await QueuedItemIdsAsync());
+        Assert.Empty(await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -48,15 +47,15 @@ public sealed class TestServableWriteJournaling : IDisposable
     {
         var withRows = Guid.NewGuid();
         var withoutRows = Guid.NewGuid();
-        var database = CreateDatabase();
-        await database.AddUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
-        await ClearQueueAsync();
+        var database = _h.Database;
+        await database.SeedUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
+        await _h.ClearQueueAsync();
 
         // The zero-row item is journaled too: it may hold ghost Jellyfin rows that
         // only a projection heals, and the erase names it explicitly.
         await database.EraseItemsAsync([withRows, withoutRows]);
 
-        Assert.Equal(new[] { withRows, withoutRows }.OrderBy(id => id).ToArray(), await QueuedItemIdsAsync());
+        Assert.Equal(new[] { withRows, withoutRows }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -65,15 +64,15 @@ public sealed class TestServableWriteJournaling : IDisposable
         var first = Guid.NewGuid();
         var second = Guid.NewGuid();
         var untouched = Guid.NewGuid();
-        var database = CreateDatabase();
-        await database.AddUserSegmentAsync(first, AnalysisMode.Introduction, 10, 20);
-        await database.AddUserSegmentAsync(second, AnalysisMode.Introduction, 30, 40);
-        await database.AddUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
-        await ClearQueueAsync();
+        var database = _h.Database;
+        await database.SeedUserSegmentAsync(first, AnalysisMode.Introduction, 10, 20);
+        await database.SeedUserSegmentAsync(second, AnalysisMode.Introduction, 30, 40);
+        await database.SeedUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
+        await _h.ClearQueueAsync();
 
         await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
 
-        Assert.Equal(new[] { first, second }.OrderBy(id => id).ToArray(), await QueuedItemIdsAsync());
+        Assert.Equal(new[] { first, second }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -81,17 +80,17 @@ public sealed class TestServableWriteJournaling : IDisposable
     {
         var automaticItem = Guid.NewGuid();
         var userItem = Guid.NewGuid();
-        var database = CreateDatabase();
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(automaticItem, AnalysisMode.Introduction, [new Segment(automaticItem, new TimeRange(10, 20))], SegmentSource.Chapter, "hash");
 
         // The user item's automatic row is shielded by its active user row of the
         // same mode, so the reset deletes nothing there and journals nothing.
-        await database.AddUserSegmentAsync(userItem, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(10), DatabaseTestHelpers.Ticks(20));
-        await ClearQueueAsync();
+        await database.SeedUserSegmentAsync(userItem, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(10), DatabaseTestHelpers.Ticks(20));
+        await _h.ClearQueueAsync();
 
         await database.ResetItemsForReanalysisAsync([automaticItem, userItem], [AnalysisMode.Introduction]);
 
-        Assert.Equal([automaticItem], await QueuedItemIdsAsync());
+        Assert.Equal([automaticItem], await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -99,27 +98,27 @@ public sealed class TestServableWriteJournaling : IDisposable
     {
         var staleItem = Guid.NewGuid();
         var freshItem = Guid.NewGuid();
-        var database = CreateDatabase();
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(staleItem, AnalysisMode.Introduction, [new Segment(staleItem, new TimeRange(10, 20))], SegmentSource.Chapter, "old-hash");
         await database.ReplaceAutoSegmentsAsync(freshItem, AnalysisMode.Introduction, [new Segment(freshItem, new TimeRange(10, 20))], SegmentSource.Chapter, "current-hash");
-        await ClearQueueAsync();
+        await _h.ClearQueueAsync();
 
         var removed = await database.CleanStaleAutomaticSegmentsAsync([staleItem, freshItem], AnalysisMode.Introduction, "current-hash");
 
         Assert.Equal(1, removed);
-        Assert.Equal([staleItem], await QueuedItemIdsAsync());
+        Assert.Equal([staleItem], await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
     public async Task BulkJournaling_SupersedesRecordedBackoff()
     {
         var itemId = Guid.NewGuid();
-        var database = CreateDatabase();
+        var database = _h.Database;
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter, "hash");
 
         // A marker parked on backoff after a projection failure becomes due
         // immediately when new work lands, like the intent path's enqueue.
-        await using (var db = CreateContext())
+        await using (var db = _h.Context())
         {
             var queue = Assert.Single(await db.ProjectionQueue.ToListAsync());
             queue.NextAttemptAt = DateTime.UtcNow.AddHours(1);
@@ -128,28 +127,12 @@ public sealed class TestServableWriteJournaling : IDisposable
 
         await database.EraseItemsAsync([itemId]);
 
-        await using var verify = CreateContext();
+        await using var verify = _h.Context();
         var marker = Assert.Single(await verify.ProjectionQueue.ToListAsync());
         Assert.Null(marker.NextAttemptAt);
         Assert.True(marker.Version > 1);
     }
 
     /// <inheritdoc/>
-    public void Dispose() => DatabaseTestHelpers.DeleteSqliteFiles(_dbPath);
-
-    private IntroSkipperDatabase CreateDatabase() => DatabaseTestHelpers.CreateSegmentDatabase(_dbPath);
-
-    private IntroSkipperDbContext CreateContext() => new(_dbPath);
-
-    private async Task<Guid[]> QueuedItemIdsAsync()
-    {
-        await using var db = CreateContext();
-        return await db.ProjectionQueue.Select(q => q.ItemId).OrderBy(id => id).ToArrayAsync();
-    }
-
-    private async Task ClearQueueAsync()
-    {
-        await using var db = CreateContext();
-        await db.ProjectionQueue.ExecuteDeleteAsync();
-    }
+    public void Dispose() => _h.Dispose();
 }

@@ -1,6 +1,6 @@
 import { htmlEl } from "./dom.ts";
 
-export type FieldMetaOptions = {
+type FieldMetaOptions = {
     idBase?: string;
     description?: string;
     warning?: string;

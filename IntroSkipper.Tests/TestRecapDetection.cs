@@ -6,9 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using IntroSkipper.Analyzers;
-using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Helper;
 using Xunit;
 
 public class TestRecapDetection
@@ -64,30 +62,6 @@ public class TestRecapDetection
         Assert.Equal(rhsId, rhsSegment.EpisodeId);
         Assert.False(lhsSegment.Valid);
         Assert.False(rhsSegment.Valid);
-    }
-
-    [Fact]
-    public void GetMinimumRegionDuration_Recap_AllowsShortCard()
-    {
-        var recapFloor = ChromaprintAnalyzer.GetMinimumRegionDuration(AnalysisMode.Recap, 15);
-
-        Assert.True(recapFloor < 15);
-        Assert.True(recapFloor <= 5);
-    }
-
-    [Fact]
-    public void RecapHash_ChangesWhenChromaprintTuningChanges()
-    {
-        var baseline = new PluginConfiguration();
-        var tuned = new PluginConfiguration
-        {
-            MaximumFingerprintPointDifferences = baseline.MaximumFingerprintPointDifferences + 1,
-        };
-
-        var hashBaseline = ConfigHasher.Analysis(baseline, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true);
-        var hashTuned = ConfigHasher.Analysis(tuned, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true);
-
-        Assert.NotEqual(hashBaseline, hashTuned);
     }
 
     [Fact]

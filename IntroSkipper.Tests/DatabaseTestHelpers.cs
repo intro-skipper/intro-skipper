@@ -5,7 +5,6 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
-using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
@@ -13,6 +12,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -23,8 +23,26 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// </summary>
 internal static class DatabaseTestHelpers
 {
+    /// <summary>
+    /// Builds context options over a SQLite file the way production does (provider plus
+    /// the per-connection pragma interceptor), so test contexts share its pragma policy.
+    /// </summary>
+    internal static DbContextOptions<TContext> CreateContextOptions<TContext>(string dbPath)
+        where TContext : DbContext
+    {
+        var builder = new DbContextOptionsBuilder<TContext>();
+        SqlitePragmas.Configure(builder, dbPath);
+        return builder.Options;
+    }
+
+    internal static IntroSkipperDbContext CreateSegmentContext(string dbPath)
+        => new(CreateContextOptions<IntroSkipperDbContext>(dbPath));
+
+    internal static DetectionCacheDbContext CreateCacheContext(string dbPath)
+        => new(CreateContextOptions<DetectionCacheDbContext>(dbPath));
+
     internal static IntroSkipperDatabase CreateSegmentDatabase(string dbPath)
-        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath)), NullLogger<IntroSkipperDatabase>.Instance);
+        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => CreateSegmentContext(dbPath)), NullLogger<IntroSkipperDatabase>.Instance);
 
     /// <summary>
     /// Creates a segment database facade over a fresh temp-file path, for consumers
@@ -37,10 +55,15 @@ internal static class DatabaseTestHelpers
 
     /// <summary>
     /// Composes the standard mirror over a store and database, the single test home of
-    /// the mirror wiring so constructor changes touch one place.
+    /// the mirror wiring so constructor changes touch one place. Without an explicit
+    /// policy the mirror follows the plugin configuration, as in production, or is
+    /// simply enabled when the test hosts no plugin instance.
     /// </summary>
-    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(store, new SegmentDtoFactory(database));
+    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
+        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy());
+
+    private static IMediaSegmentMirrorPolicy DefaultPolicy()
+        => Plugin.Instance is null ? new FakeMirrorPolicy() : new MediaSegmentMirrorPolicy();
 
     /// <summary>
     /// Composes the durable segment-change coordinator over the real Jellyfin
@@ -50,21 +73,16 @@ internal static class DatabaseTestHelpers
     /// the given store.
     /// </summary>
     internal static SegmentChange CreateSegmentChange(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
-        => new(
+    {
+        policy ??= DefaultPolicy();
+        return new(
             database,
-            database,
-            new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
-            policy ?? new FakeMirrorPolicy(),
+            new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database, policy), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
+            policy,
             new SegmentMutationLocks(),
             TimeProvider.System,
             NullLogger<SegmentChange>.Instance);
-
-    /// <summary>
-    /// Composes the editor controller over the standard segment-change wiring, the
-    /// single test home of the controller composition chain.
-    /// </summary>
-    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IntroSkipperDatabase database)
-        => new(CreateSegmentChange(store, database));
+    }
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.
@@ -72,7 +90,7 @@ internal static class DatabaseTestHelpers
     internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
-        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);
+        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => CreateCacheContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);
 
     internal static DetectionCacheService CreateCacheService(string dbPath)
         => new(NullLogger<DetectionCacheService>.Instance, CreateCacheDatabase(dbPath));

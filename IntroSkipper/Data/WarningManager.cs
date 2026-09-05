@@ -9,7 +9,7 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Warning manager.
 /// </summary>
-public static class WarningManager
+internal static class WarningManager
 {
     private static PluginWarning _warnings;
 
@@ -20,14 +20,6 @@ public static class WarningManager
     public static void SetFlag(PluginWarning warning)
     {
         _warnings |= warning;
-    }
-
-    /// <summary>
-    /// Clear warnings.
-    /// </summary>
-    public static void Clear()
-    {
-        _warnings = PluginWarning.None;
     }
 
     /// <summary>

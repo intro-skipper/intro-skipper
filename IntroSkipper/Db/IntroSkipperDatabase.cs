@@ -20,11 +20,11 @@ namespace IntroSkipper.Db;
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory.
 /// </summary>
-public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 {
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly RetryableInitializationGate<Task> _initialization;
+    private readonly RetryableInitializationGate _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
@@ -33,9 +33,6 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     /// <param name="logger">Logger.</param>
     public IntroSkipperDatabase(IDbContextFactory<IntroSkipperDbContext> contextFactory, ILogger<IntroSkipperDatabase> logger)
     {
-        ArgumentNullException.ThrowIfNull(contextFactory);
-        ArgumentNullException.ThrowIfNull(logger);
-
         _contextFactory = contextFactory;
         _logger = logger;
         // Task.Run is load-bearing, not redundant: InitializeCoreAsync may perform the
@@ -45,7 +42,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         // the Lazy monitor until the factory's first incomplete await. Dispatching to
         // the thread pool makes the factory return a Task immediately, so waiters
         // genuinely await instead of blocking.
-        _initialization = new RetryableInitializationGate<Task>(() => Task.Run(InitializeCoreAsync));
+        _initialization = new RetryableInitializationGate(() => Task.Run(InitializeCoreAsync));
     }
 
     /// <inheritdoc/>
@@ -80,7 +77,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
-        await db.ApplyMigrationsAsync().ConfigureAwait(false);
+        await db.Database.MigrateAsync().ConfigureAwait(false);
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
     }
@@ -110,25 +107,19 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
             var transaction = await db.Database.BeginTransactionAsync().ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
-                var result = sourceFileFound
+                var marker = sourceFileFound
                     ? await LegacyDatabaseImporter.ImportAsync(db, legacyPath!, _logger).ConfigureAwait(false)
-                    : new LegacyImportResult(0, 0, 0, "no legacy database");
+                    : new DbImportRecord { Notes = "no legacy database" };
+                marker.ImportedAt = DateTime.UtcNow;
+                marker.SourceFileFound = sourceFileFound;
 
-                db.ImportHistory.Add(new DbImportRecord
-                {
-                    ImportedAt = DateTime.UtcNow,
-                    SourceFileFound = sourceFileFound,
-                    SegmentsImported = result.SegmentsImported,
-                    SegmentsSkipped = result.SegmentsSkipped,
-                    SeasonStatesImported = result.SeasonStatesImported,
-                    Notes = result.Notes
-                });
+                db.ImportHistory.Add(marker);
                 await db.SaveChangesAsync().ConfigureAwait(false);
                 await transaction.CommitAsync().ConfigureAwait(false);
 
                 if (sourceFileFound)
                 {
-                    LogLegacyImportCompleted(_logger, result.SegmentsImported, result.SegmentsSkipped, result.SeasonStatesImported);
+                    LogLegacyImportCompleted(_logger, marker.SegmentsImported, marker.SegmentsSkipped, marker.SeasonStatesImported);
                 }
             }
         }
@@ -159,7 +150,4 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a user-provided segment")]
     private static partial void LogAutoSegmentSkippedForUserOverlap(ILogger logger, Data.AnalysisMode mode, Guid itemId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update segments for item {ItemId}")]
-    private static partial void LogFailedToUpdateSegments(ILogger logger, Exception ex, Guid itemId);
 }

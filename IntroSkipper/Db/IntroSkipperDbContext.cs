@@ -8,7 +8,6 @@ using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Db;
 
@@ -33,93 +32,51 @@ public class IntroSkipperDbContext : DbContext
     private static readonly ValueConverter<DateTime?, DateTime?> _utcNullableDateTimeConverter =
         new(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
 
-    private readonly string? _dbPath;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
     /// </summary>
-    /// <param name="dbPath">The path to the SQLite database file.</param>
-    public IntroSkipperDbContext(string dbPath)
-    {
-        _dbPath = dbPath;
-        Segments = Set<DbSegment>();
-        SeasonStates = Set<DbSeasonState>();
-        AnalyzedItems = Set<DbAnalyzedItem>();
-        ImportHistory = Set<DbImportRecord>();
-        DisabledItems = Set<DbDisabledItem>();
-        ProjectionQueue = Set<DbProjectionQueueItem>();
-        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
-    /// </summary>
-    /// <param name="options">The options.</param>
-    /// <remarks>
-    /// <see cref="ActivatorUtilitiesConstructorAttribute"/> disambiguates for the DI
-    /// factory registered by <c>AddDbContextFactory</c>: with two public constructors,
-    /// EF's factory source falls back to <c>ActivatorUtilities</c>, which requires a
-    /// single unambiguous constructor.
-    /// </remarks>
-    [ActivatorUtilitiesConstructor]
+    /// <param name="options">The options, configured through <see cref="SqlitePragmas.Configure"/>.</param>
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
-        _dbPath = null;
-        Segments = Set<DbSegment>();
-        SeasonStates = Set<DbSeasonState>();
-        AnalyzedItems = Set<DbAnalyzedItem>();
-        ImportHistory = Set<DbImportRecord>();
-        DisabledItems = Set<DbDisabledItem>();
-        ProjectionQueue = Set<DbProjectionQueueItem>();
-        ProjectionExternalOperations = Set<DbProjectionExternalOperation>();
     }
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the segments.
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the segments.
     /// </summary>
-    public DbSet<DbSegment> Segments { get; set; }
+    public DbSet<DbSegment> Segments => Set<DbSegment>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season state.
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the season state.
     /// </summary>
-    public DbSet<DbSeasonState> SeasonStates { get; set; }
+    public DbSet<DbSeasonState> SeasonStates => Set<DbSeasonState>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the per-item analysis records.
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the per-item analysis records.
     /// </summary>
-    public DbSet<DbAnalyzedItem> AnalyzedItems { get; set; }
+    public DbSet<DbAnalyzedItem> AnalyzedItems => Set<DbAnalyzedItem>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
     /// </summary>
-    public DbSet<DbImportRecord> ImportHistory { get; set; }
+    public DbSet<DbImportRecord> ImportHistory => Set<DbImportRecord>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
     /// segments are withheld from Jellyfin.
     /// </summary>
-    public DbSet<DbDisabledItem> DisabledItems { get; set; }
+    public DbSet<DbDisabledItem> DisabledItems => Set<DbDisabledItem>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the pending projection
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the pending projection
     /// markers (one per item with work outstanding).
     /// </summary>
-    public DbSet<DbProjectionQueueItem> ProjectionQueue { get; set; }
+    public DbSet<DbProjectionQueueItem> ProjectionQueue => Set<DbProjectionQueueItem>();
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the durable foreign-row
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the durable foreign-row
     /// deletes awaiting projection.
     /// </summary>
-    public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations { get; set; }
-
-    /// <inheritdoc/>
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        if (!optionsBuilder.IsConfigured)
-        {
-            SqlitePragmas.Configure(optionsBuilder, _dbPath!);
-        }
-    }
+    public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations => Set<DbProjectionExternalOperation>();
 
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -231,16 +188,6 @@ public class IntroSkipperDbContext : DbContext
         base.OnModelCreating(modelBuilder);
     }
 
-    /// <summary>
-    /// Asynchronously applies any pending migrations to the database.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task ApplyMigrationsAsync(CancellationToken cancellationToken = default)
-    {
-        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     /// <inheritdoc/>
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -269,7 +216,7 @@ public class IntroSkipperDbContext : DbContext
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
-    public async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
+    internal async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
@@ -495,11 +442,6 @@ public class IntroSkipperDbContext : DbContext
 
     internal string? GetDatabaseFilePath()
     {
-        if (!string.IsNullOrEmpty(_dbPath))
-        {
-            return _dbPath;
-        }
-
         var connectionString = Database.GetConnectionString();
         if (string.IsNullOrWhiteSpace(connectionString))
         {

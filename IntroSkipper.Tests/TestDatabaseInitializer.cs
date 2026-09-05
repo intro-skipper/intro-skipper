@@ -18,52 +18,47 @@ using Xunit;
 /// </summary>
 public sealed class TestDatabaseInitializer
 {
-    [Fact]
-    public async Task StartAsync_SegmentInitializationFailure_NeverEscapesAndStillWarmsCache()
-    {
-        var cacheCalls = 0;
-        var segmentDatabase = FacadeProxy.CreateSegmentDatabase(
-            () => Task.FromException(new IOException("simulated async segment init failure")));
-        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
-        var initializer = new IntroSkipperDatabaseInitializer(
-            segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
-
-        Assert.Null(await Record.ExceptionAsync(() => initializer.StartAsync(CancellationToken.None)));
-        Assert.Equal(1, cacheCalls);
-        Assert.Null(await Record.ExceptionAsync(() => initializer.StopAsync(CancellationToken.None)));
-    }
-
-    [Fact]
-    public async Task StartAsync_WarmsBothDatabases_ExactlyOnce()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAsync_WarmsBothDatabasesOnce_AndSegmentFailureNeverEscapes(bool segmentWarmupFails)
     {
         var segmentCalls = 0;
         var cacheCalls = 0;
         var segmentDatabase = FacadeProxy.CreateSegmentDatabase(() =>
         {
             segmentCalls++;
-            return Task.CompletedTask;
+            return segmentWarmupFails
+                ? Task.FromException(new IOException("simulated async segment init failure"))
+                : Task.CompletedTask;
         });
         var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
         var initializer = new IntroSkipperDatabaseInitializer(
             segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
 
-        await initializer.StartAsync(CancellationToken.None);
-
+        Assert.Null(await Record.ExceptionAsync(() => initializer.StartAsync(CancellationToken.None)));
         Assert.Equal(1, segmentCalls);
         Assert.Equal(1, cacheCalls);
+        Assert.Null(await Record.ExceptionAsync(() => initializer.StopAsync(CancellationToken.None)));
     }
 
-    [Fact]
-    public async Task StartAsync_CancellationDuringSegmentWarmup_ReturnsWithoutThrowingAndSkipsCache()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAsync_CancellationDuringOrAfterSegmentWarmup_ReturnsWithoutThrowingAndSkipsCache(bool warmupCompletes)
     {
         var cacheCalls = 0;
         using var cts = new CancellationTokenSource();
         // Cancel from inside the fake so the token is untouched at method entry (exercising
-        // the WaitAsync path, not the early-return check) and the returned task never completes.
+        // the WaitAsync path, not the early-return check); the incomplete variant's task
+        // never completes.
         var segmentDatabase = FacadeProxy.CreateSegmentDatabase(async () =>
         {
             await cts.CancelAsync();
-            await new TaskCompletionSource().Task;
+            if (!warmupCompletes)
+            {
+                await new TaskCompletionSource().Task;
+            }
         });
         var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
         var initializer = new IntroSkipperDatabaseInitializer(
@@ -73,25 +68,6 @@ public sealed class TestDatabaseInitializer
         // never-completing warm-up; the timeout turns that regression into a test failure.
         Assert.Null(await Record.ExceptionAsync(
             () => initializer.StartAsync(cts.Token).WaitAsync(TimeSpan.FromSeconds(30))));
-        Assert.Equal(0, cacheCalls);
-    }
-
-    [Fact]
-    public async Task StartAsync_CancellationAfterCompletedSegmentWarmup_SkipsCache()
-    {
-        var cacheCalls = 0;
-        using var cts = new CancellationTokenSource();
-        var segmentDatabase = FacadeProxy.CreateSegmentDatabase(() =>
-        {
-            _ = cts.CancelAsync();
-            return Task.CompletedTask;
-        });
-        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
-        var initializer = new IntroSkipperDatabaseInitializer(
-            segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
-
-        await initializer.StartAsync(cts.Token);
-
         Assert.True(cts.IsCancellationRequested);
         Assert.Equal(0, cacheCalls);
     }

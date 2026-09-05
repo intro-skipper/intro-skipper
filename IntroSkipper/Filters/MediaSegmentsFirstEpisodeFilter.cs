@@ -29,13 +29,21 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
     ILibraryManager libraryManager,
     ILogger<MediaSegmentsFirstEpisodeFilter> logger) : IAsyncResultFilter
 {
-    private static readonly string[] _routeItemKeys = ["itemId", "id", "ItemId"];
+    private static readonly string[] _routeItemKeys = ["itemId", "id"];
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly ILogger<MediaSegmentsFirstEpisodeFilter> _logger = logger;
 
     /// <inheritdoc />
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
+        // Runs on every MediaSegments request: bail on the configuration flag before any
+        // library lookup.
+        if (Plugin.Instance?.Configuration.SkipFirstEpisode != true)
+        {
+            await next().ConfigureAwait(false);
+            return;
+        }
+
         if (!TryGetItemId(context, out var itemId))
         {
             LogMissingItemId(_logger, context.RouteData.Values);
@@ -43,19 +51,7 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        if (_libraryManager.GetItemById(itemId) is not Episode episode)
-        {
-            await next().ConfigureAwait(false);
-            return;
-        }
-
-        if (!IsFirstEpisode(episode))
-        {
-            await next().ConfigureAwait(false);
-            return;
-        }
-
-        if (!IsFilteredEpisode(episode))
+        if (_libraryManager.GetItemById(itemId) is not Episode episode || !IsFirstEpisode(episode) || !IsFilteredEpisode(episode))
         {
             await next().ConfigureAwait(false);
             return;
@@ -85,13 +81,6 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
 
     private bool IsFirstEpisode(Episode episode)
     {
-        LogEvaluatingFirstEpisode(_logger, episode.Id, episode.SeasonId, episode.IndexNumber);
-
-        if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
-        {
-            return false;
-        }
-
         if (episode.SeasonId == Guid.Empty)
         {
             LogEpisodeMissingSeasonId(_logger, episode.Id);
@@ -104,7 +93,8 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             IncludeItemTypes = [BaseItemKind.Episode],
             Recursive = false,
             IsVirtualItem = false,
-            OrderBy = [(ItemSortBy.IndexNumber, SortOrder.Ascending)]
+            OrderBy = [(ItemSortBy.IndexNumber, SortOrder.Ascending)],
+            Limit = 1
         };
 
         var firstEpisode = _libraryManager.GetItemList(query, false)
@@ -116,8 +106,6 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             LogNoFirstEpisodeFound(_logger, episode.SeasonId);
             return false;
         }
-
-        LogSeasonFirstEpisode(_logger, episode.SeasonId, firstEpisode.Id, episode.Id);
 
         return firstEpisode.Id == episode.Id;
     }
@@ -162,8 +150,6 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
         if (value is QueryResult<MediaSegmentDto> queryResult)
         {
             var items = FilterSegments(queryResult.Items);
-            LogFilteringQueryResult(_logger, queryResult.Items?.Count ?? 0, items.Length);
-
             return new QueryResult<MediaSegmentDto>
             {
                 Items = items,
@@ -174,9 +160,7 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
 
         if (value is IEnumerable<MediaSegmentDto> segments)
         {
-            var filtered = FilterSegments(segments);
-            LogFilteringListSegments(_logger, filtered.Length);
-            return filtered.ToList();
+            return FilterSegments(segments).ToList();
         }
 
         if (_logger.IsEnabled(LogLevel.Debug))
@@ -204,23 +188,11 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
     [LoggerMessage(Level = LogLevel.Debug, Message = "MediaSegments result type not recognized: {ResultType}")]
     private static partial void LogResultTypeNotRecognized(ILogger logger, string? resultType);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Evaluating first-episode status for {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})")]
-    private static partial void LogEvaluatingFirstEpisode(ILogger logger, Guid episodeId, Guid seasonId, int? index);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Episode {EpisodeId} has no SeasonId. Not filtering.")]
     private static partial void LogEpisodeMissingSeasonId(ILogger logger, Guid episodeId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No first episode found for SeasonId {SeasonId}. Not filtering.")]
     private static partial void LogNoFirstEpisodeFound(ILogger logger, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Season {SeasonId} first episode is {FirstEpisodeId}. Current episode is {EpisodeId}.")]
-    private static partial void LogSeasonFirstEpisode(ILogger logger, Guid seasonId, Guid firstEpisodeId, Guid episodeId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Filtering QueryResult media segments. Before: {Before}, After: {After}")]
-    private static partial void LogFilteringQueryResult(ILogger logger, int before, int after);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Filtering list media segments. After: {Count}")]
-    private static partial void LogFilteringListSegments(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Media segments response was not a list of media segments. Type: {Type}")]
     private static partial void LogSegmentsResponseNotList(ILogger logger, string type);

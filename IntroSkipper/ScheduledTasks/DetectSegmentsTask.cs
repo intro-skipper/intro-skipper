@@ -24,12 +24,15 @@ namespace IntroSkipper.ScheduledTasks;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+/// <param name="entrypoint">Owner of the automatic analysis, which this task cancels before it starts.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
-    AnalyzerTaskFactory analyzerFactory) : IScheduledTask
+    AnalyzerTaskFactory analyzerFactory,
+    Entrypoint entrypoint) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly Entrypoint _entrypoint = entrypoint;
 
     /// <summary>
     /// Gets the task name.
@@ -60,10 +63,11 @@ public partial class DetectSegmentsTask(
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         // abort automatic analyzer if running
-        if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
+        var automaticTaskState = _entrypoint.AutomaticTaskState;
+        if (automaticTaskState is TaskState.Running or TaskState.Cancelling)
         {
-            LogAutomaticTaskWillBeCanceled(_logger, Entrypoint.AutomaticTaskState);
-            await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
+            LogAutomaticTaskWillBeCanceled(_logger, automaticTaskState);
+            await _entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
         using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))

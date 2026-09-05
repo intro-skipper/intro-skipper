@@ -24,7 +24,6 @@
 .field-error {
     font-size: 0.85em;
     color: var(--is-error);
-    display: none;
     margin-top: 4px;
 }
 
@@ -71,22 +70,8 @@
 }
 
 .action-button {
-    background: var(--is-accent);
-    color: var(--is-on-accent);
-    border: none;
     padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
     margin-top: 8px;
-}
-
-.action-button:hover {
-    opacity: 0.9;
-}
-
-.action-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .action-button:disabled {
@@ -144,8 +129,6 @@ input[type="number"]:focus-visible,
 input[type="text"]:focus-visible,
 select:focus-visible {
     border-color: var(--is-input-focus);
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 input[type="number"]:focus:not(:focus-visible),
@@ -168,11 +151,7 @@ select:focus:not(:focus-visible) {
 
 .exclusion-add-button,
 .exclusion-remove-button {
-    border-radius: 4px;
-    border: 1px solid var(--is-input-border);
-    background: var(--is-input-bg);
     color: var(--is-text);
-    cursor: pointer;
     font: inherit;
 }
 
@@ -183,12 +162,6 @@ select:focus:not(:focus-visible) {
 .exclusion-add-button:hover,
 .exclusion-remove-button:hover {
     background: var(--is-hover-strong);
-}
-
-.exclusion-add-button:focus-visible,
-.exclusion-remove-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .exclusion-list-values {
@@ -256,25 +229,6 @@ textarea {
     box-sizing: border-box;
 }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-th {
-    padding: 8px;
-    text-align: left;
-    border-bottom: 2px solid var(--is-border-strong);
-}
-
-td {
-    padding: 4px 8px;
-}
-
-tr {
-    border-bottom: 1px solid var(--is-border);
-}
-
 .status-message {
     margin-top: 8px;
     font-size: 0.9em;
@@ -302,11 +256,6 @@ tr {
 .reset-button:hover {
     background: var(--is-hover);
     color: var(--is-text);
-}
-
-.reset-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .checkbox-list-label {
@@ -415,11 +364,6 @@ a {
 
 .support-fold[open] > summary::before {
     content: "\25BE";
-}
-
-.support-fold summary:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .support-fold-meta {
@@ -561,16 +505,6 @@ a {
     color: var(--is-text);
 }
 
-.ts-action-btn:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
-}
-
-.ts-action-btn.apply {
-    background: var(--is-input-bg);
-    border: 1px solid var(--is-input-border);
-}
-
 .ts-action-btn.scan {
     background: rgba(76, 175, 80, 0.2);
 }
@@ -598,13 +532,10 @@ a {
 }
 
 .ts-action-meta a:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
     border-radius: 2px;
 }
 
 .ts-action-status {
-    display: none;
     margin-top: 8px;
     font-size: 0.85em;
 }
@@ -621,18 +552,6 @@ a {
 .ts-filter-input {
     flex: 1;
     padding: 5px 10px;
-    background: var(--is-input-bg);
-    border: 1px solid var(--is-input-border);
-    border-radius: 4px;
-    color: var(--is-text);
-    font-size: 0.85em;
-    outline: none;
-    box-sizing: border-box;
-}
-
-.ts-filter-input:focus-visible {
-    border-color: var(--is-input-focus);
-    box-shadow: 0 0 0 1px var(--is-input-focus);
 }
 
 .ts-episode-count {
@@ -664,11 +583,6 @@ a {
 
 .ts-episode-card-button:hover {
     background: rgba(255, 255, 255, 0.04);
-}
-
-.ts-episode-card-button:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
 }
 
 .ts-episode-card.error {
@@ -748,17 +662,10 @@ a {
 
 .ts-edit-btn {
     margin-left: auto;
-    padding: 2px 10px;
     font-size: 0.8em;
-    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
 }
 
 .ts-edit-btn:focus-visible {
-    outline: 2px solid var(--is-accent);
     outline-offset: 1px;
 }
 
@@ -806,11 +713,6 @@ a {
     background: var(--is-text);
 }
 
-.ts-episode-disable-toggle:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
-}
-
 .ts-episode-card.ts-episode-disabled {
     opacity: 0.6;
 }
@@ -854,13 +756,7 @@ a {
 }
 
 .ts-segment-btn {
-    padding: 2px 10px;
     font-size: 0.9em;
-    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
 }
 
 .ts-segment-btn.danger {
@@ -902,8 +798,6 @@ a {
 }
 
 .ts-retry-link:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
     border-radius: 2px;
 }
 
@@ -973,14 +867,7 @@ a {
     font-family: inherit;
 }
 
-.is-confirm-btn:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
-}
-
 .is-confirm-btn.cancel {
-    background: var(--is-input-bg);
-    border: 1px solid var(--is-input-border);
     color: var(--is-text);
 }
 

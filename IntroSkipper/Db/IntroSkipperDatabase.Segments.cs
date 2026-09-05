@@ -10,11 +10,10 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Segment (<see cref="DbSegment"/>) operations of <see cref="IntroSkipperDatabase"/>.
 /// The user-mutation semantics live in <c>*CoreAsync</c> methods that operate on a
-/// caller-owned context, so a caller composing several mutations (or a mutation plus
-/// bookkeeping) into one transaction reuses exactly the same implementation as the
-/// public single-shot methods.
+/// caller-owned context; <see cref="ApplyChangeAsync"/> composes them with the
+/// analysis bookkeeping and the projection journal in one transaction.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task<int> ReplaceAutoSegmentsAsync(
@@ -25,7 +24,6 @@ public sealed partial class IntroSkipperDatabase
         string configHash = "",
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(segments);
         ValidateMode(mode);
         if (source == SegmentSource.User)
         {
@@ -35,177 +33,153 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        try
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
         {
-            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            await using (transaction.ConfigureAwait(false))
+            // One read for the mode's rows plus, for a credits write, the active
+            // intros the overlap guard below compares against.
+            var loadIntros = mode == AnalysisMode.Credits;
+            var itemRows = await db.Segments
+                .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var existing = itemRows.Where(s => s.Type == mode).ToList();
+            var intros = loadIntros
+                ? itemRows.Where(s => s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active).ToList()
+                : [];
+
+            var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
+            var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
+
+            // Credits-derived previews belong to the credits pass and every other
+            // automatic row to its own mode's pass (the attribution rule of
+            // CleanStaleAutomaticSegmentsAsync), so a write replaces only the rows
+            // its own pass produced. Without the split, the Preview pass and the
+            // credits derive would each delete the other's preview row.
+            var derivedWrite = source == SegmentSource.CreditsDerived;
+            var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
+            var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
+            var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
+
+            var accepted = new List<DbSegment>();
+            var rejected = 0;
+            foreach (var segment in segments.OrderBy(s => s.Start))
             {
-                var existing = await db.Segments
-                    .Where(s => s.ItemId == itemId && s.Type == mode)
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
-                var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
-
-                // Credits-derived previews belong to the credits pass and every other
-                // automatic row to its own mode's pass (the attribution rule of
-                // CleanStaleAutomaticSegmentsAsync), so a write replaces only the rows
-                // its own pass produced. Without the split, the Preview pass and the
-                // credits derive would each delete the other's preview row.
-                var derivedWrite = source == SegmentSource.CreditsDerived;
-                var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
-                var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
-                var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
-
-                var intros = mode == AnalysisMode.Credits
-                    ? await db.Segments
-                        .AsNoTracking()
-                        .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active)
-                        .Select(s => new { s.StartTicks, s.EndTicks })
-                        .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false)
-                    : [];
-
-                var accepted = new List<DbSegment>();
-                var rejected = 0;
-                foreach (var segment in segments.OrderBy(s => s.Start))
+                if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                 {
-                    if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
-                    {
-                        rejected++;
-                        continue;
-                    }
-
-                    if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
-                    {
-                        LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
-                        rejected++;
-                        continue;
-                    }
-
-                    if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
-                    {
-                        LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
-                        rejected++;
-                        continue;
-                    }
-
-                    if (mode == AnalysisMode.Credits
-                        && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
-                    {
-                        LogCreditsOverlapWithIntro(_logger, itemId);
-                        rejected++;
-                        continue;
-                    }
-
-                    // An identical range already standing under the other pass keeps that
-                    // pass's row; re-inserting it would violate the unique
-                    // (ItemId, Type, StartTicks, EndTicks) index.
-                    if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
-                    {
-                        continue;
-                    }
-
-                    if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
-                    {
-                        continue;
-                    }
-
-                    accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
+                    rejected++;
+                    continue;
                 }
 
-                // A write whose candidates were all rejected by the admission gate must not
-                // clear the pass's standing rows: each rejection records human intent
-                // (tombstone, user row) or policy (credits vs intro), not evidence that the
-                // standing detection went stale - stale rows are
-                // CleanStaleAutomaticSegmentsAsync's job. Candidates satisfied by an exact
-                // other-pass row are not rejections, so the normal replace still runs for
-                // them, and an empty input list still clears the pass's rows as documented.
-                if (accepted.Count == 0 && rejected > 0)
+                if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
                 {
-                    return 0;
+                    LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                    rejected++;
+                    continue;
                 }
 
-                // Keep automatic rows whose boundaries are unchanged so their ids stay
-                // stable across re-analysis (Jellyfin rows keep the same Guids); replace
-                // the rest.
-                var kept = 0;
-                foreach (var row in autoRows)
+                if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
                 {
-                    var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
-                    if (match is not null)
-                    {
-                        accepted.Remove(match);
-                        row.Source = source;
-                        row.ConfigHash = configHash;
-                        kept++;
-                    }
-                    else
-                    {
-                        db.Segments.Remove(row);
-                    }
+                    LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                    rejected++;
+                    continue;
                 }
 
-                db.Segments.AddRange(accepted);
-
-                // Journal the item's projection with the rows in one transaction when
-                // the servable image changed (a row added or removed; kept rows only
-                // rewrite bookkeeping the mirror does not carry), so an analysis
-                // write can never lose its mirror push to a crash. The projection
-                // worker's poll converges the item.
-                if (accepted.Count > 0 || autoRows.Count > kept)
+                if (intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                 {
-                    await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
+                    LogCreditsOverlapWithIntro(_logger, itemId);
+                    rejected++;
+                    continue;
                 }
 
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return kept + accepted.Count;
+                // An identical range already standing under the other pass keeps that
+                // pass's row; re-inserting it would violate the unique
+                // (ItemId, Type, StartTicks, EndTicks) index.
+                if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                {
+                    continue;
+                }
+
+                if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
+                {
+                    continue;
+                }
+
+                accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
             }
-        }
-        catch (Exception ex)
-        {
-            LogFailedToUpdateSegments(_logger, ex, itemId);
-            throw;
+
+            // A write whose candidates were all rejected by the admission gate must not
+            // clear the pass's standing rows: each rejection records human intent
+            // (tombstone, user row) or policy (credits vs intro), not evidence that the
+            // standing detection went stale - stale rows are
+            // CleanStaleAutomaticSegmentsAsync's job. Candidates satisfied by an exact
+            // other-pass row are not rejections, so the normal replace still runs for
+            // them, and an empty input list still clears the pass's rows as documented.
+            if (accepted.Count == 0 && rejected > 0)
+            {
+                return 0;
+            }
+
+            // Keep automatic rows whose boundaries are unchanged so their ids stay
+            // stable across re-analysis (Jellyfin rows keep the same Guids); replace
+            // the rest.
+            var kept = 0;
+            foreach (var row in autoRows)
+            {
+                var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
+                if (match is not null)
+                {
+                    accepted.Remove(match);
+                    row.Source = source;
+                    row.ConfigHash = configHash;
+                    kept++;
+                }
+                else
+                {
+                    db.Segments.Remove(row);
+                }
+            }
+
+            db.Segments.AddRange(accepted);
+
+            // Journal only when the servable image changed: kept rows rewrite
+            // bookkeeping the mirror does not carry.
+            if (accepted.Count > 0 || autoRows.Count > kept)
+            {
+                await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return kept + accepted.Count;
         }
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="AddUserSegmentCoreAsync"/>: adds a user segment,
-    /// resolving an exact-range collision in place (an automatic row is promoted, a
-    /// suppressed row revived, an existing user row returned unchanged; a promoted row
-    /// loses its <see cref="DbSegment.ConfigHash"/>). Internal on purpose — it does not
-    /// journal a projection, so production writes go through
-    /// <see cref="ApplyChangeAsync"/>; this is the domain-semantics test seam over the
-    /// same core.
+    /// The tracked row occupying exactly the range on the item and mode, or
+    /// <see langword="null"/>; the read every exact-range collision rule starts from.
     /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="startTicks">Start time in ticks.</param>
-    /// <param name="endTicks">End time in ticks; must be after <paramref name="startTicks"/>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The stored row.</returns>
-    internal async Task<DbSegment> AddUserSegmentAsync(
-        Guid itemId,
-        AnalysisMode mode,
-        long startTicks,
-        long endTicks,
-        CancellationToken cancellationToken = default)
-    {
-        ValidateMode(mode);
-        ValidateRange(startTicks, endTicks);
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        return await AddUserSegmentCoreAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-    }
+    private static Task<DbSegment?> FindExactRangeAsync(IntroSkipperDbContext db, Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken)
+        => db.Segments.FirstOrDefaultAsync(
+            s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
+            cancellationToken);
 
     /// <summary>
-    /// Core of <see cref="AddUserSegmentAsync"/> on a caller-owned context. Saves its own
-    /// changes — the concurrency recovery needs the save boundaries. Inside a caller's
-    /// transaction a failed save rolls back to EF's automatic savepoint, not the whole
-    /// transaction, so the recovery paths behave exactly as they do stand-alone.
+    /// The tracked row with the id on the item, or <see langword="null"/>; ids on other
+    /// items are unknown by contract.
+    /// </summary>
+    private static Task<DbSegment?> FindOwnedRowAsync(IntroSkipperDbContext db, Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+        => db.Segments.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken);
+
+    /// <summary>
+    /// Adds a user segment on a caller-owned context, given the caller's read of the
+    /// exact-range occupant (<paramref name="exact"/>, tracked): an automatic row is
+    /// promoted, a suppressed row revived, an existing user row returned unchanged; a
+    /// promoted row loses its <see cref="DbSegment.ConfigHash"/>.
+    /// Saves its own changes because the concurrency recovery needs the save boundaries.
+    /// Inside a caller's transaction a failed save rolls back to EF's automatic
+    /// savepoint, not the whole transaction, so the recovery paths behave exactly as
+    /// they do stand-alone.
     /// </summary>
     private static async Task<DbSegment> AddUserSegmentCoreAsync(
         IntroSkipperDbContext db,
@@ -213,14 +187,9 @@ public sealed partial class IntroSkipperDatabase
         AnalysisMode mode,
         long startTicks,
         long endTicks,
+        DbSegment? exact,
         CancellationToken cancellationToken)
     {
-        var exact = await db.Segments
-            .FirstOrDefaultAsync(
-                s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         if (exact is not null)
         {
             // Promote an automatic row, revive a tombstone, or return the user row unchanged.
@@ -251,11 +220,7 @@ public sealed partial class IntroSkipperDatabase
             // this insert (analyzers do not take the editor's stripe); resolve like the
             // up-front exact match — promote the occupant in place.
             db.ChangeTracker.Clear();
-            var occupant = await db.Segments
-                .FirstOrDefaultAsync(
-                    s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var occupant = await FindExactRangeAsync(db, itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
             if (occupant is null)
             {
                 throw;
@@ -268,159 +233,68 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="ReplaceUserSegmentsCoreAsync"/>: per mode,
-    /// deletes every active segment and stores the given user segments in one
-    /// transaction (exact-range rows survive in place, keeping the ids Jellyfin
-    /// knows). Internal on purpose — it does not journal a projection, so production
-    /// writes go through <see cref="ApplyChangeAsync"/>; this is the domain-semantics
-    /// test seam over the same core.
+    /// Replaces one mode's active segments with the given user ranges on a
+    /// caller-owned context and transaction. A row occupying exactly a requested
+    /// range survives in place, keeping the id Jellyfin knows: an active row is
+    /// promoted, a tombstone revived; either way it cannot collide with itself on the
+    /// unique index. The mode's other active rows are removed and requested ranges
+    /// without an occupant are inserted as user rows. Stages the changes without
+    /// saving; the caller saves and commits.
     /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="segmentsByMode">The user segment to store per mode, in ticks; each end must be after its start.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task ReplaceUserSegmentsAsync(
-        Guid itemId,
-        IReadOnlyDictionary<AnalysisMode, (long StartTicks, long EndTicks)> segmentsByMode,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(segmentsByMode);
-        foreach (var (mode, (startTicks, endTicks)) in segmentsByMode)
-        {
-            ValidateMode(mode);
-            ValidateRange(startTicks, endTicks);
-        }
-
-        if (segmentsByMode.Count == 0)
-        {
-            return;
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var byMode = segmentsByMode.ToDictionary(
-            pair => pair.Key,
-            pair => (IReadOnlyList<(long StartTicks, long EndTicks)>)new[] { pair.Value });
-
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
-        {
-            await ReplaceUserSegmentsCoreAsync(db, itemId, byMode, cancellationToken).ConfigureAwait(false);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
-    /// Core of <see cref="ReplaceUserSegmentsAsync"/> on a caller-owned context and
-    /// transaction, generalized to a complete range set per mode. For each mode, a row
-    /// occupying exactly a requested range survives in place — keeping the id Jellyfin
-    /// knows: an active row is promoted, a tombstone revived; either way it cannot
-    /// collide with itself on the unique index. The mode's other active rows are
-    /// removed and requested ranges without an occupant are inserted as user rows.
-    /// Stages the changes without saving; the caller saves and commits.
-    /// </summary>
-    /// <returns>The surviving user rows, in request order per mode.</returns>
+    /// <returns>The surviving user rows, in request order.</returns>
     private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsCoreAsync(
         IntroSkipperDbContext db,
         Guid itemId,
-        IReadOnlyDictionary<AnalysisMode, IReadOnlyList<(long StartTicks, long EndTicks)>> segmentsByMode,
+        AnalysisMode mode,
+        IReadOnlyList<(long StartTicks, long EndTicks)> ranges,
         CancellationToken cancellationToken)
     {
-        var modes = segmentsByMode.Keys.ToArray();
         var existing = await db.Segments
-            .Where(s => s.ItemId == itemId && modes.Contains(s.Type))
+            .Where(s => s.ItemId == itemId && s.Type == mode)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var survivors = new List<DbSegment>();
-        foreach (var (mode, ranges) in segmentsByMode)
+        var kept = new List<DbSegment>();
+        foreach (var (startTicks, endTicks) in ranges.Distinct())
         {
-            var kept = new List<DbSegment>();
-            foreach (var (startTicks, endTicks) in ranges.Distinct())
+            var row = existing.Find(s => s.StartTicks == startTicks && s.EndTicks == endTicks);
+            if (row is not null)
             {
-                var row = existing.Find(s => s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks);
-                if (row is not null)
-                {
-                    row.PromoteToUser();
-                }
-                else
-                {
-                    row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
-                    db.Segments.Add(row);
-                }
-
-                kept.Add(row);
+                row.PromoteToUser();
+            }
+            else
+            {
+                row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
+                db.Segments.Add(row);
             }
 
-            db.Segments.RemoveRange(existing.Where(s => s.Type == mode && s.State == SegmentState.Active && !kept.Contains(s)));
-            survivors.AddRange(kept);
+            kept.Add(row);
         }
 
-        return survivors;
+        db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)));
+        return kept;
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="UpdateSegmentCoreAsync"/>: moves a segment's
-    /// boundaries and promotes the surviving row to user provenance (an exact-range
-    /// occupant of the same mode absorbs the addressed row and survives). Returns
-    /// <see langword="null"/> when the id is unknown on the item, suppressed, or
-    /// vanished concurrently. Internal on purpose — it does not journal a projection,
-    /// so production writes go through <see cref="ApplyChangeAsync"/>; this is the
-    /// domain-semantics test seam over the same core.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="startTicks">New start time in ticks.</param>
-    /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The surviving row, or <see langword="null"/>.</returns>
-    internal async Task<DbSegment?> UpdateSegmentAsync(
-        Guid itemId,
-        Guid segmentId,
-        long startTicks,
-        long endTicks,
-        CancellationToken cancellationToken = default)
-    {
-        ValidateRange(startTicks, endTicks);
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        return await UpdateSegmentCoreAsync(db, itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Core of <see cref="UpdateSegmentAsync"/> on a caller-owned context. Saves its own
+    /// Moves a segment's boundaries and promotes the surviving row to user provenance
+    /// on a caller-owned context, given the caller's read of the active tracked
+    /// <paramref name="row"/>: an exact-range occupant of the same mode absorbs the
+    /// addressed row and survives. Returns <see langword="null"/> when the row vanished
+    /// concurrently. Saves its own
     /// changes — the concurrency recovery needs the save boundaries (see
     /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
     /// transaction).
     /// </summary>
     private static async Task<DbSegment?> UpdateSegmentCoreAsync(
         IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
+        DbSegment row,
         long startTicks,
         long endTicks,
         CancellationToken cancellationToken)
     {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null || row.State == SegmentState.Suppressed)
-        {
-            return null;
-        }
-
-        var occupant = await db.Segments
-            .FirstOrDefaultAsync(
-                s => s.Id != segmentId
-                    && s.ItemId == row.ItemId
-                    && s.Type == row.Type
-                    && s.StartTicks == startTicks
-                    && s.EndTicks == endTicks,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var itemId = row.ItemId;
+        var segmentId = row.Id;
+        var occupant = await FindOccupantAsync(db, row, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
 
         // Concurrent analysis writes do not take the editor's stripe, so the row (or the
         // occupant) can vanish between the reads above and the save. That surfaces as a
@@ -432,7 +306,7 @@ public sealed partial class IntroSkipperDatabase
                 if (occupant.State != SegmentState.Suppressed)
                 {
                     // The user explicitly claims an exactly-occupied active range: like
-                    // AddUserSegmentAsync's in-place promotion, the occupant (whose id
+                    // the add's in-place promotion, the occupant (whose id
                     // Jellyfin already knows) survives as the user segment and the moved
                     // row is absorbed into it.
                     db.Segments.Remove(row);
@@ -465,23 +339,13 @@ public sealed partial class IntroSkipperDatabase
             // occupant (whose id Jellyfin already knows) survives as the user segment
             // and the moved row is absorbed into it.
             db.ChangeTracker.Clear();
-            var lateOccupant = await db.Segments
-                .FirstOrDefaultAsync(
-                    s => s.Id != segmentId
-                        && s.ItemId == itemId
-                        && s.Type == row.Type
-                        && s.StartTicks == startTicks
-                        && s.EndTicks == endTicks,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var lateOccupant = await FindOccupantAsync(db, row, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
             if (lateOccupant is null)
             {
                 throw;
             }
 
-            var movedRow = await db.Segments
-                .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-                .ConfigureAwait(false);
+            var movedRow = await FindOwnedRowAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
             if (movedRow is not null)
             {
                 db.Segments.Remove(movedRow);
@@ -500,51 +364,19 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <summary>
-    /// Single-shot form of <see cref="DeleteSegmentCoreAsync"/>: tombstones automatic
-    /// rows, hard-deletes user rows; returns a pre-delete snapshot, or
-    /// <see langword="null"/> when the id is unknown on the item or already
-    /// suppressed. Internal on purpose — it does not journal a projection, so
-    /// production writes go through <see cref="ApplyChangeAsync"/>; this is the
-    /// domain-semantics test seam over the same core.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A pre-delete snapshot of the removed row, or <see langword="null"/>.</returns>
-    internal async Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
+    // Another row of the same item and mode sitting exactly on the target range.
+    private static Task<DbSegment?> FindOccupantAsync(IntroSkipperDbContext db, DbSegment row, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var snapshot = await DeleteSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        if (snapshot is not null)
-        {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        return snapshot;
-    }
-
-    /// <summary>
-    /// Core of <see cref="DeleteSegmentAsync"/> on a caller-owned context. Stages the
-    /// delete (tombstone or removal) without saving; the caller saves and commits.
-    /// </summary>
-    private static async Task<DbSegment?> DeleteSegmentCoreAsync(
-        IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
-        CancellationToken cancellationToken)
-    {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null || row.State == SegmentState.Suppressed)
-        {
-            return null;
-        }
-
-        return StageDelete(db, row);
+        var itemId = row.ItemId;
+        var segmentId = row.Id;
+        var mode = row.Type;
+        return db.Segments.FirstOrDefaultAsync(
+            s => s.Id != segmentId
+                && s.ItemId == itemId
+                && s.Type == mode
+                && s.StartTicks == startTicks
+                && s.EndTicks == endTicks,
+            cancellationToken);
     }
 
     /// <summary>
@@ -568,45 +400,19 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="RestoreSegmentCoreAsync"/>: clears a tombstone,
-    /// re-arming the analysis record and dropping the row's
-    /// <see cref="DbSegment.ConfigHash"/>; returns <see langword="null"/> when the id
-    /// is unknown on the item or not suppressed. Internal on purpose — it does not
-    /// journal a projection, so production writes go through
-    /// <see cref="ApplyChangeAsync"/>; this is the domain-semantics test seam over
-    /// the same core.
-    /// </summary>
-    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
-    /// <param name="segmentId">Segment ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The restored row, or <see langword="null"/>.</returns>
-    internal async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        return await RestoreSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Core of <see cref="RestoreSegmentAsync"/> on a caller-owned context. Saves its own
+    /// Clears a tombstone on a caller-owned context, given the caller's read of the
+    /// suppressed tracked <paramref name="row"/>: re-arms the analysis record and drops
+    /// the row's <see cref="DbSegment.ConfigHash"/>. Saves its own
     /// changes — the concurrency recovery needs the save boundary (see
     /// <see cref="AddUserSegmentCoreAsync"/> for the savepoint behavior inside a caller's
     /// transaction).
     /// </summary>
-    private static async Task<DbSegment?> RestoreSegmentCoreAsync(
+    private static async Task<DbSegment> RestoreSegmentCoreAsync(
         IntroSkipperDbContext db,
-        Guid itemId,
-        Guid segmentId,
+        DbSegment row,
         CancellationToken cancellationToken)
     {
-        var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null || row.State != SegmentState.Suppressed)
-        {
-            return null;
-        }
-
+        var itemId = row.ItemId;
         row.State = SegmentState.Active;
 
         // The delete that tombstoned the row also cleared the item's analysis record
@@ -708,9 +514,6 @@ public sealed partial class IntroSkipperDatabase
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // The kernel journals every erased item's projection with the erase, so
-            // Jellyfin's rows converge away even if the process dies before the
-            // mirror is pushed.
             var (_, itemIds) = await DeleteSegmentsAndJournalAsync(
                 db,
                 db.Segments.Where(s => s.Type == mode),
@@ -736,12 +539,6 @@ public sealed partial class IntroSkipperDatabase
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return itemIds;
         }
-    }
-
-    private static void ValidateRange(long startTicks, long endTicks)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(startTicks);
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(endTicks, startTicks);
     }
 
     // Every stored row must carry a mappable mode: downstream conversions index

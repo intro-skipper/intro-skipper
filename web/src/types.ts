@@ -39,7 +39,6 @@ export interface PluginConfig {
     ChapterAnalyzerPreviewPattern: string;
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
-    ExcludeSeries: string;
     PreferredAudioLanguage: string;
     SeriesExclusions: string[];
     MovieExclusions: string[];
@@ -51,8 +50,6 @@ export interface PluginConfig {
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseLegacyBlackFrameAnalyzer: boolean;
-    /** @deprecated Read only for migration of dashboard/server payloads. */
-    UseAlternativeBlackFrameAnalyzer?: boolean;
     RefineCreditsBoundary: boolean;
     DetectNonBlackCredits: boolean;
     UseChapterMarkersBlackFrame: boolean;
@@ -249,37 +246,36 @@ export type EpisodeItem = {
     SeriesName: string | null;
 };
 
-// Shared options for generated form controls.
-export interface FieldOptions<T> {
-    id: string;
+// Config keys whose value has type V, so a control binds only to keys it can hold.
+export type ConfigKeysOfType<V> = {
+    [K in keyof PluginConfig]: PluginConfig[K] extends V ? K : never;
+}[keyof PluginConfig];
+
+// Options for generated form controls; `kind` picks the control and the key type.
+type FieldBase<K extends keyof PluginConfig> = {
+    id: K;
     label: string;
     description?: string;
     warning?: string;
-    validate?: (value: T) => string | null;
     disabled?: () => boolean;
     visible?: () => boolean;
-    onChange?: (value: T) => void;
-}
-
-export type CheckboxFieldOptions = FieldOptions<boolean>;
-
-export type NumberFieldOptions = FieldOptions<number> & {
-    min?: number;
-    max?: number;
-    step?: number;
 };
 
-export type TextFieldOptions = FieldOptions<string> & {
-    placeholder?: string;
-};
+export type InputFieldOptions =
+    | (FieldBase<ConfigKeysOfType<boolean>> & { kind: "checkbox" })
+    | (FieldBase<ConfigKeysOfType<number>> & {
+          kind: "number";
+          min?: number;
+          max?: number;
+          step?: number;
+      })
+    | (FieldBase<ConfigKeysOfType<string>> & { kind: "text"; placeholder?: string })
+    | (FieldBase<ConfigKeysOfType<string>> & {
+          kind: "select";
+          options: Array<{ value: string; label: string }>;
+      });
 
-export type SelectFieldOptions = FieldOptions<string> & {
-    options: Array<{ value: string; label: string }>;
-};
-
-// Store and routing contracts used across tabs.
-export type StoreEvent = "loaded" | "changed" | "saved" | "validation";
-
+// Routing contract used across tabs.
 export interface Tab {
     id: string;
     label: string;

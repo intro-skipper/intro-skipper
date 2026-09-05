@@ -18,7 +18,6 @@ public class IntroSkipperDbContextFactory : IDesignTimeDbContextFactory<IntroSki
     {
         var optionsBuilder = new DbContextOptionsBuilder<IntroSkipperDbContext>();
         SqlitePragmas.Configure(optionsBuilder, "introskipper-v2.db");
-        optionsBuilder.EnableSensitiveDataLogging(false);
 
         return new IntroSkipperDbContext(optionsBuilder.Options);
     }

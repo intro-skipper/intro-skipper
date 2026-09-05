@@ -22,7 +22,7 @@ internal static class CreditSceneBuilder
     public static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange, int minimumDuration, bool allowBoundaryRefinement = true)
     {
         var minimumDensity = CreditDetectionPolicy.DefaultMinimumBlackFrameDensity;
-        var scenes = DetectCreditSceneCandidates(frames, minimum)
+        var scenes = FindRawScenes(frames, minimum)
             .Where(scene => CreditSceneMetricsCalculator.Calculate(frames, scene, minimum).MeetsDensity(minimumDensity))
             .ToList();
         var merged = MergeNearbyScenes(frames, scenes, minimum, minimumDensity);
@@ -30,21 +30,6 @@ internal static class CreditSceneBuilder
         return [.. shifted
             .Where(scene => HasMinimumDuration(scene, minimumDuration) ||
                 (allowBoundaryRefinement && CanReachMinimumDurationAfterBoundaryRefinement(frames, scene, minimumDuration)))];
-    }
-
-    /// <summary>
-    /// Detects raw credit-scene candidates before density and duration filtering.
-    /// </summary>
-    /// <remarks>
-    /// Raw candidates intentionally remain available for targeted blackdetect interval support when
-    /// adaptive density cannot accept a candidate on keyframe evidence alone.
-    /// </remarks>
-    /// <param name="frames">The keyframe black-frame scan results.</param>
-    /// <param name="minimum">The minimum black percentage that marks a frame as black.</param>
-    /// <returns>The raw candidate scenes.</returns>
-    public static List<CreditScene> DetectCreditSceneCandidates(List<BlackFrame> frames, int minimum)
-    {
-        return FindRawScenes(frames, minimum);
     }
 
     /// <summary>
@@ -70,7 +55,7 @@ internal static class CreditSceneBuilder
             return [];
         }
 
-        var candidates = DetectCreditSceneCandidates(frames, minimum);
+        var candidates = FindRawScenes(frames, minimum);
         var scenes = new List<CreditScene>(candidates.Count);
         foreach (var candidate in candidates)
         {
@@ -97,7 +82,15 @@ internal static class CreditSceneBuilder
         return scenes;
     }
 
-    private static List<CreditScene> FindRawScenes(List<BlackFrame> frames, int minimum)
+    /// <summary>
+    /// Finds the raw credit-scene candidates: runs of black keyframes, before density and duration
+    /// filtering. Callers that cannot accept a candidate on keyframe evidence alone confirm these
+    /// against blackdetect intervals.
+    /// </summary>
+    /// <param name="frames">The keyframe black-frame scan results.</param>
+    /// <param name="minimum">The minimum black percentage that marks a frame as black.</param>
+    /// <returns>The raw candidate scenes.</returns>
+    public static List<CreditScene> FindRawScenes(List<BlackFrame> frames, int minimum)
     {
         var scenes = new List<CreditScene>();
         var maximumInRunGap = EstimateMaximumInRunGap(frames);
@@ -171,13 +164,12 @@ internal static class CreditSceneBuilder
     private static List<CreditScene> ShiftStartsToTransitionFrames(List<BlackFrame> frames, List<CreditScene> scenes, int sceneChange)
     {
         var finalScenes = new List<CreditScene>(scenes.Count);
-        var searchStart = 0;
         foreach (var scene in scenes)
         {
             var startFrame = scene.StartFrame;
             var startTime = scene.StartTime;
 
-            for (var i = searchStart; i < frames.Count; i++)
+            for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
             {
                 var frame = frames[i];
                 if (frame.Frame > scene.EndFrame)
@@ -185,19 +177,11 @@ internal static class CreditSceneBuilder
                     break;
                 }
 
-                if (frame.Frame >= startFrame)
+                if (frame.Percentage >= sceneChange)
                 {
-                    if (searchStart < i)
-                    {
-                        searchStart = i;
-                    }
-
-                    if (frame.Percentage >= sceneChange)
-                    {
-                        startFrame = frame.Frame;
-                        startTime = frame.Time;
-                        break;
-                    }
+                    startFrame = frame.Frame;
+                    startTime = frame.Time;
+                    break;
                 }
             }
 
@@ -221,14 +205,9 @@ internal static class CreditSceneBuilder
 
     private static int FindStartFrame(List<BlackFrame> frames, CreditScene scene, double startTime, int minimum)
     {
-        for (var i = 0; i < frames.Count; i++)
+        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
         {
             var frame = frames[i];
-            if (frame.Frame < scene.StartFrame)
-            {
-                continue;
-            }
-
             if (frame.Frame > scene.EndFrame)
             {
                 break;
@@ -246,14 +225,9 @@ internal static class CreditSceneBuilder
     private static int FindEndFrame(List<BlackFrame> frames, CreditScene scene, double endTime, int minimum)
     {
         var endFrame = scene.StartFrame;
-        for (var i = 0; i < frames.Count; i++)
+        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
         {
             var frame = frames[i];
-            if (frame.Frame < scene.StartFrame)
-            {
-                continue;
-            }
-
             if (frame.Frame > scene.EndFrame)
             {
                 break;

@@ -12,7 +12,7 @@ namespace IntroSkipper.Helper;
 /// Lists every persisted plugin setting with its current and default value for the support bundle,
 /// so newly added settings show up without any bookkeeping here.
 /// </summary>
-public static class ConfigurationReport
+internal static class ConfigurationReport
 {
     // Public readable instance properties are the persisted settings; [XmlIgnore] members are runtime state.
     private static readonly PropertyInfo[] SettingProperties =
@@ -31,8 +31,6 @@ public static class ConfigurationReport
     /// <returns>One entry per setting.</returns>
     public static IReadOnlyList<SettingValue> Enumerate(PluginConfiguration config)
     {
-        ArgumentNullException.ThrowIfNull(config);
-
         var defaults = new PluginConfiguration();
         return [.. SettingProperties.Select(p => new SettingValue(p.Name, Format(p.GetValue(config)), Format(p.GetValue(defaults))))];
     }

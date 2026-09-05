@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper
 {
@@ -38,12 +39,8 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade. The segment facade is
-            // registered once and forwarded to both of its interfaces so the domain
-            // surface and the projection journal share one gate and one instance.
-            serviceCollection.AddSingleton<IntroSkipperDatabase>();
-            serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
-            serviceCollection.AddSingleton<ISegmentProjectionJournal>(serviceProvider => serviceProvider.GetRequiredService<IntroSkipperDatabase>());
+            // gates; every consumer goes through a facade.
+            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
             serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
@@ -51,12 +48,15 @@ namespace IntroSkipper
             // request that arrives earlier.
             serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
 
-            serviceCollection.AddHostedService<Entrypoint>();
+            // One instance serves both roles: the hosted library-event listener and the
+            // automatic-analysis owner that DetectSegmentsTask cancels before it starts.
+            serviceCollection.AddSingleton<Entrypoint>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
             // Owns the shared dependency set of the per-run analysis objects
             // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
             // therefore created fresh by this factory instead of being singletons.
             serviceCollection.AddSingleton<AnalyzerTaskFactory>();
-            serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
+            serviceCollection.AddSingleton<DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             // Shared plugin-to-Jellyfin segment conversion plus the direct writer into
             // Jellyfin's MediaSegments table; the provider stays registered so
@@ -74,9 +74,9 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<SegmentMutationLocks>();
             // Live view of the mirroring flag plus its toggle event; hosted so it can
             // subscribe to plugin configuration changes.
-            serviceCollection.AddSingleton<MediaSegmentMirrorPolicyService>();
-            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
-            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicyService>());
+            serviceCollection.AddSingleton<MediaSegmentMirrorPolicy>();
+            serviceCollection.AddSingleton<IMediaSegmentMirrorPolicy>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicy>());
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<MediaSegmentMirrorPolicy>());
             // Durable segment changes: the coordinator commits intents through the
             // facade and retries journaled projection work; hosted for the retry loop.
             // TryAdd: the service collection is Jellyfin's shared server-wide
@@ -84,8 +84,13 @@ namespace IntroSkipper
             // later plugin) the global TimeProvider slot for every consumer.
             serviceCollection.TryAddSingleton(TimeProvider.System);
             serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
-            serviceCollection.AddSingleton<SegmentChange>();
-            serviceCollection.AddSingleton<ISegmentChange>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton(serviceProvider => new SegmentChange(
+                serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
+                serviceProvider.GetRequiredService<ISegmentProjectionAdapter>(),
+                serviceProvider.GetRequiredService<IMediaSegmentMirrorPolicy>(),
+                serviceProvider.GetRequiredService<SegmentMutationLocks>(),
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                serviceProvider.GetRequiredService<ILogger<SegmentChange>>()));
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>

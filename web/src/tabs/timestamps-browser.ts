@@ -1,15 +1,32 @@
-import type { ShowItem, SeasonItem, EpisodeItem } from "../types.ts";
+import type { ShowItem, SeasonItem, EpisodeItem, Tab } from "../types.ts";
 import { createNavState } from "./timestamp-nav.ts";
-import * as tsData from "./timestamp-data.ts";
+import { getEpisodesWithSegments, getDisabledItemIds } from "./timestamp-data.ts";
+import { getLibraries, getSeasons } from "../store/jellyfin-client.ts";
+import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
+import { errorText, showTitle } from "../utils.ts";
 import { breadcrumbNav, type BreadcrumbSegment } from "../components/breadcrumb-nav.ts";
 import { seasonTabs } from "../components/season-tabs.ts";
 import { episodeList } from "../components/episode-list.ts";
 import { actionBar } from "../components/action-bar.ts";
 import { clickableCard } from "../components/clickable-card.ts";
-import { createManageBar } from "../components/manage-bar.ts";
+import { appendManageToggle } from "../components/manage-bar.ts";
 
-export function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
+let activeBrowser: { destroy: () => void } | null = null;
+
+export const timestampsTab: Tab = {
+    id: "timestamps",
+    label: "Timestamps",
+    render(container) {
+        activeBrowser = createTimestampsBrowser(container);
+    },
+    destroy() {
+        activeBrowser?.destroy();
+        activeBrowser = null;
+    },
+};
+
+function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
     const nav$ = createNavState();
     let currentSeasonTabs: ReturnType<typeof seasonTabs> | null = null;
 
@@ -37,7 +54,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
     void navigateToLibraries().catch(console.error);
 
-    function createStatusMessage(message: string, color?: string): HTMLElement {
+    function statusLine(message: string, color?: string): HTMLElement {
         const attrs: Record<string, string> = { className: "ts-status-msg" };
         if (color) {
             attrs.style = "color: " + color;
@@ -88,7 +105,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const libraries = await tsData.getLibraries();
+            const libraries = await getLibraries();
             if (!nav$.isCurrentView(viewToken)) return;
 
             for (const lib of libraries) {
@@ -101,14 +118,13 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
                 const card = clickableCard({
                     title: lib.Name,
-                    subtitle: "Loading items\u2026",
+                    subtitle: countEl,
                     onClick: () => {
                         void navigateToShows(lib.Id, lib.Name).catch(console.error);
                     },
                 });
 
-                if (card.subtitleEl) card.subtitleEl.replaceWith(countEl);
-                contentEl.append(card.container);
+                contentEl.append(card);
             }
 
             void Promise.all(
@@ -129,9 +145,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         } catch (err) {
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
-                createStatusMessage(
+                statusLine(
                     "Failed to load libraries: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                        errorText(err),
                     "var(--is-error)",
                 ),
             );
@@ -150,7 +166,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         let libShows = nav$.getCachedShows(libraryId);
 
         if (!libShows) {
-            contentEl.append(createStatusMessage("Loading shows\u2026"));
+            contentEl.append(statusLine("Loading shows\u2026"));
             nav$.showDashboardLoading();
             try {
                 libShows = await nav$.ensureLibraryShows(
@@ -166,9 +182,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 if (!nav$.isCurrentView(viewToken)) return;
                 contentEl.replaceChildren();
                 contentEl.append(
-                    createStatusMessage(
+                    statusLine(
                         "Failed to load shows: " +
-                            (err instanceof Error ? err.message : "Unknown error"),
+                            errorText(err),
                         "var(--is-error)",
                     ),
                 );
@@ -181,20 +197,19 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         if (!nav$.isCurrentView(viewToken)) return;
 
         if (!libShows || libShows.length === 0) {
-            contentEl.append(createStatusMessage("No shows found in this library."));
+            contentEl.append(statusLine("No shows found in this library."));
             return;
         }
 
         for (const show of libShows) {
-            const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
             const card = clickableCard({
-                title: show.Name + yearStr,
+                title: showTitle(show),
                 subtitle: show.Type,
                 onClick: () => {
                     void navigateToShow(show).catch(console.error);
                 },
             });
-            contentEl.append(card.container);
+            contentEl.append(card);
         }
     }
 
@@ -207,7 +222,8 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             nav$.setState({ view: "episodes", show, seasonId: show.Id, seasonName: "" });
             updateBreadcrumbs();
 
-            const { container: movieBar } = createManageBar({
+            const movieBar = el("div", { className: "ts-season-bar" });
+            appendManageToggle(movieBar, {
                 managePanelId: actions.container.id,
                 onManageToggle: (open) => actions.toggle(open),
             });
@@ -219,11 +235,11 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const seasons = await tsData.getSeasons(show.Id);
+            const seasons = await getSeasons(show.Id);
             if (!nav$.isCurrentView(viewToken)) return;
 
             if (seasons.length === 0) {
-                contentEl.append(createStatusMessage("No seasons found."));
+                contentEl.append(statusLine("No seasons found."));
                 return;
             }
 
@@ -254,9 +270,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         } catch (err) {
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
-                createStatusMessage(
+                statusLine(
                     "Failed to load seasons: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                        errorText(err),
                     "var(--is-error)",
                 ),
             );
@@ -284,7 +300,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const { episodes, segments, disabledItemIds } = await tsData.getEpisodesWithSegments(
+            const { episodes, segments, disabledItemIds } = await getEpisodesWithSegments(
                 show.Id,
                 season.Id,
             );
@@ -305,7 +321,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
                 "Failed to load episodes: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                    errorText(err),
                 "var(--is-error)",
             );
         } finally {
@@ -335,9 +351,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             };
 
             const [result, disabledItemIds] = await Promise.all([
-                tsData.getMovieSegments(show.Id),
+                api.getEpisodeSegments(show.Id),
                 // A movie's season-state key is its own ID.
-                tsData.getDisabledItemIds(show.Id),
+                getDisabledItemIds(show.Id),
             ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
@@ -351,7 +367,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
                 "Failed to load timestamps: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                    errorText(err),
                 "var(--is-error)",
             );
         } finally {
@@ -380,7 +396,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
     }
 
     async function updateItemDisabled(itemId: string, disabled: boolean): Promise<void> {
-        const result = await tsData.setItemDisabled(itemId, disabled);
+        const result = await api.setItemDisabled(itemId, disabled);
         if (!result.ok) {
             // The toggle handler owns the user-facing message; this is only a signal.
             throw new Error("setItemDisabled failed");
@@ -452,10 +468,8 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         if (state.view === "episodes") {
             const show = state.show;
-            const yearStr = show.ProductionYear ? " (" + show.ProductionYear + ")" : "";
-
             segments.push({
-                label: show.Name + yearStr,
+                label: showTitle(show),
                 onClick:
                     show.Type !== "Movie"
                         ? () => {

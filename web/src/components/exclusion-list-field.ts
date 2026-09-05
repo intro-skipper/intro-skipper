@@ -1,13 +1,11 @@
-import { configStore } from "../store/config-store.ts";
+import { configStore, trimmedEntries } from "../store/config-store.ts";
 import { el } from "./dom.ts";
+import { setDescribedBy } from "./field-bind.ts";
 import { appendFieldMeta } from "./field-meta.ts";
 
-export type ExclusionListFieldId =
-    | "SeriesExclusions"
-    | "MovieExclusions"
-    | "PathExclusions";
+type ExclusionListFieldId = "SeriesExclusions" | "MovieExclusions" | "PathExclusions";
 
-export type ExclusionListFieldOptions = {
+type ExclusionListFieldOptions = {
     id: ExclusionListFieldId;
     label: string;
     description?: string;
@@ -16,45 +14,12 @@ export type ExclusionListFieldOptions = {
     confirmAdd?: (value: string) => Promise<boolean>;
 };
 
-function normalizeEntries(value: unknown): string[] {
-    if (!Array.isArray(value)) {
-        return [];
-    }
-
-    const entries: string[] = [];
-    for (const item of value) {
-        if (typeof item === "string") {
-            const trimmed = item.trim();
-            if (trimmed.length > 0) {
-                entries.push(trimmed);
-            }
-        }
-    }
-
-    return entries;
-}
-
 function hasEntry(entries: string[], value: string): boolean {
     return entries.some((entry) => entry.toLocaleLowerCase() === value.toLocaleLowerCase());
 }
 
 function readValues(field: ExclusionListFieldId): string[] {
-    return normalizeEntries(configStore.get(field));
-}
-
-function changedField(value: unknown): string | null {
-    if (typeof value !== "object" || value === null) {
-        return null;
-    }
-
-    const field = Reflect.get(value, "field");
-    return typeof field === "string" ? field : null;
-}
-
-function setDescribedBy(input: HTMLInputElement, ids: string[]): void {
-    if (ids.length > 0) {
-        input.setAttribute("aria-describedby", ids.join(" "));
-    }
+    return trimmedEntries(configStore.get(field));
 }
 
 export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement {
@@ -87,6 +52,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
         "aria-live": "polite",
         "aria-atomic": "true",
     });
+    errorDiv.style.display = "none";
 
     const list = el("ul", { className: "exclusion-list-values" });
     const empty = el("div", { className: "exclusion-list-empty" }, "No entries");
@@ -96,12 +62,6 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
     describedByIds.push(...appendFieldMeta(container, { ...opts, idBase: inputId }));
     container.append(list, empty);
     setDescribedBy(input, describedByIds);
-
-    const datalist = opts.suggestions ? el("datalist", { id: suggestionsId }) : null;
-    if (datalist) {
-        input.setAttribute("list", suggestionsId);
-        container.append(datalist);
-    }
 
     function showError(message: string | null): void {
         errorDiv.textContent = message ?? "";
@@ -166,25 +126,24 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
         input.focus();
     }
 
-    addButton.addEventListener("click", () => {
+    function handleAdd(): void {
         addCurrentValue().catch((error: unknown) => {
             console.error("Failed to add exclusion entry", error);
             showError("Failed to add entry.");
         });
-    });
+    }
+
+    addButton.addEventListener("click", handleAdd);
     input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             event.preventDefault();
-            addCurrentValue().catch((error: unknown) => {
-                console.error("Failed to add exclusion entry", error);
-                showError("Failed to add entry.");
-            });
+            handleAdd();
         }
     });
 
     configStore.subscribe("loaded", render);
-    configStore.subscribe("changed", (...args: unknown[]) => {
-        if (changedField(args[0]) === opts.id) {
+    configStore.subscribe("changed", ({ field }) => {
+        if (field === opts.id) {
             render();
         }
     });
@@ -193,24 +152,35 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
         render();
     }
 
-    if (opts.suggestions && datalist) {
-        opts
-            .suggestions()
-            .then((values) => {
-                const seen = new Set<string>();
-                for (const value of normalizeEntries(values)) {
-                    const key = value.toLocaleLowerCase();
-                    if (seen.has(key)) {
-                        continue;
-                    }
+    // Suggestions are fetched on first focus so rendering the tab costs no requests.
+    const suggestions = opts.suggestions;
+    if (suggestions) {
+        const datalist = el("datalist", { id: suggestionsId });
+        input.setAttribute("list", suggestionsId);
+        container.append(datalist);
 
-                    seen.add(key);
-                    datalist.append(el("option", { value }));
-                }
-            })
-            .catch((error: unknown) => {
-                console.error("Failed to load exclusion suggestions", error);
-            });
+        input.addEventListener(
+            "focus",
+            () => {
+                suggestions()
+                    .then((values) => {
+                        const seen = new Set<string>();
+                        for (const value of trimmedEntries(values)) {
+                            const key = value.toLocaleLowerCase();
+                            if (seen.has(key)) {
+                                continue;
+                            }
+
+                            seen.add(key);
+                            datalist.append(el("option", { value }));
+                        }
+                    })
+                    .catch((error: unknown) => {
+                        console.error("Failed to load exclusion suggestions", error);
+                    });
+            },
+            { once: true },
+        );
     }
 
     return container;

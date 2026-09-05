@@ -5,7 +5,6 @@
 
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Db;
 
@@ -16,48 +15,18 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class DetectionCacheDbContext : DbContext
 {
-    private readonly string? _dbPath;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheDbContext"/> class.
     /// </summary>
-    /// <param name="dbPath">The path to the SQLite database file.</param>
-    public DetectionCacheDbContext(string dbPath)
-    {
-        _dbPath = dbPath;
-        DetectionCache = Set<DbDetectionCache>();
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DetectionCacheDbContext"/> class.
-    /// </summary>
-    /// <param name="options">The context options.</param>
-    /// <remarks>
-    /// <see cref="ActivatorUtilitiesConstructorAttribute"/> disambiguates for the DI
-    /// factory registered by <c>AddDbContextFactory</c>: with two public constructors,
-    /// EF's factory source falls back to <c>ActivatorUtilities</c>, which requires a
-    /// single unambiguous constructor.
-    /// </remarks>
-    [ActivatorUtilitiesConstructor]
+    /// <param name="options">The context options, configured through <see cref="SqlitePragmas.Configure"/>.</param>
     public DetectionCacheDbContext(DbContextOptions<DetectionCacheDbContext> options) : base(options)
     {
-        _dbPath = null;
-        DetectionCache = Set<DbDetectionCache>();
     }
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the detection cache entries.
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the detection cache entries.
     /// </summary>
-    public DbSet<DbDetectionCache> DetectionCache { get; set; }
-
-    /// <inheritdoc/>
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        if (!optionsBuilder.IsConfigured)
-        {
-            SqlitePragmas.Configure(optionsBuilder, _dbPath!);
-        }
-    }
+    public DbSet<DbDetectionCache> DetectionCache => Set<DbDetectionCache>();
 
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -75,7 +44,6 @@ public class DetectionCacheDbContext : DbContext
                   .HasDatabaseName("IX_DetectionCache_Unique")
                   .IsUnique();
 
-            entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => e.Mode);
 
             entity.Property(e => e.Start)

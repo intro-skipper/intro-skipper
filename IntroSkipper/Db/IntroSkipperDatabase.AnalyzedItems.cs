@@ -9,14 +9,11 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Per-item analysis record (<see cref="DbAnalyzedItem"/>) operations of <see cref="IntroSkipperDatabase"/>.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-        ArgumentNullException.ThrowIfNull(configHash);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -26,44 +23,34 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        // Delete-then-insert inside one transaction is the upsert: a tracked insert over
-        // an existing composite key would fail, and one statement per set beats a
-        // read-modify-write per item.
+        // One transaction so a cancelled pass cannot leave the season half-recorded.
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await db.AnalyzedItems
-                .Where(a => a.Type == mode && EF.Parameter(ids).Contains(a.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-            db.AnalyzedItems.AddRange(ids.Select(id => new DbAnalyzedItem(id, mode, configHash)));
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // {0} binds the mode and {1} the hash once per statement; every row reuses them.
+            var statements = MultiRowSql.Statements(
+                ids,
+                id => $"({id}, {{0}}, {{1}})",
+                rows => $"""
+                    INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash")
+                    VALUES {rows}
+                    ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash"
+                    """,
+                (int)mode,
+                configHash);
+            foreach (var statement in statements)
+            {
+                await db.Database.ExecuteSqlAsync(statement, cancellationToken).ConfigureAwait(false);
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
     /// <summary>
-    /// Single-shot form of <see cref="ClearItemAnalysisCoreAsync"/>: removes an
-    /// item's analysis record for the mode so the next scan analyzes it again (a
-    /// no-op when no record exists). Internal on purpose — production callers reach
-    /// the core through <see cref="ApplyChangeAsync"/>; this is the test seam over
-    /// the same core.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task ClearItemAnalysisAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        await ClearItemAnalysisCoreAsync(db, itemId, mode, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Core of <see cref="ClearItemAnalysisAsync"/> on a caller-owned context. The
-    /// delete executes immediately (not staged), scoped by any ambient transaction.
+    /// Removes an item's analysis record for the mode so the next scan analyzes it
+    /// again (a no-op when no record exists). The delete executes immediately (not
+    /// staged), scoped by any ambient transaction of the caller-owned context.
     /// </summary>
     private static async Task ClearItemAnalysisCoreAsync(IntroSkipperDbContext db, Guid itemId, AnalysisMode mode, CancellationToken cancellationToken)
     {

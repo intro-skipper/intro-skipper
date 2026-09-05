@@ -27,65 +27,33 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, database) = Create(new MediaSegmentDto
-        {
-            Id = foreignId,
-            ItemId = itemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = 10,
-            EndTicks = 20
-        });
-        var own = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40, CancellationToken.None);
+        var (adapter, store, database) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, MediaSegmentType.Intro, 10, 20));
+        var own = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40);
 
-        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Contains((itemId, foreignId), store.DeletedSegments);
         var (replacedItem, replaced) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItem);
         Assert.Equal(own.Id, Assert.Single(replaced).Id);
     }
 
-    [Fact]
-    public async Task Apply_DropsTypeMismatchedOperationWithoutDeleting()
+    // The operation was validated as Intro 10..20; the row was rewritten under its
+    // stable id since then (type or boundaries). The predicate travels inside the
+    // delete, so the row is dropped, not deleted, and the operation is not retried.
+    [Theory]
+    [InlineData(MediaSegmentType.Outro, 10, 20)]
+    [InlineData(MediaSegmentType.Intro, 100, 200)]
+    public async Task Apply_DropsRewrittenRowOperationWithoutDeleting(MediaSegmentType currentType, long currentStart, long currentEnd)
     {
         var itemId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        var (adapter, store, _) = Create(new MediaSegmentDto
-        {
-            Id = foreignId,
-            ItemId = itemId,
-            Type = MediaSegmentType.Outro,
-            StartTicks = 10,
-            EndTicks = 20
-        });
+        var (adapter, store, _) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, currentType, currentStart, currentEnd));
 
-        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None);
 
-        // The row changed hands since validation: dropped, not deleted, not retried.
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
-        Assert.Empty(store.DeletedSegments);
-    }
-
-    [Fact]
-    public async Task Apply_DropsBoundaryChangedOperationWithoutDeleting()
-    {
-        var itemId = Guid.NewGuid();
-        var foreignId = Guid.NewGuid();
-        var (adapter, store, _) = Create(new MediaSegmentDto
-        {
-            Id = foreignId,
-            ItemId = itemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = 100,
-            EndTicks = 200
-        });
-
-        // Validated at 10..20; the row moved under its stable id since then. The
-        // predicate travels inside the delete, so no timing can slip past it.
-        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(foreignId, MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
-
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Empty(store.DeletedSegments);
     }
 
@@ -95,9 +63,9 @@ public sealed class TestJellyfinSegmentProjectionAdapter
         var itemId = Guid.NewGuid();
         var (adapter, store, _) = Create();
 
-        var outcome = await adapter.ApplyAsync(itemId, [new ProjectedExternalOperation(Guid.NewGuid(), MediaSegmentType.Intro, 10, 20)], CancellationToken.None);
+        var outcome = await adapter.ApplyAsync(itemId, [Delete(Guid.NewGuid())], CancellationToken.None);
 
-        Assert.Equal(ProjectionApplyOutcome.Applied, outcome);
+        Assert.True(outcome);
         Assert.Empty(store.DeletedSegments);
     }
 
@@ -106,14 +74,7 @@ public sealed class TestJellyfinSegmentProjectionAdapter
     {
         var otherItemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
-        var (adapter, _, _) = Create(new MediaSegmentDto
-        {
-            Id = segmentId,
-            ItemId = otherItemId,
-            Type = MediaSegmentType.Intro,
-            StartTicks = 10,
-            EndTicks = 20
-        });
+        var (adapter, _, _) = Create(SegmentChangeHarness.MirroredDto(otherItemId, segmentId, MediaSegmentType.Intro, 10, 20));
 
         var target = await adapter.ResolveExternalTargetAsync(Guid.NewGuid(), segmentId, CancellationToken.None);
 
@@ -121,6 +82,10 @@ public sealed class TestJellyfinSegmentProjectionAdapter
         Assert.Equal(otherItemId, target.ItemId);
         Assert.Null(await adapter.ResolveExternalTargetAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
     }
+
+    /// <summary>A journaled delete validated as Intro 10..20.</summary>
+    private static DbProjectionExternalOperation Delete(Guid externalSegmentId)
+        => new() { ExternalSegmentId = externalSegmentId, ExpectedType = MediaSegmentType.Intro, StartTicks = 10, EndTicks = 20 };
 
     private static (JellyfinSegmentProjectionAdapter Adapter, FakeJellyfinSegmentStore Store, IntroSkipperDatabase Database) Create(params MediaSegmentDto[] existingSegments)
     {

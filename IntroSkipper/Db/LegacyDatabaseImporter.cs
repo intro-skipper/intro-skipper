@@ -19,6 +19,12 @@ namespace IntroSkipper.Db;
 /// (never migration history), because the pre-v2 in-place repair era produced
 /// databases whose columns and history do not always agree.
 /// </summary>
+/// <remarks>
+/// Delete later: the retry-against-populated-database recovery in <see cref="ImportAsync"/>
+/// (<c>seen</c>, <c>blockers</c>, <c>occupantsByQuad</c>, <c>promotions</c>) exists only for
+/// the one-time v2 import. Once every 12.0 install has imported, it can go along with the
+/// rest of this importer.
+/// </remarks>
 internal static partial class LegacyDatabaseImporter
 {
     /// <summary>
@@ -31,8 +37,9 @@ internal static partial class LegacyDatabaseImporter
     /// <param name="legacyDbPath">Path of the legacy database file (must exist).</param>
     /// <param name="logger">Logger.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The import counts.</returns>
-    internal static async Task<LegacyImportResult> ImportAsync(
+    /// <returns>The marker row carrying the import counts and shape notes; the caller
+    /// stamps the time and source-file flag before saving it.</returns>
+    internal static async Task<DbImportRecord> ImportAsync(
         IntroSkipperDbContext newDb,
         string legacyDbPath,
         ILogger logger,
@@ -56,7 +63,13 @@ internal static partial class LegacyDatabaseImporter
         var (statesImported, stateNotes) =
             await ImportSeasonStatesAsync(newDb, legacy, logger, cancellationToken).ConfigureAwait(false);
 
-        return new LegacyImportResult(segmentsImported, segmentsSkipped, statesImported, $"{segmentNotes}; {stateNotes}");
+        return new DbImportRecord
+        {
+            SegmentsImported = segmentsImported,
+            SegmentsSkipped = segmentsSkipped,
+            SeasonStatesImported = statesImported,
+            Notes = $"{segmentNotes}; {stateNotes}"
+        };
     }
 
     private static async Task<(int Imported, int Skipped, string Notes)> ImportSegmentsAsync(

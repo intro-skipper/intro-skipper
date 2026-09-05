@@ -15,3 +15,65 @@ public enum ProjectionState
     /// <summary>Mirroring is disabled; the recorded work stays durable and replays on enable.</summary>
     Skipped
 }
+
+/// <summary>Expected reasons why a valid intent made no authoritative change.</summary>
+public enum SegmentChangeIgnoredReason
+{
+    /// <summary>The requested user segment already exists.</summary>
+    UserSegmentAlreadyExists,
+
+    /// <summary>The requested user segment image already exists.</summary>
+    UserImageAlreadyExists,
+
+    /// <summary>The segment already has the requested values.</summary>
+    SegmentAlreadyHasValues,
+
+    /// <summary>The segment is absent or was already deleted.</summary>
+    SegmentMissingOrDeleted,
+
+    /// <summary>The segment is absent or is not suppressed.</summary>
+    SegmentMissingOrNotSuppressed,
+
+    /// <summary>The item is already visible.</summary>
+    AlreadyVisible,
+
+    /// <summary>The item is already hidden.</summary>
+    AlreadyHidden
+}
+
+/// <summary>Domain reasons why an intent was rejected before authoritative commit.</summary>
+public enum SegmentChangeRejectedReason
+{
+    /// <summary>The item ID is empty.</summary>
+    EmptyItemId,
+
+    /// <summary>The mode or tick range is invalid.</summary>
+    InvalidModeOrRange,
+
+    /// <summary>The segment ID or tick range is invalid.</summary>
+    InvalidSegmentIdOrRange,
+
+    /// <summary>The segment ID is empty.</summary>
+    EmptySegmentId,
+
+    /// <summary>The addressed segment is absent or suppressed.</summary>
+    SegmentMissingOrSuppressed,
+
+    /// <summary>The external segment ID or type is invalid.</summary>
+    InvalidExternalIdOrType,
+
+    /// <summary>The external segment does not exist.</summary>
+    ExternalSegmentNotFound,
+
+    /// <summary>The external segment belongs to another item.</summary>
+    ExternalItemMismatch,
+
+    /// <summary>The external segment has another type.</summary>
+    ExternalTypeMismatch,
+
+    /// <summary>The season ID is empty.</summary>
+    EmptySeasonId,
+
+    /// <summary>The intent type is not supported.</summary>
+    UnsupportedIntent
+}

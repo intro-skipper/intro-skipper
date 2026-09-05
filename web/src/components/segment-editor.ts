@@ -242,7 +242,7 @@ export function segmentEditor(opts: {
 
     function buildAddRow(): HTMLElement {
         const row = el("div", { className: "ts-segment-row ts-segment-add-row" });
-        const select = el("select", { className: "ts-segment-select" }) as HTMLSelectElement;
+        const select = el("select", { className: "ts-segment-select" });
         for (const mode of MODE_OPTIONS) {
             select.append(el("option", { value: mode.value }, mode.label));
         }

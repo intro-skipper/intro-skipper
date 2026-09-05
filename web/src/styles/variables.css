@@ -25,7 +25,6 @@
 
     /* Border variants. */
     --is-border-strong: rgba(255, 255, 255, 0.2);
-    --is-border-muted: rgba(155, 155, 155, 0.5);
 
     /* Form control tokens. */
     --is-input-bg: rgba(255, 255, 255, 0.05);

@@ -21,11 +21,7 @@ internal static class CreditDetectionPolicy
     public const double MinimumBoundaryProbeWindow = 0.50;
 
     private const double SparseAverageBlackFrameGapFactor = 0.5;
-    private const double IntervalProbePaddingFactor = 1.0;
 
     public static double MaximumSparseAverageBlackFrameGap(int minimumDuration)
         => minimumDuration * SparseAverageBlackFrameGapFactor;
-
-    public static double IntervalProbePadding(int minimumDuration)
-        => minimumDuration * IntervalProbePaddingFactor;
 }

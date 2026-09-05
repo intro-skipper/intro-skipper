@@ -33,7 +33,7 @@ public sealed class TestMediaSegmentMirror
             AnalysisMode.Commercial,
             [new Segment(itemId, new TimeRange(300, 330)), new Segment(itemId, new TimeRange(600, 630))],
             SegmentSource.BlackFrame);
-        await database.AddUserSegmentAsync(
+        await database.SeedUserSegmentAsync(
             itemId, AnalysisMode.Recap, TickConversions.FromSeconds(20), TickConversions.FromSeconds(40));
         var rows = await database.GetSegmentsAsync(itemId);
         Assert.Equal(5, rows.Count);
@@ -137,24 +137,17 @@ public sealed class TestMediaSegmentMirror
     [Fact]
     public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
     {
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(
-            Plugin.Instance!,
-            "Configuration",
-            new IntroSkipper.Configuration.PluginConfiguration { UpdateMediaSegments = false });
         var itemId = Guid.NewGuid();
         var store = new FakeJellyfinSegmentStore();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.ReplaceAutoSegmentsAsync(
             itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database, new FakeMirrorPolicy { Enabled = false });
 
         // The mirror flag lives in the mirror, not at call sites: every operation
         // reports the typed disabled outcome and leaves the store untouched.
-        Assert.Equal(MirrorSyncOutcome.MirroringDisabled, await mirror.SyncItemAsync(itemId, CancellationToken.None));
-        Assert.Equal(
-            MirrorDeleteOutcome.MirroringDisabled,
-            await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
+        Assert.False(await mirror.SyncItemAsync(itemId, CancellationToken.None));
+        Assert.Null(await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
 
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);

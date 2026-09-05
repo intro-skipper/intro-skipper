@@ -11,33 +11,32 @@ namespace IntroSkipper.Db;
 /// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>,
 /// plus the queue-verification snapshot that joins season state, analysis records and segments.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
     public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(analyzerActions);
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var existingEntries = await db.SeasonStates
-            .Where(s => s.SeasonId == seasonId)
-            .ToDictionaryAsync(s => s.Type, cancellationToken)
-            .ConfigureAwait(false);
 
-        foreach (var (mode, action) in analyzerActions)
+        // One transaction so a cancelled request cannot leave the season with a
+        // partially updated action set.
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
         {
-            if (existingEntries.TryGetValue(mode, out var existing))
+            foreach (var (mode, action) in analyzerActions)
             {
-                db.Entry(existing).Property(s => s.Action).CurrentValue = action;
+                await db.Database.ExecuteSqlAsync(
+                    $"""
+                    INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
+                    VALUES ({seasonId}, {(int)mode}, {(int)action}, '[]')
+                    ON CONFLICT("SeasonId", "Type") DO UPDATE SET "Action" = excluded."Action"
+                    """,
+                    cancellationToken).ConfigureAwait(false);
             }
-            else
-            {
-                db.SeasonStates.Add(new DbSeasonState(seasonId, mode, action));
-            }
-        }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -71,9 +70,6 @@ public sealed partial class IntroSkipperDatabase
         IReadOnlyCollection<Guid> episodeIds,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(modes);
-        ArgumentNullException.ThrowIfNull(episodeIds);
-
         if (modes.Count == 0)
         {
             return;
@@ -87,7 +83,7 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
         foreach (var mode in modes)
         {
-            await db.Database.ExecuteSqlInterpolatedAsync(
+            await db.Database.ExecuteSqlAsync(
                 $"""
                 INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
                 VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {settledEpisodeIds})
@@ -118,20 +114,6 @@ public sealed partial class IntroSkipperDatabase
         }
 
         return result;
-    }
-
-    /// <inheritdoc/>
-    public async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        var action = await db.SeasonStates
-            .AsNoTracking()
-            .Where(s => s.SeasonId == seasonId && s.Type == mode)
-            .Select(s => (AnalyzerAction?)s.Action)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-        return action ?? AnalyzerAction.Default;
     }
 
     /// <inheritdoc/>

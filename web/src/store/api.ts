@@ -17,7 +17,7 @@ import type {
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
 
 // Shared API helpers for the Intro Skipper dashboard.
-export async function fetchWithAuth(
+async function fetchWithAuth(
     url: string,
     method: string,
     body?: string | null,
@@ -106,12 +106,9 @@ async function request<T>(
 
 // Segment browsing and editing (plural segments API). Suppressed (tombstoned)
 // segments are included so the editor can offer Restore; display code filters them.
-export function getEpisodeSegments(
-    itemId: string,
-    includeSuppressed = true,
-): Promise<ApiResult<SegmentDto[]>> {
+export function getEpisodeSegments(itemId: string): Promise<ApiResult<SegmentDto[]>> {
     return getJson<SegmentDto[]>(
-        `Episode/${encodeURIComponent(itemId)}/Segments?includeSuppressed=${includeSuppressed}`,
+        `Episode/${encodeURIComponent(itemId)}/Segments?includeSuppressed=true`,
     );
 }
 
@@ -222,43 +219,8 @@ export function eraseItemTimestamps(urlPath: string, eraseCache: boolean): Promi
     return fetchWithAuth(`${urlPath}?eraseCache=${eraseCache}`, "DELETE");
 }
 
-function hasNumberProperty(target: object, property: keyof ClearExcludedTimestampsResponse): boolean {
-    return typeof Reflect.get(target, property) === "number";
-}
-
-function isClearExcludedTimestampsResponse(
-    value: unknown,
-): value is ClearExcludedTimestampsResponse {
-    return (
-        typeof value === "object" &&
-        value !== null &&
-        hasNumberProperty(value, "AffectedItems") &&
-        hasNumberProperty(value, "RemovedSegments") &&
-        hasNumberProperty(value, "RemovedCacheEntries")
-    );
-}
-
-export async function clearExcludedTimestamps(): Promise<
-    ApiResult<ClearExcludedTimestampsResponse>
-> {
-    const result = await request<unknown>("Intros/ExcludedTimestamps/Clear", "POST");
-    if (!result.ok) {
-        return { ok: false, status: result.status, error: result.error };
-    }
-
-    if (!isClearExcludedTimestampsResponse(result.data)) {
-        return {
-            ok: false,
-            status: result.status,
-            error: "Unexpected clear response shape",
-        };
-    }
-
-    return {
-        ok: true,
-        status: result.status,
-        data: result.data,
-    };
+export function clearExcludedTimestamps(): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
+    return request<ClearExcludedTimestampsResponse>("Intros/ExcludedTimestamps/Clear", "POST");
 }
 
 // Support and storage tools.

@@ -7,41 +7,41 @@ namespace IntroSkipper.Db;
 /// Coordinates a shared lazy initialization attempt and atomically replaces it after
 /// failure. Callers that captured the same attempt continue to observe the same result.
 /// </summary>
-/// <typeparam name="T">The initialization result stored by the lazy attempt.</typeparam>
-internal sealed class RetryableInitializationGate<T>
+internal sealed class RetryableInitializationGate
 {
-    private readonly Func<T> _valueFactory;
+    private readonly Func<Task> _attemptFactory;
     private readonly Lock _syncRoot = new();
-    private Lazy<T> _current;
+    private Lazy<Task> _current;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="RetryableInitializationGate{T}"/> class.
+    /// Initializes a new instance of the <see cref="RetryableInitializationGate"/> class.
     /// </summary>
-    /// <param name="valueFactory">Creates one initialization attempt.</param>
-    public RetryableInitializationGate(Func<T> valueFactory)
+    /// <param name="attemptFactory">Starts one initialization attempt. It runs under the
+    /// attempt's lock, so a factory that does its work inline blocks concurrent first
+    /// callers until it returns; a factory that dispatches to the thread pool lets them
+    /// await instead.</param>
+    public RetryableInitializationGate(Func<Task> attemptFactory)
     {
-        ArgumentNullException.ThrowIfNull(valueFactory);
-
-        _valueFactory = valueFactory;
+        _attemptFactory = attemptFactory;
         _current = CreateAttempt();
     }
 
     /// <summary>
-    /// Returns the current attempt's value, resetting the gate on failure so the next
-    /// caller retries. <paramref name="onFirstFailure"/> runs only for the caller that
-    /// installed the replacement, so a shared failure is reported exactly once.
+    /// Awaits the current attempt, resetting the gate on failure so the next caller
+    /// retries. The task is awaited inside the guarded region, so a fault of the
+    /// asynchronous initialization (not just of the factory) also resets the gate.
+    /// <paramref name="onFirstFailure"/> runs only for the caller that installed the
+    /// replacement, so a shared failure is reported exactly once.
     /// </summary>
     /// <param name="onFirstFailure">Invoked once per failed attempt with its exception.</param>
-    /// <returns>The initialization result.</returns>
-    public T GetValue(Action<Exception> onFirstFailure)
+    /// <returns>A task that completes when initialization has completed.</returns>
+    public async Task AwaitValueAsync(Action<Exception> onFirstFailure)
     {
-        ArgumentNullException.ThrowIfNull(onFirstFailure);
-
         var attempt = GetAttempt();
 
         try
         {
-            return attempt.Value;
+            await attempt.Value.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -54,11 +54,8 @@ internal sealed class RetryableInitializationGate<T>
         }
     }
 
-    /// <summary>
-    /// Returns the current shared initialization attempt.
-    /// </summary>
-    /// <returns>The current lazy attempt.</returns>
-    public Lazy<T> GetAttempt()
+    // The current shared attempt; exposed for tests.
+    internal Lazy<Task> GetAttempt()
     {
         lock (_syncRoot)
         {
@@ -66,12 +63,9 @@ internal sealed class RetryableInitializationGate<T>
         }
     }
 
-    /// <summary>
-    /// Replaces a failed attempt when it is still current.
-    /// </summary>
-    /// <param name="failedAttempt">The failed attempt observed by the caller.</param>
-    /// <returns><see langword="true"/> when this caller installed the replacement.</returns>
-    public bool ResetIfCurrent(Lazy<T> failedAttempt)
+    // Replaces a failed attempt when it is still current; true when this caller
+    // installed the replacement.
+    internal bool ResetIfCurrent(Lazy<Task> failedAttempt)
     {
         lock (_syncRoot)
         {
@@ -85,6 +79,6 @@ internal sealed class RetryableInitializationGate<T>
         }
     }
 
-    private Lazy<T> CreateAttempt()
-        => new(_valueFactory, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Lazy<Task> CreateAttempt()
+        => new(_attemptFactory, LazyThreadSafetyMode.ExecutionAndPublication);
 }

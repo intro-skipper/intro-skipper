@@ -1,15 +1,14 @@
-import type { Tab } from "../types.ts";
+import type { ConfigKeysOfType, Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
-import { appendTabContent, fieldRow } from "../components/tab-layout.ts";
-import { checkboxField } from "../components/checkbox-field.ts";
-import { numberField } from "../components/number-field.ts";
+import { fieldRow } from "../components/tab-layout.ts";
+import { inputField } from "../components/input-field.ts";
 import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
 
 function durationPair(
-    minId: string,
-    maxId: string,
+    minId: ConfigKeysOfType<number>,
+    maxId: ConfigKeysOfType<number>,
     minLabel: string,
     maxLabel: string,
     minDesc: string,
@@ -17,8 +16,8 @@ function durationPair(
     visible?: () => boolean,
 ): HTMLElement {
     const row = fieldRow(
-        numberField({ id: minId, label: minLabel, min: 1, description: minDesc }),
-        numberField({ id: maxId, label: maxLabel, min: 1, description: maxDesc }),
+        inputField({ kind: "number", id: minId, label: minLabel, min: 1, description: minDesc }),
+        inputField({ kind: "number", id: maxId, label: maxLabel, min: 1, description: maxDesc }),
     );
     bindVisibility(row, visible);
     return row;
@@ -38,21 +37,23 @@ export const analysisTab: Tab = {
 
         const chaptersOff = () => configStore.get("FullLengthChapters") !== true;
 
-        appendTabContent(
-            container,
-            checkboxField({
+        container.append(
+            inputField({
+                kind: "checkbox",
                 id: "PreferChromaprint",
                 label: "Prefer Chromaprint Analysis",
                 description:
                     "Only use chromaprint for analysis, unless it is not available. Setting an analysis mode in the advanced options will override this setting.",
             }),
-            checkboxField({
+            inputField({
+                kind: "checkbox",
                 id: "FullLengthChapters",
                 label: "Ignore duration limits for chapters",
                 description:
                     "Allow segments to extend to the end of a chapter when the marker exceeds other user settings, such as percentage or duration.",
             }),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "AnalysisPercent",
                 label: "Percent of media to analyze",
                 min: MINIMUM_ANALYSIS_PERCENT,
@@ -60,7 +61,8 @@ export const analysisTab: Tab = {
                 description:
                     "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
             }),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "AnalysisLengthLimit",
                 label: "Maximum runtime to analyze (in minutes)",
                 min: 1,
@@ -100,7 +102,8 @@ export const analysisTab: Tab = {
                 "Segments or similar sounding audio which is shorter than this duration will not be considered credits.",
                 "Segments or similar sounding audio which is longer than this duration will not be considered credits.",
             ),
-            numberField({
+            inputField({
+                kind: "number",
                 id: "MaximumMovieCreditsDuration",
                 label: "Maximum movie credits duration (in seconds)",
                 min: 1,

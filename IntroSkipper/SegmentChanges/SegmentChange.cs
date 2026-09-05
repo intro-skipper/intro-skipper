@@ -11,21 +11,14 @@ namespace IntroSkipper.SegmentChanges;
 /// <summary>
 /// Durable segment-change coordinator and retry worker. A change commits through the
 /// facade's intent transaction (mutation plus journal) under the shared per-item
-/// mutation stripe, is projected immediately, and — when that fails or the process
-/// dies — is retried from the journal with exponential backoff until Jellyfin
+/// mutation stripe, is projected immediately, and when that fails or the process
+/// dies is retried from the journal with exponential backoff until Jellyfin
 /// converges. The journal records work, not data: applying always re-projects the
 /// item's current truth through the mirror, so retries and replays can never push a
 /// stale image. While mirroring is disabled the work sits durably (state
 /// <see cref="ProjectionState.Skipped"/>) and replays when the toggle turns on.
 /// </summary>
-internal sealed partial class SegmentChange(
-    IIntroSkipperDatabase database,
-    ISegmentProjectionJournal journal,
-    ISegmentProjectionAdapter adapter,
-    IMediaSegmentMirrorPolicy mirrorPolicy,
-    SegmentMutationLocks mutationLocks,
-    TimeProvider timeProvider,
-    ILogger<SegmentChange> logger) : BackgroundService, ISegmentChange
+public sealed partial class SegmentChange : BackgroundService
 {
     // Backoff after a failed attempt: BackoffBaseSeconds * 2^(attempts-1), capped at
     // an hour; the 10s poll picks work up once its due time passes.
@@ -34,33 +27,67 @@ internal sealed partial class SegmentChange(
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
+    private readonly IIntroSkipperDatabase _database;
+    private readonly ISegmentProjectionAdapter _adapter;
+    private readonly IMediaSegmentMirrorPolicy _mirrorPolicy;
+    private readonly SegmentMutationLocks _mutationLocks;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<SegmentChange> _logger;
+
     // Wakes the retry loop when mirroring turns on; capacity 1 because one wake-up
     // covers any number of missed transitions. Skipped-while-disabled work never
     // carries backoff (a disabled mirror is an outcome, not a failure), so the plain
     // due pass the nudge triggers replays all of it immediately.
     private readonly SemaphoreSlim _nudge = new(0, 1);
 
-    /// <inheritdoc />
+    // Internal on purpose: the class is public only because public controllers take
+    // it, and its collaborators stay internal. PluginServiceRegistrator builds it
+    // through a factory since the container sees no public constructor.
+    internal SegmentChange(
+        IIntroSkipperDatabase database,
+        ISegmentProjectionAdapter adapter,
+        IMediaSegmentMirrorPolicy mirrorPolicy,
+        SegmentMutationLocks mutationLocks,
+        TimeProvider timeProvider,
+        ILogger<SegmentChange> logger)
+    {
+        _database = database;
+        _adapter = adapter;
+        _mirrorPolicy = mirrorPolicy;
+        _mutationLocks = mutationLocks;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Applies one closed segment-change intent. Once the intent is accepted the
+    /// outcome reports the committed change even when the immediate projection could
+    /// not run (cancellation included: the projection then reports
+    /// <see cref="ProjectionState.Pending"/> and the retry worker owns the journaled
+    /// work); only a failure to commit throws.
+    /// </summary>
+    /// <param name="intent">Closed domain intent.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The typed domain and projection outcome.</returns>
     public async Task<SegmentChangeOutcome> ApplyAsync(SegmentChangeIntent intent, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(intent);
         cancellationToken.ThrowIfCancellationRequested();
 
         // The editor delete's Jellyfin target resolves lazily inside the facade
         // transaction, only after the in-transaction correlated lookup misses and
-        // shape validation passed — one read, one decision point. The stripe held
+        // shape validation passed: one read, one decision point. The stripe held
         // here serializes that resolution with concurrent projections of the same
         // item, so a resolved target cannot go stale against another request's
         // delete: either that delete's projection already ran (the row is gone and
         // resolution reports it) or its journaled operation is still pending (the
         // facade's pending-op guard answers idempotently).
         MutationResult result;
-        using (await mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
+        using (await _mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
             Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
-                ? () => adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken)
+                ? () => _adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken)
                 : null;
-            result = await database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
+            result = await _database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
         }
 
         if (result.Outcome is Rejected)
@@ -71,7 +98,7 @@ internal sealed partial class SegmentChange(
         if (result is { Reproject: false, Outcome: { } probeOutcome })
         {
             // A no-reproject Ignore journaled nothing (its target exists in no state
-            // at all), so there is nothing to project — and force-projecting anyway
+            // at all), so there is nothing to project, and force-projecting anyway
             // would let a 404-style probe run the item's unrelated pending work ahead
             // of the backoff its failure earned.
             return probeOutcome;
@@ -84,48 +111,18 @@ internal sealed partial class SegmentChange(
         return result.Outcome ?? new Accepted(result.Affected, projected);
     }
 
-    /// <inheritdoc />
-    public async Task<ProjectionStatus> GetProjectionStatusAsync(ProjectionScope scope, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        var rows = await journal.GetProjectionQueueAsync(scope.ItemId, cancellationToken).ConfigureAwait(false);
-        var pendingState = mirrorPolicy.Enabled ? ProjectionState.Pending : ProjectionState.Skipped;
-        var items = rows.Select(row => new ItemProjectionStatus(row.ItemId, pendingState, row.AttemptCount, row.NextAttemptAt, row.Failure)).ToList();
-
-        // Applied items hold no queue row, so the all-items scope lists only pending
-        // work; a one-item scope still answers explicitly.
-        if (scope.ItemId is { } itemId && items.Count == 0)
-        {
-            items.Add(new ItemProjectionStatus(itemId, ProjectionState.Applied, 0, null, null));
-        }
-
-        return new ProjectionStatus(scope, items);
-    }
-
-    /// <inheritdoc />
-    public async Task<ProjectionRetryOutcome> RetryProjectionAsync(ProjectionScope scope, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        var rows = await journal.GetProjectionQueueAsync(scope.ItemId, cancellationToken).ConfigureAwait(false);
-        var applied = 0;
-        foreach (var row in rows)
-        {
-            if (await ProjectItemAsync(row.ItemId, force: true, cancellationToken).ConfigureAwait(false) == ProjectionState.Applied)
-            {
-                applied++;
-            }
-        }
-
-        return new ProjectionRetryOutcome(scope, applied, await GetProjectionStatusAsync(scope, cancellationToken).ConfigureAwait(false));
-    }
-
-    /// <inheritdoc />
+    /// <summary>
+    /// Immediately converges the given items' pending projection work, with bounded
+    /// parallelism and no per-item status readback, the batch form maintenance
+    /// writers use after a bulk erase. Empty and duplicate ids are ignored, an item
+    /// without pending work is a cheap no-op, and anything a pass cannot finish (a
+    /// failure, cancellation, disabled mirroring) stays journaled for the worker.
+    /// </summary>
+    /// <param name="itemIds">The items to converge.</param>
+    /// <param name="cancellationToken">Cancellation token; stops the batch between items.</param>
+    /// <returns>The number of items whose work applied.</returns>
     public async Task<int> ProjectItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
         var ids = itemIds.Where(id => id != Guid.Empty).Distinct().ToList();
         var applied = 0;
         var options = new ParallelOptions
@@ -153,20 +150,23 @@ internal sealed partial class SegmentChange(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        mirrorPolicy.EnabledChanged += OnEnabledChanged;
+        _mirrorPolicy.EnabledChanged += OnEnabledChanged;
         try
         {
             // Startup recovery: work that survived a crash or shutdown is attempted
-            // once immediately, ignoring any recorded backoff — the backoff protected
+            // once immediately, ignoring any recorded backoff. The backoff protected
             // the previous process's runtime, and restart-transient failures often
             // resolve themselves. Failures re-arm the normal backoff.
             try
             {
-                await RetryProjectionAsync(ProjectionScope.All, stoppingToken).ConfigureAwait(false);
+                foreach (var row in await _database.GetProjectionQueueAsync(stoppingToken).ConfigureAwait(false))
+                {
+                    await ProjectItemAsync(row.ItemId, force: true, stoppingToken).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LogRecoveryCycleFailed(logger, ex);
+                LogRecoveryCycleFailed(_logger, ex);
             }
 
             Task? nudged = null;
@@ -178,11 +178,11 @@ internal sealed partial class SegmentChange(
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    LogRecoveryCycleFailed(logger, ex);
+                    LogRecoveryCycleFailed(_logger, ex);
                 }
 
                 nudged ??= _nudge.WaitAsync(stoppingToken);
-                var completed = await Task.WhenAny(Task.Delay(PollInterval, timeProvider, stoppingToken), nudged).ConfigureAwait(false);
+                var completed = await Task.WhenAny(Task.Delay(PollInterval, _timeProvider, stoppingToken), nudged).ConfigureAwait(false);
                 if (completed == nudged)
                 {
                     nudged = null;
@@ -196,7 +196,7 @@ internal sealed partial class SegmentChange(
         }
         finally
         {
-            mirrorPolicy.EnabledChanged -= OnEnabledChanged;
+            _mirrorPolicy.EnabledChanged -= OnEnabledChanged;
         }
     }
 
@@ -223,14 +223,14 @@ internal sealed partial class SegmentChange(
 
     private async Task RetryDueAsync(CancellationToken cancellationToken)
     {
-        if (!mirrorPolicy.Enabled)
+        if (!_mirrorPolicy.Enabled)
         {
             // Work sits durably while mirroring is off; the enable nudge replays it.
             return;
         }
 
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-        var due = await journal.GetDueProjectionItemIdsAsync(now, cancellationToken).ConfigureAwait(false);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var due = await _database.GetDueProjectionItemIdsAsync(now, cancellationToken).ConfigureAwait(false);
         foreach (var itemId in due)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -240,7 +240,7 @@ internal sealed partial class SegmentChange(
 
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
-    /// then the mirror convergence, then the version-guarded completion — all under
+    /// then the mirror convergence, then the version-guarded completion, all under
     /// the shared mutation stripe, so a projection can never interleave with a
     /// concurrent mutation's commit-then-project sequence and push state derived from
     /// a stale read, and so <see cref="ApplyAsync"/>'s in-transaction target
@@ -250,19 +250,13 @@ internal sealed partial class SegmentChange(
     /// </summary>
     private async Task<ProjectionState> ProjectItemAsync(Guid itemId, bool force, CancellationToken cancellationToken)
     {
-        using var stripe = await mutationLocks.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var work = await journal.ReadProjectionWorkAsync(itemId, cancellationToken).ConfigureAwait(false);
-        if (work is null)
+        using var stripe = await _mutationLocks.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        if (await _database.ReadProjectionWorkAsync(itemId, cancellationToken).ConfigureAwait(false) is not { } work)
         {
             return ProjectionState.Applied;
         }
 
-        if (!mirrorPolicy.Enabled)
-        {
-            return ProjectionState.Skipped;
-        }
-
-        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         if (!force && work.Item.NextAttemptAt is { } due && due > now)
         {
             return ProjectionState.Pending;
@@ -270,11 +264,10 @@ internal sealed partial class SegmentChange(
 
         try
         {
-            var operations = work.Operations.Select(o => new ProjectedExternalOperation(o.ExternalSegmentId, o.ExpectedType, o.StartTicks, o.EndTicks)).ToList();
-            if (await adapter.ApplyAsync(itemId, operations, cancellationToken).ConfigureAwait(false) == ProjectionApplyOutcome.MirroringDisabled)
+            if (!await _adapter.ApplyAsync(itemId, work.Operations, cancellationToken).ConfigureAwait(false))
             {
-                // Not a failure: the work stays exactly as journaled — no backoff, no
-                // attempt count, no failure text — immediately due for the enable
+                // Not a failure: the work stays exactly as journaled (no backoff, no
+                // attempt count, no failure text), immediately due for the enable
                 // replay the nudge triggers.
                 return ProjectionState.Skipped;
             }
@@ -283,9 +276,9 @@ internal sealed partial class SegmentChange(
             // schedule a redundant (idempotent) re-sync. A completion that missed its
             // version means an unstriped analyzer or maintenance write superseded the
             // projected work mid-apply: the marker survives and the item is still
-            // behind, so report Pending — retry counts, status reads and the HTTP
-            // 202 mapping must all agree with the surviving marker.
-            return await journal.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false)
+            // behind, so report Pending. Retry counts and the HTTP 202 mapping must
+            // agree with the surviving marker.
+            return await _database.CompleteProjectionWorkAsync(itemId, work.Item.Version, work.Operations.Select(o => o.Id).ToList(), CancellationToken.None).ConfigureAwait(false)
                 ? ProjectionState.Applied
                 : ProjectionState.Pending;
         }
@@ -297,16 +290,16 @@ internal sealed partial class SegmentChange(
         {
             var attempts = work.Item.AttemptCount + 1;
             var next = now + TimeSpan.FromSeconds(Math.Min(BackoffMaxSeconds, BackoffBaseSeconds * Math.Pow(2, Math.Min(10, attempts - 1))));
-            await journal.RecordProjectionFailureAsync(itemId, work.Item.Version, next, Sanitize(ex), CancellationToken.None).ConfigureAwait(false);
-            LogProjectionFailed(logger, ex, itemId);
+            await _database.RecordProjectionFailureAsync(itemId, work.Item.Version, next, Sanitize(ex), CancellationToken.None).ConfigureAwait(false);
+            LogProjectionFailed(_logger, ex, itemId);
             return ProjectionState.Pending;
         }
     }
 
     /// <summary>
     /// The immediate projection of a committed change. Shielded: the mutation is
-    /// durably committed and the work journaled, so nothing that goes wrong here —
-    /// cancellation (a client disconnect), a journal read error — may surface as a
+    /// durably committed and the work journaled, so nothing that goes wrong here
+    /// (cancellation from a client disconnect, a journal read error) may surface as a
     /// failure of the accepted change. The retry loop owns the work from there.
     /// </summary>
     private async Task<ProjectionState> ProjectCommittedItemAsync(Guid itemId, CancellationToken cancellationToken)
@@ -321,7 +314,7 @@ internal sealed partial class SegmentChange(
         }
         catch (Exception ex)
         {
-            LogImmediateProjectionFailed(logger, ex, itemId);
+            LogImmediateProjectionFailed(_logger, ex, itemId);
             return ProjectionState.Pending;
         }
     }

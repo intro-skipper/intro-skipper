@@ -1,5 +1,5 @@
 import { el } from "./dom.ts";
-import { formatTime } from "../utils.ts";
+import { formatTime, pluralize } from "../utils.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
 import { MODE_OPTIONS, segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
@@ -258,7 +258,7 @@ export function episodeList(): {
             return;
         }
 
-        countEl.textContent = visibleCount + " episode" + (visibleCount !== 1 ? "s" : "");
+        countEl.textContent = pluralize(visibleCount, "episode");
     }
 
     const handleFilterInput = () => {
@@ -308,7 +308,7 @@ export function episodeList(): {
                 listEl.append(card);
             }
 
-            countEl.textContent = episodes.length + " episode" + (episodes.length !== 1 ? "s" : "");
+            countEl.textContent = pluralize(episodes.length, "episode");
             statusEl.style.display = "none";
         },
 

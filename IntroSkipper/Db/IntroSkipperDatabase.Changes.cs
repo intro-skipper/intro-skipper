@@ -10,14 +10,22 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Intent-based change application of <see cref="IntroSkipperDatabase"/>: one
-/// transaction that runs the mutation cores the public single-shot methods also use
-/// and journals the resulting projection work (a per-item queue marker, plus durable
+/// transaction that runs the mutation cores and journals the resulting projection
+/// work (a per-item queue marker, plus durable
 /// foreign-row deletes), so a committed change can never lose its projection to a
 /// crash. The journal records work, not data — projection re-derives the item's image
 /// from current truth when it runs.
 /// </summary>
-public sealed partial class IntroSkipperDatabase
+internal sealed partial class IntroSkipperDatabase
 {
+    /// <summary>
+    /// Rows mirrored before the shared-id scheme were converted from seconds by
+    /// truncation while the legacy import rounds, so the two can sit one tick apart;
+    /// this tolerance absorbs that without reintroducing range-level epsilon matching
+    /// elsewhere.
+    /// </summary>
+    internal const long UncorrelatedTickTolerance = 1;
+
     /// <inheritdoc/>
     public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
     {
@@ -66,44 +74,33 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// The single home of the marker-supersession rule, shared by the intent path
-    /// (one item) and the bulk analysis/maintenance writes: existing markers bump
-    /// their version with the due time reset, missing markers insert. The caller
-    /// saves and commits; the projection worker's poll picks the markers up, so bulk
-    /// writers never await Jellyfin.
+    /// (one item) and the bulk analysis/maintenance writes: an existing marker bumps
+    /// its version with the due time reset, a missing one inserts. Runs inside the
+    /// caller's transaction; the projection worker's poll picks the markers up, so
+    /// bulk writers never await Jellyfin.
     /// </summary>
     private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
-        if (itemIds.Count == 0)
-        {
-            return;
-        }
-
-        var ids = itemIds.Distinct().ToArray();
-
-        // Set-based bump, never a tracked read-modify-write: the analyzer and
-        // maintenance callers hold no projection stripe, so the worker's
+        // Atomic multi-row upserts, never a tracked read-modify-write: the analyzer
+        // and maintenance callers hold no projection stripe, so the worker's
         // version-guarded completion can delete a marker at any moment — a tracked
         // update would then throw DbUpdateConcurrencyException at save time and roll
         // the caller's whole transaction back (the analyzed segments with it). The
-        // atomic UPDATE either beats the completion (whose stale delete then misses)
-        // or follows it (the id inserts fresh below); either way it makes this
-        // transaction the database's single writer, so the existence read underneath
-        // cannot go stale before commit.
-        await db.ProjectionQueue
-            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(q => q.Version, q => q.Version + 1)
-                    .SetProperty(q => q.NextAttemptAt, (DateTime?)null),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        var known = await db.ProjectionQueue.AsNoTracking()
-            .Where(q => EF.Parameter(ids).Contains(q.ItemId))
-            .Select(q => q.ItemId)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        db.ProjectionQueue.AddRange(ids.Except(known).Select(id => new DbProjectionQueueItem { ItemId = id, Version = 1 }));
+        // upsert either beats the completion (whose stale delete then misses) or
+        // follows it (the id inserts fresh). Ids are bound as parameters, never
+        // spliced into JSON, so the key text matches what EF stores.
+        var statements = MultiRowSql.Statements(
+            itemIds.Distinct(),
+            id => $"({id}, 1, 0, NULL, NULL)",
+            rows => $"""
+                INSERT INTO "ProjectionQueue" ("ItemId", "Version", "AttemptCount", "NextAttemptAt", "Failure")
+                VALUES {rows}
+                ON CONFLICT("ItemId") DO UPDATE SET "Version" = "Version" + 1, "NextAttemptAt" = NULL
+                """);
+        foreach (var statement in statements)
+        {
+            await db.Database.ExecuteSqlAsync(statement, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -162,7 +159,6 @@ public sealed partial class IntroSkipperDatabase
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment type."),
-            WriteUserTimestampsIntent value when value.Timestamps is null || value.Timestamps.Count == 0 || value.Timestamps.Any(timestamp => !ValidMode(timestamp.Mode) || !TickConversions.IsValidTickRange(timestamp.StartTicks, timestamp.EndTicks)) || value.Timestamps.Select(timestamp => timestamp.Mode).Distinct().Count() != value.Timestamps.Count => new(SegmentChangeRejectedReason.InvalidUserTimestamps, "User timestamps must contain unique supported modes and valid ranges."),
             SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
@@ -180,17 +176,13 @@ public sealed partial class IntroSkipperDatabase
         {
             case AddUserSegmentIntent value:
                 {
-                    var exact = await db.Segments.AsNoTracking()
-                        .FirstOrDefaultAsync(
-                            s => s.ItemId == value.ItemId && s.Type == value.Mode && s.StartTicks == value.StartTicks && s.EndTicks == value.EndTicks,
-                            cancellationToken)
-                        .ConfigureAwait(false);
+                    var exact = await FindExactRangeAsync(db, value.ItemId, value.Mode, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
                     if (exact is { Source: SegmentSource.User, State: SegmentState.Active })
                     {
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.UserSegmentAlreadyExists, "The user segment already exists.", [ToValue(exact)]);
                     }
 
-                    var row = await AddUserSegmentCoreAsync(db, value.ItemId, value.Mode, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
+                    var row = await AddUserSegmentCoreAsync(db, value.ItemId, value.Mode, value.StartTicks, value.EndTicks, exact, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, [ToValue(row)]);
                 }
 
@@ -236,19 +228,13 @@ public sealed partial class IntroSkipperDatabase
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user image already exists.");
                     }
 
-                    var survivors = await ReplaceUserSegmentsCoreAsync(
-                        db,
-                        value.ItemId,
-                        new Dictionary<AnalysisMode, IReadOnlyList<(long StartTicks, long EndTicks)>> { [value.Mode] = requested },
-                        cancellationToken).ConfigureAwait(false);
+                    var survivors = await ReplaceUserSegmentsCoreAsync(db, value.ItemId, value.Mode, requested, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, survivors.Select(ToValue).ToList());
                 }
 
             case UpdateSegmentIntent value:
                 {
-                    var row = await db.Segments.AsNoTracking()
-                        .FirstOrDefaultAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
-                        .ConfigureAwait(false);
+                    var row = await FindOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
                     if (row is null || row.State == SegmentState.Suppressed)
                     {
                         return MutationResult.Reject(SegmentChangeRejectedReason.SegmentMissingOrSuppressed, "Segment was not found on the item or is suppressed.");
@@ -261,7 +247,7 @@ public sealed partial class IntroSkipperDatabase
 
                     // A null after the precheck means a concurrent non-stripe writer
                     // removed the row mid-flight; the core persisted nothing then.
-                    var updated = await UpdateSegmentCoreAsync(db, value.ItemId, value.SegmentId, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
+                    var updated = await UpdateSegmentCoreAsync(db, row, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
                     return updated is null
                         ? MutationResult.Reject(SegmentChangeRejectedReason.SegmentMissingOrSuppressed, "Segment was not found on the item or is suppressed.")
                         : new MutationResult(null, [ToValue(updated)]);
@@ -269,17 +255,16 @@ public sealed partial class IntroSkipperDatabase
 
             case DeleteSegmentIntent value:
                 {
-                    var deleted = await DeleteOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                    if (deleted is null)
+                    var row = await FindOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
+                    if (row is null || row.State == SegmentState.Suppressed)
                     {
                         // A suppressed row keeps the journaled re-projection (its
                         // ghost Jellyfin row may linger); an id that exists in no
                         // state has nothing to heal.
-                        var suppressed = await db.Segments
-                            .AnyAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
-                            .ConfigureAwait(false);
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.", reproject: suppressed);
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "Segment was not found on the item or was already deleted.", reproject: row is not null);
                     }
+
+                    var deleted = await DeleteOwnedRowAsync(db, row, cancellationToken).ConfigureAwait(false);
 
                     // Like the editor delete's correlated arm: journal the Jellyfin
                     // twin's targeted delete with the row's own shape, so a retry of
@@ -291,17 +276,15 @@ public sealed partial class IntroSkipperDatabase
 
             case RestoreSegmentIntent value:
                 {
-                    var restored = await RestoreSegmentCoreAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                    if (restored is null)
+                    var row = await FindOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
+                    if (row is null || row.State != SegmentState.Suppressed)
                     {
                         // Same classification as the delete: an existing (active) row
                         // keeps the healing re-projection, a missing id journals nothing.
-                        var exists = await db.Segments
-                            .AnyAsync(s => s.ItemId == value.ItemId && s.Id == value.SegmentId, cancellationToken)
-                            .ConfigureAwait(false);
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed, "Segment was not found on the item or was not suppressed.", reproject: exists);
+                        return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrNotSuppressed, "Segment was not found on the item or was not suppressed.", reproject: row is not null);
                     }
 
+                    var restored = await RestoreSegmentCoreAsync(db, row, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, [ToValue(restored)]);
                 }
 
@@ -312,7 +295,7 @@ public sealed partial class IntroSkipperDatabase
                     // plugin row sharing the id is deleted authoritatively, and only
                     // an uncorrelated id resolves and validates the external row.
                     var mode = AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType)!.Value;
-                    var itemRows = await db.Segments.AsNoTracking()
+                    var itemRows = await db.Segments
                         .Where(s => s.ItemId == value.ItemId)
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
@@ -340,10 +323,7 @@ public sealed partial class IntroSkipperDatabase
                             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The segment is already deleted.");
                         }
 
-                        var deleted = await DeleteOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
-                        return deleted is null
-                            ? MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The segment is already deleted.")
-                            : new MutationResult(null, [deleted]);
+                        return new MutationResult(null, [await DeleteOwnedRowAsync(db, correlated, cancellationToken).ConfigureAwait(false)]);
                     }
 
                     // No plugin row owns the id: resolve the Jellyfin row now — only
@@ -383,30 +363,6 @@ public sealed partial class IntroSkipperDatabase
                     }
 
                     return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, target, itemRows, cancellationToken).ConfigureAwait(false);
-                }
-
-            case WriteUserTimestampsIntent value:
-                {
-                    var modes = value.Timestamps.Select(timestamp => timestamp.Mode).ToArray();
-                    var rows = await db.Segments.AsNoTracking()
-                        .Where(s => s.ItemId == value.ItemId && modes.Contains(s.Type))
-                        .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                    var allMatch = value.Timestamps.All(timestamp =>
-                        rows.Where(s => s.Type == timestamp.Mode && s.State == SegmentState.Active).ToList()
-                            is [{ Source: SegmentSource.User } single]
-                        && single.StartTicks == timestamp.StartTicks
-                        && single.EndTicks == timestamp.EndTicks);
-                    if (allMatch)
-                    {
-                        return MutationResult.Ignore(SegmentChangeIgnoredReason.UserImageAlreadyExists, "The requested user timestamps are already stored.");
-                    }
-
-                    var byMode = value.Timestamps.ToDictionary(
-                        timestamp => timestamp.Mode,
-                        timestamp => (IReadOnlyList<(long StartTicks, long EndTicks)>)new[] { (timestamp.StartTicks, timestamp.EndTicks) });
-                    var survivors = await ReplaceUserSegmentsCoreAsync(db, value.ItemId, byMode, cancellationToken).ConfigureAwait(false);
-                    return new MutationResult(null, survivors.Select(ToValue).ToList());
                 }
 
             case SegmentVisibilityChangeIntent value:
@@ -463,16 +419,12 @@ public sealed partial class IntroSkipperDatabase
             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
         }
 
-        var match = UncorrelatedSegmentMatcher.Find(
-            [.. itemRows.Where(s => s.State == SegmentState.Active)],
-            mode,
-            target.StartTicks,
-            target.EndTicks);
+        var match = FindUncorrelatedCounterpart(itemRows.Where(s => s.State == SegmentState.Active).ToList(), mode, target.StartTicks, target.EndTicks);
 
         var affected = new List<SegmentValue>();
-        if (match is not null && await DeleteOwnedRowAsync(db, itemId, match.Id, cancellationToken).ConfigureAwait(false) is { } deleted)
+        if (match is not null)
         {
-            affected.Add(deleted);
+            affected.Add(await DeleteOwnedRowAsync(db, match, cancellationToken).ConfigureAwait(false));
         }
 
         await JournalExternalDeleteAsync(db, itemId, externalSegmentId, expectedType, target.StartTicks, target.EndTicks, cancellationToken).ConfigureAwait(false);
@@ -480,20 +432,52 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Shared delete tail of the id-addressed delete arms: the core delete (tombstone
-    /// or removal), the mode's analysis-record clear, and the deleted-value report.
-    /// Returns <see langword="null"/> when the id is unknown on the item or already
-    /// suppressed; nothing is persisted then.
+    /// Finds the plugin counterpart of a Jellyfin row that shares no plugin id (a row
+    /// predating the shared-id scheme, or a foreign-provider row) by mode and
+    /// boundaries. Several rows can sit inside the tolerance (1-tick-shifted copies of
+    /// the same boundaries), so the closest one wins (an exact match beats a shifted
+    /// copy) with the id as a deterministic tie-break instead of enumeration order. A
+    /// Jellyfin row can drift further from its plugin counterpart when re-analysis or
+    /// edits ran while mirroring was off; the legacy DELETE wire matched mode-wide for
+    /// non-commercial types, so that is honored where it is unambiguous: exactly one
+    /// candidate row of the mode. Commercials (many per item) keep exact matching.
     /// </summary>
-    private static async Task<SegmentValue?> DeleteOwnedRowAsync(IntroSkipperDbContext db, Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    /// <param name="rows">The item's candidate plugin rows (the caller decides the state filter).</param>
+    /// <param name="mode">The mode the Jellyfin row maps to.</param>
+    /// <param name="startTicks">The Jellyfin row's start ticks.</param>
+    /// <param name="endTicks">The Jellyfin row's end ticks.</param>
+    /// <returns>The counterpart, or <see langword="null"/> when none matches.</returns>
+    internal static DbSegment? FindUncorrelatedCounterpart(IReadOnlyList<DbSegment> rows, AnalysisMode mode, long startTicks, long endTicks)
     {
-        var snapshot = await DeleteSegmentCoreAsync(db, itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        if (snapshot is null)
+        var match = rows
+            .Where(s => s.Type == mode
+                && Math.Abs(s.StartTicks - startTicks) <= UncorrelatedTickTolerance
+                && Math.Abs(s.EndTicks - endTicks) <= UncorrelatedTickTolerance)
+            .OrderBy(s => Math.Abs(s.StartTicks - startTicks) + Math.Abs(s.EndTicks - endTicks))
+            .ThenBy(s => s.Id)
+            .FirstOrDefault();
+
+        if (match is null && mode != AnalysisMode.Commercial)
         {
-            return null;
+            var modeRows = rows.Where(s => s.Type == mode).ToList();
+            if (modeRows.Count == 1)
+            {
+                match = modeRows[0];
+            }
         }
 
-        await ClearItemAnalysisCoreAsync(db, itemId, snapshot.Type, cancellationToken).ConfigureAwait(false);
+        return match;
+    }
+
+    /// <summary>
+    /// Shared delete tail of the id-addressed delete arms for one active tracked row:
+    /// the staged delete (tombstone or removal), the mode's analysis-record clear, and
+    /// the deleted-value report.
+    /// </summary>
+    private static async Task<SegmentValue> DeleteOwnedRowAsync(IntroSkipperDbContext db, DbSegment row, CancellationToken cancellationToken)
+    {
+        var snapshot = StageDelete(db, row);
+        await ClearItemAnalysisCoreAsync(db, snapshot.ItemId, snapshot.Type, cancellationToken).ConfigureAwait(false);
         return ToDeletedValue(snapshot);
     }
 

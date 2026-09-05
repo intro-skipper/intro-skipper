@@ -14,11 +14,11 @@ namespace IntroSkipper.Db;
 /// the retryable schema gate: every operation creates a fresh
 /// <see cref="DetectionCacheDbContext"/> from the injected factory.
 /// </summary>
-public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
+internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly RetryableInitializationGate<bool> _initialization;
+    private readonly RetryableInitializationGate _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheDatabase"/> class.
@@ -27,12 +27,16 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <param name="logger">Logger.</param>
     public DetectionCacheDatabase(IDbContextFactory<DetectionCacheDbContext> contextFactory, ILogger<DetectionCacheDatabase> logger)
     {
-        ArgumentNullException.ThrowIfNull(contextFactory);
-        ArgumentNullException.ThrowIfNull(logger);
-
         _contextFactory = contextFactory;
         _logger = logger;
-        _initialization = new RetryableInitializationGate<bool>(InitializeCore);
+
+        // The schema work runs inline in the attempt: TryInitialize is synchronous, so
+        // the attempt's task is always already complete by the time it is awaited.
+        _initialization = new RetryableInitializationGate(() =>
+        {
+            InitializeCore();
+            return Task.CompletedTask;
+        });
     }
 
     /// <inheritdoc/>
@@ -40,7 +44,8 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     {
         try
         {
-            return _initialization.GetValue(ex => LogCacheDbInitializationError(_logger, ex));
+            _initialization.AwaitValueAsync(ex => LogCacheDbInitializationError(_logger, ex)).GetAwaiter().GetResult();
+            return true;
         }
         catch (Exception)
         {
@@ -57,9 +62,9 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         }
 
         using var db = _contextFactory.CreateDbContext();
-        return QueryByKey(db, itemId, mode, type, start, end)
+        return db.DetectionCache
             .AsNoTracking()
-            .FirstOrDefault();
+            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
     }
 
     /// <inheritdoc/>
@@ -70,47 +75,46 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return;
         }
 
+        // ON CONFLICT targets the unique (ItemId, Mode, Type, Start, End) index, so the
+        // existing BLOB is never read back just to be replaced.
         using var db = _contextFactory.CreateDbContext();
-
-        var existing = QueryByKey(db, itemId, mode, type, start, end).FirstOrDefault();
-
-        if (existing is not null)
-        {
-            existing.Data = data;
-            existing.ConfigHash = configHash;
-        }
-        else
-        {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
-        }
-
-        db.SaveChanges();
+        db.Database.ExecuteSql(
+            $"""
+            INSERT INTO "DetectionCache" ("ItemId", "Mode", "Type", "Start", "End", "Data", "ConfigHash")
+            VALUES ({itemId}, {(int)mode}, {(int)type}, {start}, {end}, {data}, {configHash})
+            ON CONFLICT("ItemId", "Mode", "Type", "Start", "End") DO UPDATE SET
+                "Data" = excluded."Data",
+                "ConfigHash" = excluded."ConfigHash"
+            """);
     }
 
     /// <inheritdoc/>
-    public bool HasEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string expectedConfigHash)
+    public int DeleteForItem(Guid itemId)
     {
         if (!TryInitialize())
         {
-            return false;
+            return 0;
         }
 
-        using var db = _contextFactory.CreateDbContext();
-        return QueryByKey(db, itemId, mode, type, start, end)
-            .Any(e => e.ConfigHash == string.Empty || e.ConfigHash == expectedConfigHash);
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
+            return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
     }
 
     /// <inheritdoc/>
-    public int DeleteForItem(Guid itemId) => DeleteWhere(e => e.ItemId == itemId);
-
-    /// <inheritdoc/>
-    public int DeleteByMode(AnalysisMode mode) => DeleteWhere(e => e.Mode == mode);
+    public Task<int> DeleteByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+        => DeleteWhereAsync(e => e.Mode == mode, cancellationToken);
 
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleItemIdsAsync(IReadOnlySet<Guid> validItemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(validItemIds);
-
         var validIds = validItemIds.ToArray();
 
         if (!TryInitialize())
@@ -134,8 +138,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(itemIds);
-
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -150,9 +152,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<int> DeleteEntriesWithUnknownConfigHashAsync(IReadOnlyCollection<string> acceptedConfigHashes, string acceptedHashPrefix, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(acceptedConfigHashes);
-        ArgumentException.ThrowIfNullOrEmpty(acceptedHashPrefix);
-
         var hashes = acceptedConfigHashes.Distinct().ToArray();
 
         // EF.Parameter binds the accepted set as a single JSON parameter (json_each), so
@@ -164,43 +163,8 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Filters the cache table by the full cache key. Start/End are compared with ==
-    /// which is safe only because the exact same double values that were written are
-    /// used for lookup (no intermediate arithmetic).
-    /// </summary>
-    /// <param name="db">The cache database context.</param>
-    /// <param name="itemId">Item id.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="type">Cache entry type.</param>
-    /// <param name="start">Segment start.</param>
-    /// <param name="end">Segment end.</param>
-    /// <returns>The entries matching the cache key.</returns>
-    private static IQueryable<DbDetectionCache> QueryByKey(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
-        => db.DetectionCache
-            .Where(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
-
     // The cache is an optimization: deletes are best-effort, logging and reporting 0
-    // instead of surfacing database failures. Keep both variants in sync.
-    private int DeleteWhere(Expression<Func<DbDetectionCache, bool>> predicate)
-    {
-        if (!TryInitialize())
-        {
-            return 0;
-        }
-
-        try
-        {
-            using var db = _contextFactory.CreateDbContext();
-            return db.DetectionCache.Where(predicate).ExecuteDelete();
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheDeleteFailed(_logger, ex);
-            return 0;
-        }
-    }
-
+    // instead of surfacing database failures. DeleteForItem is the synchronous twin.
     private async Task<int> DeleteWhereAsync(Expression<Func<DbDetectionCache, bool>> predicate, CancellationToken cancellationToken)
     {
         if (!TryInitialize())
@@ -223,14 +187,12 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         }
     }
 
-    private bool InitializeCore()
+    private void InitializeCore()
     {
         using var db = _contextFactory.CreateDbContext();
 
         db.EnsureSchema();
         SqlitePragmas.EnforceWal(db.Database);
-
-        return true;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]

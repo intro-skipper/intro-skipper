@@ -30,8 +30,6 @@ internal static class CreditEntropyFallback
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
     public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, int minimumDuration)
     {
-        ArgumentNullException.ThrowIfNull(visuals);
-
         if (visuals.Count == 0)
         {
             return null;

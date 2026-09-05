@@ -31,14 +31,14 @@ public class AnalyzerTaskFactory(
     IProviderManager providerManager,
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService,
+    DetectionCacheService cacheService,
     IIntroSkipperDatabase database)
 {
     /// <summary>
     /// Creates a fresh queue manager for one enumeration run.
     /// </summary>
     /// <returns>The queue manager.</returns>
-    public QueueManager CreateQueueManager()
+    internal QueueManager CreateQueueManager()
         => new(
             loggerFactory.CreateLogger<QueueManager>(),
             libraryManager,
@@ -51,7 +51,7 @@ public class AnalyzerTaskFactory(
     /// Creates a fresh analyzer task for one analysis run.
     /// </summary>
     /// <returns>The analyzer task.</returns>
-    public BaseItemAnalyzerTask CreateAnalyzerTask()
+    internal BaseItemAnalyzerTask CreateAnalyzerTask()
         => new(
             loggerFactory.CreateLogger<BaseItemAnalyzerTask>(),
             loggerFactory,

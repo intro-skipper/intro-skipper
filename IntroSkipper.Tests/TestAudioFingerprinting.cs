@@ -27,18 +27,6 @@ public class TestAudioFingerprinting
         Assert.True(await CreateFFmpegService().CheckFFmpegVersionAsync());
     }
 
-    [Theory]
-    [InlineData(0, 0)]
-    [InlineData(1, 1)]
-    [InlineData(5, 213)]
-    [InlineData(10, 56_021)]
-    [InlineData(16, 16_112_341)]
-    [InlineData(19, 2_465_585_877)]
-    public void TestBitCounting(int expectedBits, uint number)
-    {
-        Assert.Equal(expectedBits, ChromaprintAnalyzer.CountBits(number));
-    }
-
     [FactSkipFFmpegTests]
     public async Task TestFingerprinting()
     {
@@ -157,20 +145,12 @@ public class TestAudioFingerprinting
 
     private static QueuedEpisode QueueEpisode(string path)
     {
-        return new QueuedEpisode()
-        {
-            EpisodeId = Guid.NewGuid(),
-            Path = "../../../" + path,
-            IntroFingerprintEnd = 60
-        };
+        var episode = FfmpegTestHelpers.QueueFile(path);
+        episode.IntroFingerprintEnd = 60;
+        return episode;
     }
 
-    private static FFmpegService CreateFFmpegService()
-    {
-        return new FFmpegService(
-            NullLogger<FFmpegService>.Instance,
-            DatabaseTestHelpers.CreateTempCacheService());
-    }
+    private static FFmpegService CreateFFmpegService() => FfmpegTestHelpers.CreateFFmpegService();
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {

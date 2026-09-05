@@ -66,13 +66,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
-        ArgumentNullException.ThrowIfNull(applicationPaths);
-
-        var pluginCachePath = "chromaprints";
-
         // Creates the plugin data directory when missing.
-        var introsDirectory = IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
-        FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
+        IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
 
         MigrateLegacyExcludeSeries();
 
@@ -84,27 +79,22 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
-    public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
+    internal ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
-    /// Gets or sets the total number of episodes in the queue.
+    /// Gets the total number of media items in the queue.
     /// </summary>
-    public int TotalQueued { get; set; }
+    internal int TotalQueued => QueuedMediaItems.Values.Sum(episodes => episodes.Count);
 
     /// <summary>
-    /// Gets or sets the number of seasons in the queue.
+    /// Gets the number of seasons in the queue.
     /// </summary>
-    public int TotalSeasons { get; set; }
-
-    /// <summary>
-    /// Gets the directory to cache fingerprints in.
-    /// </summary>
-    public string FingerprintCachePath { get; private set; }
+    internal int TotalSeasons => QueuedMediaItems.Count;
 
     /// <summary>
     /// Gets the full path to FFmpeg.
     /// </summary>
-    public string FFmpegPath { get; private set; }
+    internal string FFmpegPath { get; }
 
     /// <inheritdoc />
     public override string Name => ProviderName;
@@ -142,8 +132,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
-
-    internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();
 

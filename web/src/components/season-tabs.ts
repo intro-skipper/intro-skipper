@@ -4,7 +4,7 @@ import type { SeasonItem } from "../types.ts";
 
 let seasonTabsCounter = 0;
 
-export type SeasonTabsOptions = {
+type SeasonTabsOptions = {
     seasons: SeasonItem[];
     activeSeasonId: string | null;
     panelId?: string;
@@ -99,7 +99,7 @@ export function seasonTabs(opts: SeasonTabsOptions): {
                     type: "button",
                 },
                 label,
-            ) as HTMLButtonElement;
+            );
 
             tab.title = season.Name;
             tab.setAttribute("role", "tab");

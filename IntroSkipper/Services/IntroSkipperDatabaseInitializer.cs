@@ -13,7 +13,7 @@ namespace IntroSkipper.Services;
 /// correctness is guaranteed by the initialization gate inside the database facades,
 /// which every operation awaits before touching the database.
 /// </summary>
-public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
+internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 {
     private readonly IIntroSkipperDatabase _segmentDatabase;
     private readonly IDetectionCacheDatabase _cacheDatabase;
