@@ -313,7 +313,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether a Chromaprint recap starts at the fade before the
-    /// shared sting instead of 0:00, so a cold open ahead of the recap is not skipped.
+    /// shared sting instead of 0:00, so a cold open ahead of the recap is not skipped. Only takes
+    /// effect for episodes that reach <see cref="Analyzers.ChromaprintAnalyzer"/> still unanalyzed,
+    /// so with <see cref="DetectRecapUsingBlackFrames"/> it needs <see cref="PreferChromaprint"/>.
     /// </summary>
     public bool AnchorRecapToColdOpen { get; set; } = false;
 

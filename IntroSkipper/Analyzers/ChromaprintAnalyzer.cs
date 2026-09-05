@@ -167,19 +167,18 @@ internal sealed partial class ChromaprintAnalyzer(
                     remainingIntro.End += remainingEpisode.CreditsFingerprintStart;
                 }
 
-                // Only save the discovered intro if it is:
-                // - the first intro discovered for this episode
-                // - longer than the previously discovered intro
+                // Only save the discovered intro if it is the first one for this episode or
+                // beats the saved one (see IsBetterCandidate).
                 if (
                     !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
-                    currentIntro.Duration > savedCurrentIntro.Duration)
+                    IsBetterCandidate(currentIntro, savedCurrentIntro, _analysisMode, _config.AnchorRecapToColdOpen))
                 {
                     seasonIntros[currentIntro.EpisodeId] = currentIntro;
                 }
 
                 if (
                     !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
-                    remainingIntro.Duration > savedRemainingIntro.Duration)
+                    IsBetterCandidate(remainingIntro, savedRemainingIntro, _analysisMode, _config.AnchorRecapToColdOpen))
                 {
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
@@ -246,9 +245,7 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
     /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
-    /// A region starting within 5 s of the episode start is snapped to 0, except for Recap, which
-    /// keeps the raw sting start so <see cref="RecapDetectionHelper.BuildRecapFromSting"/> can
-    /// anchor the recap behind a cold open when that option is enabled.
+    /// A region starting within 5 s of the episode start is snapped to 0.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
@@ -285,20 +282,39 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
-        if (mode != AnalysisMode.Recap)
+        if (lhs.Start <= 5)
         {
-            if (lhs.Start <= 5)
-            {
-                lhs.Start = 0;
-            }
+            lhs.Start = 0;
+        }
 
-            if (rhs.Start <= 5)
-            {
-                rhs.Start = 0;
-            }
+        if (rhs.Start <= 5)
+        {
+            rhs.Start = 0;
         }
 
         return (new Segment(lhsId, lhs), new Segment(rhsId, rhs));
+    }
+
+    /// <summary>
+    /// Decides whether a candidate found in a later episode pair replaces the one already saved
+    /// for the same episode. Longer wins. The exception is an anchored recap: recap candidates
+    /// for one episode share their end (the last black frame before the boundary), so a start
+    /// off 0 means a sting past the cold open was found, and it beats a candidate whose sting
+    /// sat at 0:00 even though that one is longer.
+    /// </summary>
+    /// <param name="candidate">Newly found segment.</param>
+    /// <param name="saved">Segment already saved for the same episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="anchorRecapToColdOpen">Whether recaps are anchored to the cold open.</param>
+    /// <returns><see langword="true"/> when <paramref name="candidate"/> should replace <paramref name="saved"/>.</returns>
+    internal static bool IsBetterCandidate(Segment candidate, Segment saved, AnalysisMode mode, bool anchorRecapToColdOpen)
+    {
+        if (mode == AnalysisMode.Recap && anchorRecapToColdOpen && (candidate.Start > 0) != (saved.Start > 0))
+        {
+            return candidate.Start > 0;
+        }
+
+        return candidate.Duration > saved.Duration;
     }
 
     private int GetMaximumSegmentDuration(QueuedEpisode episode)

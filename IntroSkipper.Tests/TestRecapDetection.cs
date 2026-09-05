@@ -64,20 +64,28 @@ public class TestRecapDetection
         Assert.False(rhsSegment.Valid);
     }
 
+    // An anchored recap (start 28) and a 0:00 recap for the same episode share their end at 90.
     [Theory]
-    [InlineData(AnalysisMode.Introduction, 0)]
-    [InlineData(AnalysisMode.Recap, 3)]
-    public void SelectSharedRegion_SnapsNearZeroStart_ExceptForRecap(AnalysisMode mode, double expectedStart)
+    [InlineData(AnalysisMode.Recap, true, 28, 0, true)]
+    [InlineData(AnalysisMode.Recap, true, 0, 28, false)]
+    [InlineData(AnalysisMode.Recap, false, 28, 0, false)]
+    [InlineData(AnalysisMode.Introduction, true, 28, 0, false)]
+    public void IsBetterCandidate_PrefersAnchoredRecapOnlyWhenAnchoring(
+        AnalysisMode mode,
+        bool anchor,
+        double candidateStart,
+        double savedStart,
+        bool expected)
     {
-        var (lhsSegment, rhsSegment) = ChromaprintAnalyzer.SelectSharedRegion(
-            Guid.NewGuid(),
-            [new TimeRange(3, 20)],
-            Guid.NewGuid(),
-            [new TimeRange(3, 20)],
-            mode);
+        var episodeId = Guid.NewGuid();
 
-        Assert.Equal(expectedStart, lhsSegment.Start);
-        Assert.Equal(expectedStart, rhsSegment.Start);
+        var better = ChromaprintAnalyzer.IsBetterCandidate(
+            new Segment(episodeId, new TimeRange(candidateStart, 90)),
+            new Segment(episodeId, new TimeRange(savedStart, 90)),
+            mode,
+            anchor);
+
+        Assert.Equal(expected, better);
     }
 
     // Black frames at 28 s (fade after a cold open), 50 s (inside the recap) and 90 s (montage
@@ -114,6 +122,23 @@ public class TestRecapDetection
             episodeId,
             new Segment(episodeId, new TimeRange(35, 40)),
             [new BlackFrame(100, 28, 0)],
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: 120,
+            anchorToColdOpen: true);
+
+        Assert.Null(recap);
+    }
+
+    // Black frames at 28 and 41 close a 0-41 recap, but anchoring to 28 leaves 13 s, under the minimum.
+    [Fact]
+    public void BuildRecapFromSting_ReturnsNull_WhenAnchoredRecapIsShorterThanMinimum()
+    {
+        var episodeId = Guid.NewGuid();
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(35, 40)),
+            [new BlackFrame(100, 28, 0), new BlackFrame(100, 41, 1)],
             minimumRecapDuration: 15,
             maximumRecapBoundary: 120,
             anchorToColdOpen: true);
