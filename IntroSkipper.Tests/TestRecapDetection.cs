@@ -199,10 +199,15 @@ public class TestRecapDetection
 
     // Episode A opens with a logo that B also has at 0:00 and, after a cold open, a sting at 35 s
     // that C also has. Black frames sit at 28 s (the fade before the sting), 50 s and 90 s.
-    // Whichever pair the analyzer meets first, the recap saved for A must start at the fade.
+    // Whichever pair the analyzer meets first, the recap saved for A must start at the fade, and
+    // each episode's black-frame scan must run once however many pairs it takes part in.
     [Theory]
     [InlineData("A,B,C")]
     [InlineData("A,C,B")]
+    [InlineData("B,A,C")]
+    [InlineData("B,C,A")]
+    [InlineData("C,A,B")]
+    [InlineData("C,B,A")]
     public async Task AnalyzeMediaFiles_AnchoredRecapSurvivesAnEarlierPairMatchingAtEpisodeStart(string order)
     {
         var fingerprints = new Dictionary<string, uint[]>
@@ -224,12 +229,12 @@ public class TestRecapDetection
             Fingerprints = (episode, _) => fingerprints[episode.Name],
             RangeBlackFrames = (_, _, _, _, _) => [new BlackFrame(100, 28, 0), new BlackFrame(100, 50, 1), new BlackFrame(100, 90, 2)],
         };
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        using var db = new TempSegmentDb();
         var analyzer = new ChromaprintAnalyzer(
             NullLogger<ChromaprintAnalyzer>.Instance,
             ffmpeg,
             DatabaseTestHelpers.CreateTempCacheService(),
-            database,
+            db.Database,
             new PluginConfiguration
             {
                 AnchorRecapToColdOpen = true,
@@ -245,9 +250,10 @@ public class TestRecapDetection
 
         var a = episodes.Single(episode => episode.Name == "A");
         Assert.Equal(EpisodeState.Analyzed, a.GetAnalyzed(AnalysisMode.Recap));
-        var recap = Assert.Single(await database.GetSegmentsAsync(a.EpisodeId));
+        var recap = Assert.Single(await db.Database.GetSegmentsAsync(a.EpisodeId));
         Assert.Equal(28, TickConversions.ToSeconds(recap.StartTicks));
         Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
+        Assert.Equal(3, ffmpeg.RangeScanCalls);
 
         // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
         // with other episodes at the given seconds.
