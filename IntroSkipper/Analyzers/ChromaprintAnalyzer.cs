@@ -171,14 +171,14 @@ internal sealed partial class ChromaprintAnalyzer(
                 // beats the saved one (see IsBetterCandidate).
                 if (
                     !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
-                    IsBetterCandidate(currentIntro, savedCurrentIntro, _analysisMode, _config.AnchorRecapToColdOpen))
+                    IsBetterCandidate(currentIntro, savedCurrentIntro, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
                 {
                     seasonIntros[currentIntro.EpisodeId] = currentIntro;
                 }
 
                 if (
                     !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
-                    IsBetterCandidate(remainingIntro, savedRemainingIntro, _analysisMode, _config.AnchorRecapToColdOpen))
+                    IsBetterCandidate(remainingIntro, savedRemainingIntro, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
                 {
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
@@ -299,19 +299,25 @@ internal sealed partial class ChromaprintAnalyzer(
     /// Decides whether a candidate found in a later episode pair replaces the one already saved
     /// for the same episode. Longer wins. The exception is an anchored recap: recap candidates
     /// for one episode share their end (the last black frame before the boundary), so a start
-    /// off 0 means a sting past the cold open was found, and it beats a candidate whose sting
-    /// sat at 0:00 even though that one is longer.
+    /// beyond the start snap threshold means a sting past the cold open was found, and it beats
+    /// a candidate that snaps to 0:00 even though that one is longer.
     /// </summary>
     /// <param name="candidate">Newly found segment.</param>
     /// <param name="saved">Segment already saved for the same episode.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="anchorRecapToColdOpen">Whether recaps are anchored to the cold open.</param>
+    /// <param name="endSnapThreshold">Configured episode boundary snap threshold in seconds.</param>
     /// <returns><see langword="true"/> when <paramref name="candidate"/> should replace <paramref name="saved"/>.</returns>
-    internal static bool IsBetterCandidate(Segment candidate, Segment saved, AnalysisMode mode, bool anchorRecapToColdOpen)
+    internal static bool IsBetterCandidate(Segment candidate, Segment saved, AnalysisMode mode, bool anchorRecapToColdOpen, double endSnapThreshold)
     {
-        if (mode == AnalysisMode.Recap && anchorRecapToColdOpen && (candidate.Start > 0) != (saved.Start > 0))
+        if (mode == AnalysisMode.Recap && anchorRecapToColdOpen)
         {
-            return candidate.Start > 0;
+            var candidateSnaps = TimeAdjustmentHelper.IsWithinStartSnapThreshold(candidate.Start, endSnapThreshold);
+            var savedSnaps = TimeAdjustmentHelper.IsWithinStartSnapThreshold(saved.Start, endSnapThreshold);
+            if (candidateSnaps != savedSnaps)
+            {
+                return !candidateSnaps;
+            }
         }
 
         return candidate.Duration > saved.Duration;

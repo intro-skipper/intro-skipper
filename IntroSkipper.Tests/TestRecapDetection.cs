@@ -5,8 +5,11 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestRecapDetection
@@ -83,9 +86,55 @@ public class TestRecapDetection
             new Segment(episodeId, new TimeRange(candidateStart, 90)),
             new Segment(episodeId, new TimeRange(savedStart, 90)),
             mode,
-            anchor);
+            anchor,
+            endSnapThreshold: 2);
 
         Assert.Equal(expected, better);
+    }
+
+    [Theory]
+    [InlineData(2, 1, 0, false, 0)]
+    [InlineData(2, 0, 1, true, 0)]
+    [InlineData(2, 2, 0, false, 0)]
+    [InlineData(2, 2.001, 0, false, 0)]
+    [InlineData(2, 2.002, 0, true, 2.002)]
+    [InlineData(2, 0, 2.002, false, 2.002)]
+    [InlineData(5, 4, 0, false, 0)]
+    [InlineData(0, 0.001, 0, false, 0)]
+    [InlineData(0, 0.002, 0, true, 0.002)]
+    [InlineData(2, 28, 1, true, 28)]
+    [InlineData(2, 1, 28, false, 28)]
+    [InlineData(2, 28, 35, true, 28)]
+    [InlineData(2, 35, 28, false, 28)]
+    public async Task IsBetterCandidate_PrefersOnlyAnchorsThatSurviveStartSnapping(
+        double snapThreshold,
+        double candidateStart,
+        double savedStart,
+        bool expectedBetter,
+        double expectedAdjustedStart)
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 300 };
+        var candidate = new Segment(episode.EpisodeId, new TimeRange(candidateStart, 90));
+        var saved = new Segment(episode.EpisodeId, new TimeRange(savedStart, 90));
+        var config = new PluginConfiguration
+        {
+            AnchorRecapToColdOpen = true,
+            EndSnapThreshold = snapThreshold,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+            IntroStartOffset = 0,
+            IntroEndOffset = 0,
+        };
+
+        var better = ChromaprintAnalyzer.IsBetterCandidate(
+            candidate, saved, AnalysisMode.Recap, config.AnchorRecapToColdOpen, config.EndSnapThreshold);
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Recap, null!);
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, better ? candidate : saved);
+
+        Assert.Equal(expectedBetter, better);
+        Assert.Equal(expectedAdjustedStart, adjusted.Start);
+        Assert.Equal(90, adjusted.End);
     }
 
     // Black frames at 28 s (fade after a cold open), 50 s (inside the recap) and 90 s (montage
