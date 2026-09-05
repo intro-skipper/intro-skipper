@@ -60,6 +60,26 @@ public sealed class TestQueueManager
     }
 
     [Fact]
+    public async Task GetMediaInventoryAsync_QueuesAnItemEnumeratedTwiceOnce()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = InitializePlugin();
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var episode = JellyfinItems.Episode(episodeId, Guid.NewGuid(), seasonId);
+
+        // GetItemList has returned the same item twice; queued twice, the episode
+        // would be fingerprint-matched against itself.
+        var queueManager = CreateQueueManager(episode, episode);
+
+        var queue = await queueManager.GetMediaInventoryAsync();
+
+        Assert.Equal(episodeId, Assert.Single(queue[seasonId]).EpisodeId);
+        Assert.Equal(1, plugin.TotalQueued);
+    }
+
+    [Fact]
     public async Task GetMediaInventoryAsync_WithSeasonIds_MergesIntoPublishedQueueWithoutUnrelatedItems()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());

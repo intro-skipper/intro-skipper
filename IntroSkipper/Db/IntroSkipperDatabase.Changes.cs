@@ -81,7 +81,7 @@ internal sealed partial class IntroSkipperDatabase
     /// </summary>
     private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
-        // One atomic upsert per id, never a tracked read-modify-write: the analyzer
+        // Atomic multi-row upserts, never a tracked read-modify-write: the analyzer
         // and maintenance callers hold no projection stripe, so the worker's
         // version-guarded completion can delete a marker at any moment — a tracked
         // update would then throw DbUpdateConcurrencyException at save time and roll
@@ -89,15 +89,17 @@ internal sealed partial class IntroSkipperDatabase
         // upsert either beats the completion (whose stale delete then misses) or
         // follows it (the id inserts fresh). Ids are bound as parameters, never
         // spliced into JSON, so the key text matches what EF stores.
-        foreach (var itemId in itemIds.Distinct())
-        {
-            await db.Database.ExecuteSqlAsync(
-                $"""
+        var statements = MultiRowSql.Statements(
+            itemIds.Distinct(),
+            id => $"({id}, 1, 0, NULL, NULL)",
+            rows => $"""
                 INSERT INTO "ProjectionQueue" ("ItemId", "Version", "AttemptCount", "NextAttemptAt", "Failure")
-                VALUES ({itemId}, 1, 0, NULL, NULL)
+                VALUES {rows}
                 ON CONFLICT("ItemId") DO UPDATE SET "Version" = "Version" + 1, "NextAttemptAt" = NULL
-                """,
-                cancellationToken).ConfigureAwait(false);
+                """);
+        foreach (var statement in statements)
+        {
+            await db.Database.ExecuteSqlAsync(statement, cancellationToken).ConfigureAwait(false);
         }
     }
 

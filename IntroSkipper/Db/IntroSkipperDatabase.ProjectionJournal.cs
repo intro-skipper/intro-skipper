@@ -12,18 +12,15 @@ namespace IntroSkipper.Db;
 internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var rows = db.ProjectionQueue.AsNoTracking();
-        if (itemId.HasValue)
-        {
-            rows = rows.Where(q => q.ItemId == itemId.Value);
-        }
-
-        return await rows.OrderBy(q => q.ItemId).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return await db.ProjectionQueue.AsNoTracking()
+            .OrderBy(q => q.ItemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

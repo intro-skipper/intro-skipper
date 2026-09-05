@@ -37,11 +37,16 @@ function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): v
     }
 }
 
-// Entries are trimmed on load as well as on write, so a stale untrimmed entry
-// from the server cannot keep a field dirty after the user touches it.
+// The one normalizer for exclusion entries, applied on load and by the field on
+// write, so a stale untrimmed or empty entry from the server cannot keep a field
+// dirty after the user touches it.
+export function trimmedEntries(values: readonly string[]): string[] {
+    return values.map((value) => value.trim()).filter((value) => value.length > 0);
+}
+
 function normalizeStringList(value: unknown): string[] {
     return Array.isArray(value)
-        ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim())
+        ? trimmedEntries(value.filter((item): item is string => typeof item === "string"))
         : [];
 }
 

@@ -1,4 +1,4 @@
-import { configStore } from "../store/config-store.ts";
+import { configStore, trimmedEntries } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { setDescribedBy } from "./field-bind.ts";
 import { appendFieldMeta } from "./field-meta.ts";
@@ -14,16 +14,12 @@ type ExclusionListFieldOptions = {
     confirmAdd?: (value: string) => Promise<boolean>;
 };
 
-function trimmed(values: string[]): string[] {
-    return values.map((value) => value.trim()).filter((value) => value.length > 0);
-}
-
 function hasEntry(entries: string[], value: string): boolean {
     return entries.some((entry) => entry.toLocaleLowerCase() === value.toLocaleLowerCase());
 }
 
 function readValues(field: ExclusionListFieldId): string[] {
-    return trimmed(configStore.get(field));
+    return trimmedEntries(configStore.get(field));
 }
 
 export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement {
@@ -169,7 +165,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
                 suggestions()
                     .then((values) => {
                         const seen = new Set<string>();
-                        for (const value of trimmed(values)) {
+                        for (const value of trimmedEntries(values)) {
                             const key = value.toLocaleLowerCase();
                             if (seen.has(key)) {
                                 continue;

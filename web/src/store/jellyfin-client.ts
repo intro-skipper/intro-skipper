@@ -24,25 +24,30 @@ function isSupportedCollectionType(
     return collectionType == null || SUPPORTED_COLLECTION_TYPES.has(collectionType);
 }
 
-// Library and show listings are cached per tab visit and shared by the exclusion
-// suggestions and the timestamps browser. The router clears the cache on every
-// tab switch so new media shows up without a page reload. Only successful
+// Library and show listings are shared by the exclusion suggestions and the
+// timestamps browser. Entries older than LISTING_TTL_MS are refetched on the next
+// read, so new media shows up without a page reload while switching tabs stays
+// cheap (the timestamps tab lists every library's shows on open). Only successful
 // responses are kept, so a failed request is retried on the next call.
-let librariesCache: Promise<LibraryInfo[]> | null = null;
-const showsByLibrary = new Map<string, Promise<ShowItem[]>>();
+const LISTING_TTL_MS = 60_000;
 
-export function clearListingCache(): void {
-    librariesCache = null;
-    showsByLibrary.clear();
+type Listing<T> = { loadedAt: number; value: Promise<T> };
+
+function fresh<T>(listing: Listing<T> | undefined): Promise<T> | null {
+    return listing && Date.now() - listing.loadedAt < LISTING_TTL_MS ? listing.value : null;
 }
 
+let librariesCache: Listing<LibraryInfo[]> | undefined;
+const showsByLibrary = new Map<string, Listing<ShowItem[]>>();
+
 export function getLibraries(): Promise<LibraryInfo[]> {
-    if (librariesCache) return librariesCache;
+    const cached = fresh(librariesCache);
+    if (cached) return cached;
 
     const loading = getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews").then(
         (result) => {
             if (!result.ok) {
-                librariesCache = null;
+                librariesCache = undefined;
                 console.error("Failed to load libraries", result.error);
                 return [];
             }
@@ -55,12 +60,12 @@ export function getLibraries(): Promise<LibraryInfo[]> {
                 }));
         },
     );
-    librariesCache = loading;
+    librariesCache = { loadedAt: Date.now(), value: loading };
     return loading;
 }
 
 export function getShowsInLibrary(libraryId: string, libraryName: string): Promise<ShowItem[]> {
-    const cached = showsByLibrary.get(libraryId);
+    const cached = fresh(showsByLibrary.get(libraryId));
     if (cached) return cached;
 
     const params = new URLSearchParams({
@@ -69,6 +74,8 @@ export function getShowsInLibrary(libraryId: string, libraryName: string): Promi
         sortBy: "SortName",
         sortOrder: "Ascending",
         recursive: "true",
+        // The listing needs names and years only; thumbnails are built by URL.
+        enableImages: "false",
     });
     const loading = getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
         `Items?${params.toString()}`,
@@ -89,7 +96,7 @@ export function getShowsInLibrary(libraryId: string, libraryName: string): Promi
                 LibraryName: libraryName,
             }));
     });
-    showsByLibrary.set(libraryId, loading);
+    showsByLibrary.set(libraryId, { loadedAt: Date.now(), value: loading });
     return loading;
 }
 

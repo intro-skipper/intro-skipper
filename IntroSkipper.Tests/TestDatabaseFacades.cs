@@ -460,6 +460,22 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task MarkItemsAnalyzedAsync_RecordsEveryItemAcrossStatementChunks()
+    {
+        // One id past the chunk size exercises the multi-row statement's parameter
+        // indexing on both a full and a one-row statement.
+        var ids = Enumerable.Range(0, MultiRowSql.ChunkSize + 1).Select(_ => Guid.NewGuid()).ToArray();
+        var database = _db.Database;
+
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, ids, "hash");
+
+        await using var db = _db.Context();
+        var records = await db.AnalyzedItems.AsNoTracking().ToListAsync();
+        Assert.Equal(ids.Order(), records.Select(a => a.ItemId).Order());
+        Assert.All(records, a => Assert.Equal("hash", a.ConfigHash));
+    }
+
+    [Fact]
     public async Task AnalyzerActions_ReturnStoredRow_AndFillMissingModesWithDefault()
     {
         var seasonId = Guid.NewGuid();

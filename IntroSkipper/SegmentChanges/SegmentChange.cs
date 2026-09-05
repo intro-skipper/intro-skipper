@@ -159,7 +159,7 @@ public sealed partial class SegmentChange : BackgroundService
             // resolve themselves. Failures re-arm the normal backoff.
             try
             {
-                foreach (var row in await _database.GetProjectionQueueAsync(null, stoppingToken).ConfigureAwait(false))
+                foreach (var row in await _database.GetProjectionQueueAsync(stoppingToken).ConfigureAwait(false))
                 {
                     await ProjectItemAsync(row.ItemId, force: true, stoppingToken).ConfigureAwait(false);
                 }
@@ -254,11 +254,6 @@ public sealed partial class SegmentChange : BackgroundService
         if (await _database.ReadProjectionWorkAsync(itemId, cancellationToken).ConfigureAwait(false) is not { } work)
         {
             return ProjectionState.Applied;
-        }
-
-        if (!_mirrorPolicy.Enabled)
-        {
-            return ProjectionState.Skipped;
         }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;

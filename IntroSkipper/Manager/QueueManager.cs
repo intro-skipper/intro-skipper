@@ -242,7 +242,10 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
             return;
         }
 
-        foreach (var item in items)
+        // Dedupe both paths here: GetItemList has returned the same item twice, and the scoped
+        // path concatenates overlapping queries. QueueEpisode appends unconditionally, and a
+        // duplicate in a season pairs the episode against itself in the fingerprint pool.
+        foreach (var item in items.DistinctBy(e => e.Id))
         {
             try
             {
@@ -328,7 +331,7 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
             .Where(episode => episode.AiredSeasonNumber is not int airedSeasonNumber ||
                 !targetSeasonKeys.Contains((episode.SeriesId, airedSeasonNumber)));
 
-        return episodes.Concat(specials).Concat(restoredSpecials).Concat(movies).DistinctBy(item => item.Id);
+        return episodes.Concat(specials).Concat(restoredSpecials).Concat(movies);
     }
 
     // The query shape shared by the unscoped and scoped paths; scoped callers add only their

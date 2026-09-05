@@ -286,13 +286,12 @@ public interface IIntroSkipperDatabase
     // servable state), always atomically with the mutation.
 
     /// <summary>
-    /// Reads the pending queue rows, ordered by item id: all of them, or one item's.
-    /// Items without a row have no pending work.
+    /// Reads every pending queue row, ordered by item id. Items without a row have no
+    /// pending work; one item's work is read through <see cref="ReadProjectionWorkAsync"/>.
     /// </summary>
-    /// <param name="itemId">Item filter, or <see langword="null"/> for every row.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Untracked queue rows.</returns>
-    Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(Guid? itemId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Reads the ids of items whose work is due: no backoff recorded, or the backoff

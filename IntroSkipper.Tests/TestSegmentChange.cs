@@ -961,11 +961,13 @@ public sealed class TestSegmentChange : IDisposable
     private SegmentChange CreateService(RecordingProjectionAdapter adapter, FakeMirrorPolicy? policy = null)
     {
         var database = CreateDatabase();
+        policy ??= new FakeMirrorPolicy();
         adapter.Database = database;
+        adapter.Policy = policy;
         return new SegmentChange(
             database,
             adapter,
-            policy ?? new FakeMirrorPolicy(),
+            policy,
             new SegmentMutationLocks(),
             TimeProvider.System,
             NullLogger<SegmentChange>.Instance);
@@ -1041,6 +1043,9 @@ public sealed class TestSegmentChange : IDisposable
     {
         public IIntroSkipperDatabase? Database { get; set; }
 
+        /// <summary>Gets or sets the mirror policy; like the production mirror, a disabled policy makes every apply a no-op.</summary>
+        public IMediaSegmentMirrorPolicy? Policy { get; set; }
+
         public int FailuresRemaining { get; set; }
 
         public Exception? ResolveException { get; set; }
@@ -1074,6 +1079,11 @@ public sealed class TestSegmentChange : IDisposable
 
         public async Task<bool> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
         {
+            if (Policy is { Enabled: false })
+            {
+                return false;
+            }
+
             // Snapshot what the real adapter would push: the item's current servable
             // image (the disable filter applied), read through the facade.
             IReadOnlyList<DbSegment> image = Database is null

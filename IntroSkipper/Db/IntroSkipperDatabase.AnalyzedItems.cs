@@ -27,15 +27,20 @@ internal sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            foreach (var id in ids)
-            {
-                await db.Database.ExecuteSqlAsync(
-                    $"""
+            // {0} binds the mode and {1} the hash once per statement; every row reuses them.
+            var statements = MultiRowSql.Statements(
+                ids,
+                id => $"({id}, {{0}}, {{1}})",
+                rows => $"""
                     INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash")
-                    VALUES ({id}, {(int)mode}, {configHash})
+                    VALUES {rows}
                     ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash"
                     """,
-                    cancellationToken).ConfigureAwait(false);
+                (int)mode,
+                configHash);
+            foreach (var statement in statements)
+            {
+                await db.Database.ExecuteSqlAsync(statement, cancellationToken).ConfigureAwait(false);
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
