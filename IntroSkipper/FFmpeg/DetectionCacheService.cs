@@ -130,7 +130,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <summary>
-    /// Checks if a fingerprint cache entry exists for the episode.
+    /// Checks if a fingerprint cache entry exists for the episode. A mode that shares another
+    /// mode's row (see <see cref="QueuedEpisode.FingerprintCacheMode"/>) also counts a row an
+    /// older release wrote under its own key, so episodes fingerprinted before the rows were
+    /// shared keep their place in the comparison pool.
     /// </summary>
     /// <param name="episode">The queued episode to check.</param>
     /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
@@ -143,18 +146,25 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return false;
         }
 
-        var (start, end) = episode.GetFingerprintRange(mode);
+        var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
+        var (start, end) = episode.GetFingerprintRange(cacheMode);
 
+        return HasReadableFingerprintRow(episode.EpisodeId, cacheMode, start, end)
+            || (cacheMode != mode && HasReadableFingerprintRow(episode.EpisodeId, mode, start, end));
+    }
+
+    private bool HasReadableFingerprintRow(Guid itemId, AnalysisMode rowMode, double start, double end)
+    {
         try
         {
-            var entry = _cacheDatabase.FindEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
+            var entry = _cacheDatabase.FindEntry(itemId, rowMode, CacheEntryType.Chromaprint, start, end);
             if (entry is null)
             {
                 return false;
             }
 
             var config = Plugin.Instance?.Configuration ?? new();
-            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, mode);
+            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, rowMode);
 
             // Stream-scoped and pre-stream-selection rows are accepted optimistically: whether
             // the effective stream still matches is only decided at read time, and a mismatch
@@ -165,11 +175,11 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
                 || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal);
+                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, rowMode), StringComparison.Ordinal);
         }
         catch (DbException ex)
         {
-            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, mode, CacheEntryType.Chromaprint);
+            LogDetectionCacheReadError(_logger, ex, itemId, rowMode, CacheEntryType.Chromaprint);
         }
 
         return false;

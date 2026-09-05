@@ -145,4 +145,15 @@ public sealed class QueuedEpisode
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };
     }
+
+    /// <summary>
+    /// Maps an analysis mode to the mode its Chromaprint fingerprint is cached under. Recap
+    /// fingerprints the same opening window as Introduction, so both read and write one row
+    /// instead of decoding the same audio twice. Rows older releases wrote under the Recap key
+    /// are still read and copied under the shared key on first use.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The mode used for the fingerprint cache key.</returns>
+    public static AnalysisMode FingerprintCacheMode(AnalysisMode mode)
+        => mode == AnalysisMode.Recap ? AnalysisMode.Introduction : mode;
 }
