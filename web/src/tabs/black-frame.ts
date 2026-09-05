@@ -19,6 +19,13 @@ export const blackFrameTab: Tab = {
             }),
             inputField({
                 kind: "checkbox",
+                id: "AnchorRecapToColdOpen",
+                label: "Keep the cold open before a recap",
+                description:
+                    "Start a Chromaprint recap at the black frame just before the shared \"previously on\" sting instead of 0:00, so a scene played before the recap is not skipped. Chapter and black-frame-only recaps still start at 0:00.",
+            }),
+            inputField({
+                kind: "checkbox",
                 id: "RefineCreditsBoundary",
                 label: "Refine credits boundary",
                 description:

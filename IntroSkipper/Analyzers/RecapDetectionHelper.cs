@@ -13,6 +13,12 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 internal static class RecapDetectionHelper
 {
+    // A sting starting this close to 0:00 opens the episode, so there is no cold open to keep.
+    private const double ColdOpenStartThreshold = 5;
+
+    // The fade between a cold open and the recap is looked for this many seconds before the sting.
+    private const double ColdOpenLeadInWindow = 10;
+
     /// <summary>
     /// Gets the latest timestamp that recap boundary detection should scan.
     /// </summary>
@@ -77,5 +83,45 @@ internal static class RecapDetectionHelper
 
         var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, config.BlackFrameMinimumPercentage);
         return [.. blackFrames.Where(frame => frame.Percentage >= minimum)];
+    }
+
+    /// <summary>
+    /// Builds a recap around a shared Chromaprint sting. The end is the latest black frame before
+    /// the boundary, as for the black-frame fallback. The start is 0 unless
+    /// <paramref name="anchorToColdOpen"/> is set and the sting begins after
+    /// <see cref="ColdOpenStartThreshold"/>; then it is the latest black frame within
+    /// <see cref="ColdOpenLeadInWindow"/> before the sting, or the sting start when there is none.
+    /// </summary>
+    /// <param name="episodeId">Episode id.</param>
+    /// <param name="sting">Shared sting region for this episode.</param>
+    /// <param name="blackFrames">Black frames from the recap scan window.</param>
+    /// <param name="minimumRecapDuration">Earliest allowed recap end in seconds.</param>
+    /// <param name="maximumRecapBoundary">Latest allowed recap end in seconds.</param>
+    /// <param name="anchorToColdOpen">Whether a leading cold open moves the start off 0.</param>
+    /// <returns>The recap, or <see langword="null"/> when no black frame closes it.</returns>
+    internal static Segment? BuildRecapFromSting(
+        Guid episodeId,
+        Segment sting,
+        IReadOnlyList<BlackFrame> blackFrames,
+        int minimumRecapDuration,
+        double maximumRecapBoundary,
+        bool anchorToColdOpen)
+    {
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(
+            episodeId,
+            blackFrames,
+            Math.Max(minimumRecapDuration, (int)Math.Ceiling(sting.End)),
+            maximumRecapBoundary);
+        if (recap is null || !anchorToColdOpen || sting.Start <= ColdOpenStartThreshold)
+        {
+            return recap;
+        }
+
+        var fade = blackFrames
+            .Where(frame => frame.Time <= sting.Start && frame.Time >= sting.Start - ColdOpenLeadInWindow)
+            .Select(frame => (double?)frame.Time)
+            .Max();
+        recap.Start = fade ?? sting.Start;
+        return recap;
     }
 }

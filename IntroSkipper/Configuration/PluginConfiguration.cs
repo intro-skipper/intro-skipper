@@ -312,6 +312,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool DetectRecapUsingBlackFrames { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether a Chromaprint recap starts at the fade before the
+    /// shared sting instead of 0:00, so a cold open ahead of the recap is not skipped.
+    /// </summary>
+    public bool AnchorRecapToColdOpen { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a preview.
     /// </summary>
     public int MinimumPreviewDuration { get; set; } = 15;

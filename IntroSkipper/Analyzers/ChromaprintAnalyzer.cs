@@ -246,7 +246,8 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
     /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
-    /// A region starting within 5 s of the episode start is snapped to 0.
+    /// A region starting within 5 s of the episode start is snapped to 0, except for Recap, where
+    /// the sting start anchors the recap behind a cold open.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
@@ -283,14 +284,17 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
-        if (lhs.Start <= 5)
+        if (mode != AnalysisMode.Recap)
         {
-            lhs.Start = 0;
-        }
+            if (lhs.Start <= 5)
+            {
+                lhs.Start = 0;
+            }
 
-        if (rhs.Start <= 5)
-        {
-            rhs.Start = 0;
+            if (rhs.Start <= 5)
+            {
+                rhs.Start = 0;
+            }
         }
 
         return (new Segment(lhsId, lhs), new Segment(rhsId, rhs));
@@ -345,11 +349,13 @@ internal sealed partial class ChromaprintAnalyzer(
             _recapBlackFrameCache[episode.EpisodeId] = blackFrames;
         }
 
-        return ChapterAnalyzer.BuildRecapFromBlackFrames(
+        return RecapDetectionHelper.BuildRecapFromSting(
             episode.EpisodeId,
+            card,
             blackFrames,
-            Math.Max(_config.MinimumRecapDetectionDuration, (int)Math.Ceiling(card.End)),
-            maximumBoundary);
+            _config.MinimumRecapDetectionDuration,
+            maximumBoundary,
+            _config.AnchorRecapToColdOpen);
     }
 
     /// <summary>

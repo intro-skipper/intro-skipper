@@ -64,6 +64,63 @@ public class TestRecapDetection
         Assert.False(rhsSegment.Valid);
     }
 
+    [Theory]
+    [InlineData(AnalysisMode.Introduction, 0)]
+    [InlineData(AnalysisMode.Recap, 3)]
+    public void SelectSharedRegion_SnapsNearZeroStart_ExceptForRecap(AnalysisMode mode, double expectedStart)
+    {
+        var (lhsSegment, rhsSegment) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(3, 20)],
+            Guid.NewGuid(),
+            [new TimeRange(3, 20)],
+            mode);
+
+        Assert.Equal(expectedStart, lhsSegment.Start);
+        Assert.Equal(expectedStart, rhsSegment.Start);
+    }
+
+    // Black frames at 28 s (fade after a cold open), 50 s (inside the recap) and 90 s (montage
+    // end); the sting is 5 s long and the scan window ends at 120 s.
+    [Theory]
+    [InlineData(true, 35, 28)]
+    [InlineData(false, 35, 0)]
+    [InlineData(true, 4, 0)]
+    [InlineData(true, 75, 75)]
+    public void BuildRecapFromSting_StartsAtColdOpenFadeOnlyWhenAnchored(bool anchor, double stingStart, double expectedStart)
+    {
+        var episodeId = Guid.NewGuid();
+        BlackFrame[] frames = [new(100, 28, 0), new(100, 50, 1), new(100, 90, 2)];
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(stingStart, stingStart + 5)),
+            frames,
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: 120,
+            anchor);
+
+        Assert.NotNull(recap);
+        Assert.Equal(expectedStart, recap.Start);
+        Assert.Equal(90, recap.End);
+    }
+
+    [Fact]
+    public void BuildRecapFromSting_ReturnsNull_WhenNoBlackFrameClosesTheRecap()
+    {
+        var episodeId = Guid.NewGuid();
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(35, 40)),
+            [new BlackFrame(100, 28, 0)],
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: 120,
+            anchorToColdOpen: true);
+
+        Assert.Null(recap);
+    }
+
     [Fact]
     public void RecapFingerprintRange_UsesIntroFingerprintWindow()
     {
