@@ -40,6 +40,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="result">When this method returns, contains the cached result array, or an empty array if the cache was missed. This parameter is treated as uninitialized.</param>
     /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
+    /// <param name="legacyConfigHash">Pre-stream-selection hash to accept as well, when the caller knows the row's stream is still the effective one.</param>
     /// <returns><see langword="true"/> if a valid cache entry was found; otherwise, <see langword="false"/>.</returns>
     public bool TryRead<T>(
         Guid itemId,
@@ -48,7 +49,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         double start,
         double end,
         out T[] result,
-        string? cacheVariant = null)
+        string? cacheVariant = null,
+        string? legacyConfigHash = null)
     {
         result = [];
 
@@ -71,7 +73,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
             if (!string.IsNullOrEmpty(entry.ConfigHash)
-                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
+                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                && !string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -150,14 +153,19 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
+            var config = Plugin.Instance?.Configuration ?? new();
+            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, mode);
 
-            // Stream-scoped rows are accepted optimistically: whether the effective stream still
-            // matches is only decided at read time, and a mismatch there just refingerprints
-            // the episode.
+            // Stream-scoped and pre-stream-selection rows are accepted optimistically: whether
+            // the effective stream still matches is only decided at read time, and a mismatch
+            // there just refingerprints the episode. Rejecting them here would drop an
+            // already-analyzed episode out of the Chromaprint comparison pool without ever
+            // refingerprinting it. The legacy hash is computed last, only for rows the cheap
+            // checks did not settle; this runs per episode in the analyzer's queue filter.
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash);
+                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
+                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal);
         }
         catch (DbException ex)
         {
@@ -181,7 +189,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         var config = Plugin.Instance?.Configuration ?? new();
 
         // Every hash some read path accepts under the current configuration: the current
-        // hash of each (type, mode) pair. Inputs that ignore type or mode collapse in the set.
+        // hash of each (type, mode) pair plus the legacy pre-stream-selection Chromaprint
+        // hash. Inputs that ignore type or mode collapse in the set.
         var acceptedHashes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var mode in Enum.GetValues<AnalysisMode>())
         {
@@ -189,6 +198,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             {
                 acceptedHashes.Add(ConfigHasher.DetectionCache(config, type, mode));
             }
+
+            acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
         }
 
         return await _cacheDatabase

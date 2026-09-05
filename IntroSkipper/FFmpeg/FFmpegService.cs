@@ -455,7 +455,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         if (!hasLanguagePreference && preferMostChannels)
         {
             // No probe or explicit map is needed to preserve FFmpeg's default selection: most channels, then lowest index.
-            return new AudioStreamSelection(null, "policy=most-channels");
+            return new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant);
         }
 
         // Probed on every fingerprint rather than memoized: the service is a singleton, and a file
@@ -521,7 +521,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             var selectedStream = SelectAudioStream(candidates, preferMostChannels);
             var selectsDefaultMostStream = selectedStream.Index == defaultStream.Index;
             var cacheVariant = selectsDefaultMostStream
-                ? "policy=most-channels"
+                ? AudioStreamSelection.DefaultStreamCacheVariant
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
             return new AudioStreamSelection(
@@ -558,9 +558,15 @@ internal sealed partial class FFmpegService : IFFmpegService
             cancellationToken).ConfigureAwait(false);
         var cacheVariant = streamSelection?.CacheVariant;
 
+        // Rows written before stream selection existed came from FFmpeg's default stream, so
+        // they are only reusable when that is still the effective stream.
+        var legacyConfigHash = streamSelection?.SelectsDefaultStream == true
+            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration ?? new(), mode)
+            : null;
+
         // Resolve the stream before reading the cache so a language preference can reuse a fingerprint
         // generated with the same effective stream under the default selection.
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant))
+        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, legacyConfigHash))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return cachedFingerprint;
@@ -643,5 +649,17 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
 
-    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant);
+    /// <summary>
+    /// The audio stream a fingerprint is taken from.
+    /// </summary>
+    /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's default selection unmapped.</param>
+    /// <param name="CacheVariant">Effective stream identity that keys the fingerprint cache row.</param>
+    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant)
+    {
+        /// <summary>Cache variant of FFmpeg's default selection: most channels, then lowest index.</summary>
+        public const string DefaultStreamCacheVariant = "policy=most-channels";
+
+        /// <summary>Gets a value indicating whether the effective stream is FFmpeg's default one.</summary>
+        public bool SelectsDefaultStream => CacheVariant == DefaultStreamCacheVariant;
+    }
 }

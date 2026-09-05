@@ -6,9 +6,11 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -115,6 +117,27 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task CachedFingerprint_ReadsPreStreamSelectionRow()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var fingerprint = new uint[] { 111u, 222u, 333u };
+        using var scope = new CachingPluginScope();
+
+        // Row written by a release without audio stream selection. The default configuration
+        // still fingerprints FFmpeg's default stream, so the row is reusable as-is.
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600, scope.LegacyHash(AnalysisMode.Introduction));
+
+        var result = await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
+
+        Assert.Equal(fingerprint, result);
+    }
+
+    [Fact]
     public async Task CachedFingerprint_ThrowsWhenCanceledBeforeCacheHit()
     {
         var episode = new QueuedEpisode
@@ -159,6 +182,82 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void HasCachedFingerprint_AcceptsPreStreamSelectionRow()
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), IntroFingerprintEnd = 600 };
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600, scope.LegacyHash(AnalysisMode.Introduction));
+
+        Assert.True(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+    }
+
+    /// <summary>
+    /// Upgrade scenario. Episodes 1 and 2 were analyzed by a release without audio stream
+    /// selection, so their fingerprint rows carry the legacy hash. New episodes 3 and 4 each
+    /// share an intro with one of them and not with each other, so both intros are found only
+    /// if the analyzed episodes stay in the comparison pool and their legacy rows are read.
+    /// Rejecting the rows would leave the new episodes unanalyzed without refingerprinting anyone.
+    /// </summary>
+    [Fact]
+    public async Task AnalyzeMediaFiles_ComparesNewEpisodesAgainstPreStreamSelectionFingerprints()
+    {
+        using var scope = new CachingPluginScope();
+        var legacyHash = scope.LegacyHash(AnalysisMode.Introduction);
+        var currentHash = ConfigHasher.DetectionCache(Plugin.Instance!.Configuration, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant);
+
+        // Twenty shared intro points (about 2.5 s) followed by twenty points unique to the episode.
+        static uint[] Points(uint intro, uint unique)
+            => [.. Enumerable.Range(0, 20).Select(i => intro + (uint)i), .. Enumerable.Range(0, 20).Select(i => unique + (uint)i)];
+
+        var episodes = new List<QueuedEpisode>();
+        foreach (var (number, intro, unique, analyzed) in new[] { (1, 0x1000u, 0x2000u, true), (2, 0x5000u, 0x6000u, true), (3, 0x1000u, 0x3000u, false), (4, 0x5000u, 0x7000u, false) })
+        {
+            var episode = new QueuedEpisode
+            {
+                EpisodeId = Guid.NewGuid(),
+                EpisodeNumber = number,
+                Path = "/does/not/exist.mkv",
+                IntroFingerprintEnd = 600,
+                Duration = 1800,
+            };
+            if (analyzed)
+            {
+                episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+            }
+
+            // Every fingerprint is served from the cache so no ffmpeg runs; only the hash
+            // distinguishes pre-upgrade rows from rows this release wrote.
+            scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(Points(intro, unique)), 0, 600, analyzed ? legacyHash : currentHash);
+            episodes.Add(episode);
+        }
+
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            scope.CreateFFmpegService(),
+            scope.CacheService,
+            database,
+            new PluginConfiguration
+            {
+                MinimumIntroDuration = 1,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        foreach (var episode in episodes.Where(e => e.EpisodeNumber >= 3))
+        {
+            Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
+            Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+        }
+    }
+
+    [Fact]
     public async Task DeleteUnreadableEntriesAsync_DeletesOnlyRowsNoReadPathAccepts()
     {
         var itemId = Guid.NewGuid();
@@ -169,6 +268,7 @@ public sealed class TestCacheOperations
         // One row per acceptance path, distinguished by their range keys, plus one row whose
         // hash no read path accepts.
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 200, EntrypointTestHelpers.EmptyJsonArray, scope.LegacyHash(AnalysisMode.Introduction));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Silence, AnalysisMode.Introduction));
@@ -178,6 +278,7 @@ public sealed class TestCacheOperations
 
         Assert.Equal(1, deleted);
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100));
+        Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 200));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500));
@@ -206,6 +307,13 @@ public sealed class TestCacheOperations
         public string CacheDbPath => _inner.CacheDbPath;
 
         public FFmpegService CreateFFmpegService() => new(NullLogger<FFmpegService>.Instance, CacheService);
+
+        /// <summary>
+        /// The hash a release without audio stream selection wrote on this configuration's
+        /// Chromaprint rows.
+        /// </summary>
+        public string LegacyHash(AnalysisMode mode)
+            => ConfigHasher.LegacyChromaprintCacheWithoutLanguage(Plugin.Instance!.Configuration, mode);
 
         /// <summary>
         /// Stores one raw cache row. Pass the bytes a read path expects (Brotli for

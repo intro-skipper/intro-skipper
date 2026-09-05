@@ -82,6 +82,21 @@ public sealed class TestConfigHasher
         return data;
     }
 
+    [Fact]
+    public void LegacyChromaprintCacheHash_MatchesPreStreamSelectionRows()
+    {
+        // Pinned output for a default configuration; rows written by releases without audio
+        // stream selection carry exactly this value. Changing it drops every episode those
+        // releases analyzed out of the Chromaprint comparison pool.
+        var hash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(new PluginConfiguration(), AnalysisMode.Introduction);
+
+        Assert.Equal("1CD6171D4F6FA587", hash);
+
+        // The legacy hash predates audio stream selection, so those settings must not affect it.
+        var changedSelection = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = false };
+        Assert.Equal(hash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(changedSelection, AnalysisMode.Introduction));
+    }
+
     [Theory]
     [MemberData(nameof(Cases))]
     public void Hash_ChangesOnlyForRelevantSettings(string name, string first, string second, bool expectEqual)
