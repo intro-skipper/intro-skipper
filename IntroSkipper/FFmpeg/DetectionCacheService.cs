@@ -143,18 +143,19 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return false;
         }
 
-        var (start, end) = episode.GetFingerprintRange(mode);
+        var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
+        var (start, end) = episode.GetFingerprintRange(cacheMode);
 
         try
         {
-            var entry = _cacheDatabase.FindEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
+            var entry = _cacheDatabase.FindEntry(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end);
             if (entry is null)
             {
                 return false;
             }
 
             var config = Plugin.Instance?.Configuration ?? new();
-            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, mode);
+            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, cacheMode);
 
             // Stream-scoped and pre-stream-selection rows are accepted optimistically: whether
             // the effective stream still matches is only decided at read time, and a mismatch
@@ -165,11 +166,11 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return string.IsNullOrEmpty(entry.ConfigHash)
                 || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
                 || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode), StringComparison.Ordinal);
+                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, cacheMode), StringComparison.Ordinal);
         }
         catch (DbException ex)
         {
-            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, mode, CacheEntryType.Chromaprint);
+            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint);
         }
 
         return false;

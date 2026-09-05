@@ -117,6 +117,24 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task CachedFingerprint_RecapReadsIntroductionRow()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var fingerprint = new uint[] { 111u, 222u, 333u };
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600);
+
+        var result = await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Recap);
+
+        Assert.Equal(fingerprint, result);
+    }
+
+    [Fact]
     public async Task CachedFingerprint_ReadsPreStreamSelectionRow()
     {
         var episode = new QueuedEpisode
@@ -157,12 +175,14 @@ public sealed class TestCacheOperations
     }
 
     // The episode expects an intro fingerprint over 0-600 s and a credits fingerprint
-    // over 1560-1800 s; a row counts only when its range matches.
+    // over 1560-1800 s; a row counts only when its range matches. Recap reads the
+    // Introduction row, so the seeded mode is Introduction for the Recap case.
     [Theory]
     [InlineData(AnalysisMode.Introduction, false, 0, 0, false)]
     [InlineData(AnalysisMode.Introduction, true, 0, 900, false)]
     [InlineData(AnalysisMode.Introduction, true, 0, 600, true)]
     [InlineData(AnalysisMode.Credits, true, 1560, 1800, true)]
+    [InlineData(AnalysisMode.Recap, true, 0, 600, true)]
     public void HasCachedFingerprint_MatchesRowsByRange(AnalysisMode mode, bool seedRow, double rowStart, double rowEnd, bool expected)
     {
         var episode = new QueuedEpisode
@@ -175,7 +195,7 @@ public sealed class TestCacheOperations
         using var scope = new CachingPluginScope();
         if (seedRow)
         {
-            scope.SeedRow(episode.EpisodeId, mode, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, rowStart, rowEnd);
+            scope.SeedRow(episode.EpisodeId, QueuedEpisode.FingerprintCacheMode(mode), CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, rowStart, rowEnd);
         }
 
         Assert.Equal(expected, scope.CacheService.HasCachedFingerprint(episode, mode));

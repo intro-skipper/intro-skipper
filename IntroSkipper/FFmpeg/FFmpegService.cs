@@ -125,8 +125,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var (start, end) = episode.GetFingerprintRange(mode);
-        return FingerprintAsync(episode, mode, start, end, cancellationToken);
+        var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
+        var (start, end) = episode.GetFingerprintRange(cacheMode);
+        return FingerprintAsync(episode, cacheMode, start, end, cancellationToken);
     }
 
     /// <inheritdoc/>
