@@ -5,6 +5,8 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
@@ -193,6 +195,77 @@ public class TestRecapDetection
             anchorToColdOpen: true);
 
         Assert.Null(recap);
+    }
+
+    // Episode A opens with a logo that B also has at 0:00 and, after a cold open, a sting at 35 s
+    // that C also has. Black frames sit at 28 s (the fade before the sting), 50 s and 90 s.
+    // Whichever pair the analyzer meets first, the recap saved for A must start at the fade.
+    [Theory]
+    [InlineData("A,B,C")]
+    [InlineData("A,C,B")]
+    public async Task AnalyzeMediaFiles_AnchoredRecapSurvivesAnEarlierPairMatchingAtEpisodeStart(string order)
+    {
+        var fingerprints = new Dictionary<string, uint[]>
+        {
+            ["A"] = Fingerprint(0x10000, (0, 5, 0x1000), (35, 40, 0x2000)),
+            ["B"] = Fingerprint(0x20000, (0, 5, 0x1000)),
+            ["C"] = Fingerprint(0x30000, (35, 40, 0x2000)),
+        };
+        var episodes = order.Split(',').Select((name, index) => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = name,
+            EpisodeNumber = index + 1,
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+        }).ToList();
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => fingerprints[episode.Name],
+            RangeBlackFrames = (_, _, _, _, _) => [new BlackFrame(100, 28, 0), new BlackFrame(100, 50, 1), new BlackFrame(100, 90, 2)],
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            database,
+            new PluginConfiguration
+            {
+                AnchorRecapToColdOpen = true,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        var a = episodes.Single(episode => episode.Name == "A");
+        Assert.Equal(EpisodeState.Analyzed, a.GetAnalyzed(AnalysisMode.Recap));
+        var recap = Assert.Single(await database.GetSegmentsAsync(a.EpisodeId));
+        Assert.Equal(28, TickConversions.ToSeconds(recap.StartTicks));
+        Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
+
+        // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
+        // with other episodes at the given seconds.
+        static uint[] Fingerprint(uint unique, params (double Start, double End, uint Shared)[] runs)
+        {
+            var points = Enumerable.Range(0, Position(60)).Select(i => unique + (uint)i).ToArray();
+            foreach (var (start, end, shared) in runs)
+            {
+                for (var i = Position(start); i < Position(end); i++)
+                {
+                    points[i] = shared + (uint)(i - Position(start));
+                }
+            }
+
+            return points;
+        }
+
+        static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
     }
 
     [Fact]

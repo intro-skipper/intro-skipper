@@ -183,7 +183,13 @@ internal sealed partial class ChromaprintAnalyzer(
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
 
-                break;
+                // One shared region settles most modes. An anchored recap keeps comparing: the
+                // first pair may have matched an opening logo at 0:00 while a later pair holds
+                // the sting after the cold open, which IsBetterCandidate prefers.
+                if (_analysisMode != AnalysisMode.Recap || !_config.AnchorRecapToColdOpen)
+                {
+                    break;
+                }
             }
 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
