@@ -121,16 +121,6 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
-        var (start, end) = episode.GetFingerprintRange(cacheMode);
-        return FingerprintAsync(episode, cacheMode, start, end, cancellationToken);
-    }
-
-    /// <inheritdoc/>
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
@@ -537,19 +527,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         return null;
     }
 
-    /// <summary>
-    /// Fingerprint a queued episode.
-    /// </summary>
-    /// <param name="episode">Queued episode to fingerprint.</param>
-    /// <param name="mode">Portion of media file to fingerprint.</param>
-    /// <param name="start">Time (in seconds) relative to the start of the file to start fingerprinting from.</param>
-    /// <param name="end">Time (in seconds) relative to the start of the file to stop fingerprinting at.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>Numerical fingerprint points.</returns>
-    private async Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, double start, double end, CancellationToken cancellationToken)
+    /// <inheritdoc/>
+    public async Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
+        var (start, end) = episode.GetFingerprintRange(cacheMode);
         var configuration = Plugin.Instance?.Configuration;
         var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
         var streamSelection = await FindAudioStreamSelectionAsync(
@@ -561,15 +545,25 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // Rows written before stream selection existed came from FFmpeg's default stream, so
         // they are only reusable when that is still the effective stream.
-        var legacyConfigHash = streamSelection?.SelectsDefaultStream == true
-            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration ?? new(), mode)
+        string? LegacyConfigHash(AnalysisMode rowMode) => streamSelection?.SelectsDefaultStream == true
+            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration ?? new(), rowMode)
             : null;
 
         // Resolve the stream before reading the cache so a language preference can reuse a fingerprint
         // generated with the same effective stream under the default selection.
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, legacyConfigHash))
+        if (_cacheService.TryRead(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, LegacyConfigHash(cacheMode)))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            return cachedFingerprint;
+        }
+
+        // A row under the mode's own key was written before the row was shared. Copy it under
+        // the shared key so the next read is one lookup; the old row stays until its item is deleted.
+        if (cacheMode != mode
+            && _cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out cachedFingerprint, cacheVariant, LegacyConfigHash(mode)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, cachedFingerprint, cacheVariant);
             return cachedFingerprint;
         }
 
@@ -617,7 +611,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // Try to cache this fingerprint.
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, results, cacheVariant);
+        _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, results, cacheVariant);
 
         return results;
     }

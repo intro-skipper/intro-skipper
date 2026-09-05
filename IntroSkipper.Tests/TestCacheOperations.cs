@@ -134,6 +134,33 @@ public sealed class TestCacheOperations
         Assert.Equal(fingerprint, result);
     }
 
+    /// <summary>
+    /// Upgrade scenario. A release that cached Recap under its own key fingerprinted this
+    /// episode with intro scanning disabled, so only a Recap row exists. The read must serve
+    /// it and copy it under the shared Introduction key so later reads take the fast path.
+    /// </summary>
+    [Fact]
+    public async Task CachedFingerprint_RecapReadsAndUpgradesRecapOnlyRow()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var fingerprint = new uint[] { 111u, 222u, 333u };
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Recap, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(fingerprint), 0, 600, scope.LegacyHash(AnalysisMode.Recap));
+
+        var result = await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Recap);
+
+        Assert.Equal(fingerprint, result);
+        var upgraded = scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600);
+        Assert.NotNull(upgraded);
+        Assert.Equal(fingerprint, DetectionCacheService.DecompressBrotli<uint[]>(upgraded.Data));
+        Assert.Equal(fingerprint, await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction));
+    }
+
     [Fact]
     public async Task CachedFingerprint_ReadsPreStreamSelectionRow()
     {
@@ -201,14 +228,18 @@ public sealed class TestCacheOperations
         Assert.Equal(expected, scope.CacheService.HasCachedFingerprint(episode, mode));
     }
 
-    [Fact]
-    public void HasCachedFingerprint_AcceptsPreStreamSelectionRow()
+    // The Recap case covers an episode fingerprinted by a release that cached Recap under its
+    // own key with no Introduction row; it must stay in the Recap comparison pool.
+    [Theory]
+    [InlineData(AnalysisMode.Introduction, AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Recap, AnalysisMode.Recap)]
+    public void HasCachedFingerprint_AcceptsPreStreamSelectionRow(AnalysisMode mode, AnalysisMode rowMode)
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), IntroFingerprintEnd = 600 };
         using var scope = new CachingPluginScope();
-        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600, scope.LegacyHash(AnalysisMode.Introduction));
+        scope.SeedRow(episode.EpisodeId, rowMode, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600, scope.LegacyHash(rowMode));
 
-        Assert.True(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        Assert.True(scope.CacheService.HasCachedFingerprint(episode, mode));
     }
 
     /// <summary>
