@@ -246,8 +246,9 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
     /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
-    /// A region starting within 5 s of the episode start is snapped to 0, except for Recap, where
-    /// the sting start anchors the recap behind a cold open.
+    /// A region starting within 5 s of the episode start is snapped to 0, except for Recap, which
+    /// keeps the raw sting start so <see cref="RecapDetectionHelper.BuildRecapFromSting"/> can
+    /// anchor the recap behind a cold open when that option is enabled.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
