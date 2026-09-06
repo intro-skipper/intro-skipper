@@ -186,6 +186,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogDatabaseInitializationError(_logger, ex);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Initialize detection cache database.
         try
         {

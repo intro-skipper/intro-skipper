@@ -137,6 +137,11 @@ namespace IntroSkipper.Services
             {
                 await initializationCancellation.CancelAsync().ConfigureAwait(false);
                 LogDatabaseInitializationTimedOut(_databaseInitializationTimeout.TotalSeconds);
+                _ = initializationTask.ContinueWith(
+                    static task => _ = task.Exception,
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
 
             await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
