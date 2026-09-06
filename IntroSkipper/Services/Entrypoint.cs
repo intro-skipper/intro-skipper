@@ -33,6 +33,7 @@ namespace IntroSkipper.Services
     /// </summary>
     public sealed partial class Entrypoint : IHostedService, IDisposable
     {
+        private static readonly TimeSpan _databaseInitializationTimeout = TimeSpan.FromSeconds(30);
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
@@ -113,6 +114,8 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is not initialized.");
+
             lock (_seasonsLock)
             {
                 _isStopping = false;
@@ -122,7 +125,19 @@ namespace IntroSkipper.Services
             _libraryManager.ItemUpdated += OnItemChanged;
             _libraryManager.ItemRemoved += OnItemRemoved;
             _taskManager.TaskCompleted += OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
+            plugin.ConfigurationChanged += OnSettingsChanged;
+
+            using var initializationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var initializationTask = plugin.InitializeDatabasesAsync(initializationCancellation.Token);
+            if (await WaitForStartupInitializationAsync(initializationTask, _databaseInitializationTimeout).ConfigureAwait(false))
+            {
+                await initializationTask.ConfigureAwait(false);
+            }
+            else
+            {
+                await initializationCancellation.CancelAsync().ConfigureAwait(false);
+                LogDatabaseInitializationTimedOut(_databaseInitializationTimeout.TotalSeconds);
+            }
 
             await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
@@ -559,5 +574,13 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "LocationType evaluation failed for item")]
         private partial void LogLocationTypeEvaluationFailed(Exception ex);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Plugin database initialization exceeded the startup timeout of {TimeoutSeconds} seconds; startup will continue")]
+        private partial void LogDatabaseInitializationTimedOut(double timeoutSeconds);
+
+        internal static async Task<bool> WaitForStartupInitializationAsync(Task initializationTask, TimeSpan timeout)
+        {
+            return await Task.WhenAny(initializationTask, Task.Delay(timeout)).ConfigureAwait(false) == initializationTask;
+        }
     }
 }

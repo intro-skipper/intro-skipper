@@ -87,30 +87,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Directory.CreateDirectory is already a no-op when the directory exists, so we can call it unconditionally without checking first.
         Directory.CreateDirectory(introsDirectory);
 
-        // Initialize segment database.
-        try
-        {
-            using var db = CreateDbContext();
-            // Legacy databases may be missing migration history or columns that EF migrations expect.
-            // Normalize those schemas first so recovery does not log a false initialization failure.
-            db.EnsureLegacySchemaCompatibility();
-            db.ApplyMigrations();
-        }
-        catch (Exception ex)
-        {
-            LogDatabaseInitializationError(_logger, ex);
-        }
-
-        // Initialize detection cache database.
-        try
-        {
-            using var cacheDb = CreateCacheDbContext();
-            cacheDb.EnsureSchema();
-        }
-        catch (Exception ex) when (ex is IOException or SqliteException)
-        {
-            LogCacheDbInitializationError(_logger, ex);
-        }
+        // Database initialization is deferred to Entrypoint.StartAsync so plugin loading itself
+        // cannot be blocked by long-running database recovery or migration operations.
 
         MigrateLegacyExcludeSeries();
 
@@ -185,6 +163,39 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         ArgumentNullException.ThrowIfNull(Instance);
         return new DetectionCacheDbContext(Instance.CacheDbPath);
+    }
+
+    /// <summary>
+    /// Initializes plugin databases.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task InitializeDatabasesAsync(CancellationToken cancellationToken = default)
+    {
+        // Initialize segment database.
+        try
+        {
+            using var db = CreateDbContext();
+            // Legacy databases may be missing migration history or columns that EF migrations expect.
+            // Normalize those schemas first so recovery does not log a false initialization failure.
+            db.EnsureLegacySchemaCompatibility();
+            await db.ApplyMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogDatabaseInitializationError(_logger, ex);
+        }
+
+        // Initialize detection cache database.
+        try
+        {
+            using var cacheDb = CreateCacheDbContext();
+            cacheDb.EnsureSchema();
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException)
+        {
+            LogCacheDbInitializationError(_logger, ex);
+        }
     }
 
     /// <inheritdoc />
