@@ -127,15 +127,13 @@ namespace IntroSkipper.Services
             _taskManager.TaskCompleted += OnLibraryRefresh;
             plugin.ConfigurationChanged += OnSettingsChanged;
 
-            using var initializationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var initializationTask = plugin.InitializeDatabasesAsync(initializationCancellation.Token);
+            var initializationTask = plugin.InitializeDatabasesAsync(cancellationToken);
             if (await WaitForStartupInitializationAsync(initializationTask, _databaseInitializationTimeout).ConfigureAwait(false))
             {
                 await initializationTask.ConfigureAwait(false);
             }
             else
             {
-                await initializationCancellation.CancelAsync().ConfigureAwait(false);
                 LogDatabaseInitializationTimedOut(_databaseInitializationTimeout.TotalSeconds);
                 _ = initializationTask.ContinueWith(
                     static task => _ = task.Exception,

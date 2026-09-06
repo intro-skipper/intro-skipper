@@ -42,6 +42,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
+    private Task? _databaseInitializationTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -150,8 +151,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
     public static IntroSkipperDbContext CreateDbContext()
     {
-        ArgumentNullException.ThrowIfNull(Instance);
-        return new IntroSkipperDbContext(Instance.DbPath);
+        var instance = Instance;
+        ArgumentNullException.ThrowIfNull(instance);
+        // Startup may continue after its timeout, but database consumers must not race schema work.
+        instance.WaitForDatabaseInitialization();
+        return new IntroSkipperDbContext(instance.DbPath);
     }
 
     /// <summary>
@@ -161,8 +165,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
     public static DetectionCacheDbContext CreateCacheDbContext()
     {
-        ArgumentNullException.ThrowIfNull(Instance);
-        return new DetectionCacheDbContext(Instance.CacheDbPath);
+        var instance = Instance;
+        ArgumentNullException.ThrowIfNull(instance);
+        // Startup may continue after its timeout, but database consumers must not race schema work.
+        instance.WaitForDatabaseInitialization();
+        return new DetectionCacheDbContext(instance.CacheDbPath);
     }
 
     /// <summary>
@@ -170,12 +177,43 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task InitializeDatabasesAsync(CancellationToken cancellationToken = default)
+    internal Task InitializeDatabasesAsync(CancellationToken cancellationToken = default)
+    {
+        var initializationTask = Volatile.Read(ref _databaseInitializationTask);
+        if (initializationTask is not null)
+        {
+            return initializationTask;
+        }
+
+        var initializationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        initializationTask = initializationCompletion.Task;
+        if (Interlocked.CompareExchange(ref _databaseInitializationTask, initializationTask, null) is not null)
+        {
+            return Volatile.Read(ref _databaseInitializationTask)!;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await InitializeDatabasesCoreAsync(cancellationToken).ConfigureAwait(false);
+                initializationCompletion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                initializationCompletion.TrySetException(ex);
+            }
+        }, CancellationToken.None);
+
+        return initializationTask;
+    }
+
+    private async Task InitializeDatabasesCoreAsync(CancellationToken cancellationToken)
     {
         // Initialize segment database.
         try
         {
-            using var db = CreateDbContext();
+            using var db = new IntroSkipperDbContext(_dbPath);
             // Legacy databases may be missing migration history or columns that EF migrations expect.
             // Normalize those schemas first so recovery does not log a false initialization failure.
             db.EnsureLegacySchemaCompatibility();
@@ -191,13 +229,18 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Initialize detection cache database.
         try
         {
-            using var cacheDb = CreateCacheDbContext();
+            using var cacheDb = new DetectionCacheDbContext(_cacheDbPath);
             cacheDb.EnsureSchema();
         }
         catch (Exception ex) when (ex is IOException or SqliteException)
         {
             LogCacheDbInitializationError(_logger, ex);
         }
+    }
+
+    private void WaitForDatabaseInitialization()
+    {
+        Volatile.Read(ref _databaseInitializationTask)?.GetAwaiter().GetResult();
     }
 
     /// <inheritdoc />

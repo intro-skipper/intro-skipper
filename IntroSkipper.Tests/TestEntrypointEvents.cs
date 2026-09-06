@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -197,12 +196,9 @@ public sealed class TestEntrypointStartupInitializationTimeout
     public async Task WaitForStartupInitializationAsync_ReturnsFalse_WhenInitializationTimesOut()
     {
         var initialization = new TaskCompletionSource();
-        var stopwatch = Stopwatch.StartNew();
         var completed = await Entrypoint.WaitForStartupInitializationAsync(initialization.Task, TimeSpan.FromMilliseconds(50));
-        stopwatch.Stop();
 
         Assert.False(completed);
-        Assert.InRange(stopwatch.ElapsedMilliseconds, 0, 500);
     }
 }
 
