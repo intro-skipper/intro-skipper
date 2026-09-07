@@ -16,7 +16,7 @@ namespace IntroSkipper.Db;
 internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task<int> ReplaceAutoSegmentsAsync(
+    public Task<int> ReplaceAutoSegmentsAsync(
         Guid itemId,
         AnalysisMode mode,
         IReadOnlyList<Segment> segments,
@@ -24,11 +24,45 @@ internal sealed partial class IntroSkipperDatabase
         string configHash = "",
         CancellationToken cancellationToken = default)
     {
-        ValidateMode(mode);
         if (source == SegmentSource.User)
         {
             throw new ArgumentException("Analysis writes must not use the User source.", nameof(source));
         }
+
+        return ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            mode,
+            [.. segments.Select(s => new AttributedSegment(s, source))],
+            derivedWrite: source == SegmentSource.CreditsDerived,
+            configHash,
+            cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task<int> ReplaceAutoSegmentsAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        IReadOnlyList<AttributedSegment> segments,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+    {
+        if (segments.Any(s => s.Source is SegmentSource.User or SegmentSource.CreditsDerived))
+        {
+            throw new ArgumentException("Per-segment analysis writes must not use the User or CreditsDerived source.", nameof(segments));
+        }
+
+        return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, derivedWrite: false, configHash, cancellationToken);
+    }
+
+    private async Task<int> ReplaceAutoSegmentsCoreAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        IReadOnlyList<AttributedSegment> segments,
+        bool derivedWrite,
+        string configHash,
+        CancellationToken cancellationToken)
+    {
+        ValidateMode(mode);
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -56,14 +90,13 @@ internal sealed partial class IntroSkipperDatabase
             // CleanStaleAutomaticSegmentsAsync), so a write replaces only the rows
             // its own pass produced. Without the split, the Preview pass and the
             // credits derive would each delete the other's preview row.
-            var derivedWrite = source == SegmentSource.CreditsDerived;
             var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
             var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
             var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
 
             var accepted = new List<DbSegment>();
             var rejected = 0;
-            foreach (var segment in segments.OrderBy(s => s.Start))
+            foreach (var (segment, source) in segments.OrderBy(s => s.Segment.Start))
             {
                 if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                 {
@@ -130,7 +163,7 @@ internal sealed partial class IntroSkipperDatabase
                 if (match is not null)
                 {
                     accepted.Remove(match);
-                    row.Source = source;
+                    row.Source = match.Source;
                     row.ConfigHash = configHash;
                     kept++;
                 }

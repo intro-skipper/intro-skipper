@@ -10,7 +10,8 @@ using IntroSkipper.Db;
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
-/// Derives an anime episode's Preview segment: the tail of the episode after the final credits block.
+/// Derives an anime episode's Preview segment: the span after the first credits block, up to
+/// the next credits block (a trailing dubbing or sponsor card) or the end of the episode.
 /// </summary>
 internal static class AnimePreviewDeriver
 {
@@ -51,19 +52,30 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
-            var credits = dbSegments
-                .Where(s => s.Type == AnalysisMode.Credits)
+            var creditsBlocks = dbSegments
+                .Where(s => s.Type == AnalysisMode.Credits && s.State == SegmentState.Active)
                 .OrderBy(s => s.StartTicks)
-                .LastOrDefault()?
-                .ToSegment();
+                .Select(s => s.ToSegment())
+                .ToList();
+            var credits = creditsBlocks.FirstOrDefault();
+            var previewEnd = creditsBlocks.Count > 1 ? creditsBlocks[1].Start : episode.Duration;
             var previews = dbSegments
                 .Where(s => s.Type == AnalysisMode.Preview)
                 .Select(s => s.ToSegment())
                 .ToList();
 
-            var preview = Compute(episode.EpisodeId, episode.Duration, credits, previews);
+            var preview = Compute(episode.EpisodeId, previewEnd, credits, previews);
             if (preview is null)
             {
+                // Nothing derivable (no credits, or credits that reach the preview end) leaves a
+                // preview derived by an earlier run stale: clear it so it cannot overlap the
+                // credits that replaced its source.
+                if ((credits is null || !credits.Valid || credits.End >= previewEnd)
+                    && dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.CreditsDerived))
+                {
+                    await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+                }
+
                 continue;
             }
 
@@ -78,23 +90,23 @@ internal static class AnimePreviewDeriver
     /// <remarks>
     /// Returns a new Segment when the Preview is missing, its Start no longer matches the current
     /// credits.End (e.g. because settings changed and Credits was re-analyzed), or its End no longer
-    /// matches the episode duration (e.g. because the underlying media file was replaced).
-    /// Returns <see langword="null"/> when there are no valid credits, the credits already cover the
-    /// episode, or any existing Preview already matches both the current credits.End and the episode
-    /// duration within <see cref="StartTolerance"/>.
+    /// matches <paramref name="previewEnd"/> (e.g. because the underlying media file was replaced).
+    /// Returns <see langword="null"/> when there are no valid credits, the credits already reach the
+    /// preview end, or any existing Preview already matches both the current credits.End and the
+    /// preview end within <see cref="StartTolerance"/>.
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
-    /// <param name="episodeDuration">Episode duration in seconds.</param>
-    /// <param name="credits">The credits segment feeding the preview (the latest-start credits block), or <see langword="null"/>.</param>
+    /// <param name="previewEnd">Where the preview ends in seconds: the next credits block's start, or the episode duration.</param>
+    /// <param name="credits">The credits segment feeding the preview (the first credits block), or <see langword="null"/>.</param>
     /// <param name="existingPreviews">All current Preview segments of the episode.</param>
     /// <returns>Segment to write, or <see langword="null"/> when no write is needed.</returns>
     internal static Segment? Compute(
         Guid episodeId,
-        double episodeDuration,
+        double previewEnd,
         Segment? credits,
         IReadOnlyCollection<Segment> existingPreviews)
     {
-        if (credits is null || !credits.Valid || credits.End >= episodeDuration)
+        if (credits is null || !credits.Valid || credits.End >= previewEnd)
         {
             return null;
         }
@@ -103,12 +115,12 @@ internal static class AnimePreviewDeriver
         {
             if (existing.Valid
                 && Math.Abs(existing.Start - credits.End) <= StartTolerance
-                && Math.Abs(existing.End - episodeDuration) <= StartTolerance)
+                && Math.Abs(existing.End - previewEnd) <= StartTolerance)
             {
                 return null;
             }
         }
 
-        return new Segment(episodeId, new TimeRange(credits.End, episodeDuration));
+        return new Segment(episodeId, new TimeRange(credits.End, previewEnd));
     }
 }

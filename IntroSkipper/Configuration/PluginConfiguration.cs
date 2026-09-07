@@ -119,7 +119,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to only use chromaprint.
+    /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer
+    /// for intros and recaps. Credits combine every analyzer's candidate regardless.
     /// </summary>
     public bool PreferChromaprint { get; set; }
 

@@ -33,6 +33,8 @@ export function sourceBadgeText(segment: SegmentDto): string {
             return "black frame";
         case "CreditsDerived":
             return "derived";
+        case "Combined":
+            return "combined";
         default:
             return segment.Source.toLowerCase();
     }

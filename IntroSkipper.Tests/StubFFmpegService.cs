@@ -21,6 +21,7 @@ internal class StubFFmpegService : IFFmpegService
     private int _versionCheckCalls;
     private int _rangeScanCalls;
     private int _creditsScanCalls;
+    private int _fingerprintCalls;
     private int _visualScanCalls;
     private int _intervalScanCalls;
 
@@ -32,6 +33,10 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<QueuedEpisode, int, BlackFrame[]>? CreditsBlackFrames { get; init; }
 
+    public Func<QueuedEpisode, TimeRange, AnalysisMode, TimeRange[]>? Silence { get; init; }
+
+    public Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? KeyFrames { get; init; }
+
     public Func<QueuedEpisode, KeyframeVisual[]>? KeyframeVisuals { get; init; }
 
     public Func<QueuedEpisode, TimeRange, int, int, BlackInterval[]>? BlackIntervals { get; init; }
@@ -41,6 +46,8 @@ internal class StubFFmpegService : IFFmpegService
     public int RangeScanCalls => Volatile.Read(ref _rangeScanCalls);
 
     public int CreditsScanCalls => Volatile.Read(ref _creditsScanCalls);
+
+    public int FingerprintCalls => Volatile.Read(ref _fingerprintCalls);
 
     public int VisualScanCalls => Volatile.Read(ref _visualScanCalls);
 
@@ -52,6 +59,9 @@ internal class StubFFmpegService : IFFmpegService
     /// <summary>Gets the range of the most recent blackdetect interval scan.</summary>
     public TimeRange? LastIntervalRange { get; private set; }
 
+    /// <summary>Gets the credits window start of the most recent credits black-frame scan.</summary>
+    public double? LastCreditsScanStart { get; private set; }
+
     public virtual Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _versionCheckCalls);
@@ -61,12 +71,13 @@ internal class StubFFmpegService : IFFmpegService
 
     public virtual Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
+        Interlocked.Increment(ref _fingerprintCalls);
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(Fingerprints)(episode, mode));
     }
 
     public virtual Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+        => Task.FromResult(Hook(Silence)(episode, range, mode));
 
     public virtual Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
@@ -85,6 +96,7 @@ internal class StubFFmpegService : IFFmpegService
     public virtual Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _creditsScanCalls);
+        LastCreditsScanStart = episode.CreditsFingerprintStart;
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(CreditsBlackFrames)(episode, threshold));
     }
@@ -105,7 +117,7 @@ internal class StubFFmpegService : IFFmpegService
     }
 
     public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+        => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
     public virtual Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();

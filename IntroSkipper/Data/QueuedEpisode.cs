@@ -97,6 +97,20 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
+    /// Returns a copy whose credits window starts at <paramref name="start"/>, so a scan that
+    /// reads the window from the episode covers only the tail after a known credits candidate.
+    /// The copy shares this episode's analysis state; only read-only probing should use it.
+    /// </summary>
+    /// <param name="start">The new credits window start in seconds.</param>
+    /// <returns>The copy.</returns>
+    public QueuedEpisode WithCreditsFingerprintStart(double start)
+    {
+        var copy = (QueuedEpisode)MemberwiseClone();
+        copy.CreditsFingerprintStart = start;
+        return copy;
+    }
+
+    /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>

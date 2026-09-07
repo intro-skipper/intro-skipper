@@ -5,7 +5,9 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Type of media file analysis to perform.
+/// Per-season choice of analyzer. In the first-wins chain the named analyzer runs first and
+/// the rest still follow. In the credits pass, BlackFrame and Chromaprint make that analyzer
+/// the only one consulted, while Chapter changes nothing because chapters always take part.
 /// </summary>
 public enum AnalyzerAction
 {

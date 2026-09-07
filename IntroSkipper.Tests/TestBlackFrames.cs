@@ -20,6 +20,7 @@ using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static IntroSkipper.Tests.BlackFrameFixtures;
 
 public class TestBlackFrames
 {
@@ -113,7 +114,6 @@ public class TestBlackFrames
         var analyzer = new BlackFrameAnalyzer(
             NullLogger<BlackFrameAnalyzer>.Instance,
             FfmpegTestHelpers.CreateFFmpegService(),
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
             new PluginConfiguration());
 
         var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
@@ -854,64 +854,6 @@ public class TestBlackFrames
         Assert.Equal(124, result.End);
     }
 
-    [Fact]
-    public async Task TestAnalyzeMediaFiles_RejectsNonCreditsMode()
-    {
-        var analyzer = CreateCreditsBlackFrameAnalyzer(CreditsScan([]));
-
-        await Assert.ThrowsAsync<NotImplementedException>(
-            () => analyzer.AnalyzeMediaFiles([], AnalysisMode.Introduction, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task TestAnalyzeMediaFiles_SkipsAlreadyAnalyzedEpisodes()
-    {
-        var episode = CreateQueuedCreditsEpisode();
-        episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
-        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
-
-        var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
-
-        Assert.Same(episode, result[0]);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
-    }
-
-    [Fact]
-    public async Task TestAnalyzeMediaFiles_CancellationBeforeEpisode_Rethrows()
-    {
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-
-        var episode = CreateQueuedCreditsEpisode();
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
-        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-
-        await Assert.ThrowsAsync<OperationCanceledException>(
-            () => analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, cts.Token));
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
-    }
-
-    [Fact]
-    public async Task TestAnalyzeMediaFiles_DetectionException_Continues()
-    {
-        var episode = CreateQueuedCreditsEpisode();
-        var ffmpeg = new StubFFmpegService
-        {
-            CreditsBlackFrames = (_, _) => throw new InvalidOperationException("test failure"),
-        };
-        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-
-        var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
-
-        Assert.Same(episode, result[0]);
-        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Credits));
-        Assert.True(episode.NeedsAnalysis(AnalysisMode.Credits));
-        Assert.Equal(1, ffmpeg.CreditsScanCalls);
-    }
-
     // ── Non-black (entropy/saturation) credit fallback ───────────────────
 
     [Fact]
@@ -1250,7 +1192,6 @@ public class TestBlackFrames
         var analyzer = new BlackFrameAnalyzer(
             NullLogger<BlackFrameAnalyzer>.Instance,
             ffmpeg,
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
             new PluginConfiguration());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -1283,7 +1224,7 @@ public class TestBlackFrames
 
     private static CreditsBlackFrameAnalyzer CreateCreditsBlackFrameAnalyzer(IFFmpegService ffmpegService, PluginConfiguration? configuration = null)
     {
-        return new(NullLogger<CreditsBlackFrameAnalyzer>.Instance, ffmpegService, DatabaseTestHelpers.CreateTempSegmentDatabase(), configuration ?? new PluginConfiguration());
+        return new(NullLogger<CreditsBlackFrameAnalyzer>.Instance, ffmpegService, configuration ?? new PluginConfiguration());
     }
 
     /// <summary>
@@ -1369,18 +1310,6 @@ public class TestBlackFrames
     /// Keyframes 0.5s apart from <paramref name="startTime"/> to <paramref name="endTime"/> (inclusive)
     /// with one black percentage; frame numbers default to twice the start time.
     /// </summary>
-    private static BlackFrame[] CreateDenseFrames(double startTime, double endTime, int percentage, int? startFrame = null)
-    {
-        var frames = new List<BlackFrame>();
-        var frame = startFrame ?? (int)(startTime * 2);
-        for (var time = startTime; time <= endTime; time += 0.5)
-        {
-            frames.Add(new BlackFrame(percentage, time, frame++));
-        }
-
-        return [.. frames];
-    }
-
     private static BlackFrame[] CreateFrameSequence(double start, double end)
     {
         var frames = new List<BlackFrame>();

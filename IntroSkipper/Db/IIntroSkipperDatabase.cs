@@ -68,6 +68,21 @@ public interface IIntroSkipperDatabase
     Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The per-segment-source form of <see cref="ReplaceAutoSegmentsAsync(Guid, AnalysisMode, IReadOnlyList{Segment}, SegmentSource, string, CancellationToken)"/>
+    /// for a pass whose segments come from different analyzers. Same admission,
+    /// id-keeping and journaling rules; the write is attributed to the mode's own pass,
+    /// never to the credits-derived preview pass.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode the segments belong to.</param>
+    /// <param name="segments">Detected segments in seconds, each with its source; no source may be <see cref="SegmentSource.User"/> or <see cref="SegmentSource.CreditsDerived"/>.</param>
+    /// <param name="configHash">Configuration hash that produced the segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of the pass's active automatic segments written or kept;
+    /// 0 for a fully rejected write.</returns>
+    Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<AttributedSegment> segments, string configHash = "", CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the stored segments of an item, ordered by mode and start time.
     /// Tombstones are excluded unless <paramref name="includeSuppressed"/> is set.
     /// </summary>

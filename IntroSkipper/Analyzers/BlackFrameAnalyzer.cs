@@ -6,7 +6,6 @@
 
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -21,13 +20,11 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-/// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 internal sealed partial class BlackFrameAnalyzer(
     ILogger<BlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
-    IIntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null)
 {
     /// <summary>
     /// Maximum distance, in seconds, between a chapter marker and the start of the black run
@@ -42,97 +39,62 @@ internal sealed partial class BlackFrameAnalyzer(
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IIntroSkipperDatabase _database = database;
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
-        IReadOnlyList<QueuedEpisode> analysisQueue,
-        AnalysisMode mode,
-        CancellationToken cancellationToken)
+    // Carried between the episodes of one season: the previous credits start, measured from
+    // the file end, seeds the next episode's search.
+    private double _searchStart;
+
+    /// <summary>
+    /// Detects one episode's credits from chapter markers (when enabled) or black frames,
+    /// without adjusting times or writing. The credits pass combines the result with the
+    /// other analyzers' candidates.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
+    /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the caller, which marks the episode failed.</returns>
+    internal async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        if (mode != AnalysisMode.Credits)
-        {
-            throw new NotImplementedException($"{nameof(BlackFrameAnalyzer)} only supports {nameof(AnalysisMode.Credits)} mode");
-        }
-
-        var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.NeedsAnalysis(mode))
-            .ToList();
-
-        if (unanalyzedEpisodes.Count == 0)
-        {
-            return analysisQueue;
-        }
-
-        LogAnalyzingEpisodes(_logger, unanalyzedEpisodes.Count);
-
-        double searchStart = 0.0;
-
         var percentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
 
-        foreach (var episode in unanalyzedEpisodes)
+        // First try to use chapter markers if available
+        var credit = _config.UseChapterMarkersBlackFrame
+            ? await TryAnalyzeChaptersAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        if (credit is null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            // Reset the search start if it exceeds the valid search range for this episode.
+            // This can happen when a previous longer episode set a large value that
+            // causes lowerLimit > upperLimit in AnalyzeMediaFileAsync, breaking the binary search.
+            var maxSearchDistance = episode.Duration - episode.CreditsFingerprintStart;
+            if (_searchStart > maxSearchDistance)
             {
-                // First try to use chapter markers if available
-                var credit = _config.UseChapterMarkersBlackFrame
-                    ? await TryAnalyzeChaptersAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false)
-                    : null;
-
-                if (credit is null)
-                {
-                    // Reset searchStart if it exceeds the valid search range for this episode.
-                    // This can happen when a previous longer episode sets a large searchStart that
-                    // causes lowerLimit > upperLimit in AnalyzeMediaFileAsync, breaking the binary search.
-                    var maxSearchDistance = episode.Duration - episode.CreditsFingerprintStart;
-                    if (searchStart > maxSearchDistance)
-                    {
-                        searchStart = 0.0;
-                    }
-
-                    // If no suitable chapters found, use black frame detection
-                    if (searchStart < _config.MinimumCreditsDuration)
-                    {
-                        searchStart = await FindSearchStartAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false);
-                    }
-
-                    credit = await AnalyzeMediaFileAsync(
-                        episode,
-                        searchStart,
-                        percentage,
-                        threshold,
-                        cancellationToken).ConfigureAwait(false);
-                }
-
-                if (credit is null || !credit.Valid)
-                {
-                    LogNoValidCreditsFound(_logger, episode.Name);
-                    continue;
-                }
-
-                LogFoundCredits(_logger, episode.Name, credit.Start);
-
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [credit], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-
-                // Update search start for next episode based on this result
-                searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
+                _searchStart = 0.0;
             }
-            catch (OperationCanceledException)
+
+            // If no suitable chapters found, use black frame detection
+            if (_searchStart < _config.MinimumCreditsDuration)
             {
-                throw;
+                _searchStart = await FindSearchStartAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(_logger, ex, episode.Name);
-            }
+
+            credit = await AnalyzeMediaFileAsync(
+                episode,
+                _searchStart,
+                percentage,
+                threshold,
+                cancellationToken).ConfigureAwait(false);
         }
 
-        return analysisQueue;
+        if (credit is null || !credit.Valid)
+        {
+            return null;
+        }
+
+        // Seed the next episode's search with this result
+        _searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
+        return credit;
     }
 
     /// <summary>
@@ -343,18 +305,6 @@ internal sealed partial class BlackFrameAnalyzer(
 
         return maxSearchStart;
     }
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Analyzing {Count} episodes for credits using black frame detection")]
-    private static partial void LogAnalyzingEpisodes(ILogger logger, int count);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "No valid credits found for {Episode}")]
-    private static partial void LogNoValidCreditsFound(ILogger logger, string episode);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s")]
-    private static partial void LogFoundCredits(ILogger logger, string episode, double start);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
-    private static partial void LogErrorAnalyzingCredits(ILogger logger, Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Episode} at {Start:F2}s has {Count} black frames")]
     private static partial void LogBlackFramesDetected(ILogger logger, string episode, double start, int count);

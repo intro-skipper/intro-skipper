@@ -4,6 +4,8 @@
 
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Analyzers;
 using Xunit;
@@ -53,6 +55,38 @@ public class TestAnimePreviewRefresh
         // Any matching preview suffices; a stale first entry must not force a rewrite.
         { 1260, EpisodeDuration, [(1080, EpisodeDuration), (1260, EpisodeDuration)], null },
     };
+
+    [Fact]
+    public async Task DeriveAsync_CreditsReachingTheEnd_ClearsTheStaleDerivedPreview()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Preview, [new Segment(EpisodeId, new TimeRange(1260, EpisodeDuration))], SegmentSource.CreditsDerived);
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))], SegmentSource.BlackFrame);
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], CancellationToken.None);
+
+        var remaining = Assert.Single(await database.GetSegmentsAsync(EpisodeId));
+        Assert.Equal(AnalysisMode.Credits, remaining.Type);
+    }
+
+    [Fact]
+    public async Task DeriveAsync_TrailingCreditsBlock_EndsThePreviewWhereItStarts()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Preview, [new Segment(EpisodeId, new TimeRange(1110, EpisodeDuration))], SegmentSource.CreditsDerived);
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(EpisodeId, new TimeRange(1020, 1110)), new Segment(EpisodeId, new TimeRange(1300, EpisodeDuration))],
+            SegmentSource.BlackFrame);
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
+        Assert.Equal((1110, 1300), (preview.Start, preview.End));
+    }
 
     [Theory]
     [MemberData(nameof(Cases))]

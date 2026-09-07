@@ -80,15 +80,7 @@ internal sealed partial class ChapterAnalyzer(
         CancellationToken cancellationToken)
     {
         var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
-        var expression = mode switch
-        {
-            AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
-            AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
-            AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
-            AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
-            AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
+        var expression = GetExpression(mode);
 
         if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
         {
@@ -103,14 +95,7 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IReadOnlyList<Segment> matches = !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
-                ? FindMatchingChapters(
-                    episode,
-                    Plugin.Instance!.GetChapters(episode.EpisodeId),
-                    expression,
-                    mode,
-                    _config.EnableSponsorBlockChapterDetection)
-                : [];
+            var matches = FindChapterCandidates(episode, mode);
 
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
@@ -169,6 +154,36 @@ internal sealed partial class ChapterAnalyzer(
 
         return analysisQueue;
     }
+
+    /// <summary>
+    /// Finds the episode's chapter matches for the mode without adjusting times or writing.
+    /// The credits pass combines these with other analyzers' candidates.
+    /// </summary>
+    /// <param name="episode">Episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The matching chapter ranges in file seconds; empty when chapter matching is off for the mode or nothing matched.</returns>
+    internal IReadOnlyList<Segment> FindChapterCandidates(QueuedEpisode episode, AnalysisMode mode)
+    {
+        var expression = GetExpression(mode);
+        return !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
+            ? FindMatchingChapters(
+                episode,
+                Plugin.Instance!.GetChapters(episode.EpisodeId),
+                expression,
+                mode,
+                _config.EnableSponsorBlockChapterDetection)
+            : [];
+    }
+
+    private string GetExpression(AnalysisMode mode) => mode switch
+    {
+        AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
+        AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
+        AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
+        AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
+        AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+    };
 
     /// <summary>
     /// Searches a list of chapter names for all that match the provided regular expression,

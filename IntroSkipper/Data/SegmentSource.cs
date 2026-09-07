@@ -39,5 +39,10 @@ public enum SegmentSource
     /// Provided by the user via the segment editor or the HTTP API.
     /// User segments are never overwritten or deleted by automatic analysis.
     /// </summary>
-    User = 5
+    User = 5,
+
+    /// <summary>
+    /// Built by the credits pass from overlapping or adjacent candidates of more than one analyzer.
+    /// </summary>
+    Combined = 6
 }

@@ -87,6 +87,17 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
+    /// Scopes a plugin instance carrying the given configuration whose chapter repository
+    /// answers with the given chapters for every item.
+    /// </summary>
+    internal static PluginInstanceScope CreatePluginScope(PluginConfiguration configuration, IReadOnlyList<ChapterInfo> chapters)
+    {
+        var scope = CreatePluginScope(configuration);
+        SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Create(chapters, out _));
+        return scope;
+    }
+
+    /// <summary>
     /// Scopes a plugin instance around a single movie library item: the library manager
     /// resolves the movie, the configuration carries the given mirror flag, and the
     /// analysis queue is empty. Shared by the controller test suites.

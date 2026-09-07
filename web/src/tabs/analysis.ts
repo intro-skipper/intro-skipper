@@ -43,7 +43,7 @@ export const analysisTab: Tab = {
                 id: "PreferChromaprint",
                 label: "Prefer Chromaprint Analysis",
                 description:
-                    "Only use chromaprint for analysis, unless it is not available. Setting an analysis mode in the advanced options will override this setting.",
+                    "Run chromaprint before the chapter analyzer for intros and recaps. Credits always combine chapter, black frame and chromaprint results. Setting an analysis mode in the advanced options will override this setting.",
             }),
             inputField({
                 kind: "checkbox",
