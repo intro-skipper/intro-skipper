@@ -238,8 +238,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             LogCacheDbInitializationError(_logger, ex);
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private void EnsureDatabaseInitializationCompleted()

@@ -141,7 +141,6 @@ namespace IntroSkipper.Services
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                     TaskScheduler.Default);
-                await initializationCancellation.CancelAsync().ConfigureAwait(false);
             }
 
             await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
