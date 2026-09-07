@@ -71,6 +71,8 @@ internal sealed partial class CreditsPass(
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
+        // Episodes the chromaprint stage below fails are the ones that flip to failed during it.
+        HashSet<Guid> failedBeforeChromaprint = [.. items.Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed).Select(e => e.EpisodeId)];
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         if (useChromaprint)
         {
@@ -92,9 +94,9 @@ internal sealed partial class CreditsPass(
             }
         }
 
-        // Captured before the per-episode loop so only this run's fingerprint stage counts,
-        // not a failure an earlier iteration of the loop recorded.
-        HashSet<Guid> fingerprintFailures = [.. items.Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed).Select(e => e.EpisodeId)];
+        HashSet<Guid> fingerprintFailures = [.. items
+            .Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed && !failedBeforeChromaprint.Contains(e.EpisodeId))
+            .Select(e => e.EpisodeId)];
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
 
