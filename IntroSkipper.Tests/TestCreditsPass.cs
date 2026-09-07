@@ -22,7 +22,7 @@ using static IntroSkipper.Tests.BlackFrameFixtures;
 /// <summary>
 /// The credits pass over the stub ffmpeg: two 1000 second episodes whose credits window is
 /// the last 450 seconds. Black frames run from 950 to 999.5 and the shared audio, when a
-/// test enables it, from about 748 to 983, so 17 seconds remain after it for a probe.
+/// test enables it, from about 748 to 983.
 /// </summary>
 public sealed class TestCreditsPass
 {
@@ -40,8 +40,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        // The black-frame probe starts at the shared audio's end (983.3) rounded down to the 10 s grid.
-        Assert.Equal(980, ffmpeg.LastCreditsScanStart);
+        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         foreach (var episode in episodes)
         {
             var segment = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
@@ -134,18 +133,35 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task ChromaprintWithinMinimumDurationOfTheEnd_SkipsBlackFrameAndExtends()
+    public async Task ChromaprintWithinMinimumDurationOfTheEnd_IsExtendedToIt()
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(sharedAudioLastPoint: 3560); // shared audio to about 991 of 1000
+        var (episodes, ffmpeg, database) = CreateSeason(blackFrames: false, sharedAudioLastPoint: 3560); // shared audio to about 991 of 1000
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chromaprint, segment.Source);
         Assert.Equal(PointTime(SharedAudioFirstPoint), segment.ToSegment().Start, 0.5);
         Assert.Equal(Duration, segment.ToSegment().End);
+    }
+
+    [Theory]
+    [InlineData(700.0, 720.0)]
+    [InlineData(650.0, 700.0)]
+    public async Task BlackCreditsSeparatedFromTheSharedAudio_AreKept(double blackStart, double blackEnd)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(blackStart: blackStart, blackEnd: blackEnd);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(2, segments.Count);
+        Assert.Equal((blackStart, blackEnd, SegmentSource.BlackFrame), (segments[0].ToSegment().Start, segments[0].ToSegment().End, segments[0].Source));
+        Assert.Equal(SegmentSource.Chromaprint, segments[1].Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), segments[1].ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), segments[1].ToSegment().End, 0.5);
     }
 
     [Fact]
@@ -187,7 +203,6 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
-        Assert.Equal(950, ffmpeg.LastCreditsScanStart);
         var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
         Assert.Equal(
             [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
@@ -327,7 +342,7 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task LegacyBlackFrameAnalyzer_FeedsThePassOverTheFullWindow()
+    public async Task LegacyBlackFrameAnalyzer_FeedsThePassUnderItsToggle()
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
         var (episodes, ffmpeg, database) = CreateSeason(
@@ -375,6 +390,7 @@ public sealed class TestCreditsPass
     private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IIntroSkipperDatabase Database) CreateSeason(
         bool blackFrames = true,
         double blackStart = BlackStart,
+        double blackEnd = Duration - 0.5,
         int sharedAudioLastPoint = DefaultSharedAudioLastPoint,
         Func<QueuedEpisode, Exception?>? fingerprintFailure = null,
         Func<QueuedEpisode, int, BlackFrame[]>? creditsScan = null,
@@ -383,16 +399,15 @@ public sealed class TestCreditsPass
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
 
-        // Both scans describe the same black run: keyframes relative to the probed window
-        // start, and one frame for any bounded range that overlaps it.
+        // Keyframes are reported relative to the scanned window start.
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
                 ? throw failure
                 : SharedAudioFingerprint(episode, sharedAudioLastPoint),
-            CreditsBlackFrames = creditsScan ?? ((episode, _) => blackFrames ? BlackFramesFrom(episode, blackStart) : []),
+            CreditsBlackFrames = creditsScan ?? ((episode, _) => blackFrames ? BlackFramesFrom(episode, blackStart, blackEnd) : []),
             KeyframeVisuals = _ => [],
-            RangeBlackFrames = rangeScan ?? ((_, range, _, _, _) => blackFrames && range.End > blackStart && range.Start < Duration ? [new BlackFrame(95, 0, 0)] : []),
+            RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
             Silence = (_, _, _) => [],
             KeyFrames = (_, _, _) => [],
         };
@@ -413,8 +428,8 @@ public sealed class TestCreditsPass
         CreditsFingerprintEnd = Duration,
     };
 
-    private static BlackFrame[] BlackFramesFrom(QueuedEpisode probe, double blackStart = BlackStart)
-        => CreateDenseFrames(Math.Max(0, blackStart - probe.CreditsFingerprintStart), Duration - 0.5 - probe.CreditsFingerprintStart, 95);
+    private static BlackFrame[] BlackFramesFrom(QueuedEpisode probe, double blackStart = BlackStart, double blackEnd = Duration - 0.5)
+        => CreateDenseFrames(Math.Max(0, blackStart - probe.CreditsFingerprintStart), blackEnd - probe.CreditsFingerprintStart, 95);
 
     /// <summary>
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
