@@ -167,24 +167,29 @@ internal sealed partial class ChromaprintAnalyzer(
                     remainingIntro.End += remainingEpisode.CreditsFingerprintStart;
                 }
 
-                // Only save the discovered intro if it is:
-                // - the first intro discovered for this episode
-                // - longer than the previously discovered intro
+                // Only save the discovered intro if it is the first one for this episode or
+                // beats the saved one (see IsBetterCandidate).
                 if (
                     !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
-                    currentIntro.Duration > savedCurrentIntro.Duration)
+                    IsBetterCandidate(currentIntro, savedCurrentIntro, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
                 {
                     seasonIntros[currentIntro.EpisodeId] = currentIntro;
                 }
 
                 if (
                     !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
-                    remainingIntro.Duration > savedRemainingIntro.Duration)
+                    IsBetterCandidate(remainingIntro, savedRemainingIntro, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
                 {
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
 
-                break;
+                // One shared region settles most modes. An anchored recap keeps comparing: the
+                // first pair may have matched an opening logo at 0:00 while a later pair holds
+                // the sting after the cold open, which IsBetterCandidate prefers.
+                if (_analysisMode != AnalysisMode.Recap || !_config.AnchorRecapToColdOpen)
+                {
+                    break;
+                }
             }
 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
@@ -296,6 +301,34 @@ internal sealed partial class ChromaprintAnalyzer(
         return (new Segment(lhsId, lhs), new Segment(rhsId, rhs));
     }
 
+    /// <summary>
+    /// Decides whether a candidate found in a later episode pair replaces the one already saved
+    /// for the same episode. Longer wins. The exception is an anchored recap: recap candidates
+    /// for one episode share their end (the last black frame before the boundary), so a start
+    /// beyond the start snap threshold means a sting past the cold open was found, and it beats
+    /// a candidate that snaps to 0:00 even though that one is longer.
+    /// </summary>
+    /// <param name="candidate">Newly found segment.</param>
+    /// <param name="saved">Segment already saved for the same episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="anchorRecapToColdOpen">Whether recaps are anchored to the cold open.</param>
+    /// <param name="endSnapThreshold">Configured episode boundary snap threshold in seconds.</param>
+    /// <returns><see langword="true"/> when <paramref name="candidate"/> should replace <paramref name="saved"/>.</returns>
+    internal static bool IsBetterCandidate(Segment candidate, Segment saved, AnalysisMode mode, bool anchorRecapToColdOpen, double endSnapThreshold)
+    {
+        if (mode == AnalysisMode.Recap && anchorRecapToColdOpen)
+        {
+            var candidateSnaps = TimeAdjustmentHelper.IsWithinStartSnapThreshold(candidate.Start, endSnapThreshold);
+            var savedSnaps = TimeAdjustmentHelper.IsWithinStartSnapThreshold(saved.Start, endSnapThreshold);
+            if (candidateSnaps != savedSnaps)
+            {
+                return !candidateSnaps;
+            }
+        }
+
+        return candidate.Duration > saved.Duration;
+    }
+
     private int GetMaximumSegmentDuration(QueuedEpisode episode)
     {
         return _analysisMode switch
@@ -345,11 +378,13 @@ internal sealed partial class ChromaprintAnalyzer(
             _recapBlackFrameCache[episode.EpisodeId] = blackFrames;
         }
 
-        return ChapterAnalyzer.BuildRecapFromBlackFrames(
+        return RecapDetectionHelper.BuildRecapFromSting(
             episode.EpisodeId,
+            card,
             blackFrames,
-            Math.Max(_config.MinimumRecapDetectionDuration, (int)Math.Ceiling(card.End)),
-            maximumBoundary);
+            _config.MinimumRecapDetectionDuration,
+            maximumBoundary,
+            _config.AnchorRecapToColdOpen);
     }
 
     /// <summary>

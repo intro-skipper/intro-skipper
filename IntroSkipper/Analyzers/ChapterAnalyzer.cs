@@ -293,39 +293,11 @@ internal sealed partial class ChapterAnalyzer(
             _config,
             cancellationToken).ConfigureAwait(false);
 
-        return BuildRecapFromBlackFrames(
+        return RecapDetectionHelper.BuildRecapFromBlackFrames(
             episode.EpisodeId,
             blackFrames,
             _config.MinimumRecapDetectionDuration,
             maxRecapBoundary);
-    }
-
-    internal static Segment? BuildRecapFromBlackFrames(
-        Guid episodeId,
-        IReadOnlyList<BlackFrame> blackFrames,
-        int minimumRecapDuration,
-        double maximumRecapBoundary)
-    {
-        BlackFrame? selectedBlackFrame = null;
-        foreach (var blackFrame in blackFrames)
-        {
-            if (blackFrame.Time < minimumRecapDuration || blackFrame.Time > maximumRecapBoundary)
-            {
-                continue;
-            }
-
-            if (selectedBlackFrame is null || blackFrame.Time > selectedBlackFrame.Time)
-            {
-                selectedBlackFrame = blackFrame;
-            }
-        }
-
-        if (selectedBlackFrame is null)
-        {
-            return null;
-        }
-
-        return new Segment(episodeId, new TimeRange(0, selectedBlackFrame.Time));
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)

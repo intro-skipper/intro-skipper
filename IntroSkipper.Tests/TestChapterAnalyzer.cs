@@ -62,7 +62,7 @@ public class TestChapterAnalyzer
         var episodeId = Guid.NewGuid();
         var frames = frameTimes.Select((time, i) => new BlackFrame(90, time, i)).ToList();
 
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary);
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapEnd: 5, maximumRecapBoundary);
 
         if (expectedEnd is null)
         {
@@ -97,7 +97,7 @@ public class TestChapterAnalyzer
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
 
         var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
         // Baseline (1st percentile) is 2, so the normalized minimum stays at the configured 85.
         Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
@@ -124,7 +124,7 @@ public class TestChapterAnalyzer
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
 
         var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
-        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
         var frame = Assert.Single(blackFrames);
         Assert.Equal(87, frame.Percentage);
@@ -147,7 +147,7 @@ public class TestChapterAnalyzer
         var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
 
         Assert.Empty(blackFrames);
-        Assert.Null(ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
+        Assert.Null(RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
     }
 
     [Fact]

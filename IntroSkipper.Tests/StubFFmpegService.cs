@@ -26,6 +26,8 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<bool>? VersionCheck { get; init; }
 
+    public Func<QueuedEpisode, AnalysisMode, uint[]>? Fingerprints { get; init; }
+
     public Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? RangeBlackFrames { get; init; }
 
     public Func<QueuedEpisode, int, BlackFrame[]>? CreditsBlackFrames { get; init; }
@@ -58,7 +60,10 @@ internal class StubFFmpegService : IFFmpegService
     }
 
     public virtual Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(Fingerprints)(episode, mode));
+    }
 
     public virtual Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();

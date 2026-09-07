@@ -64,7 +64,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
             LogNegativeIntroStart(_logger, episode.EpisodeId, episode.Name, rawStart);
             snapToEpisodeStart = true;
         }
-        else if (rawStart <= _config.EndSnapThreshold + Epsilon)
+        else if (IsWithinStartSnapThreshold(rawStart, _config.EndSnapThreshold))
         {
             // If the detected start is within threshold of episode start, snap
             snapToEpisodeStart = true;
@@ -139,6 +139,9 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
             End = adjustedEnd
         };
     }
+
+    internal static bool IsWithinStartSnapThreshold(double start, double endSnapThreshold) =>
+        start <= endSnapThreshold + Epsilon;
 
     /// <summary>
     /// Finds the chapter boundary (start time in seconds) within the given search range.
