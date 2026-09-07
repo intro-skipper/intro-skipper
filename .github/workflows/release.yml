@@ -12,6 +12,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -73,6 +75,22 @@ jobs:
       - name: Create archive
         run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
+      - name: Generate SBOM
+        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM
+        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' && !inputs.skip_signing }}
+        uses: actions/attest@v4
+        with:
+          subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+          sbom-path: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
+
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
         run: gh release delete "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
@@ -81,7 +99,12 @@ jobs:
 
       - name: Create new release with tag
         if: github.event_name != 'pull_request'
-        run: gh release create "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes --target ${{ env.MAIN_VERSION }}
+        run: |
+          ASSETS=("intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip")
+          if [ -f "intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json" ]; then
+            ASSETS+=("intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json")
+          fi
+          gh release create "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" "${ASSETS[@]}" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes --target ${{ env.MAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
