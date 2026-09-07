@@ -192,18 +192,20 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return Volatile.Read(ref _databaseInitializationTask)!;
         }
 
-        _ = Task.Run(async () =>
-        {
-            try
+        _ = Task.Run(
+            async () =>
             {
-                await InitializeDatabasesCoreAsync(cancellationToken).ConfigureAwait(false);
-                initializationCompletion.TrySetResult();
-            }
-            catch (Exception ex)
-            {
-                initializationCompletion.TrySetException(ex);
-            }
-        }, CancellationToken.None);
+                try
+                {
+                    await InitializeDatabasesCoreAsync(cancellationToken).ConfigureAwait(false);
+                    initializationCompletion.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    initializationCompletion.TrySetException(ex);
+                }
+            },
+            CancellationToken.None);
 
         return initializationTask;
     }
