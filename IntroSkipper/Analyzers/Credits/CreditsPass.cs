@@ -96,6 +96,10 @@ internal sealed partial class CreditsPass(
             }
         }
 
+        // Captured before the per-episode loop so only this run's fingerprint stage counts,
+        // not a failure an earlier iteration of the loop recorded.
+        HashSet<Guid> fingerprintFailures = [.. items.Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed).Select(e => e.EpisodeId)];
+
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
 
         foreach (var episode in items)
@@ -121,7 +125,7 @@ internal sealed partial class CreditsPass(
             // A fingerprint failure costs the episode its shared-audio candidate. A result from
             // the other analyzers settles it like any other; with no result at all the episode
             // stays failed so the next scan retries instead of recording a false "no credits".
-            var fingerprintFailed = episode.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed;
+            var fingerprintFailed = fingerprintFailures.Contains(episode.EpisodeId);
 
             try
             {
