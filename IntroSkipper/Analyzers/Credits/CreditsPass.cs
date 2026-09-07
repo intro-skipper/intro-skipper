@@ -156,10 +156,8 @@ internal sealed partial class CreditsPass(
                     }
                 }
 
-                List<double> chapterStarts = [.. (Plugin.Instance?.GetChapters(episode.EpisodeId) ?? []).Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)];
-
                 var adjusted = new List<AttributedSegment>();
-                foreach (var (segment, source) in CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, chapterStarts))
+                foreach (var (segment, source) in CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration))
                 {
                     // A chapter-only range already sits on chapter boundaries; the chapter
                     // analyzer skips chapter snapping for its own matches too.
@@ -209,12 +207,13 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <remarks>
     /// A roll or a dubbing card usually follows the chapter or shared-audio credits, so the
-    /// tail is where black frames are expected. A roll that starts before the credits music
-    /// would be missed by a tail probe, so the seconds before the earliest candidate are
-    /// checked first with a short bounded scan; black there sends the analyzer over the full
-    /// window. The tail anchor is rounded down to a grid so a shared-audio match that grows
-    /// by a fingerprint step when a sibling arrives keeps its cache key. The legacy analyzer
-    /// always gets the full window: its binary search cannot resolve a tail under 20 s.
+    /// tail is where black frames are expected. A roll that starts before the credits music,
+    /// or in a gap between a credits chapter and the music, would be missed by a tail probe,
+    /// so the seconds before every candidate are checked first with short bounded scans;
+    /// black there sends the analyzer over the full window. The tail anchor is rounded down
+    /// to a grid so a shared-audio match that grows by a fingerprint step when a sibling
+    /// arrives keeps its cache key. The legacy analyzer always gets the full window: its
+    /// binary search cannot resolve a tail under 20 s.
     /// </remarks>
     /// <returns>The episode, or a copy with the window moved to the tail, or <see langword="null"/> to skip the scan.</returns>
     private async Task<QueuedEpisode?> SelectBlackFrameProbeAsync(
@@ -230,10 +229,14 @@ internal sealed partial class CreditsPass(
             return episode;
         }
 
-        var earliestStart = candidates.Min(c => c.Segment.Start);
-        var lead = new TimeRange(Math.Max(windowStart, earliestStart - CreditDetectionPolicy.MaximumSceneMergeGapSeconds), earliestStart);
-        if (lead.Duration > 0)
+        foreach (var start in candidates.Select(c => c.Segment.Start).Distinct().OrderBy(s => s))
         {
+            var lead = new TimeRange(Math.Max(windowStart, start - CreditDetectionPolicy.MaximumSceneMergeGapSeconds), start);
+            if (lead.Duration <= 0)
+            {
+                continue;
+            }
+
             var leadFrames = await _ffmpegService
                 .DetectBlackFramesAsync(episode, lead, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, Mode, cancellationToken)
                 .ConfigureAwait(false);

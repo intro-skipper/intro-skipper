@@ -70,6 +70,35 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
+    public async Task BlackRollInTheGapBetweenAChapterAndTheSharedAudio_IsScannedOverTheFullWindow()
+    {
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 600), Chapter("Epilogue", 660));
+        var (episodes, ffmpeg, database) = CreateSeason(blackStart: 700);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(600, 660, SegmentSource.Chapter), (700, Duration, SegmentSource.Combined)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    [Fact]
+    public async Task UnrelatedChapterAfterTheCredits_DoesNotCapTheTrailingRoll()
+    {
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760), Chapter("Chapter 04", 950));
+        var (episodes, ffmpeg, database) = CreateSeason(blackStart: 900);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(700, 760, SegmentSource.Chapter), (900, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    [Fact]
     public async Task ChapteredPreviewAfterTheCredits_IsNeitherExtendedNorMergedInto()
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 988));

@@ -21,10 +21,7 @@ public class TestCreditsCandidateCombiner
     private static readonly Guid Episode = Guid.NewGuid();
 
     private static List<AttributedSegment> Combine(params AttributedSegment[] candidates)
-        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration, []);
-
-    private static List<AttributedSegment> CombineWithChapters(double[] chapterStarts, params AttributedSegment[] candidates)
-        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration, chapterStarts);
+        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration);
 
     [Fact]
     public void ChromaprintContainsBlackFrame_MergesIntoOneCombinedSegment()
@@ -81,13 +78,17 @@ public class TestCreditsCandidateCombiner
     [Fact]
     public void ChapterCandidate_IsNeverShortenedByOtherCandidates()
     {
-        // CITY THE ANIMATION E08: chaptered ending song, black dubbing cards one second later.
+        // CITY THE ANIMATION E08: chaptered ending song with shared audio inside it, black
+        // dubbing cards one second after the chapter ends. The chapter keeps its full range
+        // and the cards beyond its authored end stay a segment of their own.
         var result = Combine(
             Candidate(320, 398, SegmentSource.Chromaprint),
             Candidate(309, 398, SegmentSource.Chapter),
             Candidate(399, 450, SegmentSource.BlackFrame));
 
-        Assert.Equal((309, 450, SegmentSource.Combined), Shape(Assert.Single(result)));
+        Assert.Equal(
+            [(309, 398, SegmentSource.Combined), (399, 450, SegmentSource.BlackFrame)],
+            result.Select(Shape).ToList());
     }
 
     [Fact]
@@ -111,12 +112,11 @@ public class TestCreditsCandidateCombiner
     }
 
     [Fact]
-    public void ChapterBoundaryAfterCreditsChapter_CapsAndBlocksOtherCandidates()
+    public void CreditsChapterEnd_CapsAndBlocksOtherCandidates()
     {
         // "Ending" 350 to 438 followed by a named "Preview" chapter at 438: black frames that
         // run into the preview are capped at it, and nothing extends across it.
-        var result = CombineWithChapters(
-            [0, 350, 438],
+        var result = Combine(
             Candidate(350, 438, SegmentSource.Chapter),
             Candidate(400, 449.5, SegmentSource.BlackFrame),
             Candidate(300, 436, SegmentSource.Chromaprint));
@@ -125,12 +125,11 @@ public class TestCreditsCandidateCombiner
     }
 
     [Fact]
-    public void ChapterBoundaryAfterCreditsChapter_SeparatesACandidateBeyondIt()
+    public void CreditsChapterEnd_SeparatesACandidateBeyondIt()
     {
         // CITY THE ANIMATION E08 with its "epilogue" chapter: the dubbing cards after the
         // ending chapter stay a segment of their own instead of merging across the boundary.
-        var result = CombineWithChapters(
-            [0, 309, 398],
+        var result = Combine(
             Candidate(309, 398, SegmentSource.Chapter),
             Candidate(399, 450, SegmentSource.BlackFrame));
 
@@ -142,8 +141,7 @@ public class TestCreditsCandidateCombiner
     [Fact]
     public void CappedCandidateBelowMinimumDuration_IsDropped()
     {
-        var result = CombineWithChapters(
-            [0, 350, 438],
+        var result = Combine(
             Candidate(350, 438, SegmentSource.Chapter),
             Candidate(430, 450, SegmentSource.BlackFrame));
 
@@ -151,13 +149,27 @@ public class TestCreditsCandidateCombiner
     }
 
     [Fact]
-    public void ChapterBoundaries_MeanNothingWithoutACreditsChapter()
+    public void ATrailingRollAfterTheCreditsChapterEnd_IsNotCappedByIt()
     {
-        var result = CombineWithChapters(
-            [0, 438],
-            Candidate(400, 449.5, SegmentSource.BlackFrame));
+        // "Ending" 150 to 210, content, then a black roll from 350: the roll is its own
+        // segment and keeps its full length.
+        var result = Combine(
+            Candidate(150, 210, SegmentSource.Chapter),
+            Candidate(350, 449.5, SegmentSource.BlackFrame));
 
-        Assert.Equal((400, 450, SegmentSource.BlackFrame), Shape(Assert.Single(result)));
+        Assert.Equal(
+            [(150, 210, SegmentSource.Chapter), (350, 450, SegmentSource.BlackFrame)],
+            result.Select(Shape).ToList());
+    }
+
+    [Fact]
+    public void AdjacentCreditsChapters_ShareNoHardBoundary()
+    {
+        var result = Combine(
+            Candidate(300, 350, SegmentSource.Chapter),
+            Candidate(350, 450, SegmentSource.Chapter));
+
+        Assert.Equal((300, 450, SegmentSource.Combined), Shape(Assert.Single(result)));
     }
 
     [Fact]

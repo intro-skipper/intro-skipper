@@ -28,23 +28,21 @@ internal static class CreditsCandidateCombiner
     /// Combines the candidates of one episode.
     /// </summary>
     /// <remarks>
-    /// A chapter boundary that follows a chapter credits candidate is an authored end of the
-    /// credits, such as a named preview chapter. No candidate extends or merges across it,
-    /// and a black-frame or chromaprint candidate reaching past it is capped there. Chapter
-    /// boundaries carry no such meaning when the chapter analyzer found no credits chapter.
+    /// The end of a chapter credits candidate is an authored credits-to-content boundary: the
+    /// next chapter, such as a named preview, starts there. No candidate extends or merges
+    /// across it, and a black-frame or chromaprint candidate reaching past it is capped
+    /// there. Later chapter markers carry no such meaning.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
     /// <param name="minimumDuration">The minimum credits duration in seconds.</param>
-    /// <param name="chapterStarts">The episode's chapter start times in seconds.</param>
     /// <returns>The segments to store, ordered by start; empty when no candidate is valid.</returns>
     public static List<AttributedSegment> Combine(
         IReadOnlyList<AttributedSegment> candidates,
         double windowEnd,
-        int minimumDuration,
-        IReadOnlyList<double> chapterStarts)
+        int minimumDuration)
     {
-        var boundaries = HardBoundaries(candidates, windowEnd, chapterStarts);
+        var boundaries = HardBoundaries(candidates, windowEnd);
 
         List<AttributedSegment> ordered = [.. candidates
             .Where(c => c.Segment.Valid)
@@ -82,17 +80,14 @@ internal static class CreditsCandidateCombiner
     public static bool ReachesWindowEnd(double candidateEnd, double windowEnd, int minimumDuration)
         => candidateEnd > windowEnd - minimumDuration;
 
-    private static List<double> HardBoundaries(IReadOnlyList<AttributedSegment> candidates, double windowEnd, IReadOnlyList<double> chapterStarts)
+    // A chapter candidate's end that is not inside another chapter candidate (two adjacent
+    // credits chapters share a boundary that is not a boundary to content) and not the window end.
+    private static List<double> HardBoundaries(IReadOnlyList<AttributedSegment> candidates, double windowEnd)
     {
         List<Segment> chapters = [.. candidates.Where(c => c.Source == SegmentSource.Chapter && c.Segment.Valid).Select(c => c.Segment)];
-        if (chapters.Count == 0)
-        {
-            return [];
-        }
-
-        return [.. chapterStarts
+        return [.. chapters
+            .Select(c => c.End)
             .Where(b => b < windowEnd - BoundaryTolerance
-                && chapters.Any(c => b >= c.End - BoundaryTolerance)
                 && !chapters.Any(c => b >= c.Start - BoundaryTolerance && b < c.End - BoundaryTolerance))
             .OrderBy(b => b)];
     }
