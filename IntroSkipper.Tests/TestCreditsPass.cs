@@ -371,6 +371,30 @@ public sealed class TestCreditsPass
         Assert.Equal(EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
     }
 
+    [Theory]
+    [InlineData(AnalyzerAction.BlackFrame, true)]
+    [InlineData(AnalyzerAction.Default, false)]
+    [InlineData(AnalyzerAction.Default, true)]
+    [InlineData(AnalyzerAction.Chromaprint, true)]
+    public async Task PreviouslyFailedEpisodes_NoCandidates_ClearStaleSegmentsAndSettle(AnalyzerAction action, bool ffmpegValid)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(blackFrames: false, sharedAudioLastPoint: SharedAudioFirstPoint - 1);
+        foreach (var episode in episodes)
+        {
+            await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Credits, [new Segment(episode.EpisodeId, new TimeRange(BlackStart, Duration))], SegmentSource.BlackFrame);
+            episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
+        }
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, action, ffmpegValid, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Credits));
+            Assert.Empty(await database.GetSegmentsAsync(episode.EpisodeId));
+        }
+    }
+
     private static double PointTime(int point) => WindowStart + (point * ChromaprintConstants.SampleDuration);
 
     private static IDisposable Scope(params ChapterInfo[] chapters)
