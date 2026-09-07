@@ -93,6 +93,15 @@ jobs:
           subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
           sbom-path: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
 
+      - name: Attest build provenance
+        # Same gate as above. Omitting sbom-path/predicate-type selects the
+        # action's default SLSA provenance mode; the modes are mutually
+        # exclusive, so this cannot be folded into the step above.
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
+        uses: actions/attest@v4
+        with:
+          subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
         run: gh release delete "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
