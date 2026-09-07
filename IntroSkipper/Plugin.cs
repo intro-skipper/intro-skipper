@@ -42,6 +42,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
+    private Task? _databaseInitializationTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -87,30 +88,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Directory.CreateDirectory is already a no-op when the directory exists, so we can call it unconditionally without checking first.
         Directory.CreateDirectory(introsDirectory);
 
-        // Initialize segment database.
-        try
-        {
-            using var db = CreateDbContext();
-            // Legacy databases may be missing migration history or columns that EF migrations expect.
-            // Normalize those schemas first so recovery does not log a false initialization failure.
-            db.EnsureLegacySchemaCompatibility();
-            db.ApplyMigrations();
-        }
-        catch (Exception ex)
-        {
-            LogDatabaseInitializationError(_logger, ex);
-        }
-
-        // Initialize detection cache database.
-        try
-        {
-            using var cacheDb = CreateCacheDbContext();
-            cacheDb.EnsureSchema();
-        }
-        catch (Exception ex) when (ex is IOException or SqliteException)
-        {
-            LogCacheDbInitializationError(_logger, ex);
-        }
+        // Database initialization is deferred to Entrypoint.StartAsync so plugin loading itself
+        // cannot be blocked by long-running database recovery or migration operations.
 
         MigrateLegacyExcludeSeries();
 
@@ -172,8 +151,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
     public static IntroSkipperDbContext CreateDbContext()
     {
-        ArgumentNullException.ThrowIfNull(Instance);
-        return new IntroSkipperDbContext(Instance.DbPath);
+        var instance = Instance;
+        ArgumentNullException.ThrowIfNull(instance);
+        instance.EnsureDatabaseInitializationCompleted();
+        return new IntroSkipperDbContext(instance.DbPath);
     }
 
     /// <summary>
@@ -183,8 +164,91 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
     public static DetectionCacheDbContext CreateCacheDbContext()
     {
-        ArgumentNullException.ThrowIfNull(Instance);
-        return new DetectionCacheDbContext(Instance.CacheDbPath);
+        var instance = Instance;
+        ArgumentNullException.ThrowIfNull(instance);
+        instance.EnsureDatabaseInitializationCompleted();
+        return new DetectionCacheDbContext(instance.CacheDbPath);
+    }
+
+    /// <summary>
+    /// Initializes plugin databases.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal Task InitializeDatabasesAsync(CancellationToken cancellationToken = default)
+    {
+        var initializationTask = Volatile.Read(ref _databaseInitializationTask);
+        if (initializationTask is not null)
+        {
+            return initializationTask;
+        }
+
+        var initializationCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        initializationTask = initializationCompletion.Task;
+        if (Interlocked.CompareExchange(ref _databaseInitializationTask, initializationTask, null) is not null)
+        {
+            return Volatile.Read(ref _databaseInitializationTask)!;
+        }
+
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await InitializeDatabasesCoreAsync(cancellationToken).ConfigureAwait(false);
+                    initializationCompletion.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    initializationCompletion.TrySetException(ex);
+                }
+            },
+            CancellationToken.None);
+
+        return initializationTask;
+    }
+
+    private async Task InitializeDatabasesCoreAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Initialize segment database.
+        try
+        {
+            using var db = new IntroSkipperDbContext(_dbPath);
+            // Legacy databases may be missing migration history or columns that EF migrations expect.
+            // Normalize those schemas first so recovery does not log a false initialization failure.
+            db.EnsureLegacySchemaCompatibility();
+            await db.ApplyMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogDatabaseInitializationError(_logger, ex);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Initialize detection cache database.
+        try
+        {
+            using var cacheDb = new DetectionCacheDbContext(_cacheDbPath);
+            cacheDb.EnsureSchema();
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException)
+        {
+            LogCacheDbInitializationError(_logger, ex);
+        }
+    }
+
+    private void EnsureDatabaseInitializationCompleted()
+    {
+        var initializationTask = Volatile.Read(ref _databaseInitializationTask);
+        if (initializationTask is { IsCompleted: false })
+        {
+            throw new InvalidOperationException("Plugin database initialization has not completed; database access is unavailable.");
+        }
+
+        initializationTask?.GetAwaiter().GetResult();
     }
 
     /// <inheritdoc />

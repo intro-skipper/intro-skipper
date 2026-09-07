@@ -5,6 +5,7 @@
 
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -182,6 +183,25 @@ public sealed class TestEntrypointEvents
     }
 }
 
+public sealed class TestEntrypointStartupInitializationTimeout
+{
+    [Fact]
+    public async Task WaitForStartupInitializationAsync_ReturnsTrue_WhenInitializationCompletes()
+    {
+        var completed = await Entrypoint.WaitForStartupInitializationAsync(Task.CompletedTask, TimeSpan.FromMilliseconds(50));
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task WaitForStartupInitializationAsync_ReturnsFalse_WhenInitializationTimesOut()
+    {
+        var initialization = new TaskCompletionSource();
+        var completed = await Entrypoint.WaitForStartupInitializationAsync(initialization.Task, TimeSpan.FromMilliseconds(50));
+
+        Assert.False(completed);
+    }
+}
+
 public sealed class TestFingerprintCacheDeletionOnRemove
 {
     [Fact]
@@ -302,4 +322,3 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         }
     }
 }
-
