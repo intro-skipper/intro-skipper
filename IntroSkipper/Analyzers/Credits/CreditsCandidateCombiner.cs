@@ -30,13 +30,12 @@ internal static class CreditsCandidateCombiner
     /// <returns>The segments to store, ordered by start; empty when no candidate is valid.</returns>
     public static List<AttributedSegment> Combine(IReadOnlyList<AttributedSegment> candidates, double windowEnd, int minimumDuration)
     {
-        var ordered = candidates
+        List<AttributedSegment> ordered = [.. candidates
             .Where(c => c.Segment.Valid)
             .Select(c => ReachesWindowEnd(c.Segment.End, windowEnd, minimumDuration) && c.Segment.End < windowEnd
                 ? new AttributedSegment(new Segment(c.Segment.EpisodeId, new TimeRange(c.Segment.Start, windowEnd)), c.Source)
                 : c)
-            .OrderBy(c => c.Segment.Start)
-            .ToList();
+            .OrderBy(c => c.Segment.Start)];
 
         var result = new List<AttributedSegment>(ordered.Count);
         foreach (var candidate in ordered)

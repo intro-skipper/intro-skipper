@@ -52,17 +52,15 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
-            var creditsBlocks = dbSegments
+            List<Segment> creditsBlocks = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Credits && s.State == SegmentState.Active)
                 .OrderBy(s => s.StartTicks)
-                .Select(s => s.ToSegment())
-                .ToList();
+                .Select(s => s.ToSegment())];
             var credits = creditsBlocks.FirstOrDefault();
             var previewEnd = creditsBlocks.Count > 1 ? creditsBlocks[1].Start : episode.Duration;
-            var previews = dbSegments
+            List<Segment> previews = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Preview)
-                .Select(s => s.ToSegment())
-                .ToList();
+                .Select(s => s.ToSegment())];
 
             var preview = Compute(episode.EpisodeId, previewEnd, credits, previews);
             if (preview is null)
