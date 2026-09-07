@@ -85,7 +85,9 @@ jobs:
           upload-artifact: false
 
       - name: Attest SBOM
-        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' && !inputs.skip_signing }}
+        # Must match the SignPath gate exactly: attesting an unsigned DLL would
+        # imply provenance the artifact does not have.
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
         uses: actions/attest@v4
         with:
           subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
