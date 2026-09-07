@@ -100,18 +100,18 @@ public sealed class TestCreditsPass
     [Fact]
     public async Task ChapteredPreviewAfterTheCredits_IsNeitherExtendedNorMergedInto()
     {
-        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 988));
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 980));
         var (episodes, ffmpeg, database) = CreateSeason();
-        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Preview, [new Segment(episodes[0].EpisodeId, new TimeRange(988, Duration))], SegmentSource.CreditsDerived);
+        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Preview, [new Segment(episodes[0].EpisodeId, new TimeRange(980, Duration))], SegmentSource.CreditsDerived);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-        await AnimePreviewDeriver.DeriveAsync(database, episodes, CancellationToken.None);
+        await AnimePreviewDeriver.DeriveAsync(database, episodes, 15, CancellationToken.None);
 
         var rows = await database.GetSegmentsAsync(episodes[0].EpisodeId);
         var credits = Assert.Single(rows, s => s.Type == AnalysisMode.Credits).ToSegment();
-        Assert.Equal((900, 988), (credits.Start, credits.End));
+        Assert.Equal((900, 980), (credits.Start, credits.End));
         var preview = Assert.Single(rows, s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((988, Duration), (preview.Start, preview.End));
+        Assert.Equal((980, Duration), (preview.Start, preview.End));
     }
 
     [Theory]

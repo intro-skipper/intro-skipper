@@ -71,14 +71,13 @@ internal sealed partial class CreditsPass(
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
-        // Episodes the chromaprint stage below fails are the ones that flip to failed during it.
-        HashSet<Guid> failedBeforeChromaprint = [.. items.Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed).Select(e => e.EpisodeId)];
         Dictionary<Guid, Segment> chromaprintCandidates = [];
+        HashSet<Guid> fingerprintFailures = [];
         if (useChromaprint)
         {
             try
             {
-                chromaprintCandidates = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -87,16 +86,9 @@ internal sealed partial class CreditsPass(
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
                 LogChromaprintComparisonFailed(ex);
-                foreach (var episode in items.Where(e => e.NeedsAnalysis(Mode)))
-                {
-                    episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                }
+                fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
-
-        HashSet<Guid> fingerprintFailures = [.. items
-            .Where(e => e.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed && !failedBeforeChromaprint.Contains(e.EpisodeId))
-            .Select(e => e.EpisodeId)];
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
 
@@ -171,6 +163,7 @@ internal sealed partial class CreditsPass(
                 {
                     if (fingerprintFailed)
                     {
+                        episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                         continue;
                     }
 

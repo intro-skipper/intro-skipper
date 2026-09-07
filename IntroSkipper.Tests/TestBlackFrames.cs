@@ -1306,10 +1306,6 @@ public class TestBlackFrames
     private static BlackFrame[] CreateFrames(int count, Func<int, int> percentage, double startTime = 0, int startFrame = 0)
         => [.. Enumerable.Range(0, count).Select(i => new BlackFrame(percentage(i), startTime + (i * 0.5), startFrame + i))];
 
-    /// <summary>
-    /// Keyframes 0.5s apart from <paramref name="startTime"/> to <paramref name="endTime"/> (inclusive)
-    /// with one black percentage; frame numbers default to twice the start time.
-    /// </summary>
     private static BlackFrame[] CreateFrameSequence(double start, double end)
     {
         var frames = new List<BlackFrame>();

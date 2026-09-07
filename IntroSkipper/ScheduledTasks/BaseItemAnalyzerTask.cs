@@ -281,7 +281,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (mode == AnalysisMode.Credits && isAnime && Config.AnimePreviewFromCreditsEnd)
         {
-            await AnimePreviewDeriver.DeriveAsync(_database, items, cancellationToken).ConfigureAwait(false);
+            await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
         }
 
         // Record completed items under this hash, found segments or not. Failed items are omitted so

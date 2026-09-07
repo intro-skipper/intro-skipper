@@ -35,9 +35,10 @@ internal static class AnimePreviewDeriver
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
     /// <param name="items">Episodes whose Credits mode was just analyzed.</param>
+    /// <param name="minimumDuration">The minimum preview duration in seconds; shorter spans derive nothing.</param>
     /// <param name="cancellationToken">Cancellation token; stops the loop before the next episode.</param>
     /// <returns>A task that completes when every episode has been considered.</returns>
-    internal static async Task DeriveAsync(IIntroSkipperDatabase database, IReadOnlyList<QueuedEpisode> items, CancellationToken cancellationToken)
+    internal static async Task DeriveAsync(IIntroSkipperDatabase database, IReadOnlyList<QueuedEpisode> items, int minimumDuration, CancellationToken cancellationToken)
     {
         foreach (var episode in items)
         {
@@ -52,23 +53,27 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
-            List<Segment> creditsBlocks = [.. dbSegments
+            // The credits the preview follows: the user's own credits row when there is one,
+            // otherwise the first credits block. The preview ends where the next credits block
+            // starts (a trailing dubbing or sponsor card) or at the end of the episode.
+            List<DbSegment> creditsBlocks = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Credits && s.State == SegmentState.Active)
-                .OrderBy(s => s.StartTicks)
-                .Select(s => s.ToSegment())];
-            var credits = creditsBlocks.FirstOrDefault();
-            var previewEnd = creditsBlocks.Count > 1 ? creditsBlocks[1].Start : episode.Duration;
+                .OrderBy(s => s.StartTicks)];
+            var anchor = creditsBlocks.LastOrDefault(s => s.Source == SegmentSource.User) ?? creditsBlocks.FirstOrDefault();
+            var credits = anchor?.ToSegment();
+            var next = anchor is null ? null : creditsBlocks.FirstOrDefault(s => s.StartTicks >= anchor.EndTicks && s != anchor);
+            var previewEnd = next?.ToSegment().Start ?? episode.Duration;
             List<Segment> previews = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Preview)
                 .Select(s => s.ToSegment())];
 
-            var preview = Compute(episode.EpisodeId, previewEnd, credits, previews);
+            var preview = Compute(episode.EpisodeId, previewEnd, credits, previews, minimumDuration);
             if (preview is null)
             {
-                // Nothing derivable (no credits, or credits that reach the preview end) leaves a
-                // preview derived by an earlier run stale: clear it so it cannot overlap the
-                // credits that replaced its source.
-                if ((credits is null || !credits.Valid || credits.End >= previewEnd)
+                // Nothing derivable (no credits, or too little between the credits and the
+                // preview end) leaves a preview derived by an earlier run stale: clear it so it
+                // cannot overlap the credits that replaced its source.
+                if ((credits is null || !credits.Valid || previewEnd - credits.End < minimumDuration)
                     && dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.CreditsDerived))
                 {
                     await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
@@ -89,22 +94,24 @@ internal static class AnimePreviewDeriver
     /// Returns a new Segment when the Preview is missing, its Start no longer matches the current
     /// credits.End (e.g. because settings changed and Credits was re-analyzed), or its End no longer
     /// matches <paramref name="previewEnd"/> (e.g. because the underlying media file was replaced).
-    /// Returns <see langword="null"/> when there are no valid credits, the credits already reach the
-    /// preview end, or any existing Preview already matches both the current credits.End and the
-    /// preview end within <see cref="StartTolerance"/>.
+    /// Returns <see langword="null"/> when there are no valid credits, less than
+    /// <paramref name="minimumDuration"/> remains before the preview end, or any existing Preview
+    /// already matches both the current credits.End and the preview end within <see cref="StartTolerance"/>.
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
     /// <param name="previewEnd">Where the preview ends in seconds: the next credits block's start, or the episode duration.</param>
-    /// <param name="credits">The credits segment feeding the preview (the first credits block), or <see langword="null"/>.</param>
+    /// <param name="credits">The credits segment feeding the preview, or <see langword="null"/>.</param>
     /// <param name="existingPreviews">All current Preview segments of the episode.</param>
+    /// <param name="minimumDuration">The minimum preview duration in seconds.</param>
     /// <returns>Segment to write, or <see langword="null"/> when no write is needed.</returns>
     internal static Segment? Compute(
         Guid episodeId,
         double previewEnd,
         Segment? credits,
-        IReadOnlyCollection<Segment> existingPreviews)
+        IReadOnlyCollection<Segment> existingPreviews,
+        int minimumDuration)
     {
-        if (credits is null || !credits.Valid || credits.End >= previewEnd)
+        if (credits is null || !credits.Valid || previewEnd - credits.End < minimumDuration)
         {
             return null;
         }

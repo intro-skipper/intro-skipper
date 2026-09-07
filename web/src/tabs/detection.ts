@@ -92,7 +92,7 @@ export const detectionTab: Tab = {
                 id: "AnimePreviewFromCreditsEnd",
                 label: "Set after credits scene as preview for anime",
                 description:
-                    "When enabled, a preview segment covering the time from the end of the credits to the end of the episode is created for anime without a detected preview.",
+                    "When enabled, a preview segment is created for anime without a detected preview, from the end of the credits to the next credits block or the end of the episode.",
             }),
             fieldGroup(
                 "Segment Offset Adjustment",

@@ -52,7 +52,12 @@ internal sealed partial class ChromaprintAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var seasonIntros = await FindCandidatesAsync(analysisQueue, mode, cancellationToken).ConfigureAwait(false);
+        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(analysisQueue, mode, cancellationToken).ConfigureAwait(false);
+        foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
+        {
+            episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+        }
+
         if (seasonIntros.Count == 0)
         {
             return analysisQueue;
@@ -62,7 +67,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
         foreach (var currentEpisode in analysisQueue)
         {
-            if (!seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
+            // A user-provided neighbour is padded into the comparison only for its fingerprint.
+            if (currentEpisode.GetAnalyzed(mode) == EpisodeState.UserProvided ||
+                !seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
                 continue;
             }
@@ -89,20 +96,22 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <remarks>
     /// Compares the episodes that need analysis plus the already-analyzed ones that still
     /// have a cached fingerprint, so a newly added episode re-derives its siblings'
-    /// candidates from the full season. An episode whose fingerprint fails gets no candidate
-    /// and, when it still needed analysis, is marked <see cref="EpisodeState.AnalysisFailed"/>.
+    /// candidates from the full season. Episode state is left to the caller: an episode whose
+    /// fingerprint fails gets no candidate and, when it still needed analysis, is reported in
+    /// the result's failures.
     /// </remarks>
     /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The raw candidate per episode id, in file seconds; empty when the season has nothing to compare.</returns>
-    internal async Task<Dictionary<Guid, Segment>> FindCandidatesAsync(
+    /// <returns>The raw candidate per episode id, in file seconds, and the episodes whose fingerprint failed; both empty when the season has nothing to compare.</returns>
+    internal async Task<ChromaprintCandidates> FindCandidatesAsync(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
+        var fingerprintFailures = new HashSet<Guid>();
 
         // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
         // episodes that still have a fingerprint cache and can be re-analyzed.
@@ -112,7 +121,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
-            return seasonIntros;
+            return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
         }
 
         _analysisMode = mode;
@@ -146,7 +155,7 @@ internal sealed partial class ChromaprintAnalyzer(
                 fingerprintCache[episode.EpisodeId] = [];
                 if (episode.NeedsAnalysis(mode))
                 {
-                    episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                    fingerprintFailures.Add(episode.EpisodeId);
                 }
             }
         }
@@ -240,7 +249,7 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
-        return seasonIntros;
+        return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
     }
 
     /// <summary>
@@ -569,3 +578,10 @@ internal sealed partial class ChromaprintAnalyzer(
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
 }
+
+/// <summary>
+/// The outcome of a season-wide chromaprint comparison.
+/// </summary>
+/// <param name="Candidates">The raw candidate per episode id, in file seconds.</param>
+/// <param name="FingerprintFailures">The episodes that still needed analysis and whose fingerprint failed.</param>
+internal sealed record ChromaprintCandidates(Dictionary<Guid, Segment> Candidates, HashSet<Guid> FingerprintFailures);

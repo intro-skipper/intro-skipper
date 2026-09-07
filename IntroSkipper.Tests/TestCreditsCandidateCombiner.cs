@@ -11,7 +11,8 @@ using IntroSkipper.Data;
 using Xunit;
 
 /// <summary>
-/// The combination rule of ADR-0002 over the shapes measured on real shows. Times are
+/// The combination rule ("Credits analysis" in docs/segment-database-v2.md) over the shapes
+/// measured on real shows. Times are
 /// seconds into a 450 second credits window with a 15 second minimum credits duration.
 /// </summary>
 public class TestCreditsCandidateCombiner
