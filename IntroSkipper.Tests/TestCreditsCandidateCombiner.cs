@@ -21,7 +21,10 @@ public class TestCreditsCandidateCombiner
     private static readonly Guid Episode = Guid.NewGuid();
 
     private static List<AttributedSegment> Combine(params AttributedSegment[] candidates)
-        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration);
+        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration, []);
+
+    private static List<AttributedSegment> CombineWithChapters(double[] chapterStarts, params AttributedSegment[] candidates)
+        => CreditsCandidateCombiner.Combine(candidates, WindowEnd, MinimumDuration, chapterStarts);
 
     [Fact]
     public void ChromaprintContainsBlackFrame_MergesIntoOneCombinedSegment()
@@ -105,6 +108,56 @@ public class TestCreditsCandidateCombiner
         var result = Combine(Candidate(326, end, SegmentSource.Chromaprint));
 
         Assert.Equal((326, expectedEnd, SegmentSource.Chromaprint), Shape(Assert.Single(result)));
+    }
+
+    [Fact]
+    public void ChapterBoundaryAfterCreditsChapter_CapsAndBlocksOtherCandidates()
+    {
+        // "Ending" 350 to 438 followed by a named "Preview" chapter at 438: black frames that
+        // run into the preview are capped at it, and nothing extends across it.
+        var result = CombineWithChapters(
+            [0, 350, 438],
+            Candidate(350, 438, SegmentSource.Chapter),
+            Candidate(400, 449.5, SegmentSource.BlackFrame),
+            Candidate(300, 436, SegmentSource.Chromaprint));
+
+        Assert.Equal((300, 438, SegmentSource.Combined), Shape(Assert.Single(result)));
+    }
+
+    [Fact]
+    public void ChapterBoundaryAfterCreditsChapter_SeparatesACandidateBeyondIt()
+    {
+        // CITY THE ANIMATION E08 with its "epilogue" chapter: the dubbing cards after the
+        // ending chapter stay a segment of their own instead of merging across the boundary.
+        var result = CombineWithChapters(
+            [0, 309, 398],
+            Candidate(309, 398, SegmentSource.Chapter),
+            Candidate(399, 450, SegmentSource.BlackFrame));
+
+        Assert.Equal(
+            [(309, 398, SegmentSource.Chapter), (399, 450, SegmentSource.BlackFrame)],
+            result.Select(Shape).ToList());
+    }
+
+    [Fact]
+    public void CappedCandidateBelowMinimumDuration_IsDropped()
+    {
+        var result = CombineWithChapters(
+            [0, 350, 438],
+            Candidate(350, 438, SegmentSource.Chapter),
+            Candidate(430, 450, SegmentSource.BlackFrame));
+
+        Assert.Equal((350, 438, SegmentSource.Chapter), Shape(Assert.Single(result)));
+    }
+
+    [Fact]
+    public void ChapterBoundaries_MeanNothingWithoutACreditsChapter()
+    {
+        var result = CombineWithChapters(
+            [0, 438],
+            Candidate(400, 449.5, SegmentSource.BlackFrame));
+
+        Assert.Equal((400, 450, SegmentSource.BlackFrame), Shape(Assert.Single(result)));
     }
 
     [Fact]

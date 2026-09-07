@@ -86,8 +86,13 @@ internal sealed partial class CreditsPass(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // The season-wide comparison failed as a whole; the other analyzers still
-                // write what they find below.
+                // write what they find below, and an episode they find nothing for stays
+                // retriable.
                 LogChromaprintComparisonFailed(ex);
+                foreach (var episode in items.Where(e => e.NeedsAnalysis(Mode)))
+                {
+                    episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                }
             }
         }
 
@@ -113,9 +118,11 @@ internal sealed partial class CreditsPass(
                 continue;
             }
 
-            // A fingerprint failure only costs the episode its shared-audio candidate. The
-            // other analyzers' result settles it like any other; leaving it failed would
-            // reopen the season on every scan for as long as the failure persists.
+            // A fingerprint failure costs the episode its shared-audio candidate. A result from
+            // the other analyzers settles it like any other; with no result at all the episode
+            // stays failed so the next scan retries instead of recording a false "no credits".
+            var fingerprintFailed = episode.GetAnalyzed(Mode) == EpisodeState.AnalysisFailed;
+
             try
             {
                 var candidates = new List<AttributedSegment>();
@@ -132,41 +139,23 @@ internal sealed partial class CreditsPass(
                 var (windowStart, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
 
-                // Black frames are probed only after the latest chapter or shared-audio
-                // candidate: that is where a roll or a dubbing card follows them. When too
-                // little of the window remains for a credits scene, the combiner extends the
-                // candidate to the end instead and the scan is skipped. The legacy analyzer
-                // keeps the full window: its binary search cannot resolve a tail under 20 s.
-                QueuedEpisode? probe;
-                if (candidates.Count == 0)
+                if (detectBlackFrameCredits is not null)
                 {
-                    probe = episode;
-                }
-                else if (CreditsCandidateCombiner.ReachesWindowEnd(candidates.Max(c => c.Segment.End), windowEnd, minimumDuration))
-                {
-                    probe = null;
-                }
-                else if (_config.UseLegacyBlackFrameAnalyzer)
-                {
-                    probe = episode;
-                }
-                else
-                {
-                    var anchor = Math.Floor(candidates.Max(c => c.Segment.End) / ProbeAnchorGridSeconds) * ProbeAnchorGridSeconds;
-                    probe = episode.WithCreditsFingerprintStart(Math.Max(windowStart, anchor));
-                }
-
-                if (detectBlackFrameCredits is not null && probe is not null)
-                {
-                    var candidate = await detectBlackFrameCredits(probe, cancellationToken).ConfigureAwait(false);
-                    if (candidate is not null)
+                    var probe = await SelectBlackFrameProbeAsync(episode, candidates, windowStart, windowEnd, minimumDuration, cancellationToken).ConfigureAwait(false);
+                    if (probe is not null)
                     {
-                        candidates.Add(new AttributedSegment(candidate, SegmentSource.BlackFrame));
+                        var candidate = await detectBlackFrameCredits(probe, cancellationToken).ConfigureAwait(false);
+                        if (candidate is not null)
+                        {
+                            candidates.Add(new AttributedSegment(candidate, SegmentSource.BlackFrame));
+                        }
                     }
                 }
 
+                List<double> chapterStarts = [.. (Plugin.Instance?.GetChapters(episode.EpisodeId) ?? []).Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)];
+
                 var adjusted = new List<AttributedSegment>();
-                foreach (var (segment, source) in CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration))
+                foreach (var (segment, source) in CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, chapterStarts))
                 {
                     // A chapter-only range already sits on chapter boundaries; the chapter
                     // analyzer skips chapter snapping for its own matches too.
@@ -181,6 +170,11 @@ internal sealed partial class CreditsPass(
 
                 if (adjusted.Count == 0)
                 {
+                    if (fingerprintFailed)
+                    {
+                        continue;
+                    }
+
                     LogNoCreditsFound(episode.Name);
                     await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, [], episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                     episode.SetAnalyzed(Mode, EpisodeState.NoSegments);
@@ -201,6 +195,58 @@ internal sealed partial class CreditsPass(
                 LogErrorAnalyzingCredits(ex, episode.Name);
             }
         }
+    }
+
+    /// <summary>
+    /// Chooses the window the black-frame analyzer scans: the whole credits window when
+    /// nothing else was found or when black frames precede the earliest other candidate, the
+    /// tail after the latest candidate otherwise, and nothing when too little of the window
+    /// remains for a credits scene (the combiner extends the candidate to the end instead).
+    /// </summary>
+    /// <remarks>
+    /// A roll or a dubbing card usually follows the chapter or shared-audio credits, so the
+    /// tail is where black frames are expected. A roll that starts before the credits music
+    /// would be missed by a tail probe, so the seconds before the earliest candidate are
+    /// checked first with a short bounded scan; black there sends the analyzer over the full
+    /// window. The tail anchor is rounded down to a grid so a shared-audio match that grows
+    /// by a fingerprint step when a sibling arrives keeps its cache key. The legacy analyzer
+    /// always gets the full window: its binary search cannot resolve a tail under 20 s.
+    /// </remarks>
+    /// <returns>The episode, or a copy with the window moved to the tail, or <see langword="null"/> to skip the scan.</returns>
+    private async Task<QueuedEpisode?> SelectBlackFrameProbeAsync(
+        QueuedEpisode episode,
+        IReadOnlyList<AttributedSegment> candidates,
+        double windowStart,
+        double windowEnd,
+        int minimumDuration,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0 || _config.UseLegacyBlackFrameAnalyzer)
+        {
+            return episode;
+        }
+
+        var earliestStart = candidates.Min(c => c.Segment.Start);
+        var lead = new TimeRange(Math.Max(windowStart, earliestStart - CreditDetectionPolicy.MaximumSceneMergeGapSeconds), earliestStart);
+        if (lead.Duration > 0)
+        {
+            var leadFrames = await _ffmpegService
+                .DetectBlackFramesAsync(episode, lead, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, Mode, cancellationToken)
+                .ConfigureAwait(false);
+            if (leadFrames.Length > 0)
+            {
+                return episode;
+            }
+        }
+
+        var latestEnd = candidates.Max(c => c.Segment.End);
+        if (CreditsCandidateCombiner.ReachesWindowEnd(latestEnd, windowEnd, minimumDuration))
+        {
+            return null;
+        }
+
+        var anchor = Math.Floor(latestEnd / ProbeAnchorGridSeconds) * ProbeAnchorGridSeconds;
+        return episode.WithCreditsFingerprintStart(Math.Max(windowStart, anchor));
     }
 
     /// <summary>

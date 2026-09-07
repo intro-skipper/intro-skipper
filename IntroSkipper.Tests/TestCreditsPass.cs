@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Analyzers;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -48,6 +49,58 @@ public sealed class TestCreditsPass
             Assert.Equal(PointTime(SharedAudioFirstPoint), segment.ToSegment().Start, 0.5);
             Assert.Equal(Duration, segment.ToSegment().End);
             Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits));
+        }
+    }
+
+    [Theory]
+    [InlineData(DefaultSharedAudioLastPoint)]
+    [InlineData(3560)]
+    public async Task BlackRollStartingBeforeTheSharedAudio_IsScannedOverTheFullWindow(int sharedAudioLastPoint)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(blackStart: 700, sharedAudioLastPoint: sharedAudioLastPoint);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(SegmentSource.Combined, segment.Source);
+        Assert.Equal(700, segment.ToSegment().Start);
+        Assert.Equal(Duration, segment.ToSegment().End);
+    }
+
+    [Fact]
+    public async Task ChapteredPreviewAfterTheCredits_IsNeitherExtendedNorMergedInto()
+    {
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 988));
+        var (episodes, ffmpeg, database) = CreateSeason();
+        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Preview, [new Segment(episodes[0].EpisodeId, new TimeRange(988, Duration))], SegmentSource.CreditsDerived);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+        await AnimePreviewDeriver.DeriveAsync(database, episodes, CancellationToken.None);
+
+        var rows = await database.GetSegmentsAsync(episodes[0].EpisodeId);
+        var credits = Assert.Single(rows, s => s.Type == AnalysisMode.Credits).ToSegment();
+        Assert.Equal((900, 988), (credits.Start, credits.End));
+        var preview = Assert.Single(rows, s => s.Type == AnalysisMode.Preview).ToSegment();
+        Assert.Equal((988, Duration), (preview.Start, preview.End));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChromaprintOnlyFailure_LeavesTheEpisodesRetriable(bool seasonWide)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            fingerprintFailure: _ => seasonWide ? new TimeoutException("ffmpeg hung") : new FingerprintException("no audio"));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Chromaprint, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Credits));
+            Assert.Empty(await database.GetSegmentsAsync(episode.EpisodeId));
         }
     }
 
@@ -96,18 +149,20 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task ChapterAdjacentToBlackFrame_IsExtendedNeverShortened()
+    public async Task BlackFrameAfterTheChapterFollowingTheCredits_StaysItsOwnSegment()
     {
+        // CITY THE ANIMATION E08: the dubbing cards sit inside the "epilogue" chapter that
+        // follows the ending chapter, so the authored boundary keeps them apart.
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
         var (episodes, ffmpeg, database) = CreateSeason();
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
         Assert.Equal(950, ffmpeg.LastCreditsScanStart);
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(SegmentSource.Combined, segment.Source);
-        Assert.Equal(900, segment.ToSegment().Start);
-        Assert.Equal(Duration, segment.ToSegment().End);
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
     }
 
     [Fact]
@@ -253,10 +308,11 @@ public sealed class TestCreditsPass
 
         await pass.RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(SegmentSource.Combined, segment.Source);
-        Assert.Equal(900, segment.ToSegment().Start);
-        Assert.Equal(Duration, segment.ToSegment().End);
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal([SegmentSource.Chapter, SegmentSource.BlackFrame], segments.Select(s => s.Source).ToList());
+        Assert.Equal((900, 950), (segments[0].ToSegment().Start, segments[0].ToSegment().End));
+        Assert.InRange(segments[1].ToSegment().Start, BlackStart, BlackStart + 10); // legacy binary search precision
+        Assert.Equal(Duration, segments[1].ToSegment().End);
     }
 
     [Fact]
@@ -289,6 +345,7 @@ public sealed class TestCreditsPass
     /// </summary>
     private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IIntroSkipperDatabase Database) CreateSeason(
         bool blackFrames = true,
+        double blackStart = BlackStart,
         int sharedAudioLastPoint = DefaultSharedAudioLastPoint,
         Func<QueuedEpisode, Exception?>? fingerprintFailure = null,
         Func<QueuedEpisode, int, BlackFrame[]>? creditsScan = null,
@@ -297,14 +354,16 @@ public sealed class TestCreditsPass
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
 
+        // Both scans describe the same black run: keyframes relative to the probed window
+        // start, and one frame for any bounded range that overlaps it.
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
                 ? throw failure
                 : SharedAudioFingerprint(episode, sharedAudioLastPoint),
-            CreditsBlackFrames = creditsScan ?? ((episode, _) => blackFrames ? BlackFramesFrom(episode) : []),
+            CreditsBlackFrames = creditsScan ?? ((episode, _) => blackFrames ? BlackFramesFrom(episode, blackStart) : []),
             KeyframeVisuals = _ => [],
-            RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
+            RangeBlackFrames = rangeScan ?? ((_, range, _, _, _) => blackFrames && range.End > blackStart && range.Start < Duration ? [new BlackFrame(95, 0, 0)] : []),
             Silence = (_, _, _) => [],
             KeyFrames = (_, _, _) => [],
         };
@@ -325,8 +384,8 @@ public sealed class TestCreditsPass
         CreditsFingerprintEnd = Duration,
     };
 
-    private static BlackFrame[] BlackFramesFrom(QueuedEpisode probe)
-        => CreateDenseFrames(Math.Max(0, BlackStart - probe.CreditsFingerprintStart), Duration - 0.5 - probe.CreditsFingerprintStart, 95);
+    private static BlackFrame[] BlackFramesFrom(QueuedEpisode probe, double blackStart = BlackStart)
+        => CreateDenseFrames(Math.Max(0, blackStart - probe.CreditsFingerprintStart), Duration - 0.5 - probe.CreditsFingerprintStart, 95);
 
     /// <summary>
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
