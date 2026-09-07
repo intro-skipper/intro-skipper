@@ -88,7 +88,7 @@ jobs:
         # Must match the SignPath gate exactly: attesting an unsigned DLL would
         # imply provenance the artifact does not have.
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
           sbom-path: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
@@ -98,7 +98,7 @@ jobs:
         # action's default SLSA provenance mode; the modes are mutually
         # exclusive, so this cannot be folded into the step above.
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
