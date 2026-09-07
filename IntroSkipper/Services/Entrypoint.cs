@@ -127,7 +127,8 @@ namespace IntroSkipper.Services
             _taskManager.TaskCompleted += OnLibraryRefresh;
             plugin.ConfigurationChanged += OnSettingsChanged;
 
-            var initializationTask = plugin.InitializeDatabasesAsync(cancellationToken);
+            using var initializationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var initializationTask = plugin.InitializeDatabasesAsync(initializationCancellation.Token);
             if (await WaitForStartupInitializationAsync(initializationTask, _databaseInitializationTimeout).ConfigureAwait(false))
             {
                 await initializationTask.ConfigureAwait(false);
@@ -140,6 +141,7 @@ namespace IntroSkipper.Services
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                     TaskScheduler.Default);
+                await initializationCancellation.CancelAsync().ConfigureAwait(false);
             }
 
             await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);

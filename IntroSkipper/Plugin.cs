@@ -153,8 +153,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         var instance = Instance;
         ArgumentNullException.ThrowIfNull(instance);
-        // Startup may continue after its timeout, but database consumers must not race schema work.
-        instance.WaitForDatabaseInitialization();
+        instance.EnsureDatabaseInitializationCompleted();
         return new IntroSkipperDbContext(instance.DbPath);
     }
 
@@ -167,8 +166,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         var instance = Instance;
         ArgumentNullException.ThrowIfNull(instance);
-        // Startup may continue after its timeout, but database consumers must not race schema work.
-        instance.WaitForDatabaseInitialization();
+        instance.EnsureDatabaseInitializationCompleted();
         return new DetectionCacheDbContext(instance.CacheDbPath);
     }
 
@@ -212,6 +210,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private async Task InitializeDatabasesCoreAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Initialize segment database.
         try
         {
@@ -238,11 +238,19 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             LogCacheDbInitializationError(_logger, ex);
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private void WaitForDatabaseInitialization()
+    private void EnsureDatabaseInitializationCompleted()
     {
-        Volatile.Read(ref _databaseInitializationTask)?.GetAwaiter().GetResult();
+        var initializationTask = Volatile.Read(ref _databaseInitializationTask);
+        if (initializationTask is { IsCompleted: false })
+        {
+            throw new InvalidOperationException("Plugin database initialization has not completed; database access is unavailable.");
+        }
+
+        initializationTask?.GetAwaiter().GetResult();
     }
 
     /// <inheritdoc />
