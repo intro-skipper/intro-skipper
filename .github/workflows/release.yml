@@ -77,7 +77,7 @@ jobs:
 
       - name: Generate SBOM
         if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
           path: .
           format: spdx-json
