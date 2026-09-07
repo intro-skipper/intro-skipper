@@ -41,9 +41,10 @@ internal static class ConfigHasher
 
             // v4: credits combine every analyzer's candidate, so seasons settled under the
             // first-wins chain are re-analyzed once after the upgrade. PreferChromaprint is
-            // left out because the credits pass does not read it.
+            // left out because the credits pass does not read it, and a Chapter action hashes
+            // as Default because chapters always take part in the pass.
             AnalysisMode.Credits => Invariant(
-                $"analysis|v4|mode={mode}|action={action}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
+                $"analysis|v4|mode={mode}|action={(action == AnalyzerAction.Chapter ? AnalyzerAction.Default : action)}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
