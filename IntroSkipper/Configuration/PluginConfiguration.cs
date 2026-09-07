@@ -120,7 +120,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer
-    /// for intros and recaps. Credits combine every analyzer's candidate regardless.
+    /// for intros and recaps. Credits ignore this setting and combine every analyzer's candidate.
     /// </summary>
     public bool PreferChromaprint { get; set; }
 

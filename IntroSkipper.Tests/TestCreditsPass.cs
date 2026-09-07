@@ -54,14 +54,13 @@ public sealed class TestCreditsPass
     [Theory]
     [InlineData(DefaultSharedAudioLastPoint)]
     [InlineData(3560)]
-    public async Task BlackRollStartingBeforeTheSharedAudio_IsScannedOverTheFullWindow(int sharedAudioLastPoint)
+    public async Task BlackRollStartingBeforeTheSharedAudio_IsCombinedWithIt(int sharedAudioLastPoint)
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(blackStart: 700, sharedAudioLastPoint: sharedAudioLastPoint);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Combined, segment.Source);
         Assert.Equal(700, segment.ToSegment().Start);
@@ -69,14 +68,13 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task BlackRollInTheGapBetweenAChapterAndTheSharedAudio_IsScannedOverTheFullWindow()
+    public async Task BlackRollBetweenAChapterAndTheSharedAudio_IsCombinedWithTheAudio()
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 600), Chapter("Epilogue", 660));
         var (episodes, ffmpeg, database) = CreateSeason(blackStart: 700);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
         Assert.Equal(
             [(600, 660, SegmentSource.Chapter), (700, Duration, SegmentSource.Combined)],
@@ -173,7 +171,6 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.BlackFrame, segment.Source);
         Assert.Equal(BlackStart, segment.ToSegment().Start);
@@ -408,8 +405,8 @@ public sealed class TestCreditsPass
 
     /// <summary>
     /// A two-episode season over the stub. Black frames sit at 950 to 999.5 in file time and the
-    /// scan reports them relative to whatever window start the pass probes from; silence and
-    /// keyframe probes return nothing so end adjustment leaves ends alone.
+    /// scan reports them relative to the credits window start; silence and keyframe lookups
+    /// return nothing so end adjustment leaves ends alone.
     /// </summary>
     private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IIntroSkipperDatabase Database) CreateSeason(
         bool blackFrames = true,
@@ -423,7 +420,6 @@ public sealed class TestCreditsPass
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
 
-        // Keyframes are reported relative to the scanned window start.
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
@@ -452,8 +448,8 @@ public sealed class TestCreditsPass
         CreditsFingerprintEnd = Duration,
     };
 
-    private static BlackFrame[] BlackFramesFrom(QueuedEpisode probe, double blackStart = BlackStart, double blackEnd = Duration - 0.5)
-        => CreateDenseFrames(Math.Max(0, blackStart - probe.CreditsFingerprintStart), blackEnd - probe.CreditsFingerprintStart, 95);
+    private static BlackFrame[] BlackFramesFrom(QueuedEpisode episode, double blackStart = BlackStart, double blackEnd = Duration - 0.5)
+        => CreateDenseFrames(Math.Max(0, blackStart - episode.CreditsFingerprintStart), blackEnd - episode.CreditsFingerprintStart, 95);
 
     /// <summary>
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
