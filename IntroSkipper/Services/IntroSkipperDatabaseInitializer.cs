@@ -54,7 +54,7 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
                     _databaseInitializationTimeout,
                     cancellationToken).ConfigureAwait(false))
             {
-                LogDatabaseInitializationTimedOut(_databaseInitializationTimeout.TotalSeconds);
+                LogDatabaseInitializationTimedOut("Segment", _databaseInitializationTimeout.TotalSeconds);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -85,7 +85,7 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
                     _databaseInitializationTimeout,
                     cancellationToken).ConfigureAwait(false))
             {
-                LogDatabaseInitializationTimedOut(_databaseInitializationTimeout.TotalSeconds);
+                LogDatabaseInitializationTimedOut("Detection cache", _databaseInitializationTimeout.TotalSeconds);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -123,8 +123,8 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         return false;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Plugin database initialization exceeded the startup timeout of {TimeoutSeconds} seconds; startup will continue")]
-    private partial void LogDatabaseInitializationTimedOut(double timeoutSeconds);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Database} database initialization exceeded its startup timeout of {TimeoutSeconds} seconds; initialization will continue in the background")]
+    private partial void LogDatabaseInitializationTimedOut(string database, double timeoutSeconds);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Eager segment database initialization was deferred; the next database operation will retry")]
     private static partial void LogSegmentWarmupDeferred(ILogger logger, Exception exception);

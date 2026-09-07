@@ -4,12 +4,14 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Db;
 using IntroSkipper.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -25,10 +27,57 @@ public sealed class TestDatabaseInitializer
 
         var completed = await IntroSkipperDatabaseInitializer.WaitForStartupInitializationAsync(
             initialization.Task,
-            TimeSpan.FromMilliseconds(50));
+            TimeSpan.FromMilliseconds(50)).WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.False(completed);
-        initialization.TrySetResult();
+        Assert.False(initialization.Task.IsCompleted);
+        Assert.True(initialization.TrySetResult());
+        await initialization.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task StartAsync_BothDatabasesTimeOut_ContinuesWarmupAndLogsEachDatabase()
+    {
+        var segmentInitialization = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCache = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cacheCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var segmentCalls = 0;
+        var cacheCalls = 0;
+        var segmentDatabase = FacadeProxy.CreateSegmentDatabase(() =>
+        {
+            segmentCalls++;
+            return segmentInitialization.Task;
+        });
+        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() =>
+        {
+            Interlocked.Increment(ref cacheCalls);
+            releaseCache.Task.GetAwaiter().GetResult();
+            cacheCompleted.SetResult();
+        });
+        var logger = new TimeoutLogger();
+        var initializer = new IntroSkipperDatabaseInitializer(segmentDatabase, cacheDatabase, logger);
+
+        try
+        {
+            await initializer.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(90));
+
+            Assert.Equal(1, segmentCalls);
+            Assert.Equal(1, Volatile.Read(ref cacheCalls));
+            Assert.False(segmentInitialization.Task.IsCompleted);
+            Assert.False(cacheCompleted.Task.IsCompleted);
+            Assert.Collection(
+                logger.Warnings,
+                warning => Assert.Equal("Segment database initialization exceeded its startup timeout of 30 seconds; initialization will continue in the background", warning),
+                warning => Assert.Equal("Detection cache database initialization exceeded its startup timeout of 30 seconds; initialization will continue in the background", warning));
+        }
+        finally
+        {
+            segmentInitialization.TrySetResult();
+            releaseCache.TrySetResult();
+        }
+
+        await segmentInitialization.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await cacheCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Theory]
@@ -118,6 +167,24 @@ public sealed class TestDatabaseInitializer
         }
 
         await cacheCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    private sealed class TimeoutLogger : ILogger<IntroSkipperDatabaseInitializer>
+    {
+        public ConcurrentQueue<string> Warnings { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Enqueue(formatter(state, exception));
+            }
+        }
     }
 
     // Strict facade fakes: only the initialization member is stubbed; any other member
