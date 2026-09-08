@@ -60,20 +60,26 @@ public interface IFFmpegService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds the location of all black frames in a media file starting at a given time.
+    /// Finds the black level of every keyframe from the credits start to the end of the file.
     /// </summary>
+    /// <remarks>
+    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
+    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode
+    /// reads that row instead of decoding again.
+    /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns frames that are mostly black.</returns>
+    /// <returns>A task that returns the black level of each keyframe.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Collects per-keyframe visual statistics (entropy and saturation) for the credits fingerprint range.
     /// </summary>
     /// <remarks>
-    /// Emitted from a single keyframe decode (the same shape as the black-frame scan) so non-black
-    /// credit detection can run without decoding the video a second time per frame.
+    /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>
+    /// wrote. Decodes on its own only for an episode whose black-frame row predates that shared
+    /// write, or when caching is off. Empty when the ffmpeg check found the visuals filters missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>

@@ -16,6 +16,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -337,6 +338,79 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
+    /// One keyframe scan serves both rows. After the black-frame scan of a fresh episode the
+    /// keyframe visuals row for the credits window exists, and the visuals read is served from
+    /// it: the path is broken before that read, so a second decode would fail instead.
+    /// credits.mp4 has a keyframe every 10 s; the window [5, 35] holds three.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectBlackFramesAsync_CachesKeyframeVisualsForTheCreditsWindow()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        episode.Duration = 330;
+        episode.CreditsFingerprintStart = 5;
+        episode.CreditsFingerprintEnd = 35;
+        var service = scope.CreateFFmpegService();
+
+        var blackFrames = await service.DetectBlackFramesAsync(episode, 32);
+
+        Assert.NotEmpty(blackFrames);
+        Assert.Contains(blackFrames, frame => frame.Percentage == 100);
+        Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
+
+        episode.Path = "/does/not/exist.mkv";
+        var visuals = await service.DetectKeyframeVisualsAsync(episode);
+        double[] times = [.. visuals.Select(visual => visual.Time)];
+
+        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, times);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task DetectKeyframeVisualsAsync_LogsCacheMissButNotCacheHit()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        episode.Duration = 330;
+        episode.CreditsFingerprintStart = 5;
+        episode.CreditsFingerprintEnd = 35;
+        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, []);
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger);
+
+        await service.DetectBlackFramesAsync(episode, 32);
+        Assert.Empty(logger.Messages);
+
+        var visuals = await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.NotEmpty(visuals);
+        Assert.Equal($"KeyframeVisual scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+
+        episode.Path = "/does/not/exist.mkv";
+        await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.Single(logger.Messages);
+    }
+
+    private sealed class ScanLogger : ILogger<FFmpegService>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Debug;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Debug && eventId.Name == "LogDetectionScan")
+            {
+                Messages.Add(formatter(state, exception));
+            }
+        }
+    }
+
+    /// <summary>
     /// A plugin instance with fingerprint caching enabled over a fresh cache database,
     /// plus the cache facade and service the ffmpeg service reads through.
     /// </summary>
@@ -357,7 +431,7 @@ public sealed class TestCacheOperations
 
         public string CacheDbPath => _inner.CacheDbPath;
 
-        public FFmpegService CreateFFmpegService() => new(NullLogger<FFmpegService>.Instance, CacheService);
+        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null) => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService);
 
         /// <summary>
         /// The hash a release without audio stream selection wrote on this configuration's

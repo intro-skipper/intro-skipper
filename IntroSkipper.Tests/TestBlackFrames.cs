@@ -44,6 +44,34 @@ public class TestBlackFrames
         }
     }
 
+    /// <summary>
+    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when
+    /// blackframe reads it as gray, and not black once converted to limited-range yuv420p,
+    /// where the same luma lands at 33. The keyframe scan's visuals filters must not change
+    /// what blackframe sees.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-gray10.mkv");
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            ["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=#141414:s=64x64:r=1:d=3", "-pix_fmt", "gray10le", "-c:v", "ffv1", path]);
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "gray10", Path = path, Duration = 3 };
+
+            var frames = await FfmpegTestHelpers.CreateFFmpegService().DetectBlackFramesAsync(episode, 28);
+
+            Assert.Equal(3, frames.Length);
+            Assert.All(frames, frame => Assert.Equal(100, frame.Percentage));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [FactSkipFFmpegTests]
     public async Task TestSeekSampleKeyFrames()
     {

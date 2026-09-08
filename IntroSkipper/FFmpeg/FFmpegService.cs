@@ -23,7 +23,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Generous: the probe is four fast ffmpeg info queries, each capped at 2 s of process-exit
+    // Per-keyframe luma histogram entropy and mean saturation, on the 8-bit limited-range scale
+    // the credit-card thresholds are tuned for (10-bit sources report SATAVG about 4x higher).
+    private const string KeyframeVisualFilters = "format=yuv420p,entropy,signalstats,metadata=print";
+
+    // Generous: the probe is six fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
@@ -36,6 +40,14 @@ internal sealed partial class FFmpegService : IFFmpegService
         ("-muxers", "chromaprint", "muxer list", "The installed version of ffmpeg does not support chromaprint", "chromaprint_not_supported"),
         ("-h muxer=chromaprint", "binary raw fingerprint", "chromaprint options", "The installed version of ffmpeg does not support raw binary fingerprints", "fp_format_not_supported"),
         ("-h filter=silencedetect", "noise tolerance", "silencedetect options", "The installed version of ffmpeg does not support the silencedetect filter", "silencedetect_not_supported"),
+    ];
+
+    // Probed after the requirements. These filters only feed keyframe visuals, so a build
+    // without them keeps every other scan and loses non-black credits detection.
+    private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
+    [
+        ("entropy", "entropy options"),
+        ("signalstats", "signalstats options"),
     ];
 
     private readonly ILogger<FFmpegService> _logger;
@@ -89,7 +101,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var outputs = new List<FFmpegCheckOutput>();
         try
         {
-            foreach (var (arguments, mustContain, bundleName, errorMessage, failureStatus) in Requirements)
+            async Task<string> ProbeAsync(string arguments, string bundleName)
             {
                 var output = Encoding.UTF8.GetString(await GetOutputAsync(
                     arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
@@ -99,7 +111,12 @@ internal sealed partial class FFmpegService : IFFmpegService
                     cancellationToken).ConfigureAwait(false));
                 LogFfmpegOutput(_logger, arguments, output);
                 outputs.Add(new FFmpegCheckOutput(bundleName, output));
+                return output;
+            }
 
+            foreach (var (arguments, mustContain, bundleName, errorMessage, failureStatus) in Requirements)
+            {
+                var output = await ProbeAsync(arguments, bundleName).ConfigureAwait(false);
                 if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
                 {
                     LogFfmpegRequirementFailed(_logger, errorMessage);
@@ -107,7 +124,18 @@ internal sealed partial class FFmpegService : IFFmpegService
                 }
             }
 
-            return (true, new FFmpegCheckResult("okay", [.. outputs]));
+            var visualsSupported = true;
+            foreach (var (filter, bundleName) in KeyframeVisualFilterProbes)
+            {
+                var output = await ProbeAsync("-h filter=" + filter, bundleName).ConfigureAwait(false);
+                if (!output.Contains("Filter " + filter, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogKeyframeVisualFilterUnsupported(_logger, filter);
+                    visualsSupported = false;
+                }
+            }
+
+            return (true, new FFmpegCheckResult("okay", [.. outputs], visualsSupported));
         }
         catch (OperationCanceledException)
         {
@@ -174,51 +202,69 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        // Seek to the start of the time range and get the black level of each frame.
+        // The keyframe scan: one decode from the credits start to end of file feeds two outputs
+        // with a filtergraph each, so blackframe negotiates its input as it does alone (gray for
+        // gray sources, yuv420p for 10-bit ones) while format=yuv420p pins entropy and
+        // signalstats to the 8-bit limited-range scale their thresholds are tuned for. One graph
+        // with both chains hands blackframe yuv420p on gray sources, where luma 20 lands at 33
+        // and stops counting as black. The blackframe filter logs its own lines and
+        // metadata=print logs the entropy and saturation lines, so each parser reads its part
+        // of the same stderr.
+        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var window = new TimeRange(start, end);
+        var withVisuals = _versionGate.CheckResult.KeyframeVisualsSupported;
         string[] args =
         [
             "-skip_frame", "nokey",
-            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
-            "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=0:threshold={threshold}",
-            "-f", "null", "-",
+            .. OutputArgs($"blackframe=amount=0:threshold={threshold}"),
+            .. withVisuals ? OutputArgs(KeyframeVisualFilters) : [],
         ];
 
-        return RunCachedScanAsync(episode, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken);
+        // The visuals row is keyed by the credits window, as the standalone visuals scan writes
+        // it; the black-frame row keeps its end-of-file key.
+        return RunCachedScanAsync(
+            episode,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackFrame,
+            start,
+            0,
+            args,
+            raw =>
+            {
+                if (withVisuals)
+                {
+                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window));
+                }
+
+                return FFmpegOutputParser.ParseBlackFrames(raw);
+            },
+            cancellationToken);
     }
 
     /// <inheritdoc/>
     public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
-        // Bound the scan to the configured credits window; FindCreditRange selects the latest
-        // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
-        // pick up a muted tail (e.g. trailing video after the probed audio duration) as credits.
+        if (!_versionGate.CheckResult.KeyframeVisualsSupported)
+        {
+            return Task.FromResult(Array.Empty<KeyframeVisual>());
+        }
+
+        // Normally a cache hit on the row the keyframe scan wrote. The decode below runs only for
+        // an episode whose black-frame row predates that shared write, or with caching off. -to
+        // stops decoding near the window end; ParseKeyframeVisualsInWindow does the bounding.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
-
-        // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
-        // saturation per keyframe so credits rendered on a near-uniform low-saturation card (which the black-frame
-        // scan is blind to) can be recognised by their near-uniform, low-entropy background.
-        // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
-        // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify
-        // consistently rather than missing muted cards.
         string[] args =
         [
             "-skip_frame", "nokey",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
-            "-f", "null", "-",
+            .. OutputArgs(KeyframeVisualFilters),
         ];
 
-        // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
-        // requested duration. Clip parsed visuals to the window before caching (times are relative to
-        // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
-        // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
-        // outside the configured scan window.
         return RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
@@ -226,9 +272,20 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.Start,
             range.End,
             args,
-            raw => FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= range.Duration).ToArray(),
+            raw => ParseKeyframeVisualsInWindow(raw, range),
             cancellationToken);
     }
+
+    // One null output with its own filtergraph. Two of these on one input decode it once.
+    private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
+
+    // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
+    // requested duration) and the keyframe scan runs to end of file, so every writer of a
+    // KeyframeVisual row clips here. Times are relative to the -ss seek, so an in-window frame
+    // falls within [0, window.Duration]; an unclipped run would let FindCreditRange select a
+    // low-entropy run past CreditsFingerprintEnd and persist credits outside the scan window.
+    private static KeyframeVisual[] ParseKeyframeVisualsInWindow(string raw, TimeRange window)
+        => [.. FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= window.Duration)];
 
     /// <inheritdoc/>
     public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
@@ -313,7 +370,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="start">Cache key start; must be the exact value used when the row was written.</param>
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
     /// <param name="args">ffmpeg arguments.</param>
-    /// <param name="parse">Parses ffmpeg's stderr into the scan result.</param>
+    /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
     private async Task<T[]> RunCachedScanAsync<T>(
@@ -332,6 +389,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         {
             return cached;
         }
+
+        LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
@@ -634,6 +693,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})")]
     private static partial void LogFingerprinting(ILogger logger, double start, double end, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Type} scan [{Start}, {End}] of \"{File}\" (id {Id})")]
+    private static partial void LogDetectionScan(ILogger logger, CacheEntryType type, double start, double end, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
+    private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
