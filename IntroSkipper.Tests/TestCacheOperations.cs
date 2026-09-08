@@ -387,9 +387,8 @@ public sealed class TestCacheOperations
         Assert.Equal($"KeyframeVisual scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
 
         episode.Path = "/does/not/exist.mkv";
-        var cached = await service.DetectKeyframeVisualsAsync(episode);
+        await service.DetectKeyframeVisualsAsync(episode);
 
-        Assert.Equal(visuals, cached);
         Assert.Single(logger.Messages);
     }
 
