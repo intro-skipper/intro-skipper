@@ -30,6 +30,8 @@ jobs:
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
+        env:
+          RestorePackagesWithLockFile: 'true'
 
       - name: Bump release version
         run: |
