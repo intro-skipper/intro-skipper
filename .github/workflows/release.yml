@@ -12,6 +12,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -28,6 +30,8 @@ jobs:
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
+        env:
+          RestorePackagesWithLockFile: 'true'
 
       - name: Bump release version
         run: |
@@ -73,6 +77,33 @@ jobs:
       - name: Create archive
         run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
+      - name: Generate SBOM
+        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          path: .
+          format: spdx-json
+          output-file: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM
+        # Must match the SignPath gate exactly: attesting an unsigned DLL would
+        # imply provenance the artifact does not have.
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+          sbom-path: intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json
+
+      - name: Attest build provenance
+        # Same gate as above. Omitting sbom-path/predicate-type selects the
+        # action's default SLSA provenance mode; the modes are mutually
+        # exclusive, so this cannot be folded into the step above.
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
         run: gh release delete "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
@@ -81,7 +112,12 @@ jobs:
 
       - name: Create new release with tag
         if: github.event_name != 'pull_request'
-        run: gh release create "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes --target ${{ env.MAIN_VERSION }}
+        run: |
+          ASSETS=("intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip")
+          if [ -f "intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json" ]; then
+            ASSETS+=("intro-skipper-v${{ env.NEW_FILE_VERSION }}.spdx.json")
+          fi
+          gh release create "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" "${ASSETS[@]}" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes --target ${{ env.MAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
