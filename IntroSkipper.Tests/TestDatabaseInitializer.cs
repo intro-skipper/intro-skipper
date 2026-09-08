@@ -18,6 +18,19 @@ using Xunit;
 /// </summary>
 public sealed class TestDatabaseInitializer
 {
+    [Fact]
+    public async Task WaitForStartupInitializationAsync_ReturnsFalse_WhenInitializationTimesOut()
+    {
+        var initialization = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var completed = await IntroSkipperDatabaseInitializer.WaitForStartupInitializationAsync(
+            initialization.Task,
+            TimeSpan.FromMilliseconds(50));
+
+        Assert.False(completed);
+        initialization.TrySetResult();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

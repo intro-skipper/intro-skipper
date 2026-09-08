@@ -15,6 +15,7 @@ namespace IntroSkipper.Services;
 /// </summary>
 internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 {
+    private static readonly TimeSpan _databaseInitializationTimeout = TimeSpan.FromSeconds(30);
     private readonly IIntroSkipperDatabase _segmentDatabase;
     private readonly IDetectionCacheDatabase _cacheDatabase;
     private readonly ILogger<IntroSkipperDatabaseInitializer> _logger;
@@ -44,11 +45,17 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         }
 
         // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
-        // only abandons this wait; the shared initialization task keeps running so legacy
-        // repair or migration work is never interrupted halfway through.
+        // or the timeout only abandons this wait; the shared initialization task keeps
+        // running so legacy repair or migration work is never interrupted halfway through.
         try
         {
-            await _segmentDatabase.InitializeAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!await WaitForStartupInitializationAsync(
+                    _segmentDatabase.InitializeAsync(),
+                    _databaseInitializationTimeout,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                LogDatabaseInitializationTimedOut("Segment", _databaseInitializationTimeout.TotalSeconds);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -72,9 +79,14 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         // never interrupted halfway through.
         try
         {
-            await Task.Run(_cacheDatabase.TryInitialize, CancellationToken.None)
-                .WaitAsync(cancellationToken)
-                .ConfigureAwait(false);
+            var cacheInitialization = Task.Run(_cacheDatabase.TryInitialize, CancellationToken.None);
+            if (!await WaitForStartupInitializationAsync(
+                    cacheInitialization,
+                    _databaseInitializationTimeout,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                LogDatabaseInitializationTimedOut("Detection cache", _databaseInitializationTimeout.TotalSeconds);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -84,6 +96,35 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 
     /// <inheritdoc/>
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    internal static async Task<bool> WaitForStartupInitializationAsync(
+        Task initializationTask,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var completedTask = await Task.WhenAny(
+                initializationTask,
+                Task.Delay(timeout, cancellationToken))
+            .ConfigureAwait(false);
+
+        if (completedTask == initializationTask)
+        {
+            await initializationTask.ConfigureAwait(false);
+            return true;
+        }
+
+        _ = initializationTask.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return false;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Database} database initialization exceeded its startup timeout of {TimeoutSeconds} seconds; initialization will continue in the background")]
+    private partial void LogDatabaseInitializationTimedOut(string database, double timeoutSeconds);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Eager segment database initialization was deferred; the next database operation will retry")]
     private static partial void LogSegmentWarmupDeferred(ILogger logger, Exception exception);
