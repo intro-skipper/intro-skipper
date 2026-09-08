@@ -111,7 +111,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             // visible in the log before any caller starts treating an exit code as a failure.
             if (process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
             {
-                LogFfmpegExitCode(_logger, process.ExitCode, string.Join(" ", info.ArgumentList));
+                _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList));
             }
 
             return ms.ToArray();
@@ -165,9 +165,6 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "ffmpeg did not exit within {TimeoutMs}ms; killing process")]
     private static partial void LogFfmpegExitTimeout(ILogger logger, int timeoutMs);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg exited with code {ExitCode}: {Arguments}")]
-    private static partial void LogFfmpegExitCode(ILogger logger, int exitCode, string arguments);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill ffmpeg process tree: {Message}")]
     private static partial void LogFfmpegKillFailed(ILogger logger, string message);
