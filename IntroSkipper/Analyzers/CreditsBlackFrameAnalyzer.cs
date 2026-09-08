@@ -6,7 +6,6 @@
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -21,84 +20,25 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-/// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 internal sealed partial class CreditsBlackFrameAnalyzer(
     ILogger<CreditsBlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
-    IIntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null)
 {
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IIntroSkipperDatabase _database = database;
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
-        IReadOnlyList<QueuedEpisode> analysisQueue,
-        AnalysisMode mode,
-        CancellationToken cancellationToken)
-    {
-        if (mode != AnalysisMode.Credits)
-        {
-            throw new NotImplementedException($"{nameof(CreditsBlackFrameAnalyzer)} only supports {nameof(AnalysisMode.Credits)} mode");
-        }
-
-        var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.NeedsAnalysis(mode))
-            .ToList();
-
-        if (unanalyzedEpisodes.Count == 0)
-        {
-            return analysisQueue;
-        }
-
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
-
-        LogAnalyzingEpisodes(unanalyzedEpisodes.Count);
-
-        var minimumPercentage = _config.BlackFrameMinimumPercentage;
-        var threshold = _config.BlackFrameThreshold;
-        var minimumDuration = _config.MinimumCreditsDuration;
-
-        foreach (var episode in unanalyzedEpisodes)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                var credit = await DetectCreditsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
-
-                if (credit is null || !credit.Valid)
-                {
-                    LogNoValidCreditsFound(episode.Name);
-                    continue;
-                }
-
-                credit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (!credit.Valid)
-                {
-                    LogNoValidCreditsFound(episode.Name);
-                    await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-                    episode.SetAnalyzed(mode, EpisodeState.NoSegments);
-                    continue;
-                }
-
-                LogFoundCredits(episode.Name, credit.Start);
-
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [credit], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name);
-            }
-        }
-
-        return analysisQueue;
-    }
+    /// <summary>
+    /// Detects one episode's credits with the configured thresholds, without adjusting times
+    /// or writing. The credits pass combines the result with the other analyzers' candidates.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
+    /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the caller, which marks the episode failed.</returns>
+    internal Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, cancellationToken);
 
     /// <summary>
     /// Detects the start of credits from FFmpeg keyframe evidence.
@@ -403,18 +343,6 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
 
         return false;
     }
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Analyzing {Count} episodes for credits using black frame detection")]
-    private partial void LogAnalyzingEpisodes(int count);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "No valid credits found for {Episode}")]
-    private partial void LogNoValidCreditsFound(string episode);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s")]
-    private partial void LogFoundCredits(string episode, double start);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
-    private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
     private partial void LogFoundValidCreditsSegment(double start, double end, double duration);

@@ -119,7 +119,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to only use chromaprint.
+    /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer
+    /// for intros and recaps. Credits ignore this setting and combine every analyzer's candidate.
     /// </summary>
     public bool PreferChromaprint { get; set; }
 
@@ -238,8 +239,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the remaining content after the credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment covering the time from the end of the credits to the end of the episode is created for anime.
+    /// Gets or sets a value indicating whether the content after the credits should be set as a preview for anime episodes.
+    /// When enabled, a Preview segment is created for anime from the end of the credits to the next credits block
+    /// (a trailing dubbing or sponsor card) or the end of the episode.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 

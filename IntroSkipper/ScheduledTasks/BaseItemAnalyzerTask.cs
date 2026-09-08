@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Analyzers;
+using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -211,7 +212,7 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    private async Task AnalyzeItemsAsync(
+    internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
@@ -266,43 +267,33 @@ public partial class BaseItemAnalyzerTask(
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
-        // Every applicable analyzer runs; the order is the priority, and each analyzer skips
-        // episodes an earlier one already settled via NeedsAnalysis(). Chapters come first.
-        // Chromaprint needs a season to compare (no movies) and a compatible ffmpeg; black
-        // frames only find credits. Anime credits prefer the fingerprint match over black frames.
-        var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
-        IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap
-            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
-            : null;
-        IMediaFileAnalyzer? blackFrame = mode == AnalysisMode.Credits ? CreateBlackFrameAnalyzer() : null;
-
-        List<IMediaFileAnalyzer?> chain = isAnime ? [chapter, chromaprint, blackFrame] : [chapter, blackFrame, chromaprint];
-        var analyzers = chain.OfType<IMediaFileAnalyzer>().ToList();
-
-        // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
-        // the rest keep their relative order. An action naming an analyzer that is not in the
-        // chain (BlackFrame outside Credits, Chromaprint without ffmpeg) changes nothing.
-        var preferred = action switch
+        if (mode == AnalysisMode.Credits)
         {
-            AnalyzerAction.Chapter => chapter,
-            AnalyzerAction.Chromaprint => chromaprint,
-            AnalyzerAction.BlackFrame => blackFrame,
-            _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
-        };
-        if (preferred is not null && analyzers.Remove(preferred))
+            // Credits combine every analyzer's candidate instead of settling on the first;
+            // the pass skips chromaprint when the season has a single item.
+            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
+            await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        }
+        else
         {
-            analyzers.Insert(0, preferred);
+            await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
         }
 
-        foreach (var analyzer in analyzers)
+        // Anime previews derive from the credits: right after a credits result lands, and again
+        // in the Preview mode for episodes no preview analyzer settled, since a season whose
+        // credits are all user-provided never enters the credits pass but its derived previews
+        // still go stale when the preview settings change.
+        if (isAnime && Config.AnimePreviewFromCreditsEnd)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (mode == AnalysisMode.Credits && isAnime && Config.AnimePreviewFromCreditsEnd)
-        {
-            await AnimePreviewDeriver.DeriveAsync(_database, items, cancellationToken).ConfigureAwait(false);
+            if (mode == AnalysisMode.Credits)
+            {
+                await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+            }
+            else if (mode == AnalysisMode.Preview)
+            {
+                List<QueuedEpisode> unsettled = [.. items.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
+                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // Record completed items under this hash, found segments or not. Failed items are omitted so
@@ -315,12 +306,48 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Creates the configured black frame analyzer variant.
+    /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
+    /// runs in priority order and each skips the episodes an earlier one settled via
+    /// <see cref="QueuedEpisode.NeedsAnalysis"/>.
     /// </summary>
-    /// <returns>A <see cref="CreditsBlackFrameAnalyzer"/> by default, or the legacy <see cref="BlackFrameAnalyzer"/> when configured.</returns>
-    private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => Config.UseLegacyBlackFrameAnalyzer
-        ? new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _database, Config)
-        : new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _database, Config);
+    private async Task RunAnalyzerChainAsync(
+        IReadOnlyList<QueuedEpisode> items,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        bool isMovie,
+        CancellationToken cancellationToken)
+    {
+        // Chapters come first. Chromaprint needs a season to compare (no movies) and a
+        // compatible ffmpeg.
+        var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
+        IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
+            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
+            : null;
+
+        List<IMediaFileAnalyzer?> chain = [chapter, chromaprint];
+        var analyzers = chain.OfType<IMediaFileAnalyzer>().ToList();
+
+        // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
+        // the rest keep their relative order. An action naming an analyzer that is not in the
+        // chain (Chromaprint without ffmpeg) changes nothing.
+        var preferred = action switch
+        {
+            AnalyzerAction.Chapter => chapter,
+            AnalyzerAction.Chromaprint => chromaprint,
+            _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
+        };
+        if (preferred is not null && analyzers.Remove(preferred))
+        {
+            analyzers.Insert(0, preferred);
+        }
+
+        foreach (var analyzer in analyzers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);

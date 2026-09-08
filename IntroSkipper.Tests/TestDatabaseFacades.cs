@@ -70,6 +70,32 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task ReplaceAutoSegmentsAsync_PerSegmentSources_StampAndRewriteEachRow()
+    {
+        var database = _db.Database;
+        var itemId = Guid.NewGuid();
+        AttributedSegment chapter = new(new Segment(itemId, new TimeRange(600, 660)), SegmentSource.Chapter);
+        AttributedSegment blackFrame = new(new Segment(itemId, new TimeRange(950, 1000)), SegmentSource.BlackFrame);
+
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter, blackFrame]);
+
+        var rows = (await database.GetSegmentsAsync(itemId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal([SegmentSource.Chapter, SegmentSource.BlackFrame], rows.Select(s => s.Source).ToList());
+
+        // The same range under a new source keeps its id and takes the source.
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter with { Source = SegmentSource.Combined }]);
+
+        var rewritten = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(rows[0].Id, rewritten.Id);
+        Assert.Equal(SegmentSource.Combined, rewritten.Source);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter with { Source = SegmentSource.User }]));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter with { Source = SegmentSource.CreditsDerived }]));
+    }
+
+    [Fact]
     public async Task ReplaceAutoSegmentsAsync_DoesNotOverwriteOverlappingUserSegment()
     {
         var itemId = Guid.NewGuid();
