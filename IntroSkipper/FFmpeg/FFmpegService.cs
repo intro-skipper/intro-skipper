@@ -23,6 +23,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
+    // Per-keyframe luma histogram entropy and mean saturation, on the 8-bit limited-range scale
+    // the credit-card thresholds are tuned for (10-bit sources report SATAVG about 4x higher).
+    private const string KeyframeVisualFilters = "format=yuv420p,entropy,signalstats,metadata=print";
+
     // Generous: the probe is four fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
@@ -172,45 +176,58 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        // The keyframe scan: one decode from the credits start to end of file serves both rows.
-        // blackframe comes first so it sees the pixels it always saw (ffmpeg converts 10-bit
-        // input to yuv420p for it, and reads gray input natively). format=yuv420p after it pins
-        // entropy and signalstats to the 8-bit, limited-range scale their thresholds are tuned
-        // for; on a gray source the same conversion in front of blackframe would lift Y=0 above
-        // the black threshold. The blackframe filter logs its own lines and metadata=print logs
-        // the entropy and saturation lines, so each parser reads its part of the same stderr.
+        // The keyframe scan: one decode from the credits start to end of file feeds two outputs
+        // with a filtergraph each, so blackframe negotiates its input as it does alone (gray for
+        // gray sources, yuv420p for 10-bit ones) while format=yuv420p pins entropy and
+        // signalstats to the 8-bit limited-range scale their thresholds are tuned for. One graph
+        // with both chains hands blackframe yuv420p on gray sources, where luma 20 lands at 33
+        // and stops counting as black. The blackframe filter logs its own lines and
+        // metadata=print logs the entropy and saturation lines, so each parser reads its part
+        // of the same stderr.
         var start = episode.CreditsFingerprintStart;
         var (_, windowEnd) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, windowEnd);
-        string[] args =
+        string[] blackFrameArgs =
         [
             "-skip_frame", "nokey",
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=0:threshold={threshold},format=yuv420p,entropy,signalstats,metadata=print",
+            "-vf", $"blackframe=amount=0:threshold={threshold}",
             "-f", "null", "-",
         ];
+        string[] args = [.. blackFrameArgs, "-an", "-dn", "-sn", "-vf", KeyframeVisualFilters, "-f", "null", "-"];
 
-        // The visuals row is keyed by the credits window, as the standalone visuals scan writes
-        // it; the black-frame row keeps its end-of-file key.
-        return RunCachedScanAsync(
-            episode,
-            AnalysisMode.Credits,
-            CacheEntryType.BlackFrame,
-            start,
-            0,
-            args,
-            raw =>
-            {
-                ThrowIfFilterMissing(raw);
-                _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window));
-                return FFmpegOutputParser.ParseBlackFrames(raw);
-            },
-            cancellationToken,
-            onMiss: () => LogKeyframeScan(_logger, window.Start, window.End, episode.Path, episode.EpisodeId));
+        try
+        {
+            // The visuals row is keyed by the credits window, as the standalone visuals scan
+            // writes it; the black-frame row keeps its end-of-file key.
+            return await RunCachedScanAsync(
+                episode,
+                AnalysisMode.Credits,
+                CacheEntryType.BlackFrame,
+                start,
+                0,
+                args,
+                raw =>
+                {
+                    ThrowIfFilterMissing(raw);
+                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window));
+                    return FFmpegOutputParser.ParseBlackFrames(raw);
+                },
+                cancellationToken,
+                onMiss: () => LogKeyframeScan(_logger, window.Start, window.End, episode.Path, episode.EpisodeId)).ConfigureAwait(false);
+        }
+        catch (MissingFilterException ex)
+        {
+            // A build without entropy or signalstats aborts the whole run before decoding.
+            // Black frames still work there: scan them alone and leave the visuals row
+            // unwritten, so the standalone visuals scan reports the missing filter itself.
+            LogKeyframeVisualsUnavailable(_logger, ex, episode.Path);
+            return await RunCachedScanAsync(episode, AnalysisMode.Credits, CacheEntryType.BlackFrame, start, 0, blackFrameArgs, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>
@@ -222,8 +239,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
 
-        // Same filters as the keyframe scan minus blackframe; see DetectBlackFramesAsync for
-        // why format=yuv420p precedes entropy and signalstats.
         string[] args =
         [
             "-skip_frame", "nokey",
@@ -231,7 +246,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
+            "-vf", KeyframeVisualFilters,
             "-f", "null", "-",
         ];
 
@@ -261,14 +276,13 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // A build without one of the chained filters reports "No such filter" and emits no frame
     // lines. The process runner does not read the exit code, so without this check the empty
-    // parse would be cached and served as a hit; the exception fails the episode for this run
-    // and the next scan retries it.
+    // parse would be cached and served as a hit.
     private static void ThrowIfFilterMissing(string raw)
     {
         var line = raw.Split('\n').FirstOrDefault(l => l.Contains("No such filter", StringComparison.Ordinal));
         if (line is not null)
         {
-            throw new InvalidOperationException("The installed ffmpeg lacks a filter the keyframe scan needs: " + line.Trim());
+            throw new MissingFilterException("The installed ffmpeg lacks a filter the keyframe scan needs: " + line.Trim());
         }
     }
 
@@ -683,6 +697,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Keyframe scan [{Start}, {End}] of \"{File}\" (id {Id})")]
     private static partial void LogKeyframeScan(ILogger logger, double start, double end, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe visuals unavailable, scanning black frames alone for \"{File}\"")]
+    private static partial void LogKeyframeVisualsUnavailable(ILogger logger, Exception ex, string file);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
