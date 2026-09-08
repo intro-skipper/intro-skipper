@@ -360,6 +360,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             return cached;
         }
 
+        if (entryType == CacheEntryType.KeyframeVisual)
+        {
+            LogKeyframeScan(_logger, start, end, episode.Path, episode.EpisodeId);
+        }
+
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();

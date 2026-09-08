@@ -16,6 +16,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -360,8 +361,54 @@ public sealed class TestCacheOperations
 
         episode.Path = "/does/not/exist.mkv";
         var visuals = await service.DetectKeyframeVisualsAsync(episode);
+        double[] times = [.. visuals.Select(visual => visual.Time)];
 
-        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, visual => visual.Time));
+        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, times);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task DetectKeyframeVisualsAsync_LogsCacheMissButNotCacheHit()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        episode.Duration = 330;
+        episode.CreditsFingerprintStart = 5;
+        episode.CreditsFingerprintEnd = 35;
+        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, []);
+        var logger = new ScanLogger();
+        var service = new FFmpegService(logger, scope.CacheService);
+
+        await service.DetectBlackFramesAsync(episode, 32);
+        Assert.Empty(logger.Messages);
+
+        var visuals = await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.NotEmpty(visuals);
+        Assert.Equal($"Keyframe scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+
+        episode.Path = "/does/not/exist.mkv";
+        var cached = await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.Equal(visuals, cached);
+        Assert.Single(logger.Messages);
+    }
+
+    private sealed class ScanLogger : ILogger<FFmpegService>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Debug;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Debug && eventId.Name == "LogKeyframeScan")
+            {
+                Messages.Add(formatter(state, exception));
+            }
+        }
     }
 
     /// <summary>
