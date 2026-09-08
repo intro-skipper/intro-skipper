@@ -39,7 +39,7 @@ internal static class ConfigHasher
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
-            // Frozen at v3 on purpose: the credits pass (ADR-0002) replaced the first-wins chain
+            // Frozen at v3 on purpose: the credits pass replaced the first-wins chain
             // without a bump, because a bump re-fingerprints and re-scans every season a chapter
             // or black frame settled. Seasons analyzed by the chain keep their result until they
             // are rescanned. The prefer token stays for the same reason although the pass does
