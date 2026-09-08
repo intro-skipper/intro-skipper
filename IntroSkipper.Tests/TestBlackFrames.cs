@@ -72,22 +72,6 @@ public class TestBlackFrames
         }
     }
 
-    [Fact]
-    public async Task DetectCreditsAsync_SkipsNonBlackCreditsWhenVisualsFilterIsMissing()
-    {
-        var stub = new StubFFmpegService
-        {
-            CreditsBlackFrames = (_, _) => [],
-            KeyframeVisuals = _ => throw new MissingFilterException("No such filter: 'entropy'"),
-        };
-        var analyzer = new CreditsBlackFrameAnalyzer(NullLogger<CreditsBlackFrameAnalyzer>.Instance, stub, new PluginConfiguration { DetectNonBlackCredits = true });
-
-        var result = await analyzer.DetectCreditsAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "ep", Duration = 1200 }, CancellationToken.None);
-
-        Assert.Null(result);
-        Assert.Equal(1, stub.VisualScanCalls);
-    }
-
     [FactSkipFFmpegTests]
     public async Task TestSeekSampleKeyFrames()
     {

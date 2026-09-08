@@ -79,7 +79,7 @@ public interface IFFmpegService
     /// <remarks>
     /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>
     /// wrote. Decodes on its own only for an episode whose black-frame row predates that shared
-    /// write, or when caching is off.
+    /// write, or when caching is off. Empty when the ffmpeg check found the visuals filters missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>

@@ -84,7 +84,7 @@ internal static partial class FFmpegOutputParser
         var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
          *
-         * Sample output (the index after Parsed_blackframe_ is the filter's position in its chain):
+         * Sample output:
          * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
          * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */

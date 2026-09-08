@@ -376,7 +376,7 @@ public sealed class TestCacheOperations
         episode.CreditsFingerprintEnd = 35;
         scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, []);
         var logger = new ScanLogger();
-        var service = new FFmpegService(logger, scope.CacheService);
+        var service = scope.CreateFFmpegService(logger);
 
         await service.DetectBlackFramesAsync(episode, 32);
         Assert.Empty(logger.Messages);
@@ -384,7 +384,7 @@ public sealed class TestCacheOperations
         var visuals = await service.DetectKeyframeVisualsAsync(episode);
 
         Assert.NotEmpty(visuals);
-        Assert.Equal($"Keyframe scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+        Assert.Equal($"KeyframeVisual scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
 
         episode.Path = "/does/not/exist.mkv";
         var cached = await service.DetectKeyframeVisualsAsync(episode);
@@ -404,7 +404,7 @@ public sealed class TestCacheOperations
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Debug && eventId.Name == "LogKeyframeScan")
+            if (logLevel == LogLevel.Debug && eventId.Name == "LogDetectionScan")
             {
                 Messages.Add(formatter(state, exception));
             }
@@ -432,7 +432,7 @@ public sealed class TestCacheOperations
 
         public string CacheDbPath => _inner.CacheDbPath;
 
-        public FFmpegService CreateFFmpegService() => new(NullLogger<FFmpegService>.Instance, CacheService);
+        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null) => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService);
 
         /// <summary>
         /// The hash a release without audio stream selection wrote on this configuration's

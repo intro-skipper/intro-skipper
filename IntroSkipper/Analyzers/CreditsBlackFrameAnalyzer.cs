@@ -150,19 +150,7 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
     /// <returns>A task that returns the detected credits segment, or <see langword="null" /> when no non-black credits exist.</returns>
     private async Task<Segment?> DetectNonBlackCreditsAsync(QueuedEpisode episode, int minimumDuration, CancellationToken cancellationToken)
     {
-        KeyframeVisual[] visuals;
-        try
-        {
-            visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
-        }
-        catch (MissingFilterException ex)
-        {
-            // A build without the visuals filters loses only this candidate; the others still
-            // settle the episode.
-            LogKeyframeVisualsUnavailable(ex, episode.Name);
-            return null;
-        }
-
+        var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
         var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration);
         if (range is null)
         {
@@ -367,7 +355,4 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Black interval detection unavailable for {Episode}")]
     private partial void LogBlackIntervalDetectionUnavailable(Exception ex, string episode);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe visuals unavailable for {Episode}, non-black credits skipped")]
-    private partial void LogKeyframeVisualsUnavailable(Exception ex, string episode);
 }
