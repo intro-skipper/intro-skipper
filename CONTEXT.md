@@ -23,8 +23,8 @@ One analyzer's proposed time range for an episode's credits before any combinati
 _Avoid_: Detection, hit, match
 
 **Keyframe scan**:
-One decode of the keyframes in an episode's credits window. Its black-frame evidence and keyframe visuals are kept separately, so the decode runs once per episode.
-_Avoid_: Black-frame scan, entropy scan, visuals scan
+One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together.
+_Avoid_: Entropy scan
 
 **Black-frame evidence**:
 The per-keyframe black percentage a keyframe scan reports. The basis for detecting roll credits.

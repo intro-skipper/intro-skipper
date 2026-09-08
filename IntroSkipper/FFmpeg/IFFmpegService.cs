@@ -77,8 +77,9 @@ public interface IFFmpegService
     /// Collects per-keyframe visual statistics (entropy and saturation) for the credits fingerprint range.
     /// </summary>
     /// <remarks>
-    /// Emitted from a single keyframe decode (the same shape as the black-frame scan) so non-black
-    /// credit detection can run without decoding the video a second time per frame.
+    /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>
+    /// wrote. Decodes on its own only for an episode whose black-frame row predates that shared
+    /// write, or when caching is off.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
