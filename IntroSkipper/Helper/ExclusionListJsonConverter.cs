@@ -8,24 +8,19 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Helper;
 
 /// <summary>
-/// JSON converter that writes structured exclusion arrays and reads legacy string values for resilience.
+/// JSON converter that reads and writes an exclusion list as a string array, skipping null items.
 /// </summary>
 public sealed class ExclusionListJsonConverter : JsonConverter<ExclusionList>
 {
     /// <inheritdoc />
     public override ExclusionList Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        var list = new ExclusionList();
-        if (reader.TokenType == JsonTokenType.String)
-        {
-            AddLegacyItems(list, reader.GetString());
-            return list;
-        }
-
         if (reader.TokenType != JsonTokenType.StartArray)
         {
-            throw new JsonException("Expected an exclusion list array or legacy comma-separated string.");
+            throw new JsonException("Expected an exclusion list array.");
         }
+
+        var list = new ExclusionList();
 
         while (reader.Read())
         {
@@ -60,18 +55,5 @@ public sealed class ExclusionListJsonConverter : JsonConverter<ExclusionList>
         }
 
         writer.WriteEndArray();
-    }
-
-    private static void AddLegacyItems(ExclusionList list, string? value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return;
-        }
-
-        foreach (var item in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            list.Add(item);
-        }
     }
 }
