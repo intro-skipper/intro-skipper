@@ -71,11 +71,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Analysis settings =====
 
     /// <summary>
-    /// Gets or sets the comma separated list of series names to exclude from analysis.
-    /// </summary>
-    public string ExcludeSeries { get; set; } = string.Empty;
-
-    /// <summary>
     /// Gets the structured list of series names to exclude from analysis.
     /// </summary>
     public ExclusionList SeriesExclusions { get; init; } = [];
