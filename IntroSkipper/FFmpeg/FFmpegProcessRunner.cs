@@ -105,6 +105,15 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
                 throw new TimeoutException($"ffmpeg process was killed after not exiting within {timeout}ms");
             }
 
+            // Observed only: callers parse whatever was written and cache the result, and a
+            // nonzero exit does not yet say whether that output was usable (a file without an
+            // audio stream fails a fingerprint run this way). The line makes those cases
+            // visible in the log before any caller starts treating an exit code as a failure.
+            if (process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList));
+            }
+
             return ms.ToArray();
         }
         finally
