@@ -420,7 +420,7 @@ public sealed class TestCacheOperations
 
         public CachingPluginScope()
         {
-            _inner = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { CacheFingerprints = true });
+            _inner = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
             CacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(_inner.CacheDbPath);
             CacheService = new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, CacheDatabase);
         }
