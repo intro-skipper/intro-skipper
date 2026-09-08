@@ -20,7 +20,6 @@ public class TestPluginConfiguration
         var serializer = new XmlSerializer(typeof(PluginConfiguration));
         var config = new PluginConfiguration
         {
-            ExcludeSeries = "Legacy Show",
             SeriesExclusions = { "Show, With Comma", "The Office" },
             MovieExclusions = { "Movie, Part 1" },
             PathExclusions = { @"C:\Media, Remote" }
@@ -30,7 +29,6 @@ public class TestPluginConfiguration
         serializer.Serialize(writer, config);
 
         var xml = writer.ToString();
-        Assert.Contains("<ExcludeSeries>Legacy Show</ExcludeSeries>", xml, StringComparison.Ordinal);
         Assert.Contains("<string>Show, With Comma</string>", xml, StringComparison.Ordinal);
         Assert.Contains("<string>Movie, Part 1</string>", xml, StringComparison.Ordinal);
         Assert.Contains(@"<string>C:\Media, Remote</string>", xml, StringComparison.Ordinal);
@@ -38,7 +36,6 @@ public class TestPluginConfiguration
         using var reader = new StringReader(xml);
         var roundTripped = Assert.IsType<PluginConfiguration>(serializer.Deserialize(reader));
 
-        Assert.Equal(config.ExcludeSeries, roundTripped.ExcludeSeries);
         Assert.Equal(config.SeriesExclusions, roundTripped.SeriesExclusions);
         Assert.Equal(config.MovieExclusions, roundTripped.MovieExclusions);
         Assert.Equal(config.PathExclusions, roundTripped.PathExclusions);
@@ -50,7 +47,6 @@ public class TestPluginConfiguration
         var config = JsonSerializer.Deserialize<PluginConfiguration>(
             """
             {
-              "ExcludeSeries": "Legacy Show",
               "SeriesExclusions": ["The Office", "Show, With Comma", null],
               "MovieExclusions": ["The Matrix"],
               "PathExclusions": ["/mnt/remote"]
@@ -58,7 +54,6 @@ public class TestPluginConfiguration
             """);
 
         Assert.NotNull(config);
-        Assert.Equal("Legacy Show", config.ExcludeSeries);
         Assert.Equal(["The Office", "Show, With Comma"], config.SeriesExclusions);
         Assert.Equal(["The Matrix"], config.MovieExclusions);
         Assert.Equal(["/mnt/remote"], config.PathExclusions);
@@ -118,7 +113,6 @@ public class TestPluginConfiguration
     {
         var config = new PluginConfiguration
         {
-            ExcludeSeries = "Legacy Show",
             SeriesExclusions = { "The Office" },
             MovieExclusions = { "The Matrix" },
             PathExclusions = { "/mnt/remote" }
@@ -128,7 +122,6 @@ public class TestPluginConfiguration
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
-        Assert.Equal("Legacy Show", root.GetProperty("ExcludeSeries").GetString());
         Assert.Equal(JsonValueKind.Array, root.GetProperty("SeriesExclusions").ValueKind);
         Assert.Equal("The Office", root.GetProperty("SeriesExclusions")[0].GetString());
         Assert.Equal(JsonValueKind.Array, root.GetProperty("MovieExclusions").ValueKind);

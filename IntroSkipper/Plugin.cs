@@ -69,8 +69,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Creates the plugin data directory when missing.
         IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
 
-        MigrateLegacyExcludeSeries();
-
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
@@ -134,24 +132,4 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();
-
-    private void MigrateLegacyExcludeSeries()
-    {
-        var legacy = Configuration.ExcludeSeries;
-        if (string.IsNullOrWhiteSpace(legacy))
-        {
-            return;
-        }
-
-        if (Configuration.SeriesExclusions.Count == 0)
-        {
-            foreach (var item in legacy.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                Configuration.SeriesExclusions.Add(item);
-            }
-        }
-
-        Configuration.ExcludeSeries = string.Empty;
-        SaveConfiguration();
-    }
 }

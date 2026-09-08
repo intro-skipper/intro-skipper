@@ -12,7 +12,7 @@ async function copyText(text: string): Promise<boolean> {
             return true;
         }
     } catch {
-        /* fall through to the legacy path */
+        /* fall through to the textarea fallback */
     }
 
     const scratch = el("textarea", { readonly: "", "aria-hidden": "true" });
