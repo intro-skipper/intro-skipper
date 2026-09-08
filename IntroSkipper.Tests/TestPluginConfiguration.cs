@@ -5,7 +5,6 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using System.Xml;
 using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using Xunit;
@@ -62,55 +61,6 @@ public class TestPluginConfiguration
         Assert.Equal(["The Office", "Show, With Comma"], config.SeriesExclusions);
         Assert.Equal(["The Matrix"], config.MovieExclusions);
         Assert.Equal(["/mnt/remote"], config.PathExclusions);
-    }
-
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void JsonDeserialization_MigratesFormerAlternativeAnalyzerSetting(
-        bool oldValue,
-        bool expectedLegacyValue)
-    {
-        var config = JsonSerializer.Deserialize<PluginConfiguration>(
-            $$"""{"UseAlternativeBlackFrameAnalyzer":{{oldValue.ToString().ToLowerInvariant()}}}""");
-
-        Assert.NotNull(config);
-        Assert.Equal(expectedLegacyValue, config.UseLegacyBlackFrameAnalyzer);
-    }
-
-    [Fact]
-    public void JsonSerialization_DoesNotWriteFormerAlternativeAnalyzerSetting()
-    {
-        var json = JsonSerializer.Serialize(new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true });
-
-        Assert.DoesNotContain("UseAlternativeBlackFrameAnalyzer", json, StringComparison.Ordinal);
-        Assert.Contains("UseLegacyBlackFrameAnalyzer", json, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void XmlDeserialization_MigratesFormerAlternativeAnalyzerSetting(
-        bool oldValue,
-        bool expectedLegacyValue)
-    {
-        using var reader = new StringReader(
-            $"<PluginConfiguration><UseAlternativeBlackFrameAnalyzer>{XmlConvert.ToString(oldValue)}</UseAlternativeBlackFrameAnalyzer></PluginConfiguration>");
-        var config = Assert.IsType<PluginConfiguration>(new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader));
-
-        Assert.Equal(expectedLegacyValue, config.UseLegacyBlackFrameAnalyzer);
-    }
-
-    [Fact]
-    public void XmlSerialization_DoesNotWriteFormerAlternativeAnalyzerSetting()
-    {
-        using var writer = new StringWriter();
-        new XmlSerializer(typeof(PluginConfiguration)).Serialize(
-            writer,
-            new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true });
-
-        Assert.DoesNotContain("UseAlternativeBlackFrameAnalyzer", writer.ToString(), StringComparison.Ordinal);
-        Assert.Contains("<UseLegacyBlackFrameAnalyzer>true</UseLegacyBlackFrameAnalyzer>", writer.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
