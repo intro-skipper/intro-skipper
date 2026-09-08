@@ -27,8 +27,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     private readonly ILogger<DetectionCacheService> _logger = logger;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
-    private static bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
-
     /// <summary>
     /// Tries to read a cached detection result from the SQLite DB.
     /// </summary>
@@ -53,11 +51,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         string? legacyConfigHash = null)
     {
         result = [];
-
-        if (!IsEnabled)
-        {
-            return false;
-        }
 
         try
         {
@@ -111,11 +104,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         T[] items,
         string? cacheVariant = null)
     {
-        if (!IsEnabled)
-        {
-            return;
-        }
-
         var data = CompressBrotli(items);
         var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
 
@@ -141,11 +129,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
-        if (!IsEnabled)
-        {
-            return false;
-        }
-
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
 
