@@ -9,10 +9,8 @@
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Compression;
-using System.Text.Json.Serialization;
 using System.Xml.Serialization;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
@@ -134,21 +132,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether to use the legacy black frame analyzer.
     /// </summary>
     public bool UseLegacyBlackFrameAnalyzer { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the former alternative analyzer was enabled for configuration migration.
-    /// The old setting selected the modern analyzer, so its value is inverted when mapped to
-    /// <see cref="UseLegacyBlackFrameAnalyzer"/>.
-    /// </summary>
-    [JsonPropertyName("UseAlternativeBlackFrameAnalyzer")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    [DefaultValue(false)]
-    [XmlElement("UseAlternativeBlackFrameAnalyzer")]
-    public bool UseAlternativeBlackFrameAnalyzer
-    {
-        get => false;
-        set => UseLegacyBlackFrameAnalyzer = !value;
-    }
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
