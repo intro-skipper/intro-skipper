@@ -50,7 +50,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}{(config.AnimePreviewFromCreditsEnd ? $"|minPreview={config.MinimumPreviewDuration}" : string.Empty)}",
+                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(

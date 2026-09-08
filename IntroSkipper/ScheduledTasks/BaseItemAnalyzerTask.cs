@@ -212,7 +212,7 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    private async Task AnalyzeItemsAsync(
+    internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
@@ -279,9 +279,21 @@ public partial class BaseItemAnalyzerTask(
             await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
         }
 
-        if (mode == AnalysisMode.Credits && isAnime && Config.AnimePreviewFromCreditsEnd)
+        // Anime previews derive from the credits: right after a credits result lands, and again
+        // in the Preview mode for episodes no preview analyzer settled, since a season whose
+        // credits are all user-provided never enters the credits pass but its derived previews
+        // still go stale when the preview settings change.
+        if (isAnime && Config.AnimePreviewFromCreditsEnd)
         {
-            await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+            if (mode == AnalysisMode.Credits)
+            {
+                await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+            }
+            else if (mode == AnalysisMode.Preview)
+            {
+                List<QueuedEpisode> unsettled = [.. items.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
+                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // Record completed items under this hash, found segments or not. Failed items are omitted so
