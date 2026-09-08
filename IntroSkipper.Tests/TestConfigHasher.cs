@@ -75,9 +75,10 @@ public sealed class TestConfigHasher
         // the chapter-only modes never consult it.
         Case("Introduction analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Introduction), Analysis(defaults, AnalysisMode.Introduction, ffmpegValid: false), false);
         Case("Credits analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Credits), Analysis(defaults, AnalysisMode.Credits, ffmpegValid: false), false);
-        Case("Credits analysis treats the Chapter action as Default", Analysis(defaults, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.Chapter, ffmpegValid: true), true);
         Case("Credits analysis changes with a BlackFrame action", Analysis(defaults, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), false);
-        Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
+        // The string is frozen to what releases before the credits pass wrote, so seasons the
+        // first-wins chain settled stay settled after the upgrade instead of re-scanning.
+        Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "353008E48A5F559E", true);
         Case("Credits analysis ignores the preview minimum; the Preview hash carries it", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
         Case("Preview analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Preview), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);

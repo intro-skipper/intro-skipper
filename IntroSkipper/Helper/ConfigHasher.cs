@@ -39,12 +39,13 @@ internal static class ConfigHasher
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
-            // v4: credits combine every analyzer's candidate, so seasons settled under the
-            // first-wins chain are re-analyzed once after the upgrade. PreferChromaprint is
-            // left out because the credits pass does not read it, and a Chapter action hashes
-            // as Default because chapters always take part in the pass.
+            // Frozen at v3 on purpose: the credits pass (ADR-0002) replaced the first-wins chain
+            // without a bump, because a bump re-fingerprints and re-scans every season a chapter
+            // or black frame settled. Seasons analyzed by the chain keep their result until they
+            // are rescanned. The prefer token stays for the same reason although the pass does
+            // not read PreferChromaprint. A pinned-hash test guards the string.
             AnalysisMode.Credits => Invariant(
-                $"analysis|v4|mode={mode}|action={(action == AnalyzerAction.Chapter ? AnalyzerAction.Default : action)}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
+                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",

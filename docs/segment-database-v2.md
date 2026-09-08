@@ -66,4 +66,4 @@ The rules, all in `CreditsCandidateCombiner` and `CreditsPass`:
 - Every stored segment goes through the same time adjustment once, including the legacy black-frame analyzer's result, which the chain used to store verbatim.
 - An already-analyzed sibling that the chromaprint comparison re-derives a candidate for is re-scanned only when that candidate reaches outside its stored credits.
 - Per-season BlackFrame and Chromaprint actions restrict the pass to that analyzer. Chapter changes nothing, and PreferChromaprint has no effect on credits.
-- The credits config hash token was bumped (v3 to v4) so seasons settled under the chain re-analyze once after the upgrade. Black-frame scans and adjustment probes replay from the detection cache where the window matches; the new cost is one audio decode per episode for the fingerprint.
+- The credits config hash token stays at v3. A bump would re-fingerprint and re-scan every season a chapter or black frame settled, most of an anime library. Seasons analyzed by the chain keep their result until they are rescanned; new episodes and rescanned seasons go through the pass.
