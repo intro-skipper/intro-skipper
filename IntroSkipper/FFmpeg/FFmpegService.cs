@@ -172,20 +172,44 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        // Seek to the start of the time range and get the black level of each frame.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var start = episode.CreditsFingerprintStart;
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, start, 0, out BlackFrame[] cached))
+        {
+            return cached;
+        }
+
+        // One keyframe decode serves both rows. The blackframe filter logs its own lines and
+        // metadata=print logs the entropy and saturation lines, so each parser reads its part
+        // of the same stderr. blackframe only accepts 8-bit input, so ffmpeg converts 10-bit
+        // sources to yuv420p with or without the explicit format filter; the filter pins the
+        // scale the entropy and saturation thresholds are tuned for.
+        var (_, windowEnd) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var window = new TimeRange(start, windowEnd);
+        LogKeyframeScan(_logger, window.Start, window.End, episode.Path, episode.EpisodeId);
         string[] args =
         [
             "-skip_frame", "nokey",
-            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=0:threshold={threshold}",
+            "-vf", $"format=yuv420p,blackframe=amount=0:threshold={threshold},entropy,signalstats,metadata=print",
             "-f", "null", "-",
         ];
 
-        return RunCachedScanAsync(episode, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken);
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
+        var blackFrames = FFmpegOutputParser.ParseBlackFrames(raw);
+        var visuals = ParseKeyframeVisualsInWindow(raw, window);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The black-frame row keeps its end-of-file key; the visuals row is keyed by the
+        // window like the standalone visuals scan writes it.
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, start, 0, blackFrames);
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, visuals);
+        return blackFrames;
     }
 
     /// <inheritdoc/>
@@ -214,11 +238,6 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
-        // requested duration. Clip parsed visuals to the window before caching (times are relative to
-        // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
-        // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
-        // outside the configured scan window.
         return RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
@@ -226,9 +245,17 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.Start,
             range.End,
             args,
-            raw => FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= range.Duration).ToArray(),
+            raw => ParseKeyframeVisualsInWindow(raw, range),
             cancellationToken);
     }
+
+    // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
+    // requested duration) and the keyframe scan runs to end of file, so every writer of a
+    // KeyframeVisual row clips here. Times are relative to the -ss seek, so an in-window frame
+    // falls within [0, window.Duration]; an unclipped run would let FindCreditRange select a
+    // low-entropy run past CreditsFingerprintEnd and persist credits outside the scan window.
+    private static KeyframeVisual[] ParseKeyframeVisualsInWindow(string raw, TimeRange window)
+        => [.. FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= window.Duration)];
 
     /// <inheritdoc/>
     public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
@@ -634,6 +661,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})")]
     private static partial void LogFingerprinting(ILogger logger, double start, double end, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Keyframe scan [{Start}, {End}] of \"{File}\" (id {Id})")]
+    private static partial void LogKeyframeScan(ILogger logger, double start, double end, string file, Guid id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);

@@ -60,12 +60,17 @@ public interface IFFmpegService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds the location of all black frames in a media file starting at a given time.
+    /// Finds the black level of every keyframe from the credits start to the end of the file.
     /// </summary>
+    /// <remarks>
+    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
+    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode
+    /// reads that row instead of decoding again.
+    /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns frames that are mostly black.</returns>
+    /// <returns>A task that returns the black level of each keyframe.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>

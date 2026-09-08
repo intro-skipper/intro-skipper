@@ -337,6 +337,34 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
+    /// One keyframe scan serves both rows. After the black-frame scan of a fresh episode the
+    /// keyframe visuals row for the credits window exists, and the visuals read is served from
+    /// it: the path is broken before that read, so a second decode would fail instead.
+    /// credits.mp4 has a keyframe every 10 s; the window [5, 35] holds three.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectBlackFramesAsync_CachesKeyframeVisualsForTheCreditsWindow()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        episode.Duration = 330;
+        episode.CreditsFingerprintStart = 5;
+        episode.CreditsFingerprintEnd = 35;
+        var service = scope.CreateFFmpegService();
+
+        var blackFrames = await service.DetectBlackFramesAsync(episode, 32);
+
+        Assert.NotEmpty(blackFrames);
+        Assert.Contains(blackFrames, frame => frame.Percentage == 100);
+        Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
+
+        episode.Path = "/does/not/exist.mkv";
+        var visuals = await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, visual => visual.Time));
+    }
+
+    /// <summary>
     /// A plugin instance with fingerprint caching enabled over a fresh cache database,
     /// plus the cache facade and service the ffmpeg service reads through.
     /// </summary>
