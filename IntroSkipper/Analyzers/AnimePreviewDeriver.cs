@@ -53,16 +53,13 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
-            // The credits the preview follows: the user's own credits row when there is one,
-            // otherwise the first credits block. The preview ends where the next credits block
-            // starts (a trailing dubbing or sponsor card) or at the end of the episode.
-            List<DbSegment> creditsBlocks = [.. dbSegments
-                .Where(s => s.Type == AnalysisMode.Credits && s.State == SegmentState.Active)
-                .OrderBy(s => s.StartTicks)];
-            var anchor = creditsBlocks.LastOrDefault(s => s.Source == SegmentSource.User) ?? creditsBlocks.FirstOrDefault();
-            var credits = anchor?.ToSegment();
-            var next = anchor is null ? null : creditsBlocks.FirstOrDefault(s => s.StartTicks >= anchor.EndTicks && s != anchor);
-            var previewEnd = next?.ToSegment().Start ?? episode.Duration;
+            // The preview follows the first credits run and ends where the next run starts (a
+            // trailing dubbing or sponsor card) or at the end of the episode. Rows that touch or
+            // overlap, as adjusted neighbours can, count as one run, and a row's source does not
+            // matter: a card the user edited is still the boundary it was.
+            var runs = CreditsRuns(dbSegments);
+            var credits = runs.FirstOrDefault();
+            var previewEnd = runs.Count > 1 ? runs[1].Start : episode.Duration;
             List<Segment> previews = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Preview)
                 .Select(s => s.ToSegment())];
@@ -88,6 +85,29 @@ internal static class AnimePreviewDeriver
     }
 
     /// <summary>
+    /// Merges the episode's active credits rows into runs: rows that overlap or touch form one.
+    /// </summary>
+    /// <param name="segments">The episode's stored segments.</param>
+    /// <returns>The runs in file seconds, ordered by start.</returns>
+    internal static List<Segment> CreditsRuns(IReadOnlyList<DbSegment> segments)
+    {
+        var runs = new List<Segment>();
+        foreach (var row in segments.Where(s => s.Type == AnalysisMode.Credits && s.State == SegmentState.Active).OrderBy(s => s.StartTicks))
+        {
+            var segment = row.ToSegment();
+            if (runs.Count > 0 && segment.Start <= runs[^1].End)
+            {
+                runs[^1] = new Segment(segment.EpisodeId, new TimeRange(runs[^1].Start, Math.Max(runs[^1].End, segment.End)));
+                continue;
+            }
+
+            runs.Add(segment);
+        }
+
+        return runs;
+    }
+
+    /// <summary>
     /// Decides whether an anime Preview segment needs to be written for an episode, and builds it.
     /// </summary>
     /// <remarks>
@@ -100,7 +120,7 @@ internal static class AnimePreviewDeriver
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
     /// <param name="previewEnd">Where the preview ends in seconds: the next credits block's start, or the episode duration.</param>
-    /// <param name="credits">The credits segment feeding the preview, or <see langword="null"/>.</param>
+    /// <param name="credits">The credits run feeding the preview, or <see langword="null"/>.</param>
     /// <param name="existingPreviews">All current Preview segments of the episode.</param>
     /// <param name="minimumDuration">The minimum preview duration in seconds.</param>
     /// <returns>Segment to write, or <see langword="null"/> when no write is needed.</returns>

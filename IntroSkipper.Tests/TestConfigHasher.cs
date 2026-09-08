@@ -78,6 +78,8 @@ public sealed class TestConfigHasher
         Case("Credits analysis treats the Chapter action as Default", Analysis(defaults, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.Chapter, ffmpegValid: true), true);
         Case("Credits analysis changes with a BlackFrame action", Analysis(defaults, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), false);
         Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the preview minimum without the anime preview", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
+        Case("Credits analysis changes with the preview minimum under the anime preview", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, MinimumPreviewDuration = 30 }, AnalysisMode.Credits), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);

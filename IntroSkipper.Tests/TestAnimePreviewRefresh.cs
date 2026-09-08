@@ -89,7 +89,7 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
-    public async Task DeriveAsync_UserCreditsRow_AnchorsThePreview()
+    public async Task DeriveAsync_UserCreditsRowFirst_AnchorsThePreview()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
@@ -100,6 +100,43 @@ public class TestAnimePreviewRefresh
 
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
         Assert.Equal((960, 1200), (preview.Start, preview.End));
+    }
+
+    [Fact]
+    public async Task DeriveAsync_EditedTrailingCard_StaysTheEndBoundary()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(EpisodeId, new TimeRange(900, 960)), new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))],
+            SegmentSource.BlackFrame);
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        // Saving the trailing card with unchanged boundaries makes it a user row.
+        var trailing = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Credits && s.ToSegment().Start == 1200);
+        await database.UpdateSegmentAsync(EpisodeId, trailing.Id, trailing.StartTicks, trailing.EndTicks);
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
+        Assert.Equal((960, 1200), (preview.Start, preview.End));
+    }
+
+    [Fact]
+    public async Task DeriveAsync_OverlappingCreditsRows_CountAsOneRun()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new AttributedSegment(new Segment(EpisodeId, new TimeRange(898, 960)), SegmentSource.Chapter), new AttributedSegment(new Segment(EpisodeId, new TimeRange(959, 1000)), SegmentSource.BlackFrame)]);
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
+        Assert.Equal((1000, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Fact]
