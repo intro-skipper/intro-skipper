@@ -9,7 +9,7 @@ namespace IntroSkipper.Services;
 
 /// <summary>
 /// Eagerly initializes both plugin databases at server startup so migrations and the
-/// legacy schema repair run before regular traffic. This is an optimization only:
+/// one-time legacy import run before regular traffic. This is an optimization only:
 /// correctness is guaranteed by the initialization gate inside the database facades,
 /// which every operation awaits before touching the database.
 /// </summary>
@@ -46,7 +46,7 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 
         // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
         // or the timeout only abandons this wait; the shared initialization task keeps
-        // running so legacy repair or migration work is never interrupted halfway through.
+        // running so the legacy import or a migration is never interrupted halfway through.
         try
         {
             if (!await WaitForStartupInitializationAsync(
