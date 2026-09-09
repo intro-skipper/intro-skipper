@@ -281,7 +281,8 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(scansBefore + 1, ffmpeg.CreditsScanCalls);
+        // The new episode's keyframe scan and the card analyzer's read of the same row.
+        Assert.Equal(scansBefore + 2, ffmpeg.CreditsScanCalls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).Source);
         for (var i = 0; i < 2; i++)
         {
@@ -339,16 +340,136 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
+    public async Task CardCreditsBeforeTheBlackRoll_AreCombinedWithIt()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyframeVisuals: episode => CardVisualsFrom(episode, BlackStart - 60, Duration));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segment = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+            Assert.Equal((BlackStart - 60, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+        }
+    }
+
+    [Fact]
+    public async Task CardCreditsAlone_AreStoredUnderTheirOwnSource()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            blackFrames: false,
+            keyframeVisuals: episode => CardVisualsFrom(episode, Duration - 60, Duration, blackRoll: false));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((Duration - 60, Duration, SegmentSource.KeyframeVisuals), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+    }
+
+    [Fact]
+    public async Task CardCreditsSeparatedFromTheBlackRoll_AreStoredApart()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyframeVisuals: episode => CardVisualsFrom(episode, 800, 830));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(800, 830, SegmentSource.KeyframeVisuals), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    [Fact]
+    public async Task ShortCardCreditsBeforeAShortBlackRoll_QualifyTogether()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            blackStart: 988,
+            keyframeVisuals: episode => CardVisualsFrom(episode, 976, 986, blackStart: 988));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((976, Duration, SegmentSource.KeyframeVisuals), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+    }
+
+    [Fact]
+    public async Task DarkLeadInBeforeTheBlackRoll_StaysOutOfTheCardCandidate()
+    {
+        // 900 to 940 is 90 percent black and low entropy, 942 to 979.5 is the roll, white cards follow to
+        // the end. The black-frame transition check starts the roll at 942; the card candidate must not
+        // reach back into the lead-in.
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            creditsScan: (_, _) => [.. CreateDenseFrames(350, 391.5, 90), .. CreateDenseFrames(392, 429.5, 100)],
+            keyframeVisuals: DarkLeadInVisuals);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((942, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+    }
+
+    [Fact]
+    public async Task MixedCardRunBeforeASeparateBlackRoll_IsStoredBesideIt()
+    {
+        // White cards 560 to 570, black cards 572 to 590, content, then the default roll. The
+        // black-frame analyzer accepts both black scenes and returns the roll; the earlier scene still
+        // lets the mixed run qualify as its own segment.
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            creditsScan: (_, _) => [.. CreateDenseFrames(22, 40, 100), .. CreateDenseFrames(400, 449.5, 100)],
+            keyframeVisuals: MixedRunVisuals);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(560, 590, SegmentSource.KeyframeVisuals), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    [Fact]
+    public async Task DetectNonBlackCreditsOff_IgnoresCardCredits()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyframeVisuals: episode => CardVisualsFrom(episode, BlackStart - 60, Duration));
+        var config = new PluginConfiguration { DetectNonBlackCredits = false };
+
+        await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((BlackStart, Duration, SegmentSource.BlackFrame), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+    }
+
+    [Fact]
+    public async Task BlackFrameAction_KeepsTheCardCandidate()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyframeVisuals: episode => CardVisualsFrom(episode, BlackStart - 60, Duration));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
+
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((BlackStart - 60, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
+    }
+
+    [Fact]
     public async Task LegacyBlackFrameAnalyzer_FeedsThePassUnderItsToggle()
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
         var (episodes, ffmpeg, database) = CreateSeason(
-            rangeScan: (_, range, _, _, _) => range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : []);
+            rangeScan: (_, range, _, _, _) => range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : [],
+            keyframeVisuals: episode => CardVisualsFrom(episode, BlackStart - 60, Duration));
         var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false };
-        var pass = new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, config);
 
-        await pass.RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+        await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
         var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
         Assert.Equal([SegmentSource.Chapter, SegmentSource.BlackFrame], segments.Select(s => s.Source).ToList());
         Assert.Equal((900, 950), (segments[0].ToSegment().Start, segments[0].ToSegment().End));
@@ -400,8 +521,8 @@ public sealed class TestCreditsPass
     private static ChapterInfo Chapter(string name, double start)
         => new() { Name = name, StartPositionTicks = TimeSpan.FromSeconds(start).Ticks };
 
-    private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IIntroSkipperDatabase database, DetectionCacheService? cache = null)
-        => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, new PluginConfiguration());
+    private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IIntroSkipperDatabase database, DetectionCacheService? cache = null, PluginConfiguration? config = null)
+        => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration());
 
     /// <summary>
     /// A two-episode season over the stub. Black frames sit at 950 to 999.5 in file time and the
@@ -415,7 +536,8 @@ public sealed class TestCreditsPass
         int sharedAudioLastPoint = DefaultSharedAudioLastPoint,
         Func<QueuedEpisode, Exception?>? fingerprintFailure = null,
         Func<QueuedEpisode, int, BlackFrame[]>? creditsScan = null,
-        Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? rangeScan = null)
+        Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? rangeScan = null,
+        Func<QueuedEpisode, KeyframeVisual[]>? keyframeVisuals = null)
     {
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
@@ -426,7 +548,7 @@ public sealed class TestCreditsPass
                 ? throw failure
                 : SharedAudioFingerprint(episode, sharedAudioLastPoint),
             CreditsBlackFrames = creditsScan ?? ((episode, _) => blackFrames ? BlackFramesFrom(episode, blackStart, blackEnd) : []),
-            KeyframeVisuals = _ => [],
+            KeyframeVisuals = keyframeVisuals ?? (_ => []),
             RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
             Silence = (_, _, _) => [],
             KeyFrames = (_, _, _) => [],
@@ -450,6 +572,56 @@ public sealed class TestCreditsPass
 
     private static BlackFrame[] BlackFramesFrom(QueuedEpisode episode, double blackStart = BlackStart, double blackEnd = Duration - 0.5)
         => CreateDenseFrames(Math.Max(0, blackStart - episode.CreditsFingerprintStart), blackEnd - episode.CreditsFingerprintStart, 95);
+
+    private static KeyframeVisual[] MixedRunVisuals(QueuedEpisode episode)
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= episode.Duration - episode.CreditsFingerprintStart; time += 2)
+        {
+            var fileTime = time + episode.CreditsFingerprintStart;
+            visuals.Add(
+                fileTime is >= 560 and <= 570 ? new KeyframeVisual(time, 0.12, 30)
+                : fileTime is >= 572 and <= 590 || fileTime is >= BlackStart and <= Duration - 0.5 ? new KeyframeVisual(time, 0.0, 0.0)
+                : new KeyframeVisual(time, 0.55, 108));
+        }
+
+        return [.. visuals];
+    }
+
+    private static KeyframeVisual[] DarkLeadInVisuals(QueuedEpisode episode)
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= episode.Duration - episode.CreditsFingerprintStart; time += 2)
+        {
+            var fileTime = time + episode.CreditsFingerprintStart;
+            visuals.Add(
+                fileTime is >= 900 and <= 979.5 ? new KeyframeVisual(time, 0.1, 0)
+                : fileTime >= 980 ? new KeyframeVisual(time, 0.12, 30)
+                : new KeyframeVisual(time, 0.55, 108));
+        }
+
+        return [.. visuals];
+    }
+
+    /// <summary>
+    /// Keyframe visuals every two seconds across the credits window: busy content outside the card
+    /// range, a uniform card inside it, black where the default roll's black frames sit, relative to
+    /// the credits window start like the scan reports them.
+    /// </summary>
+    private static KeyframeVisual[] CardVisualsFrom(QueuedEpisode episode, double cardStart, double cardEnd, bool blackRoll = true, double blackStart = BlackStart)
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= episode.Duration - episode.CreditsFingerprintStart; time += 2)
+        {
+            var fileTime = time + episode.CreditsFingerprintStart;
+            visuals.Add(
+                blackRoll && fileTime >= blackStart && fileTime <= Duration - 0.5 ? new KeyframeVisual(time, 0.0, 0.0)
+                : fileTime >= cardStart && fileTime <= cardEnd ? new KeyframeVisual(time, 0.12, 30)
+                : new KeyframeVisual(time, 0.55, 108));
+        }
+
+        return [.. visuals];
+    }
 
     /// <summary>
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
