@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 Capy Agent
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Data;

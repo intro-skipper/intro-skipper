@@ -1,4 +1,6 @@
-// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-FileCopyrightText: 2026 Claude Fable 5
 // SPDX-License-Identifier: GPL-3.0-only
 
 using Microsoft.EntityFrameworkCore;

@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-FileCopyrightText: 2024 Xameon42
+// SPDX-FileCopyrightText: 2026 Claude Fable 5
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Net.Mime;
