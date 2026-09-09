@@ -1,6 +1,4 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
-// SPDX-FileCopyrightText: 2026 Capy Agent
-// SPDX-FileCopyrightText: 2026 Claude Fable 5
 // SPDX-License-Identifier: GPL-3.0-only
 namespace IntroSkipper.Tests;
 
