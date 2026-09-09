@@ -151,7 +151,7 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
     private async Task<Segment?> DetectNonBlackCreditsAsync(QueuedEpisode episode, int minimumDuration, CancellationToken cancellationToken)
     {
         var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
-        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration);
+        var range = CreditsCardAnalyzer.FindCreditRange(visuals, minimumDuration);
         if (range is null)
         {
             return null;
