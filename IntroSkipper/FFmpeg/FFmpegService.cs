@@ -40,7 +40,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     ];
 
     // Probed after the requirements. These filters only feed keyframe visuals, so a build
-    // without them keeps every other scan and loses non-black credits detection.
+    // without them keeps every other scan and loses card credits detection.
     private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
     [
         ("entropy", "entropy options"),
