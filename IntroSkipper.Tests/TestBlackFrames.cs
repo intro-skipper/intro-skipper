@@ -974,11 +974,11 @@ public class TestBlackFrames
     [InlineData(0.12, 200.0, false)] // vivid saturated colour -> not a card
     public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
     {
-        Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+        Assert.Equal(expected, CreditsCardAnalyzer.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
     }
 
     // Each row: keyframe visuals, minimum credit duration, expected (Start, End) or null.
-    public static TheoryData<KeyframeVisual[], int, (double Start, double End)?> EntropyFallbackCases => new()
+    public static TheoryData<KeyframeVisual[], int, (double Start, double End)?> CardCreditsCases => new()
     {
         // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
         { Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54)), 15, (0, 20) },
@@ -1039,7 +1039,7 @@ public class TestBlackFrames
         // Dark (low luma) but detailed content is high entropy, like a night scene -> not a card.
         { [.. Times(0, 58, 2).Select(t => new KeyframeVisual(t, 0.63, 50))], 15, null },
 
-        // Uniform but vividly saturated frames are excluded on purpose (see CreditEntropyFallback).
+        // Uniform but vividly saturated frames are excluded on purpose (see CreditsCardAnalyzer).
         { CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200), 15, null },
 
         // All busy content -> null.
@@ -1047,10 +1047,10 @@ public class TestBlackFrames
     };
 
     [Theory]
-    [MemberData(nameof(EntropyFallbackCases))]
-    public void TestCreditEntropyFallback_FindCreditRange(KeyframeVisual[] visuals, int minimumDuration, (double Start, double End)? expected)
+    [MemberData(nameof(CardCreditsCases))]
+    public void TestCreditsCardAnalyzer_FindCreditRange(KeyframeVisual[] visuals, int minimumDuration, (double Start, double End)? expected)
     {
-        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration);
+        var range = CreditsCardAnalyzer.FindCreditRange(visuals, minimumDuration);
 
         if (expected is null)
         {

@@ -6,18 +6,20 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Detects non-black end credits from per-keyframe visual statistics when the black-frame scan
-/// finds nothing. Credits rendered on a near-uniform card (text on black, colour, or white) show a
-/// sustained low-entropy background that busy content and dark non-credit scenes never produce.
+/// Detects credits on a near-uniform low-saturation card from keyframe visuals. Text on black,
+/// white, grey or a muted colour card shows a sustained low-entropy background that busy content
+/// and dark non-credit scenes never produce. Black keyframes are the black-frame analyzer's
+/// evidence and are ignored here, so a run next to a black roll ends at the last non-black card;
+/// the credits pass combines the result with the black-frame candidate.
 /// </summary>
-internal static class CreditEntropyFallback
+internal static class CreditsCardAnalyzer
 {
     private const double IsolatedCardTrimGapMultiplier = 2.5;
     private const double EntropyCreditMaximum = 0.35;
 
     // Vivid/saturated uniform frames are excluded on purpose: a solid-colour content frame (a fade,
     // stylised transition, or saturated sky) is indistinguishable from a saturated colour card by
-    // entropy + saturation alone, so admitting them would cost the fallback's zero-false-positive
+    // entropy + saturation alone, so admitting them would cost the card analyzer's zero-false-positive
     // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
     private const double SaturationCreditMaximum = 96.0;
     private const double MinimumCardFraction = 0.5;

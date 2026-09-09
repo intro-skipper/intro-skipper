@@ -44,5 +44,10 @@ public enum SegmentSource
     /// <summary>
     /// Built by the credits pass from overlapping or adjacent candidates of more than one analyzer.
     /// </summary>
-    Combined = 6
+    Combined = 6,
+
+    /// <summary>
+    /// Detected from keyframe visuals: credits on a near-uniform low-saturation card.
+    /// </summary>
+    KeyframeVisuals = 7
 }
