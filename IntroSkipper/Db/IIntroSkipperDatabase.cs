@@ -234,6 +234,19 @@ public interface IIntroSkipperDatabase
     Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Atomically adopts completed analysis and its active automatic segments under a
+    /// compatible hash. Only records still carrying the previous hash are updated;
+    /// missing or reset records are never recreated. Segment payloads stay unchanged.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="itemIds">Previously completed item IDs.</param>
+    /// <param name="previousHash">Recognized legacy hash.</param>
+    /// <param name="currentHash">Compatible current hash.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of completion records updated.</returns>
+    Task<int> UpgradeAnalysisHashAsync(AnalysisMode mode, IReadOnlyCollection<Guid> itemIds, string previousHash, string currentHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the season-state keys that are not part of <paramref name="retainedSeasonIds"/>,
     /// so cleanup can decide per key whether the season is gone or merely missing from an
     /// enumeration that skipped its library.

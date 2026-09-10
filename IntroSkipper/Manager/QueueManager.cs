@@ -521,6 +521,11 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
         var policy = ExclusionPolicy.FromConfiguration(plugin.Configuration);
         var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        if (await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, plugin.Configuration, cancellationToken).ConfigureAwait(false))
+        {
+            snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        }
+
         var verifier = new QueueVerifier(plugin.Configuration, modes, snapshot, ffmpegValid);
 
         foreach (var candidate in candidates)
