@@ -16,6 +16,7 @@ using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Model.Entities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -77,18 +78,18 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, true)]
     [InlineData(AnalysisMode.Recap, false)]
     [InlineData(AnalysisMode.Introduction, false, 22)]
-    [InlineData(AnalysisMode.Credits, false, 22)]
-    [InlineData(AnalysisMode.Credits, true, 22)]
+    [InlineData(AnalysisMode.Credits, false, 22, false)]
+    [InlineData(AnalysisMode.Credits, true, 22, false)]
     [InlineData(AnalysisMode.Recap, false, 22)]
-    [InlineData(AnalysisMode.Preview, false, 22)]
+    [InlineData(AnalysisMode.Preview, false, 22, false)]
     [InlineData(AnalysisMode.Commercial, false, 22)]
     [InlineData(AnalysisMode.Introduction, false, 23)]
-    [InlineData(AnalysisMode.Credits, false, 23)]
-    [InlineData(AnalysisMode.Credits, true, 23)]
+    [InlineData(AnalysisMode.Credits, false, 23, false)]
+    [InlineData(AnalysisMode.Credits, true, 23, false)]
     [InlineData(AnalysisMode.Recap, false, 23)]
-    [InlineData(AnalysisMode.Preview, false, 23)]
+    [InlineData(AnalysisMode.Preview, false, 23, false)]
     [InlineData(AnalysisMode.Commercial, false, 23)]
-    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24)
+    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24, bool compatible = true)
     {
         var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
@@ -131,14 +132,18 @@ public sealed class TestLegacyAnalysisCompatibility
             var verified = await queue.VerifyQueueAsync(candidates, [mode]);
 
             Assert.Equal(3, verified.Count);
-            Assert.Equal(EpisodeState.Analyzed, verified[0].GetAnalyzed(mode));
-            Assert.Equal(EpisodeState.NoSegments, verified[1].GetAnalyzed(mode));
+            Assert.Equal(compatible ? EpisodeState.Analyzed : EpisodeState.NotAnalyzed, verified[0].GetAnalyzed(mode));
+            Assert.Equal(compatible ? EpisodeState.NoSegments : EpisodeState.NotAnalyzed, verified[1].GetAnalyzed(mode));
             Assert.Equal(EpisodeState.UserProvided, verified[2].GetAnalyzed(mode));
             var states = await database.GetSettleReanalysisStatesAsync(seasonId);
             Assert.True(SeasonReanalysisPlanner.IsSettledForReanalysis(verified, config, DateTime.UtcNow));
             Assert.Empty(SeasonReanalysisPlanner.GetSettleReanalysisModes(states, ids, [mode], true));
-            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, database);
-            await task.AnalyzeItemsAsync(verified, mode, action, true, CancellationToken.None);
+            if (compatible)
+            {
+                var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, database);
+                await task.AnalyzeItemsAsync(verified, mode, action, true, CancellationToken.None);
+            }
+
             Assert.Equal(0, ffmpeg.FingerprintCalls);
             Assert.Equal(0, ffmpeg.CreditsScanCalls);
             Assert.Equal(0, ffmpeg.RangeScanCalls);
@@ -151,10 +156,11 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.Equal(original.EndTicks, segment.EndTicks);
             Assert.Equal(original.UpdatedAt, segment.UpdatedAt);
             Assert.Equal(SegmentSource.Unknown, segment.Source);
-            Assert.Equal(currentHash, segment.ConfigHash);
-            Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(ids, mode, currentHash));
+            var expectedHash = compatible ? currentHash : legacyHash;
+            Assert.Equal(expectedHash, segment.ConfigHash);
+            Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(ids, mode, expectedHash));
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, ids);
-            Assert.All(snapshot.AnalyzedConfigHashes.Values, hash => Assert.Equal(currentHash, hash));
+            Assert.All(snapshot.AnalyzedConfigHashes.Values, hash => Assert.Equal(expectedHash, hash));
             Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(database, snapshot, config));
             Assert.Equal(legacyBytes, await File.ReadAllBytesAsync(legacyPath));
 
@@ -255,10 +261,90 @@ public sealed class TestLegacyAnalysisCompatibility
         await temp.Database.MarkItemsAnalyzedAsync(mode, [id], hash);
         var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
 
-        Assert.True(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+        Assert.Equal(mode == AnalysisMode.Commercial, await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
-        Assert.Equal(ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true), snapshot.AnalyzedConfigHashes[(id, mode)]);
+        Assert.Equal(mode == AnalysisMode.Commercial ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalyzedConfigHashes[(id, mode)]);
+    }
+
+    [Theory]
+    [InlineData(22)]
+    [InlineData(23)]
+    [InlineData(24)]
+    public async Task DisablingDerivedPreviews_RetiresImportedPreview(int release)
+    {
+        var oldConfig = new PluginConfiguration { AnimePreviewFromCreditsEnd = true };
+        var config = new PluginConfiguration { AnimePreviewFromCreditsEnd = false };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var legacyPath = Path.Combine(directory, "introskipper.db");
+        var databasePath = Path.Combine(directory, "introskipper-v2.db");
+        var mediaPath = Path.Combine(directory, "episode.mkv");
+        await File.WriteAllBytesAsync(mediaPath, []);
+        try
+        {
+            var id = Guid.NewGuid();
+            var seasonId = Guid.NewGuid();
+            var previewHash = LegacyAnalysisCompatibility.AnalysisHash(oldConfig, AnalysisMode.Preview, AnalyzerAction.Default, true, false, release);
+            var creditsHash = LegacyAnalysisCompatibility.AnalysisHash(oldConfig, AnalysisMode.Credits, AnalyzerAction.Default, true, false, release);
+            var ids = JsonSerializer.Serialize(new[] { id });
+            LegacySchemaFixtures.CreateV5(
+                legacyPath,
+                [new(id, 1200, 1260, (int)AnalysisMode.Credits, ConfigHash: creditsHash), new(id, 1260, 1320, (int)AnalysisMode.Preview, ConfigHash: creditsHash)],
+                [new(seasonId, (int)AnalysisMode.Preview, (int)AnalyzerAction.Default, ids, previewHash, ids), new(seasonId, (int)AnalysisMode.Credits, (int)AnalyzerAction.Default, ids, creditsHash, ids)]);
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(databasePath);
+            await database.InitializeAsync();
+            var library = EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(id, Guid.NewGuid(), seasonId, path: mediaPath));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
+            var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
+            var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Duration = 1320, Category = QueuedMediaCategory.AnimeEpisode };
+            var queue = new QueueManager(NullLogger<QueueManager>.Instance, library, null!, null!, ffmpeg, database);
+
+            Assert.Single(await queue.VerifyQueueAsync([candidate], [AnalysisMode.Preview]));
+            Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Preview));
+            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, database);
+            await task.AnalyzeItemsAsync([candidate], AnalysisMode.Preview, AnalyzerAction.Default, true, CancellationToken.None);
+
+            Assert.Equal(AnalysisMode.Credits, Assert.Single(await database.GetSegmentsAsync(id)).Type);
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+            Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true), snapshot.AnalyzedConfigHashes[(id, AnalysisMode.Preview)]);
+            Assert.Equal(0, ffmpeg.FingerprintCalls);
+            Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(databasePath);
+            DatabaseTestHelpers.DeleteSqliteFiles(legacyPath);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(22, false)]
+    [InlineData(22, true)]
+    [InlineData(23, false)]
+    [InlineData(23, true)]
+    [InlineData(24, false)]
+    [InlineData(24, true)]
+    public async Task ReturningCreditsMinimumToDefault_DoesNotAdoptOldNegativeResult(int release, bool alternative)
+    {
+        using var temp = new TempSegmentDb();
+        var oldConfig = new PluginConfiguration { MinimumIntroDuration = 60 };
+        var config = new PluginConfiguration();
+        var id = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var hash = LegacyAnalysisCompatibility.AnalysisHash(oldConfig, AnalysisMode.Credits, AnalyzerAction.Default, true, alternative, release);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [id], hash);
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+
+        Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+        Assert.Equal(hash, snapshot.AnalyzedConfigHashes[(id, AnalysisMode.Credits)]);
+        var candidate = new QueuedEpisode { EpisodeId = id };
+        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true).Classify(candidate);
+        Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
     }
 
     [Theory]

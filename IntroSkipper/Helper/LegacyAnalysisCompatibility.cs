@@ -46,8 +46,7 @@ internal static class LegacyAnalysisCompatibility
                 foreach (var release in new[] { 22, 23, 24 })
                 {
                     if (release < 24 && (config.IncludeIntroStartOffsetWhenSnapping
-                        || (mode == AnalysisMode.Credits && config.MinimumIntroDuration != PluginConfiguration.DefaultMinimumIntroDuration)
-                        || (mode == AnalysisMode.Preview && config.AnimePreviewFromCreditsEnd)))
+                        || mode is AnalysisMode.Credits or AnalysisMode.Preview))
                     {
                         continue;
                     }
