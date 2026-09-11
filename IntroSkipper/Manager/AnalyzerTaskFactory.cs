@@ -3,6 +3,7 @@
 
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Integrations;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -25,6 +26,7 @@ namespace IntroSkipper.Manager;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
+/// <param name="skipMe">Optional SkipMe analyzer registration.</param>
 public class AnalyzerTaskFactory(
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
@@ -32,7 +34,8 @@ public class AnalyzerTaskFactory(
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    IIntroSkipperDatabase database)
+    IIntroSkipperDatabase database,
+    SkipMeIntegration? skipMe = null)
 {
     /// <summary>
     /// Creates a fresh queue manager for one enumeration run.
@@ -45,7 +48,8 @@ public class AnalyzerTaskFactory(
             providerManager,
             fileSystem,
             ffmpegService,
-            database);
+            database,
+            skipMe);
 
     /// <summary>
     /// Creates a fresh analyzer task for one analysis run.

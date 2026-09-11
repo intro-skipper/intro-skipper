@@ -8,6 +8,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using IntroSkipper.Integrations;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
@@ -33,7 +34,8 @@ namespace IntroSkipper.Manager;
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
-internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService, IIntroSkipperDatabase database)
+/// <param name="skipMe">Optional SkipMe analyzer registration.</param>
+internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService, IIntroSkipperDatabase database, SkipMeIntegration? skipMe = null)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IFileSystem _fileSystem = fileSystem;
@@ -41,6 +43,7 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
     private readonly ILogger<QueueManager> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IIntroSkipperDatabase _database = database;
+    private readonly SkipMeIntegration? _skipMe = skipMe;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
 
     // Queue key of the first episode queued per (series, aired season), so in-season
@@ -533,7 +536,8 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var path = plugin.GetItem(candidate.EpisodeId)?.Path;
+                var item = plugin.GetItem(candidate.EpisodeId);
+                var path = item?.Path;
 
                 if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 {
@@ -551,8 +555,9 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
                 }
 
                 candidate.Path = path;
-                verified.Add(candidate);
+                candidate.SkipMe = _skipMe is null ? null : await _skipMe.ReadAsync(item!, candidate.Duration, cancellationToken).ConfigureAwait(false);
                 verifier.Classify(candidate);
+                verified.Add(candidate);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

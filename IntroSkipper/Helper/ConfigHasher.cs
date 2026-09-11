@@ -82,6 +82,11 @@ internal static class ConfigHasher
         return ComputeHash(input);
     }
 
+    internal static string WithSkipMe(string analysisHash, AnalysisMode mode, AnalyzerAction action, SkipMeSnapshot? snapshot)
+        => action != AnalyzerAction.None && snapshot?.HasSegments(mode) == true
+            ? ComputeHash($"{analysisHash}|skipme-v1|{snapshot.GetHashInput(mode)}")
+            : analysisHash;
+
     /// <summary>
     /// Computes a hash for FFmpeg detection cache rows.
     /// </summary>
