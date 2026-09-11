@@ -174,10 +174,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <summary>
-    /// Deletes settings-sensitive detection rows whose configuration hash no read path can
-    /// accept under the current plugin configuration. Chromaprint rows are retained because
-    /// their points are independent of those processing settings and their stream/range are
-    /// validated by the fingerprint read path.
+    /// Deletes detection rows whose configuration hash no read path can accept under the
+    /// current plugin configuration. Stream-scoped Chromaprint rows and recognized legacy
+    /// Chromaprint hashes are included in the accepted set, so processing-setting changes
+    /// do not discard reusable fingerprints.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>

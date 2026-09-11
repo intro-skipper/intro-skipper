@@ -157,12 +157,8 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         // EF.Parameter binds the accepted set as a single JSON parameter (json_each), so
         // the delete is one statement regardless of how many hashes are accepted.
-        // Chromaprint points are independent of the settings used to compare them.
-        // Keep those rows even when an older release stamped them with a settings hash;
-        // the fingerprint read path validates the effective stream before reuse.
         return await DeleteWhereAsync(
-            e => e.Type != CacheEntryType.Chromaprint
-                && e.ConfigHash != string.Empty
+            e => e.ConfigHash != string.Empty
                 && !e.ConfigHash.StartsWith(acceptedHashPrefix)
                 && !EF.Parameter(hashes).Contains(e.ConfigHash),
             cancellationToken).ConfigureAwait(false);
