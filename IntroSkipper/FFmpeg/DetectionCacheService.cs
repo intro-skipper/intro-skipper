@@ -66,9 +66,21 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             }
 
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
-            if (!string.IsNullOrEmpty(entry.ConfigHash)
-                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                && !string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
+            var hashMatches = string.IsNullOrEmpty(entry.ConfigHash)
+                || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                || string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal);
+
+            // Chromaprint rows contain raw fingerprint points.  Older releases also put
+            // processing settings in their hash, so a changed comparison setting must not
+            // discard an otherwise valid fingerprint. Stream-scoped rows are accepted only
+            // when their effective stream matches; unscoped rows must match the explicitly
+            // recognized legacy hash supplied by the fingerprint caller.
+            if (!hashMatches && type == CacheEntryType.Chromaprint)
+            {
+                hashMatches = ConfigHasher.IsStreamScopedDetectionCacheHashFor(entry.ConfigHash, cacheVariant);
+            }
+
+            if (!hashMatches)
             {
                 return false;
             }
@@ -126,7 +138,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// </summary>
     /// <param name="episode">The queued episode to check.</param>
     /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
-    /// <remarks>Stream-scoped entries are considered present here; the fingerprint read validates the exact stream and configuration before reuse.</remarks>
+    /// <remarks>Rows are considered present here; the fingerprint read validates the effective stream before reuse.</remarks>
     /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
@@ -147,19 +159,11 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var config = Plugin.Instance?.Configuration ?? new();
-            var expectedHash = ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, rowMode);
-
-            // Stream-scoped and pre-stream-selection rows are accepted optimistically: whether
-            // the effective stream still matches is only decided at read time, and a mismatch
-            // there just refingerprints the episode. Rejecting them here would drop an
-            // already-analyzed episode out of the Chromaprint comparison pool without ever
-            // refingerprinting it. The legacy hash is computed last, only for rows the cheap
-            // checks did not settle; this runs per episode in the analyzer's queue filter.
-            return string.IsNullOrEmpty(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, rowMode), StringComparison.Ordinal);
+            // Whether the effective stream still matches is decided by FingerprintAsync,
+            // which probes the media before reading. A row is therefore enough to keep an
+            // analyzed episode in the comparison pool; a stream mismatch merely causes one
+            // fresh fingerprint instead of silently dropping the episode from analysis.
+            return true;
         }
         catch (DbException ex)
         {
@@ -170,11 +174,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <summary>
-    /// Deletes cache rows whose configuration hash no read path can accept under the current
-    /// plugin configuration: superseded hash inputs and hashes of settings values that have
-    /// since changed. Rows with an empty hash and stream-scoped rows are kept, mirroring the optimistic
-    /// acceptance of the read paths. A row deleted here would be refingerprinted anyway;
-    /// the cost of a false delete is one recomputation, never lost analysis results.
+    /// Deletes detection rows whose configuration hash no read path can accept under the
+    /// current plugin configuration. Stream-scoped Chromaprint rows and recognized legacy
+    /// Chromaprint hashes are included in the accepted set, so processing-setting changes
+    /// do not discard reusable fingerprints.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>

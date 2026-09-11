@@ -21,6 +21,11 @@ internal static class ConfigHasher
     public const string StreamScopedDetectionCacheHashPrefix = "audio-stream-v1|";
 
     /// <summary>
+    /// Cache identity used when FFmpeg's default audio stream is the effective stream.
+    /// </summary>
+    public const string DefaultAudioStreamCacheVariant = "policy=most-channels";
+
+    /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
@@ -94,22 +99,31 @@ internal static class ConfigHasher
     /// <param name="type">Cache entry type.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="audioStreamIdentity">Effective audio stream identity for Chromaprint entries.</param>
-    /// <returns>A compact hash, or a stream-scoped cache key for Chromaprint entries with an identity.</returns>
+    /// <returns>A compact hash for settings-sensitive scans, or a stream-scoped fingerprint key for Chromaprint entries.</returns>
     public static string DetectionCache(
         PluginConfiguration config,
         CacheEntryType type,
         AnalysisMode mode,
         string? audioStreamIdentity)
     {
-        var streamToken = type == CacheEntryType.Chromaprint && !string.IsNullOrWhiteSpace(audioStreamIdentity)
-            ? FormattableString.Invariant($"|audioStream={audioStreamIdentity}")
-            : ChromaprintStreamToken(config);
+        ArgumentNullException.ThrowIfNull(config);
+
+        // A fingerprint is the raw description of a media range.  AnalysisPercent,
+        // fingerprint comparison tolerances, probe settings and similar options only
+        // change how those points are consumed.  The range is already part of the cache
+        // key, and the effective audio stream is the only remaining input to the bytes.
+        if (type == CacheEntryType.Chromaprint)
+        {
+            var streamIdentity = string.IsNullOrWhiteSpace(audioStreamIdentity)
+                ? DefaultAudioStreamCacheVariant
+                : audioStreamIdentity;
+            var fingerprintHash = ComputeHash(Invariant(
+                $"fingerprint|v1|{type}|{mode}|audioStream={streamIdentity}"));
+            return StreamScopedDetectionCacheHashPrefix + FormattableString.Invariant($"{streamIdentity}|{fingerprintHash}");
+        }
 
         var input = type switch
         {
-            CacheEntryType.Chromaprint => Invariant(
-                $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}{streamToken}"),
-
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
@@ -127,9 +141,28 @@ internal static class ConfigHasher
         };
 
         var hash = ComputeHash(input);
-        return type == CacheEntryType.Chromaprint && !string.IsNullOrWhiteSpace(audioStreamIdentity)
-            ? StreamScopedDetectionCacheHashPrefix + FormattableString.Invariant($"{audioStreamIdentity}|{hash}")
-            : hash;
+        return hash;
+    }
+
+    /// <summary>
+    /// Gets a value indicating whether a stream-scoped hash belongs to the requested
+    /// effective stream. The hash suffix is deliberately ignored so rows written by
+    /// releases whose fingerprint hash also included processing settings remain usable.
+    /// </summary>
+    /// <param name="cacheHash">Stored cache hash.</param>
+    /// <param name="audioStreamIdentity">Effective stream identity, or <see langword="null"/> for FFmpeg's default.</param>
+    /// <returns><see langword="true"/> when the stored row uses the same effective stream.</returns>
+    public static bool IsStreamScopedDetectionCacheHashFor(string? cacheHash, string? audioStreamIdentity)
+    {
+        if (!TryGetStreamScopedDetectionCacheVariant(cacheHash, out var storedVariant))
+        {
+            return false;
+        }
+
+        var expectedVariant = string.IsNullOrWhiteSpace(audioStreamIdentity)
+            ? DefaultAudioStreamCacheVariant
+            : audioStreamIdentity;
+        return string.Equals(storedVariant, expectedVariant, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -140,8 +173,8 @@ internal static class ConfigHasher
     /// </summary>
     /// <remarks>
     /// WARNING: never modify this input string. It is frozen to what older releases wrote;
-    /// any change silently invalidates every fingerprint cached by those releases and drops
-    /// their episodes out of the comparison pool. A pinned-hash test guards it.
+    /// it remains an explicit compatibility path for their default-stream rows. A pinned-hash
+    /// test guards it.
     /// </remarks>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -157,6 +190,25 @@ internal static class ConfigHasher
     /// <returns><see langword="true"/> when the hash includes an audio stream identity.</returns>
     public static bool IsStreamScopedDetectionCacheHash(string? cacheHash)
         => cacheHash?.StartsWith(StreamScopedDetectionCacheHashPrefix, StringComparison.Ordinal) == true;
+
+    private static bool TryGetStreamScopedDetectionCacheVariant(string? cacheHash, out string variant)
+    {
+        variant = string.Empty;
+        if (!IsStreamScopedDetectionCacheHash(cacheHash))
+        {
+            return false;
+        }
+
+        var value = cacheHash![StreamScopedDetectionCacheHashPrefix.Length..];
+        var separator = value.LastIndexOf('|');
+        if (separator <= 0)
+        {
+            return false;
+        }
+
+        variant = value[..separator];
+        return true;
+    }
 
     /// <summary>
     /// Normalizes the configured preferred audio language (trimmed, lower-cased) so stream
