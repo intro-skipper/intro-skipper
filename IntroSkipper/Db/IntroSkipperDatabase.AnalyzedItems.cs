@@ -13,6 +13,47 @@ namespace IntroSkipper.Db;
 internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
+    public async Task<int> UpgradeAnalysisHashAsync(
+        AnalysisMode mode,
+        IReadOnlyCollection<Guid> itemIds,
+        string previousHash,
+        string currentHash,
+        CancellationToken cancellationToken = default)
+    {
+        if (itemIds.Count == 0 || string.IsNullOrEmpty(previousHash) || previousHash == currentHash)
+        {
+            return 0;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var ids = itemIds.Distinct().ToArray();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var completed = db.AnalyzedItems.Where(a => EF.Parameter(ids).Contains(a.ItemId)
+                && a.Type == mode && a.ConfigHash == previousHash);
+
+            await db.Segments
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                    && completed.Any(a => a.ItemId == s.ItemId)
+                    && s.State == SegmentState.Active
+                    && s.Source != SegmentSource.User
+                    && s.ConfigHash == previousHash
+                    && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
+                        || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits)))
+                .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.ConfigHash, currentHash), cancellationToken)
+                .ConfigureAwait(false);
+
+            var updated = await completed
+                .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.ConfigHash, currentHash), cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return updated;
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
