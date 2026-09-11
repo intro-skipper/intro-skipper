@@ -192,7 +192,7 @@ public sealed class TestCacheOperations
             Path = "/does/not/exist.mkv",
             IntroFingerprintEnd = 600,
         };
-        var fingerprint = new uint[] { 111u, 222u, 333u };
+        uint[] fingerprint = [111u, 222u, 333u];
         using var scope = new CachingPluginScope();
 
         // This is the hash written by the older cache format. It describes processing
@@ -222,7 +222,7 @@ public sealed class TestCacheOperations
             itemId,
             AnalysisMode.Introduction,
             CacheEntryType.Chromaprint,
-            DetectionCacheService.CompressBrotli(new uint[] { 111u, 222u }),
+            DetectionCacheService.CompressBrotli<uint[]>([111u, 222u]),
             0,
             600,
             "0123456789ABCDEF");
