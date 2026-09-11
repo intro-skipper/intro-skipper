@@ -35,9 +35,9 @@ export const blackFrameTab: Tab = {
             inputField({
                 kind: "checkbox",
                 id: "DetectNonBlackCredits",
-                label: "Detect non-black credits",
+                label: "Detect card credits",
                 description:
-                    "When the black-frame scan finds nothing, also detect credits shown on a near-uniform card — text over a black, white, grey, or muted-colour background. Vivid, highly saturated backgrounds are not covered. Black-frame detection is unchanged; this only adds matches it would otherwise miss.",
+                    "Also detect credits shown on a near-uniform card: text over a black, white, grey, or muted-colour background. The result is combined with the black-frame and other credits candidates, so card credits before or after a black roll are included. Vivid, highly saturated backgrounds are not covered.",
                 visible: () => !isLegacyAnalyzerEnabled(),
             }),
             inputField({

@@ -4,7 +4,7 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Per-keyframe visual statistics used to detect non-black credits that the
+/// Per-keyframe visual statistics used to detect card credits that the
 /// black-frame scan is blind to (text on a near-uniform low-saturation card).
 /// </summary>
 /// <remarks>

@@ -15,10 +15,11 @@ namespace IntroSkipper.Analyzers.Credits;
 /// </summary>
 /// <remarks>
 /// Unlike the first-wins analyzer chain the other modes use, no analyzer settles an episode
-/// here. Chapter matches, the black-frame scan and the season-wide chromaprint comparison
-/// each contribute a candidate; <see cref="CreditsCandidateCombiner"/> merges the ones that
-/// overlap or nearly touch and keeps the rest apart. Times are adjusted once per stored
-/// segment and every episode is written once.
+/// here. Chapter matches, the black-frame scan, the card analyzer over the same keyframe
+/// scan's visuals and the season-wide chromaprint comparison each contribute a candidate;
+/// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
+/// keeps the rest apart. Times are adjusted once per stored segment and every episode is
+/// written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -46,10 +47,10 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <remarks>
     /// A per-season BlackFrame or Chromaprint action restricts the pass to that analyzer's
-    /// candidate; Chromaprint when it is unavailable, and Chapter, are treated as the
-    /// default, since chapters always take part. Episodes are written when they need
-    /// analysis or when the chromaprint comparison re-derived a candidate for them from a
-    /// changed season.
+    /// candidate; a BlackFrame action keeps the card candidate, which reads the same keyframe
+    /// scan. Chromaprint when it is unavailable, and Chapter, are treated as the default,
+    /// since chapters always take part. Episodes are written when they need analysis or when
+    /// the chromaprint comparison re-derived a candidate for them from a changed season.
     /// </remarks>
     /// <param name="items">The season's queued episodes, analyzed or not.</param>
     /// <param name="action">The season's analyzer action for credits.</param>
@@ -68,6 +69,10 @@ internal sealed partial class CreditsPass(
         var useChapter = restriction is AnalyzerAction.Default;
         var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
+
+        // The legacy analyzer runs its own range scans and never writes the visuals row, so the
+        // card candidate needs the current black-frame analyzer.
+        var useCardCredits = useBlackFrame && !_config.UseLegacyBlackFrameAnalyzer && _config.DetectNonBlackCredits;
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
@@ -136,12 +141,28 @@ internal sealed partial class CreditsPass(
                 // The whole credits window, every time: black credits can sit anywhere in it,
                 // before, between or after the other candidates, and the keyframe scan is cached
                 // so only the first analysis of an episode pays for it.
+                var blackFrame = CreditsBlackFrameResult.None;
                 if (detectBlackFrameCredits is not null)
                 {
-                    var candidate = await detectBlackFrameCredits(episode, cancellationToken).ConfigureAwait(false);
-                    if (candidate is not null)
+                    blackFrame = await detectBlackFrameCredits(episode, cancellationToken).ConfigureAwait(false);
+                    if (blackFrame.Credits is not null)
                     {
-                        candidates.Add(new AttributedSegment(candidate, SegmentSource.BlackFrame));
+                        candidates.Add(new AttributedSegment(blackFrame.Credits, SegmentSource.BlackFrame));
+                    }
+                }
+
+                if (useCardCredits)
+                {
+                    // Normally two cache reads: the keyframe scan the black-frame analyzer just ran
+                    // wrote both rows.
+                    var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+                    var frames = await _ffmpegService.DetectBlackFramesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
+                    var range = CreditsCardAnalyzer.FindCreditRange(visuals, frames, _config.BlackFrameMinimumPercentage, minimumDuration, blackFrame.Credits is null ? null : blackFrame.Scenes);
+                    if (range is not null)
+                    {
+                        candidates.Add(new AttributedSegment(
+                            new Segment(episode.EpisodeId, new TimeRange(range.Start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart)),
+                            SegmentSource.KeyframeVisuals));
                     }
                 }
 
@@ -194,12 +215,12 @@ internal sealed partial class CreditsPass(
     /// current one. One instance per season, since the legacy analyzer carries search state
     /// between episodes.
     /// </summary>
-    private Func<QueuedEpisode, CancellationToken, Task<Segment?>> CreateBlackFrameDetector()
+    private Func<QueuedEpisode, CancellationToken, Task<CreditsBlackFrameResult>> CreateBlackFrameDetector()
     {
         if (_config.UseLegacyBlackFrameAnalyzer)
         {
             var legacy = new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _config);
-            return legacy.DetectCreditsAsync;
+            return async (episode, cancellationToken) => new CreditsBlackFrameResult(await legacy.DetectCreditsAsync(episode, cancellationToken).ConfigureAwait(false), []);
         }
 
         var current = new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _config);
