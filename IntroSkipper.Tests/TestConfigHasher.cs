@@ -53,9 +53,10 @@ public sealed class TestConfigHasher
         // cached intervals, so changing it must invalidate the BlackInterval detection cache.
         Case("BlackInterval cache varies with minimum percentage", Cache(percentage85, CacheEntryType.BlackInterval, AnalysisMode.Credits), Cache(percentage95, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
 
-        Case("Chromaprint cache changes with preferred language", Cache(defaults, CacheEntryType.Chromaprint, AnalysisMode.Introduction), Cache(english, CacheEntryType.Chromaprint, AnalysisMode.Introduction), false);
+        Case("Chromaprint cache ignores preferred language without an effective stream", Cache(defaults, CacheEntryType.Chromaprint, AnalysisMode.Introduction), Cache(english, CacheEntryType.Chromaprint, AnalysisMode.Introduction), true);
+        Case("Chromaprint cache ignores processing settings", Cache(defaults, CacheEntryType.Chromaprint, AnalysisMode.Introduction), Cache(new PluginConfiguration { MaximumFingerprintPointDifferences = defaults.MaximumFingerprintPointDifferences + 1 }, CacheEntryType.Chromaprint, AnalysisMode.Introduction), true);
         Case("Chromaprint cache normalizes preferred language", Cache(english, CacheEntryType.Chromaprint, AnalysisMode.Introduction), Cache(englishPadded, CacheEntryType.Chromaprint, AnalysisMode.Introduction), true);
-        Case("Chromaprint cache changes with stream selection policy", Cache(mostChannels, CacheEntryType.Chromaprint, AnalysisMode.Introduction), Cache(lowestIndex, CacheEntryType.Chromaprint, AnalysisMode.Introduction), false);
+        Case("Chromaprint cache changes with effective stream", Cache(mostChannels, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "policy=most-channels"), Cache(lowestIndex, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "stream-index=0"), false);
         Case("Chromaprint stream identity reuses across selection settings", Cache(englishMostChannels, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant), Cache(lowestIndex, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant), true);
 
         Case("Analysis changes with stream selection policy", Analysis(mostChannels, AnalysisMode.Introduction), Analysis(lowestIndex, AnalysisMode.Introduction), false);

@@ -714,7 +714,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant)
     {
         /// <summary>Cache variant of FFmpeg's default selection: most channels, then lowest index.</summary>
-        public const string DefaultStreamCacheVariant = "policy=most-channels";
+        public const string DefaultStreamCacheVariant = ConfigHasher.DefaultAudioStreamCacheVariant;
 
         /// <summary>Gets a value indicating whether the effective stream is FFmpeg's default one.</summary>
         public bool SelectsDefaultStream => CacheVariant == DefaultStreamCacheVariant;
