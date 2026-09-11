@@ -214,6 +214,30 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void CachedFingerprint_RejectsUnknownUnscopedHash()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(
+            itemId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            DetectionCacheService.CompressBrotli(new uint[] { 111u, 222u }),
+            0,
+            600,
+            "0123456789ABCDEF");
+
+        Assert.False(scope.CacheService.TryRead<uint[]>(
+            itemId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            600,
+            out _,
+            MostChannelsStreamCacheVariant));
+    }
+
+    [Fact]
     public async Task CachedFingerprint_ThrowsWhenCanceledBeforeCacheHit()
     {
         var episode = new QueuedEpisode

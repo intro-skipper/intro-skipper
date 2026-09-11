@@ -166,15 +166,6 @@ internal static class ConfigHasher
     }
 
     /// <summary>
-    /// Gets a value indicating whether the requested stream is FFmpeg's default stream.
-    /// </summary>
-    /// <param name="audioStreamIdentity">Effective stream identity.</param>
-    /// <returns><see langword="true"/> when the identity is the default stream.</returns>
-    public static bool IsDefaultAudioStream(string? audioStreamIdentity)
-        => string.IsNullOrWhiteSpace(audioStreamIdentity)
-            || string.Equals(audioStreamIdentity, DefaultAudioStreamCacheVariant, StringComparison.Ordinal);
-
-    /// <summary>
     /// Computes the cache hash that was written before audio stream selection existed, when
     /// fingerprints always came from FFmpeg's default stream. Rows carrying it stay readable
     /// whenever the effective stream is still FFmpeg's default, so already-analyzed episodes

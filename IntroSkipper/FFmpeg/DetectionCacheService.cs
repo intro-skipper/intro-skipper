@@ -73,13 +73,11 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             // Chromaprint rows contain raw fingerprint points.  Older releases also put
             // processing settings in their hash, so a changed comparison setting must not
             // discard an otherwise valid fingerprint. Stream-scoped rows are accepted only
-            // when their effective stream matches; an unscoped legacy row is safe only for
-            // FFmpeg's default stream.
+            // when their effective stream matches; unscoped rows must match the explicitly
+            // recognized legacy hash supplied by the fingerprint caller.
             if (!hashMatches && type == CacheEntryType.Chromaprint)
             {
-                hashMatches = ConfigHasher.IsStreamScopedDetectionCacheHashFor(entry.ConfigHash, cacheVariant)
-                    || (ConfigHasher.IsDefaultAudioStream(cacheVariant)
-                        && !ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash));
+                hashMatches = ConfigHasher.IsStreamScopedDetectionCacheHashFor(entry.ConfigHash, cacheVariant);
             }
 
             if (!hashMatches)
