@@ -452,6 +452,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ProcessThreads { get; set; }
 
     /// <summary>
+    /// Gets or sets the number of seconds a single ffmpeg scan may run before it is killed.
+    /// 0 disables the timeout, so a scan only ends with the process or with task cancellation.
+    /// </summary>
+    public int ProcessTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
     /// Gets or sets the relative priority for a ffmpeg process.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;

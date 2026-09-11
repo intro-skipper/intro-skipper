@@ -389,7 +389,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: GetScanTimeoutMs(), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
@@ -444,6 +444,18 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns the configured limit for one fingerprint or detection scan, in milliseconds, or
+    /// <see cref="Timeout.Infinite"/> when the user disabled it. Version probes and ffprobe
+    /// queries keep their own short limits.
+    /// </summary>
+    /// <returns>The scan timeout in milliseconds.</returns>
+    private static int GetScanTimeoutMs()
+    {
+        var seconds = Plugin.Instance?.Configuration.ProcessTimeoutSeconds ?? 60;
+        return seconds > 0 ? (int)Math.Min((long)seconds * 1000, int.MaxValue) : Timeout.Infinite;
     }
 
     /// <summary>
@@ -650,7 +662,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         byte[] rawPoints;
         try
         {
-            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false);
+            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: GetScanTimeoutMs(), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {

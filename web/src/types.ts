@@ -19,6 +19,7 @@ export interface PluginConfig {
     MinimumCommercialDuration: number;
     MaximumCommercialDuration: number;
     ProcessThreads: number;
+    ProcessTimeoutSeconds: number;
     IntroEndOffset: number;
     IntroStartOffset: number;
     SkipbuttonHideDelay: number;

@@ -64,6 +64,21 @@ public class TestFFmpegService
     }
 
     [Fact]
+    public async Task ProcessTimeout_Disabled_WaitsForExit()
+    {
+        var processPath = OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh";
+        string[] args = OperatingSystem.IsWindows()
+            ? ["-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 1; Write-Output done"]
+            : ["-c", "sleep 1; echo done"];
+
+        var output = await new FFmpegProcessRunner(NullLogger.Instance)
+            .RunAsync(processPath, args, timeout: 0)
+            .WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Contains("done", System.Text.Encoding.UTF8.GetString(output), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CheckFFmpegVersionAsync_MemoizesSuccess()
     {
         var probeCount = 0;

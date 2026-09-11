@@ -21,7 +21,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     /// <param name="processPath">Executable to start.</param>
     /// <param name="args">Arguments, one token each.</param>
     /// <param name="stderr"><see langword="true"/> to return standard error; otherwise standard output is returned.</param>
-    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
+    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it; zero or a negative value waits indefinitely.</param>
     /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
     /// <returns>The raw bytes of the selected stream.</returns>
     /// <exception cref="TimeoutException">The process did not exit within <paramref name="timeout"/> and was killed.</exception>
@@ -75,7 +75,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms);
             var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null);
 
-            using var timeoutCts = new CancellationTokenSource(timeout);
+            using var timeoutCts = new CancellationTokenSource(timeout > 0 ? timeout : Timeout.Infinite);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             var timedOut = false;
             try

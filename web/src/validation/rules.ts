@@ -47,6 +47,7 @@ export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<
     BlackFrameThreshold: [range(16, 255)],
     MaxParallelism: [minValue(1)],
     ProcessThreads: [range(0, 16)],
+    ProcessTimeoutSeconds: [range(0, 3600)],
     SkipbuttonHideDelay: [range(0, 1000)],
     SkipButtonVisibleSeconds: [range(0, 600)],
     SilenceDetectionMaximumNoise: [range(-90, 0)],
