@@ -87,10 +87,11 @@ public interface IDetectionCacheDatabase
     Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes every cache entry whose configuration hash is non-empty, does not start
-    /// with <paramref name="acceptedHashPrefix"/>, and is not in
-    /// <paramref name="acceptedConfigHashes"/>. The accepted set is bound as a single
-    /// JSON parameter (<c>json_each</c>), so its size is unbounded.
+    /// Deletes every settings-sensitive cache entry whose configuration hash is non-empty,
+    /// does not start with <paramref name="acceptedHashPrefix"/>, and is not in
+    /// <paramref name="acceptedConfigHashes"/>. Chromaprint entries are retained because
+    /// their fingerprints are independent of processing settings. The accepted set is bound
+    /// as a single JSON parameter (<c>json_each</c>), so its size is unbounded.
     /// </summary>
     /// <param name="acceptedConfigHashes">Configuration hashes whose entries are kept.</param>
     /// <param name="acceptedHashPrefix">Hash prefix whose entries are kept.</param>

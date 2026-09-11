@@ -184,6 +184,36 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task CachedFingerprint_RemainsUsableWhenProcessingSettingsChange()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var fingerprint = new uint[] { 111u, 222u, 333u };
+        using var scope = new CachingPluginScope();
+
+        // This is the hash written by the older cache format. It describes processing
+        // settings, not the fingerprint bytes, and must remain readable after a setting changes.
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            DetectionCacheService.CompressBrotli(fingerprint),
+            0,
+            600,
+            scope.LegacyHash(AnalysisMode.Introduction));
+
+        Plugin.Instance!.Configuration.MaximumFingerprintPointDifferences++;
+
+        var result = await scope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
+
+        Assert.Equal(fingerprint, result);
+    }
+
+    [Fact]
     public async Task CachedFingerprint_ThrowsWhenCanceledBeforeCacheHit()
     {
         var episode = new QueuedEpisode
@@ -317,14 +347,17 @@ public sealed class TestCacheOperations
         var config = Plugin.Instance!.Configuration;
         var cacheDatabase = scope.CacheDatabase;
 
-        // One row per acceptance path, distinguished by their range keys, plus one row whose
-        // hash no read path accepts.
+        // One row per acceptance path, distinguished by their range keys, plus one settings-
+        // sensitive row whose hash no read path accepts.
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 100, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 200, EntrypointTestHelpers.EmptyJsonArray, scope.LegacyHash(AnalysisMode.Introduction));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant));
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500, EntrypointTestHelpers.EmptyJsonArray, ConfigHasher.DetectionCache(config, CacheEntryType.Silence, AnalysisMode.Introduction));
+        // Even an old, settings-dependent fingerprint hash is retained; its bytes are still
+        // useful to the stream-aware read path.
         cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600, EntrypointTestHelpers.EmptyJsonArray, "0123456789ABCDEF");
+        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 700, EntrypointTestHelpers.EmptyJsonArray, "0123456789ABCDEF");
 
         var deleted = await scope.CacheService.DeleteUnreadableEntriesAsync();
 
@@ -334,7 +367,8 @@ public sealed class TestCacheOperations
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 300));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 400));
         Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 500));
-        Assert.Null(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600));
+        Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600));
+        Assert.Null(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 700));
     }
 
     /// <summary>
