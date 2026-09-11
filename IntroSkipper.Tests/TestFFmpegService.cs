@@ -22,6 +22,16 @@ namespace IntroSkipper.Tests;
 
 public class TestFFmpegService
 {
+    [Theory]
+    [InlineData(0, Timeout.Infinite)]
+    [InlineData(-5, Timeout.Infinite)]
+    [InlineData(300, 300_000)]
+    [InlineData(int.MaxValue, int.MaxValue)]
+    public void ScanTimeoutMilliseconds_ZeroDisablesTheLimit(int seconds, int expectedMilliseconds)
+    {
+        Assert.Equal(expectedMilliseconds, FFmpegService.ScanTimeoutMilliseconds(seconds));
+    }
+
     [Fact]
     public async Task ProcessTimeout_KillsProcessWhileDrainingOutput()
     {

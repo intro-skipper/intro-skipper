@@ -452,6 +452,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ProcessThreads { get; set; }
 
     /// <summary>
+    /// Gets or sets how long, in seconds, a fingerprint or detection scan may run before its ffmpeg
+    /// process is killed. 0 disables the limit; a canceled task still kills the process.
+    /// </summary>
+    public int ScanTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
     /// Gets or sets the relative priority for a ffmpeg process.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;

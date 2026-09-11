@@ -361,7 +361,7 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis.")]
     private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season.")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season. Raise the FFmpeg scan timeout in the plugin settings if this repeats.")]
     private static partial void LogFfmpegTimeoutDuringAnalysis(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
