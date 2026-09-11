@@ -10,15 +10,17 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Runs credits analysis for a season by collecting a candidate from every applicable
-/// analyzer per episode and storing their combination.
+/// Runs credits analysis for a season, trusting recognized credits chapters by default
+/// and combining analyzer candidates for episodes without a chapter result.
 /// </summary>
 /// <remarks>
-/// Unlike the first-wins analyzer chain the other modes use, no analyzer settles an episode
-/// here. Chapter matches, the black-frame scan and the season-wide chromaprint comparison
-/// each contribute a candidate; <see cref="CreditsCandidateCombiner"/> merges the ones that
-/// overlap or nearly touch and keeps the rest apart. Times are adjusted once per stored
-/// segment and every episode is written once.
+/// With chapter enhancement enabled, chapter matches, the black-frame scan and the
+/// season-wide chromaprint comparison each contribute a candidate;
+/// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
+/// keeps the rest apart. Otherwise chapter matches settle an episode first. Settled episodes
+/// may still supply reference fingerprints for siblings without credits chapters, but their
+/// results are not replaced. Times are adjusted once per stored segment and every episode
+/// is written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -71,14 +73,48 @@ internal sealed partial class CreditsPass(
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
+        HashSet<Guid> chapterHandled = [];
+        if (chapter is not null && !_config.EnhanceChapterCredits)
+        {
+            foreach (var episode in items.Where(e => e.GetAnalyzed(Mode) != EpisodeState.UserProvided))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var candidates = chapter.FindChapterCandidates(episode, Mode)
+                        .Select(c => new AttributedSegment(c, SegmentSource.Chapter)).ToList();
+                    if (candidates.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    chapterHandled.Add(episode.EpisodeId);
+                    if (episode.NeedsAnalysis(Mode))
+                    {
+                        await StoreCandidatesAsync(episode, candidates, timeAdjustmentHelper, false, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    chapterHandled.Add(episode.EpisodeId);
+                    episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                    LogErrorAnalyzingCredits(ex, episode.Name);
+                }
+            }
+
+            chapter = null;
+        }
+
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
-        if (useChromaprint)
+        if (useChromaprint && items.Any(e => e.NeedsAnalysis(Mode) && !chapterHandled.Contains(e.EpisodeId)))
         {
+            var comparisonItems = items.Where(e => !chapterHandled.Contains(e.EpisodeId) || !e.NeedsAnalysis(Mode)).ToList();
             try
             {
                 (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
-                    .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                    .FindCandidatesAsync(comparisonItems, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -86,11 +122,9 @@ internal sealed partial class CreditsPass(
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
                 LogChromaprintComparisonFailed(ex);
-                fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
+                fingerprintFailures = [.. comparisonItems.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
-
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
 
         foreach (var episode in items)
         {
@@ -99,7 +133,7 @@ internal sealed partial class CreditsPass(
             // The chromaprint comparison may pad with a user-provided neighbour; its
             // candidate is only there for the siblings.
             var hasChromaprintCandidate = chromaprintCandidates.TryGetValue(episode.EpisodeId, out var chromaprintCandidate);
-            if (episode.GetAnalyzed(Mode) == EpisodeState.UserProvided || (!episode.NeedsAnalysis(Mode) && !hasChromaprintCandidate))
+            if (chapterHandled.Contains(episode.EpisodeId) || episode.GetAnalyzed(Mode) == EpisodeState.UserProvided || (!episode.NeedsAnalysis(Mode) && !hasChromaprintCandidate))
             {
                 continue;
             }
@@ -145,41 +179,12 @@ internal sealed partial class CreditsPass(
                     }
                 }
 
-                var adjusted = new List<AttributedSegment>();
-                foreach (var (segment, source) in CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration))
-                {
-                    // A chapter-only range already sits on chapter boundaries; the chapter
-                    // analyzer skips chapter snapping for its own matches too.
-                    var adjustedSegment = await timeAdjustmentHelper
-                        .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter ? false : null, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (adjustedSegment.Valid)
-                    {
-                        adjusted.Add(new AttributedSegment(adjustedSegment, source));
-                    }
-                }
-
-                if (adjusted.Count == 0)
-                {
-                    if (fingerprintFailed)
-                    {
-                        episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                        continue;
-                    }
-
-                    LogNoCreditsFound(episode.Name);
-                    await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, [], episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-                    episode.SetAnalyzed(Mode, EpisodeState.NoSegments);
-                    continue;
-                }
-
-                foreach (var (segment, source) in adjusted)
-                {
-                    LogFoundCredits(episode.Name, segment.Start, segment.End, source);
-                }
-
-                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-                episode.SetAnalyzed(Mode, EpisodeState.Analyzed);
+                await StoreCandidatesAsync(
+                    episode,
+                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
+                    timeAdjustmentHelper,
+                    fingerprintFailed,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -187,6 +192,48 @@ internal sealed partial class CreditsPass(
                 LogErrorAnalyzingCredits(ex, episode.Name);
             }
         }
+    }
+
+    private async Task StoreCandidatesAsync(
+        QueuedEpisode episode,
+        IReadOnlyList<AttributedSegment> candidates,
+        TimeAdjustmentHelper timeAdjustmentHelper,
+        bool fingerprintFailed,
+        CancellationToken cancellationToken)
+    {
+        var adjusted = new List<AttributedSegment>();
+        foreach (var (segment, source) in candidates)
+        {
+            var adjustedSegment = await timeAdjustmentHelper
+                .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter ? false : null, cancellationToken)
+                .ConfigureAwait(false);
+            if (adjustedSegment.Valid)
+            {
+                adjusted.Add(new AttributedSegment(adjustedSegment, source));
+            }
+        }
+
+        if (adjusted.Count == 0)
+        {
+            if (fingerprintFailed)
+            {
+                episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                return;
+            }
+
+            LogNoCreditsFound(episode.Name);
+            await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, [], episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            episode.SetAnalyzed(Mode, EpisodeState.NoSegments);
+            return;
+        }
+
+        foreach (var (segment, source) in adjusted)
+        {
+            LogFoundCredits(episode.Name, segment.Start, segment.End, source);
+        }
+
+        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        episode.SetAnalyzed(Mode, EpisodeState.Analyzed);
     }
 
     /// <summary>

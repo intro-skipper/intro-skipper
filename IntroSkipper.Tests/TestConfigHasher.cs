@@ -3,6 +3,7 @@
 
 namespace IntroSkipper.Tests;
 
+using System;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -87,6 +88,26 @@ public sealed class TestConfigHasher
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
         return data;
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void ChapterEnhancement_OnlyInvalidatesCreditsAnalysis(AnalysisMode mode)
+    {
+        var defaults = new PluginConfiguration();
+        var enhanced = new PluginConfiguration { EnhanceChapterCredits = true };
+        var baseline = ConfigHasher.Analysis(defaults, mode, AnalyzerAction.Default, true);
+        var changed = ConfigHasher.Analysis(enhanced, mode, AnalyzerAction.Default, true);
+
+        Assert.Equal(mode != AnalysisMode.Credits, baseline == changed);
+        foreach (var type in Enum.GetValues<CacheEntryType>())
+        {
+            Assert.Equal(ConfigHasher.DetectionCache(defaults, type, mode), ConfigHasher.DetectionCache(enhanced, type, mode));
+        }
     }
 
     [Fact]

@@ -181,6 +181,7 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Introduction, "duration")]
     [InlineData(AnalysisMode.Introduction, "action")]
     [InlineData(AnalysisMode.Credits, "legacy")]
+    [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
     [InlineData(AnalysisMode.Recap, "cold-open")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
@@ -198,6 +199,7 @@ public sealed class TestLegacyAnalysisCompatibility
             case "duration": config.MinimumIntroDuration++; break;
             case "action": await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = AnalyzerAction.Chapter }); break;
             case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
+            case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
             case "cold-open": config.AnchorRecapToColdOpen = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));

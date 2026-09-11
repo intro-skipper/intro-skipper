@@ -113,9 +113,16 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer
-    /// for intros and recaps. Credits ignore this setting and combine every analyzer's candidate.
+    /// for intros and recaps. Credits ignore this setting.
     /// </summary>
     public bool PreferChromaprint { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to combine recognized credits chapters with
+    /// black-frame and chromaprint candidates. When disabled, valid credits chapters settle
+    /// the episode before combined detection. Explicit per-season analyzer restrictions still apply.
+    /// </summary>
+    public bool EnhanceChapterCredits { get; set; }
 
     /// <summary>
     /// Gets or sets the Brotli compression level used for the detection cache.
