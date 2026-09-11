@@ -389,7 +389,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
@@ -477,6 +477,17 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
+
+    /// <summary>
+    /// Converts <see cref="Configuration.PluginConfiguration.ScanTimeoutSeconds"/> into the millisecond budget a
+    /// fingerprint or detection scan gets. Zero or negative means no limit.
+    /// </summary>
+    /// <param name="seconds">The configured timeout in seconds.</param>
+    /// <returns>Milliseconds, or <see cref="Timeout.Infinite"/> when unlimited.</returns>
+    internal static int ScanTimeoutMilliseconds(int seconds) =>
+        seconds > 0 ? (int)Math.Min(seconds * 1000L, int.MaxValue) : Timeout.Infinite;
+
+    private static int ScanTimeout() => ScanTimeoutMilliseconds(Plugin.Instance?.Configuration.ScanTimeoutSeconds ?? 300);
 
     private static string GetFFprobePath()
     {
@@ -650,7 +661,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         byte[] rawPoints;
         try
         {
-            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: 60 * 1000, cancellationToken).ConfigureAwait(false);
+            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {

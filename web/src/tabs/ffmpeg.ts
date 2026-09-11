@@ -38,6 +38,14 @@ export const ffmpegTab: Tab = {
                     "Number of simultaneous processes to use for FFmpeg operations. Setting 0 (default) uses the maximum threads available.",
             }),
             inputField({
+                kind: "number",
+                id: "ScanTimeoutSeconds",
+                label: "FFmpeg scan timeout (seconds)",
+                min: 0,
+                description:
+                    "Kill a fingerprint or detection scan that runs longer than this. Raise it for high-bitrate media on slow disks. 0 disables the limit.",
+            }),
+            inputField({
                 kind: "checkbox",
                 id: "ProbeAudioDuration",
                 label: "Probe audio duration for credits",
