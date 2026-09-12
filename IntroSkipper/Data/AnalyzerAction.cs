@@ -7,7 +7,8 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Per-season choice of analyzer. In the first-wins chain the named analyzer runs first and
 /// the rest still follow. In the credits pass, BlackFrame and Chromaprint make that analyzer
-/// the only one consulted, while Chapter changes nothing because chapters always take part.
+/// the only one consulted, while Chapter changes nothing because the default policy already
+/// lets a recognized chapter settle the episode.
 /// </summary>
 public enum AnalyzerAction
 {

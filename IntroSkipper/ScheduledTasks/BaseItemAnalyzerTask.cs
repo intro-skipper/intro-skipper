@@ -298,8 +298,8 @@ public partial class BaseItemAnalyzerTask(
 
         if (mode == AnalysisMode.Credits)
         {
-            // Credits combine every analyzer's candidate instead of settling on the first;
-            // the pass skips chromaprint when the season has a single item.
+            // Credits settle chapter matches first by default; enhancement combines them
+            // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
             await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }

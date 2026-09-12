@@ -68,6 +68,7 @@ export interface PluginConfig {
     ScanCommercial: boolean;
     EnableMainMenu: boolean;
     PreferChromaprint: boolean;
+    EnhanceChapterCredits: boolean;
     PreferAudioStreamWithMostChannels: boolean;
     ProbeAudioDuration: boolean;
     SnapToKeyframe: boolean;

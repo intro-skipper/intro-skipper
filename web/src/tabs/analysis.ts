@@ -43,7 +43,14 @@ export const analysisTab: Tab = {
                 id: "PreferChromaprint",
                 label: "Prefer Chromaprint Analysis",
                 description:
-                    "Run chromaprint before the chapter analyzer for intros and recaps. Credits ignore this setting and combine chapter, black frame and chromaprint results, unless a season's analysis mode in the advanced options restricts them to black frame or chromaprint.",
+                    "Run chromaprint before the chapter analyzer for intros and recaps. Credits ignore this setting.",
+            }),
+            inputField({
+                kind: "checkbox",
+                id: "EnhanceChapterCredits",
+                label: "Enhance chapter credits",
+                description:
+                    "Combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Off, a recognized credits chapter is used as authored, even when offsets leave no skippable range. Changing this re-analyzes credits on the next scan; existing timestamps stay until then.",
             }),
             inputField({
                 kind: "checkbox",

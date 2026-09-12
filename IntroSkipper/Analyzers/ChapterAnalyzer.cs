@@ -128,36 +128,58 @@ internal sealed partial class ChapterAnalyzer(
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            var adjusted = new List<Segment>(matches.Count);
-            foreach (var match in matches)
-            {
-                var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, false, cancellationToken).ConfigureAwait(false);
-                if (adjustedSegment.Valid)
-                {
-                    adjusted.Add(adjustedSegment);
-                }
-            }
-
-            if (adjusted.Count == 0)
-            {
-                // Boundary adjustment consumed every match: clear the pass's stale
-                // automatic rows and settle the episode instead of leaving a segment
-                // the adjustment rules no longer produce.
-                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [], SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-                episode.SetAnalyzed(mode, EpisodeState.NoSegments);
-                continue;
-            }
-
-            episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, cancellationToken).ConfigureAwait(false));
         }
 
         return analysisQueue;
     }
 
     /// <summary>
+    /// Adjusts chapter matches and writes them as the episode's automatic segments for the
+    /// mode. Shared by the first-wins chain and the credits pass so a chapter result is stored
+    /// the same way whichever path found it.
+    /// </summary>
+    /// <remarks>
+    /// A chapter range already sits on authored boundaries, so it is not snapped to another
+    /// chapter but does receive the configured playback adjustments. When those consume every
+    /// match, the episode's stale automatic rows are still cleared, so it settles without a
+    /// segment rather than keeping one the adjustment rules no longer produce.
+    /// </remarks>
+    /// <param name="episode">Episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="matches">The unadjusted chapter matches.</param>
+    /// <param name="timeAdjustmentHelper">Adjustment helper initialized for <paramref name="mode"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see cref="EpisodeState.Analyzed"/> when at least one match survived adjustment, otherwise <see cref="EpisodeState.NoSegments"/>.</returns>
+    internal async Task<EpisodeState> StoreMatchesAsync(
+        QueuedEpisode episode,
+        AnalysisMode mode,
+        IReadOnlyList<Segment> matches,
+        TimeAdjustmentHelper timeAdjustmentHelper,
+        CancellationToken cancellationToken)
+    {
+        var adjusted = new List<Segment>(matches.Count);
+        foreach (var match in matches)
+        {
+            var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, false, cancellationToken).ConfigureAwait(false);
+            if (adjustedSegment.Valid)
+            {
+                adjusted.Add(adjustedSegment);
+            }
+        }
+
+        foreach (var segment in adjusted)
+        {
+            LogFoundChapter(episode.Name, mode, segment.Start, segment.End);
+        }
+
+        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        return adjusted.Count == 0 ? EpisodeState.NoSegments : EpisodeState.Analyzed;
+    }
+
+    /// <summary>
     /// Finds the episode's chapter matches for the mode without adjusting times or writing.
-    /// The credits pass combines these with other analyzers' candidates.
+    /// The credits pass trusts these ranges unless chapter enhancement is enabled.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -391,6 +413,9 @@ internal sealed partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Path}: Chapter \"{Name}\" ({Start} - {End}): okay")]
     private partial void LogChapterOk(string path, string name, double start, double end);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Found {Mode} chapter for {Episode} at {Start:F2}s to {End:F2}s")]
+    private partial void LogFoundChapter(string episode, AnalysisMode mode, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);

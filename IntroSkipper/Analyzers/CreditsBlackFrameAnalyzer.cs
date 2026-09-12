@@ -31,7 +31,8 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
 
     /// <summary>
     /// Detects one episode's credits with the configured thresholds, without adjusting times
-    /// or writing. The credits pass combines the result with the other analyzers' candidates.
+    /// or writing. The credits pass combines the result with the other analyzers' candidates
+    /// for the episodes no credits chapter settled.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>

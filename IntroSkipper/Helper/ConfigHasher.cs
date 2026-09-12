@@ -57,7 +57,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
+                $"|animePreview={config.AnimePreviewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -230,6 +230,12 @@ internal static class ConfigHasher
     // the option existed and does not re-analyze every recap on upgrade.
     private static string RecapColdOpenToken(PluginConfiguration config)
         => config.AnchorRecapToColdOpen ? "|coldOpen=True" : string.Empty;
+
+    // Only present when enabled so the default-off configuration keeps the hash it had before
+    // the option existed. A BlackFrame action restricts the credits pass to that analyzer, which
+    // cannot observe the option, so toggling it must not re-scan those seasons.
+    private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
+        => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
