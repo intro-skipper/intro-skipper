@@ -73,17 +73,6 @@ public class TestBlackFrames
     }
 
     [FactSkipFFmpegTests]
-    public async Task TestSeekSampleKeyFrames()
-    {
-        var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(
-            FfmpegTestHelpers.QueueFile("video/seek-sample.mp4"),
-            new(0, 8),
-            AnalysisMode.Introduction);
-
-        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
-    }
-
-    [FactSkipFFmpegTests]
     public async Task TestDetectKeyframeVisuals_ClipsScanToCreditsWindow()
     {
         // Real FFmpeg: -skip_frame nokey + -to does NOT reliably bound the scan (it emits keyframes

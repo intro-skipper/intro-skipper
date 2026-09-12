@@ -8,6 +8,10 @@ using System.Text;
 using System.Text.Json;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using Jellyfin.MediaEncoding.Keyframes;
+using Jellyfin.MediaEncoding.Keyframes.FfProbe;
+using Jellyfin.MediaEncoding.Keyframes.Matroska;
+using MediaBrowser.Controller.IO;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -49,6 +53,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private readonly ILogger<FFmpegService> _logger;
     private readonly DetectionCacheService _cacheService;
+    private readonly IKeyframeManager _keyframeManager;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
 
@@ -57,8 +62,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
-    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService)
-        : this(logger, cacheService, null, null)
+    /// <param name="keyframeManager">Jellyfin's keyframe store.</param>
+    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService, IKeyframeManager keyframeManager)
+        : this(logger, cacheService, keyframeManager, null, null)
     {
     }
 
@@ -67,16 +73,19 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
+    /// <param name="keyframeManager">Jellyfin's keyframe store.</param>
     /// <param name="versionProbe">Replaces the ffmpeg version probe; <see langword="null"/> runs the real one.</param>
     /// <param name="versionProbeTimeout">Bounds one probe attempt; <see langword="null"/> uses the default.</param>
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         DetectionCacheService cacheService,
+        IKeyframeManager keyframeManager,
         Func<CancellationToken, Task<bool>>? versionProbe,
         TimeSpan? versionProbeTimeout)
     {
         _logger = logger;
         _cacheService = cacheService;
+        _keyframeManager = keyframeManager;
         _processRunner = new FFmpegProcessRunner(logger);
         _versionGate = new FFmpegVersionGate(
             logger,
@@ -341,20 +350,68 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<double[]> GetKeyframesAsync(QueuedEpisode episode, TimeRange range, CancellationToken cancellationToken = default)
     {
-        string[] args =
-        [
-            "-skip_frame", "nokey",
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", "showinfo",
-            "-f", "null", "-",
-        ];
+        cancellationToken.ThrowIfCancellationRequested();
 
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken);
+        var rows = _keyframeManager.GetKeyframeData(episode.EpisodeId);
+        var data = rows.Count > 0
+            ? rows[0]
+            : await ExtractAndStoreKeyframesAsync(episode, cancellationToken).ConfigureAwait(false);
+
+        return data is null
+            ? []
+            : [.. data.KeyframeTicks.Select(TickConversions.ToSeconds).Where(time => time >= range.Start && time <= range.End)];
+    }
+
+    // The row Jellyfin's own Keyframe Extractor task would have written, so HLS remuxing can reuse
+    // it. Save failures propagate: a broken Jellyfin database is not a per-episode condition.
+    private async Task<KeyframeData?> ExtractAndStoreKeyframesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    {
+        KeyframeData data;
+        try
+        {
+            data = ExtractKeyframes(episode.Path);
+        }
+        catch (Exception ex)
+        {
+            LogKeyframeExtractionFailed(_logger, ex, episode.EpisodeId, episode.Name, episode.Path);
+            return null;
+        }
+
+        if (data.KeyframeTicks.Count == 0)
+        {
+            LogNoKeyframesFound(_logger, episode.EpisodeId, episode.Name, episode.Path);
+            return null;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await _keyframeManager.SaveKeyframeDataAsync(episode.EpisodeId, data, cancellationToken).ConfigureAwait(false);
+        LogKeyframesStored(_logger, data.KeyframeTicks.Count, episode.Path, episode.EpisodeId);
+        return data;
+    }
+
+    // Jellyfin's extractor order: container metadata first, ffprobe otherwise. Both extractors are
+    // synchronous, so this blocks for the ffprobe run, as Jellyfin's Keyframe Extractor task does.
+    private KeyframeData ExtractKeyframes(string path)
+    {
+        if (path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var fromCues = MatroskaKeyframeExtractor.GetKeyframeData(path);
+                if (fromCues.KeyframeTicks.Count > 0)
+                {
+                    return fromCues;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMatroskaCuesUnreadable(_logger, ex, path);
+            }
+        }
+
+        return FfProbeKeyframeExtractor.GetKeyframeData(GetFFprobePath(), path);
     }
 
     /// <summary>
@@ -716,6 +773,18 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Stored {Count} keyframes of \"{File}\" (id {Id}) in Jellyfin's keyframe store")]
+    private static partial void LogKeyframesStored(ILogger logger, int count, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: keyframe extraction failed for \"{File}\"; the intro end will not snap to a keyframe")]
+    private static partial void LogKeyframeExtractionFailed(ILogger logger, Exception ex, Guid episodeId, string name, string file);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: no keyframes found in \"{File}\"; the intro end will not snap to a keyframe")]
+    private static partial void LogNoKeyframesFound(ILogger logger, Guid episodeId, string name, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not read the cue index of \"{File}\"; extracting keyframes with ffprobe")]
+    private static partial void LogMatroskaCuesUnreadable(ILogger logger, Exception ex, string file);
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.
