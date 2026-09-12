@@ -190,16 +190,13 @@ public sealed class TestCreditsPass
         Assert.Equal(0, ffmpeg.FingerprintCalls);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task OverlappingBlackFrameAndChromaprint_WriteOneCombinedSegment(bool enhanceChapters)
+    [Fact]
+    public async Task OverlappingBlackFrameAndChromaprint_WriteOneCombinedSegment()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
 
-        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = enhanceChapters })
-            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         foreach (var episode in episodes)

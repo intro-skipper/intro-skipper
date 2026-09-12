@@ -50,8 +50,7 @@ export const analysisTab: Tab = {
                 id: "EnhanceChapterCredits",
                 label: "Enhance chapter credits",
                 description:
-                    "Recognized credits chapters are authoritative by default, even when configured offsets leave no skippable range. Enable to combine them with black-frame and chromaprint results, which may extend credits or find additional blocks. Without a valid credits chapter, combined detection still runs. Per-season analyzer overrides still apply." +
-                    "<p>Upgrading keeps existing timestamps until reanalysis. Changing this option makes credits eligible for reanalysis on the next scan.</p>",
+                    "Combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Off, a recognized credits chapter is used as authored, even when offsets leave no skippable range. Changing this re-analyzes credits on the next scan; existing timestamps stay until then.",
             }),
             inputField({
                 kind: "checkbox",

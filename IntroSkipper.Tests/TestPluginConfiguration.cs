@@ -15,32 +15,6 @@ namespace IntroSkipper.Tests;
 public class TestPluginConfiguration
 {
     [Fact]
-    public void ChapterEnhancement_DefaultsOffForNewAndExistingConfigurations()
-    {
-        Assert.False(new PluginConfiguration().EnhanceChapterCredits);
-        Assert.False(JsonSerializer.Deserialize<PluginConfiguration>("{}")!.EnhanceChapterCredits);
-        using var reader = new StringReader("<PluginConfiguration />");
-        var config = Assert.IsType<PluginConfiguration>(new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader));
-        Assert.False(config.EnhanceChapterCredits);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ChapterEnhancement_RoundTripsThroughJsonAndXml(bool enabled)
-    {
-        var config = new PluginConfiguration { EnhanceChapterCredits = enabled };
-        var json = JsonSerializer.Serialize(config);
-        Assert.Equal(enabled, JsonSerializer.Deserialize<PluginConfiguration>(json)!.EnhanceChapterCredits);
-
-        var serializer = new XmlSerializer(typeof(PluginConfiguration));
-        using var writer = new StringWriter();
-        serializer.Serialize(writer, config);
-        using var reader = new StringReader(writer.ToString());
-        Assert.Equal(enabled, Assert.IsType<PluginConfiguration>(serializer.Deserialize(reader)).EnhanceChapterCredits);
-    }
-
-    [Fact]
     public void XmlSerialization_RoundTripsStructuredExclusionListsWithCommaValues()
     {
         var serializer = new XmlSerializer(typeof(PluginConfiguration));

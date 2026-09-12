@@ -154,11 +154,17 @@ internal sealed partial class CreditsPass(
             try
             {
                 var candidates = new List<AttributedSegment>();
-                if (chapter is not null && (_config.EnhanceChapterCredits || !episode.NeedsAnalysis(Mode)))
+                if (chapter is not null)
                 {
-                    candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
-                    if (!_config.EnhanceChapterCredits && candidates.Count > 0)
+                    if (_config.EnhanceChapterCredits)
                     {
+                        candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
+                    }
+                    else if (!episode.NeedsAnalysis(Mode) && chapter.FindChapterCandidates(episode, Mode).Count > 0)
+                    {
+                        // A settled sibling's recognized chapter stays authoritative over the
+                        // re-derived candidate. Pending episodes reached here only because the
+                        // pre-pass found no chapter for them.
                         continue;
                     }
                 }
