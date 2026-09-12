@@ -168,10 +168,10 @@ export function actionBar(opts: ActionBarOptions): {
         return currentSeriesSeasons.map((season) => season.Id);
     }
 
-    function seasonUrl(seasonId: string): string {
+    function seasonUrl(showId: string, seasonId: string): string {
         return (
             "Intros/Show/" +
-            encodeURIComponent(currentShowId) +
+            encodeURIComponent(showId) +
             "/" +
             encodeURIComponent(seasonId)
         );
@@ -254,6 +254,7 @@ export function actionBar(opts: ActionBarOptions): {
         const scanToken = ++scanVersion;
         scanBtn.disabled = true;
         fullSeriesCheckbox.disabled = true;
+        const showId = currentShowId;
         const seasonIds = targetSeasonIds();
         const isSeriesScan = !currentIsMovie && fullSeriesCheckbox.checked;
         statusMessage.show("Starting scan\u2026", "var(--is-text-muted)");
@@ -266,7 +267,7 @@ export function actionBar(opts: ActionBarOptions): {
                     : "";
                 statusMessage.show("Starting scan" + progress + "\u2026", "var(--is-text-muted)");
                 const response = await withDashboardLoading(() =>
-                    api.scanSeason(currentShowId, seasonIds[index]),
+                    api.scanSeason(showId, seasonIds[index]),
                 );
 
                 if (destroyed || scanToken !== scanVersion) return;
@@ -312,6 +313,7 @@ export function actionBar(opts: ActionBarOptions): {
 
         const isSeriesErase = !currentIsMovie && fullSeriesCheckbox.checked;
         const label = currentIsMovie ? "movie" : isSeriesErase ? "series" : "season";
+        const showId = currentShowId;
         const seasonIds = targetSeasonIds();
         const result = await confirmDialog({
             title: "Confirm Timestamp Erasure",
@@ -327,7 +329,7 @@ export function actionBar(opts: ActionBarOptions): {
         try {
             for (const seasonId of seasonIds) {
                 const response = await api.eraseItemTimestamps(
-                    seasonUrl(seasonId),
+                    seasonUrl(showId, seasonId),
                     result.checkboxChecked,
                 );
                 if (!response.ok) {
