@@ -333,6 +333,10 @@ export function actionBar(opts: ActionBarOptions): {
                     result.checkboxChecked,
                 );
                 if (!response.ok) {
+                    // Jellyfin can list seasons with no queued episodes. The
+                    // season erase endpoint reports those as 404, which is a
+                    // successful no-op for a full-series erase.
+                    if (isSeriesErase && response.status === 404) continue;
                     statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
                     return;
                 }
