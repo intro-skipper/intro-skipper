@@ -44,14 +44,13 @@ internal static class EntrypointTestHelpers
     {
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        // The Entrypoint and its analyzer factory see the same segment database, as
-        // they do in production DI.
-        var segmentDatabase = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        // The Entrypoint and its analyzer factory see the same cache database, as they
+        // do in production DI.
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
 
         return new Entrypoint(
             libraryManager!,
-            DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
-            segmentDatabase,
+            cacheDatabase,
             ffmpegService!,
             NullLogger<Entrypoint>.Instance,
             new AnalyzerTaskFactory(
@@ -61,7 +60,8 @@ internal static class EntrypointTestHelpers
                 fileSystem: null!,
                 ffmpegService!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                database: segmentDatabase));
+                cacheDatabase,
+                database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
     }
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
@@ -233,9 +233,6 @@ internal static class EntrypointTestHelpers
 
     internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
         => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
-
-    internal static Dictionary<Guid, Guid> GetItemsToReset(Entrypoint entrypoint)
-        => (Dictionary<Guid, Guid>)GetPrivateField(entrypoint, "_itemsToReset");
 
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {

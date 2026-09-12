@@ -5,7 +5,10 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
@@ -89,6 +92,13 @@ internal static class DatabaseTestHelpers
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.
     /// </summary>
     internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
+
+    /// <summary>
+    /// Records the items as analyzed without a file version, the shape of records written
+    /// before versioning. Tests about the version itself call the facade directly.
+    /// </summary>
+    internal static Task MarkItemsAnalyzedAsync(this IIntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
+        => database.MarkItemsAnalyzedAsync(mode, itemIds.Select(id => (id, (long?)null)), configHash);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
         => new(new TestDbContextFactory<DetectionCacheDbContext>(() => CreateCacheContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);

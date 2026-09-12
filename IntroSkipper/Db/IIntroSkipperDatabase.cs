@@ -165,18 +165,29 @@ public interface IIntroSkipperDatabase
     Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Records the items as analyzed for the mode under the given configuration hash,
-    /// whether or not segments were found, replacing any earlier record of the same item
-    /// and mode. Queue verification treats a matching record as settled (<c>Analyzed</c>
-    /// with segments, <c>NoSegments</c> without) and a missing or mismatching one as
-    /// <c>NotAnalyzed</c>.
+    /// Records the items as analyzed for the mode under the given configuration hash and
+    /// each item's file version, whether or not segments were found, replacing any earlier
+    /// record of the same item and mode. Queue verification treats a matching record as
+    /// settled (<c>Analyzed</c> with segments, <c>NoSegments</c> without) and a missing or
+    /// mismatching one as <c>NotAnalyzed</c>.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="itemIds">Item IDs that were analyzed.</param>
+    /// <param name="items">Items that were analyzed, each with the file version it was analyzed at (null when unknown).</param>
     /// <param name="configHash">Configuration hash used for the analysis.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash, CancellationToken cancellationToken = default);
+    Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, string configHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stamps the given file version on every analysis record of each item that has none
+    /// yet. Records written before versioning match any file; stamping them with the
+    /// version seen at verification lets a later replacement of the file be noticed.
+    /// Records that already carry a version are left alone.
+    /// </summary>
+    /// <param name="fileVersionsByItem">The file version to stamp on each item's unversioned records.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task BackfillFileVersionsAsync(IReadOnlyDictionary<Guid, long> fileVersionsByItem, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the analyzer action and settled-season reanalysis state for every mode

@@ -25,7 +25,7 @@ internal static class LegacyAnalysisCompatibility
         CancellationToken cancellationToken = default)
     {
         var updated = false;
-        foreach (var modeGroup in snapshot.AnalyzedConfigHashes.GroupBy(pair => pair.Key.Mode))
+        foreach (var modeGroup in snapshot.AnalysisRecords.GroupBy(pair => pair.Key.Mode))
         {
             var mode = modeGroup.Key;
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
@@ -59,7 +59,7 @@ internal static class LegacyAnalysisCompatibility
                 }
             }
 
-            foreach (var hashGroup in modeGroup.GroupBy(pair => pair.Value))
+            foreach (var hashGroup in modeGroup.GroupBy(pair => pair.Value.ConfigHash))
             {
                 if (upgrades.TryGetValue(hashGroup.Key, out var currentHash) && hashGroup.Key != currentHash)
                 {

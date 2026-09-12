@@ -533,9 +533,8 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var path = plugin.GetItem(candidate.EpisodeId)?.Path;
-
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                var item = plugin.GetItem(candidate.EpisodeId);
+                if (item is not { Path: { Length: > 0 } path } || !File.Exists(path))
                 {
                     LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
                     continue;
@@ -551,6 +550,7 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
                 }
 
                 candidate.Path = path;
+                candidate.FileVersion = item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
                 verified.Add(candidate);
                 verifier.Classify(candidate);
             }
@@ -565,6 +565,7 @@ internal partial class QueueManager(ILogger<QueueManager> logger, ILibraryManage
         }
 
         verifier.LogAnalysisReasons(_logger, verified);
+        await _database.BackfillFileVersionsAsync(verifier.FileVersionBackfill, cancellationToken).ConfigureAwait(false);
 
         return verified;
     }

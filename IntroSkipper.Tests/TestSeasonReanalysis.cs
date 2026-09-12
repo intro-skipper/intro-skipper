@@ -15,6 +15,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -48,6 +49,7 @@ public sealed class TestSeasonReanalysisPlanner
             fileSystem: null!,
             ffmpegService: null!,
             cacheService: DatabaseTestHelpers.CreateTempCacheService(),
+            cacheDatabase: null!,
             database: DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();
 
         await analyzer.AnalyzeItemsAsync(
@@ -380,6 +382,113 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
     }
 
+    // The record's hash matches directly with Chromaprint available and through the
+    // availability fallback without it; a changed file must win over both.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task VerifyQueueAsync_ReopensItem_WhenFileVersionChanged(bool ffmpegValid)
+    {
+        var config = new PluginConfiguration();
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+        await fixture.CreateDatabase().MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)1)], hash);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid));
+
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.True(episode.FileChanged);
+        Assert.Equal(2, episode.FileVersion);
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_FlagsChangedFile_FromRecordOfAModeNotInTheRun()
+    {
+        var config = new PluginConfiguration();
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var introHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+        var database = fixture.CreateDatabase();
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)null)], introHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(fixture.EpisodeId, (long?)1)], "credits-hash");
+
+        // The run covers Introduction only; the Credits record is what proves the file changed.
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true));
+
+        Assert.True(episode.FileChanged);
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
+
+        // The unversioned Introduction record is not backfilled: the reset rewrites it.
+        using var verifyDb = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath);
+        Assert.Null((await verifyDb.AnalyzedItems.AsNoTracking().SingleAsync(a => a.Type == AnalysisMode.Introduction)).FileVersion);
+    }
+
+    [Theory]
+    [InlineData(2L)]
+    [InlineData(null)]
+    public async Task VerifyQueueAsync_KeepsItemSettled_WhenFileVersionMatchesOrIsUnknown(long? recordedVersion)
+    {
+        var config = new PluginConfiguration();
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+        var database = fixture.CreateDatabase();
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, recordedVersion)], hash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(fixture.EpisodeId, recordedVersion)], hash);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true));
+
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.False(episode.FileChanged);
+
+        // A record without a version is stamped for every mode, so a later replacement
+        // of the file is noticed even for modes this run did not cover.
+        using var verifyDb = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath);
+        Assert.All(await verifyDb.AnalyzedItems.AsNoTracking().ToListAsync(), record => Assert.Equal(2, record.FileVersion));
+    }
+
+    [Fact]
+    public async Task AnalyzeItemsAsync_ChangedFile_DiscardsSegmentsAndFingerprintsBeforeReanalysis()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = true,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+        };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.None, ffmpegValid: false);
+        var database = fixture.CreateDatabase();
+        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+
+        // A season whose analyzer action is None runs no analyzer, so what the pass does
+        // before analysis is all that is left to observe.
+        await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None });
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)1)], hash);
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Introduction, [new Segment(fixture.EpisodeId, new TimeRange(0, 30))], SegmentSource.Chromaprint, hash);
+        cacheDatabase.Upsert(fixture.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+
+        var analyzer = new AnalyzerTaskFactory(
+            NullLoggerFactory.Instance,
+            fixture.LibraryManager,
+            providerManager: null!,
+            fileSystem: null!,
+            new StubFFmpegService { VersionCheck = () => false },
+            DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+            cacheDatabase,
+            database).CreateAnalyzerTask();
+        await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [fixture.SeasonId]);
+
+        Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId, includeSuppressed: true), s => s.State == SegmentState.Active);
+        using var cache = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
+        Assert.False(await cache.DetectionCache.AnyAsync());
+        using var verifyDb = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath);
+        var record = await verifyDb.AnalyzedItems.AsNoTracking().SingleAsync();
+        Assert.Equal(hash, record.ConfigHash);
+        Assert.Equal(2, record.FileVersion);
+    }
+
     [Fact]
     public async Task VerifyQueueAsync_StillAnalyzesDisabledItem()
     {
@@ -413,37 +522,43 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     /// <summary>
-    /// One queued episode whose media file exists on disk, resolvable through the
-    /// plugin instance's library manager, over a fresh segment database.
+    /// One queued episode whose media file exists on disk, the only item of one library
+    /// in the plugin instance's library manager, over a fresh segment database. The file
+    /// version is the write time Jellyfin holds for the episode, in ticks.
     /// </summary>
     private sealed class VerifyQueueFixture : IDisposable
     {
         private readonly TempSegmentDb _db = new();
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
-        private readonly Episode _episode;
         private readonly string _mediaPath;
 
-        public VerifyQueueFixture(PluginConfiguration config)
+        public VerifyQueueFixture(PluginConfiguration config, long fileVersion = 0)
         {
             _mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
             File.WriteAllText(_mediaPath, string.Empty);
 
             _scope = EntrypointTestHelpers.CreatePluginScope(config);
-            _episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
-            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(_episode));
+            var episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
+            episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
+            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], [episode]);
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", LibraryManager);
         }
 
         public string DbPath => _db.Path;
+
+        public ILibraryManager LibraryManager { get; }
 
         public Guid SeasonId { get; } = Guid.NewGuid();
 
         public Guid EpisodeId { get; } = Guid.NewGuid();
 
+        public IntroSkipperDatabase CreateDatabase() => _db.CreateDatabase();
+
         public Task<IReadOnlyList<QueuedEpisode>> VerifyAsync(bool ffmpegValid)
         {
             var queueManager = new QueueManager(
                 NullLogger<QueueManager>.Instance,
-                EntrypointTestHelpers.CreateLibraryManager(_episode),
+                LibraryManager,
                 providerManager: null!,
                 fileSystem: null!,
                 ffmpegService: new StubFFmpegService { VersionCheck = () => ffmpegValid },

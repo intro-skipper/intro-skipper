@@ -28,6 +28,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="analyzerFactory">Factory used to create fresh queue managers per run.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="cacheDatabase">Detection cache database facade, for the per-item delete when a file was replaced.</param>
 /// <param name="database">Segment database facade.</param>
 public partial class BaseItemAnalyzerTask(
     ILogger logger,
@@ -35,13 +36,17 @@ public partial class BaseItemAnalyzerTask(
     AnalyzerTaskFactory analyzerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
+    IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database)
 {
+    private static readonly AnalysisMode[] AllModes = Enum.GetValues<AnalysisMode>();
+
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
@@ -121,6 +126,30 @@ public partial class BaseItemAnalyzerTask(
             }
 
             var first = episodes[0];
+
+            // A replaced file makes the old automatic segments and fingerprints wrong for every
+            // mode, not only the ones this run covers. The fingerprints go first: the records
+            // are the only evidence the file changed, so if the reset does not commit the
+            // mismatch persists and the next run retries both. The reset journals its
+            // deletions' projections. Every mode of the episode then reopens in memory too,
+            // or a mode whose record matched would keep its settled state after its segments
+            // were deleted and be recorded again with nothing behind it.
+            var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
+            if (changedFiles.Length > 0)
+            {
+                await _cacheDatabase.DeleteForItemsAsync(changedFiles, ct).ConfigureAwait(false);
+                await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, ct).ConfigureAwait(false);
+                foreach (var episode in episodes.Where(e => e.FileChanged))
+                {
+                    foreach (var mode in modes)
+                    {
+                        if (episode.GetAnalyzed(mode) != EpisodeState.UserProvided)
+                        {
+                            episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
+                        }
+                    }
+                }
+            }
 
             // Run settled-season reanalysis from scratch after no new episodes have been added
             // for the configured delay so segments first derived from a partial season are
@@ -246,7 +275,7 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                items.Select(i => i.EpisodeId),
+                items.Select(i => (i.EpisodeId, i.FileVersion)),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
             return;
@@ -300,7 +329,7 @@ public partial class BaseItemAnalyzerTask(
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(item => item.EpisodeId),
+            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(item => (item.EpisodeId, item.FileVersion)),
             configHash,
             cancellationToken).ConfigureAwait(false);
     }

@@ -276,6 +276,7 @@ public sealed class TestCleanCacheTask : IDisposable
                 fileSystem: null!,
                 ffmpegService: null!,
                 cacheService: null!,
+                cacheDatabase,
                 database),
             libraryManager,
             database,

@@ -24,6 +24,7 @@ namespace IntroSkipper.Manager;
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="database">Segment database facade.</param>
 public class AnalyzerTaskFactory(
     ILoggerFactory loggerFactory,
@@ -32,6 +33,7 @@ public class AnalyzerTaskFactory(
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
+    IDetectionCacheDatabase cacheDatabase,
     IIntroSkipperDatabase database)
 {
     /// <summary>
@@ -58,5 +60,6 @@ public class AnalyzerTaskFactory(
             this,
             ffmpegService,
             cacheService,
+            cacheDatabase,
             database);
 }

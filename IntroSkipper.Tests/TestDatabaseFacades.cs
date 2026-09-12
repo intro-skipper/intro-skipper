@@ -487,6 +487,40 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task MarkItemsAnalyzedAsync_RecordsEachItemsFileVersion()
+    {
+        var versioned = Guid.NewGuid();
+        var unversioned = Guid.NewGuid();
+        var database = _db.Database;
+
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(versioned, (long?)7), (unversioned, null)], "hash");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(versioned, (long?)8)], "hash");
+
+        await using var db = _db.Context();
+        var versions = await db.AnalyzedItems.AsNoTracking().ToDictionaryAsync(a => a.ItemId, a => a.FileVersion);
+        Assert.Equal(8, versions[versioned]);
+        Assert.Null(versions[unversioned]);
+    }
+
+    [Fact]
+    public async Task BackfillFileVersionsAsync_StampsOnlyUnversionedRecords_AcrossStatementChunks()
+    {
+        var ids = Enumerable.Range(0, MultiRowSql.ChunkSize + 1).Select(_ => Guid.NewGuid()).ToArray();
+        var alreadyVersioned = ids[0];
+        var database = _db.Database;
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, ids.Select(id => (id, id == alreadyVersioned ? 1 : (long?)null)), "hash");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(ids[1], (long?)null)], "hash");
+
+        await database.BackfillFileVersionsAsync(ids.ToDictionary(id => id, _ => 2L));
+
+        await using var db = _db.Context();
+        var records = await db.AnalyzedItems.AsNoTracking().ToListAsync();
+        Assert.Equal(ids.Length + 1, records.Count);
+        Assert.Equal(1, Assert.Single(records, r => r.ItemId == alreadyVersioned).FileVersion);
+        Assert.All(records.Where(r => r.ItemId != alreadyVersioned), r => Assert.Equal(2, r.FileVersion));
+    }
+
+    [Fact]
     public async Task MarkItemsAnalyzedAsync_RecordsEveryItemAcrossStatementChunks()
     {
         // One id past the chunk size exercises the multi-row statement's parameter
@@ -596,7 +630,7 @@ public sealed class TestDatabaseFacades : IDisposable
 
                     var snapshot = await database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), Padded(keptId));
 
-                    Assert.Equal("snapshot-config", snapshot.AnalyzedConfigHashes[(keptId, AnalysisMode.Introduction)]);
+                    Assert.Equal("snapshot-config", snapshot.AnalysisRecords[(keptId, AnalysisMode.Introduction)].ConfigHash);
                     Assert.Contains(AnalysisMode.Introduction, snapshot.SegmentModesByEpisodeId[keptId]);
                     break;
                 }

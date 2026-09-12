@@ -140,7 +140,7 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.Empty(SeasonReanalysisPlanner.GetSettleReanalysisModes(states, ids, [mode], true));
             if (compatible)
             {
-                var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, database);
+                var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, null!, database);
                 await task.AnalyzeItemsAsync(verified, mode, action, true, CancellationToken.None);
             }
 
@@ -160,7 +160,7 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.Equal(expectedHash, segment.ConfigHash);
             Assert.Equal(0, await database.CleanStaleAutomaticSegmentsAsync(ids, mode, expectedHash));
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, ids);
-            Assert.All(snapshot.AnalyzedConfigHashes.Values, hash => Assert.Equal(expectedHash, hash));
+            Assert.All(snapshot.AnalysisRecords.Values, record => Assert.Equal(expectedHash, record.ConfigHash));
             Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(database, snapshot, config));
             Assert.Equal(legacyBytes, await File.ReadAllBytesAsync(legacyPath));
 
@@ -264,7 +264,7 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.Equal(mode == AnalysisMode.Commercial, await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
-        Assert.Equal(mode == AnalysisMode.Commercial ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalyzedConfigHashes[(id, mode)]);
+        Assert.Equal(mode == AnalysisMode.Commercial ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalysisRecords[(id, mode)].ConfigHash);
     }
 
     [Theory]
@@ -303,12 +303,12 @@ public sealed class TestLegacyAnalysisCompatibility
 
             Assert.Single(await queue.VerifyQueueAsync([candidate], [AnalysisMode.Preview]));
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Preview));
-            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, database);
+            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, null!, database);
             await task.AnalyzeItemsAsync([candidate], AnalysisMode.Preview, AnalyzerAction.Default, true, CancellationToken.None);
 
             Assert.Equal(AnalysisMode.Credits, Assert.Single(await database.GetSegmentsAsync(id)).Type);
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
-            Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true), snapshot.AnalyzedConfigHashes[(id, AnalysisMode.Preview)]);
+            Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(id, AnalysisMode.Preview)].ConfigHash);
             Assert.Equal(0, ffmpeg.FingerprintCalls);
             Assert.Equal(0, ffmpeg.CreditsScanCalls);
         }
@@ -341,7 +341,7 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
-        Assert.Equal(hash, snapshot.AnalyzedConfigHashes[(id, AnalysisMode.Credits)]);
+        Assert.Equal(hash, snapshot.AnalysisRecords[(id, AnalysisMode.Credits)].ConfigHash);
         var candidate = new QueuedEpisode { EpisodeId = id };
         new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
