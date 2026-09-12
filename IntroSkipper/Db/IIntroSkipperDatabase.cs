@@ -51,7 +51,7 @@ public interface IIntroSkipperDatabase
     /// Atomically replaces the active automatic segments the writing pass produced for
     /// an item and mode with the admitted subset of <paramref name="segments"/>
     /// (<see cref="AutoSegmentAdmissionPolicy"/>: tombstones, user rows and intro
-    /// overlap for credits reject a candidate; exact matches of the other pass or of
+    /// overlap for locally detected credits reject a candidate; exact matches of the other pass or of
     /// an earlier candidate are dropped). Rows whose boundaries match an accepted
     /// segment keep their ids; an empty list clears the pass's rows; a non-empty list
     /// whose candidates were all rejected leaves the standing rows untouched. User

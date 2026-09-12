@@ -24,6 +24,12 @@ The source snapshot rejects segments for another item, unknown segment types,
 negative or reversed ranges, and ranges extending beyond the file's runtime. Multiple
 valid ranges of a type are retained; exact duplicates are removed.
 
+The local credits-versus-intro overlap heuristic does not reject authoritative
+SkipMe credits. Existing intro rows are left unchanged; manual credits and credits
+tombstones still block overlapping incoming credits ranges. A fully rejected write
+settles the mode according to any active rows left in storage, without running local
+fallback.
+
 ## Freshness and failures
 
 Queue verification reads SkipMe once per item. The validated snapshot is shared by

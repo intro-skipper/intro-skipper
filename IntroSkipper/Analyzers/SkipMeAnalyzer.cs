@@ -38,7 +38,9 @@ internal sealed class SkipMeAnalyzer(IIntroSkipperDatabase database) : IMediaFil
                 SegmentSource.SkipMe,
                 episode.AnalysisConfigHash,
                 cancellationToken).ConfigureAwait(false);
-            episode.SetAnalyzed(mode, written > 0 ? EpisodeState.Analyzed : EpisodeState.NoSegments);
+            var hasSegments = written > 0 || (await database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
+                .Any(segment => segment.Type == mode);
+            episode.SetAnalyzed(mode, hasSegments ? EpisodeState.Analyzed : EpisodeState.NoSegments);
         }
 
         return analysisQueue;

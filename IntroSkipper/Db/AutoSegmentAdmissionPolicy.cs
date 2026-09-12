@@ -13,7 +13,8 @@ namespace IntroSkipper.Db;
 /// automation may not contradict recorded human intent. A tombstone means "the user
 /// deleted this range"; an active user row of the same mode means "the user said
 /// this"; the credits-versus-introduction rule is an automation-quality heuristic
-/// riding the same gate. Admission-time only: nothing re-validates stored rows on
+/// riding the same gate for local detection, not authoritative SkipMe input.
+/// Admission-time only: nothing re-validates stored rows on
 /// restore, undo or user edits, so none of these rules hold as properties of the
 /// stored state.
 /// </summary>
