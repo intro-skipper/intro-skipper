@@ -8,6 +8,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Configuration;
@@ -52,10 +53,12 @@ namespace IntroSkipper
             // automatic-analysis owner that DetectSegmentsTask cancels before it starts.
             serviceCollection.AddSingleton<Entrypoint>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
-            // Owns the shared dependency set of the per-run analysis objects
-            // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
-            // therefore created fresh by this factory instead of being singletons.
-            serviceCollection.AddSingleton<AnalyzerTaskFactory>();
+            // Stateless resolution of library items into seasons, shared by every pass,
+            // the watcher and the dashboard.
+            serviceCollection.AddSingleton<SeasonResolver>();
+            // Holds no per-run state, so one instance serves the scheduled task, the
+            // watcher and the dashboard scan.
+            serviceCollection.AddSingleton<BaseItemAnalyzerTask>();
             serviceCollection.AddSingleton<DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             // Shared plugin-to-Jellyfin segment conversion plus the direct writer into

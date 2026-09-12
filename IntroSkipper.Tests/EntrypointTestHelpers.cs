@@ -16,11 +16,13 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
+using IntroSkipper.ScheduledTasks;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -53,16 +55,21 @@ internal static class EntrypointTestHelpers
             cacheDatabase,
             ffmpegService!,
             NullLogger<Entrypoint>.Instance,
-            new AnalyzerTaskFactory(
+            new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                libraryManager!,
-                providerManager: null!,
-                fileSystem: null!,
+                CreateSeasonResolver(libraryManager),
                 ffmpegService!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
                 cacheDatabase,
                 database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
     }
+
+    /// <summary>
+    /// A season resolver over the given library manager. Tests whose keys need no lookup
+    /// (movies, episodes with a season id) may pass <see langword="null"/>.
+    /// </summary>
+    internal static SeasonResolver CreateSeasonResolver(ILibraryManager? libraryManager)
+        => new(NullLogger<SeasonResolver>.Instance, libraryManager!);
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
     // and returns null for any other id. Shared by the controller test suites.
@@ -75,13 +82,12 @@ internal static class EntrypointTestHelpers
         => TaskManagerProxy.Create();
 
     /// <summary>
-    /// Scopes a plugin instance carrying the given configuration and an empty analysis queue.
+    /// Scopes a plugin instance carrying the given configuration.
     /// </summary>
     internal static PluginInstanceScope CreatePluginScope(PluginConfiguration configuration, string? cacheDbPath = null)
     {
         var scope = new PluginInstanceScope(CreateTempCacheDir(), cacheDbPath);
         SetPropertyOrField(Plugin.Instance!, "Configuration", configuration);
-        SetPropertyOrField(Plugin.Instance!, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         return scope;
     }
 
@@ -126,113 +132,94 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
-    /// ILibraryManager stub for the queue-building path. Returns the configured virtual
-    /// folders and answers GetItemList either from a per-library delegate (which may throw
-    /// to simulate a failed library enumeration; ids then resolve through the given
-    /// resolver, null by default: "the server does not know this item") or from a fixed
-    /// item list filtered the way the queue manager queries it (by season ancestors, by
-    /// in-season specials, by explicit ids). The item-list form resolves ids without a
-    /// backing item to a Season stub, so scoped runs can ask for a season's owning
-    /// libraries through GetCollectionFolders.
+    /// ILibraryManager stub for the season resolver. Returns the configured virtual folders
+    /// and answers GetItemList either from a per-query delegate (which may throw to simulate
+    /// a failed enumeration; ids then resolve through the given resolver, null by default:
+    /// "the server does not know this item") or from a fixed item list filtered the way the
+    /// resolver queries it: by item kind, by series ancestor, by explicit ids, by virtual
+    /// flag. The ancestor model puts seasons and episodes under their series and nothing
+    /// under a season, so an episode is found through its series whether or not it sits in
+    /// a season folder. Every item is in one library with the given options, or default
+    /// options.
     /// </summary>
     internal class FakeLibraryManager : DispatchProxy
     {
         private List<VirtualFolderInfo> _folders = [];
         private Func<InternalItemsQuery?, List<BaseItem>> _getItemList = _ => [];
         private Func<Guid, BaseItem?> _getItemById = _ => null;
-        private Dictionary<Guid, Guid> _owningFolderIds = [];
-
-        /// <summary>Gets the ParentId of every GetItemList query, so tests can assert which libraries were queried.</summary>
-        public List<Guid> QueriedLibraryIds { get; } = [];
+        private LibraryOptions _libraryOptions = new();
 
         public static ILibraryManager Create(
-            List<VirtualFolderInfo> folders,
-            Func<Guid, List<BaseItem>> getItemList,
-            Func<Guid, BaseItem?>? getItemById = null)
-            => Create(folders, query => getItemList(query?.ParentId ?? Guid.Empty), getItemById ?? (_ => null), []);
-
-        public static ILibraryManager Create(
-            List<VirtualFolderInfo> folders,
-            IReadOnlyList<BaseItem> items,
-            Dictionary<Guid, Guid>? owningFolderIds = null)
-            => Create(
-                folders,
-                query => Filter(items, query),
-                id => items.FirstOrDefault(item => item.Id == id) ?? new Season { Id = id },
-                owningFolderIds ?? []);
-
-        private static ILibraryManager Create(
             List<VirtualFolderInfo> folders,
             Func<InternalItemsQuery?, List<BaseItem>> getItemList,
-            Func<Guid, BaseItem?> getItemById,
-            Dictionary<Guid, Guid> owningFolderIds)
+            Func<Guid, BaseItem?>? getItemById = null,
+            LibraryOptions? libraryOptions = null)
         {
             var proxy = Create<ILibraryManager, FakeLibraryManager>();
             var fake = (FakeLibraryManager)(object)proxy;
             fake._folders = folders;
             fake._getItemList = getItemList;
-            fake._getItemById = getItemById;
-            fake._owningFolderIds = owningFolderIds;
+            fake._getItemById = getItemById ?? (_ => null);
+            fake._libraryOptions = libraryOptions ?? new LibraryOptions();
             return proxy;
         }
+
+        public static ILibraryManager Create(List<VirtualFolderInfo> folders, IReadOnlyList<BaseItem> items, LibraryOptions? libraryOptions = null)
+            => Create(folders, query => Filter(items, query), id => items.FirstOrDefault(item => item.Id == id), libraryOptions);
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             return targetMethod?.Name switch
             {
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
-                nameof(ILibraryManager.GetItemList) => GetItems(args?.OfType<InternalItemsQuery>().FirstOrDefault()),
+                nameof(ILibraryManager.GetItemList) => _getItemList(args?.OfType<InternalItemsQuery>().FirstOrDefault()),
                 nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
-                nameof(ILibraryManager.GetCollectionFolders) => CollectionFoldersFor((BaseItem)args![0]!),
+                nameof(ILibraryManager.GetLibraryOptions) => _libraryOptions,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
         }
 
         private static List<BaseItem> Filter(IReadOnlyList<BaseItem> items, InternalItemsQuery? query)
         {
-            if (query?.ParentIndexNumber == 0 && query.AncestorIds is { Length: > 0 })
+            if (query is null)
             {
-                return [.. items.Where(item => item is Episode episode &&
-                    episode.ParentIndexNumber == query.ParentIndexNumber &&
-                    query.AncestorIds.Contains(episode.SeriesId))];
+                return [.. items];
             }
 
-            if (query?.AncestorIds is { Length: > 0 })
+            IEnumerable<BaseItem> result = items;
+            if (query.IncludeItemTypes is { Length: > 0 })
             {
-                return [.. items.Where(item => item is Episode episode && query.AncestorIds.Contains(episode.SeasonId))];
+                result = result.Where(item => query.IncludeItemTypes.Contains(item.GetBaseItemKind()));
             }
 
-            if (query?.ItemIds is { Length: > 0 })
+            if (query.AncestorIds is { Length: > 0 })
             {
-                return [.. items.Where(item => query.ItemIds.Contains(item.Id))];
+                result = result.Where(item => query.AncestorIds.Contains(SeriesIdOf(item)));
             }
 
-            return [.. items];
+            if (query.ItemIds is { Length: > 0 })
+            {
+                result = result.Where(item => query.ItemIds.Contains(item.Id));
+            }
+
+            if (query.IsVirtualItem is { } isVirtual)
+            {
+                result = result.Where(item => item.IsVirtualItem == isVirtual);
+            }
+
+            return [.. result];
         }
 
-        private List<BaseItem> GetItems(InternalItemsQuery? query)
+        private static Guid SeriesIdOf(BaseItem item) => item switch
         {
-            if (query is not null)
-            {
-                QueriedLibraryIds.Add(query.ParentId);
-            }
-
-            return _getItemList(query);
-        }
-
-        // Owning libraries per requested id; ids without a mapping are owned by every folder,
-        // which preserves the query-every-library behavior for tests that don't care.
-        private List<Folder> CollectionFoldersFor(BaseItem item)
-        {
-            IEnumerable<Guid> folderIds = _owningFolderIds.TryGetValue(item.Id, out var owner)
-                ? [owner]
-                : _folders.Select(folder => Guid.Parse(folder.ItemId!));
-            return [.. folderIds.Select(id => new Folder { Id = id })];
-        }
+            Episode episode => episode.SeriesId,
+            Season season => season.SeriesId,
+            _ => Guid.Empty,
+        };
     }
 
-    internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
-        => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
+    internal static HashSet<Guid> GetItemsToAnalyze(Entrypoint entrypoint)
+        => (HashSet<Guid>)GetPrivateField(entrypoint, "_itemsToAnalyze");
 
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {

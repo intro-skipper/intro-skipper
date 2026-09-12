@@ -21,7 +21,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// Clean the Intro Skipper cache of unused rows.
 /// </summary>
 /// <param name="logger">Logger.</param>
-/// <param name="analyzerFactory">Factory for per-run queue managers.</param>
+/// <param name="seasonResolver">Resolver of every enabled library's seasons.</param>
 /// <param name="libraryManager">Library manager, used to check whether a stale-candidate id still resolves to a server item.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
@@ -29,7 +29,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="segmentChange">Durable segment-change coordinator; converges the erased items' journaled projections.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
-    AnalyzerTaskFactory analyzerFactory,
+    SeasonResolver seasonResolver,
     ILibraryManager libraryManager,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
@@ -37,7 +37,7 @@ public partial class CleanCacheTask(
     SegmentChange segmentChange) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
@@ -67,32 +67,30 @@ public partial class CleanCacheTask(
     /// <summary>
     /// Cleans the cache of unused rows.
     /// Clears segment, season-state and cache rows of items the server no longer knows.
-    /// Items that still exist but were not enumerated (a provider-disabled library, a
-    /// per-item queue guard) keep all their rows.
+    /// Items that still exist but were not resolved (a provider-disabled library, an
+    /// episode waiting for its season) keep all their rows.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var queueManager = _analyzerFactory.CreateQueueManager();
-
-        // QueueManager.GetMediaInventoryAsync() already skips libraries where the plugin is disabled via
+        // The resolver already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var (seasons, failures) = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken);
 
-        // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
-        // incomplete queue would push swathes of healthy data through the stale-candidate
+        // Every cleanup below starts from rows that are NOT in the resolved seasons, so an
+        // incomplete result would push swathes of healthy data through the stale-candidate
         // path and lean entirely on the per-id existence check below. Bail out instead.
-        if (queueManager.EnumerationFailureCount > 0)
+        if (failures > 0)
         {
-            LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
+            LogSkippingCleanupEnumerationFailures(_logger, failures);
             progress.Report(100);
             return;
         }
 
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(static episodes => episodes)
+        var enabledLibraryEpisodeIds = seasons
+            .SelectMany(static season => season.Episodes)
             .Select(static episode => episode.EpisodeId)
             .ToHashSet();
 
@@ -103,11 +101,11 @@ public partial class CleanCacheTask(
             return;
         }
 
-        // Absence from the queue only proves an id was not enumerated: the queue skips
-        // provider-disabled libraries, whose rows (user segments, tombstones, analyzer
-        // actions) must survive that reversible toggle. Only ids the server itself no
-        // longer resolves are deleted. Season keys resolve the same way — each is a
-        // real item id (a season's, or the queueing fallback of an episode's own id).
+        // Absence from the resolved seasons only proves an id was not resolved: the
+        // resolver skips provider-disabled libraries, whose rows (user segments,
+        // tombstones, analyzer actions) must survive that reversible toggle. Only ids the
+        // server itself no longer resolves are deleted. Season keys are checked the same
+        // way: each is a real item id, a season's or a movie's.
         var existsById = new Dictionary<Guid, bool>();
         bool IsGone(Guid id)
         {
@@ -129,7 +127,7 @@ public partial class CleanCacheTask(
         if (staleTimestampEpisodeIds.Count > 0)
         {
             // The erase journals every affected item's projection with the delete, so
-            // the Jellyfin rows converge away durably — a sync racing this cleanup
+            // the Jellyfin rows converge away durably: a sync racing this cleanup
             // from a stale read is followed by the marker's own projection, and a
             // crash mid-cleanup leaves the work journaled instead of orphaning rows.
             await _database
@@ -137,7 +135,7 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
 
             // Converge exactly the erased items now rather than waiting for the
-            // worker's poll — unrelated pending work keeps its backoff; anything this
+            // worker's poll. Unrelated pending work keeps its backoff; anything this
             // pass cannot finish stays journaled. Uncancelable: the erase is committed.
             await _segmentChange
                 .ProjectItemsAsync(staleTimestampEpisodeIds, CancellationToken.None)
@@ -161,8 +159,9 @@ public partial class CleanCacheTask(
         }
 
         // Clean up season state by removing seasons that no longer exist.
-        var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
-        var retainedSeasonIds = queue.Keys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
+        var seasonKeys = seasons.Select(static season => season.Key).ToList();
+        var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(seasonKeys, cancellationToken).ConfigureAwait(false);
+        var retainedSeasonIds = seasonKeys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
         await _database.CleanSeasonStateAsync(retainedSeasonIds, cancellationToken).ConfigureAwait(false);
 
         // Per-item state (disable flags, analysis records) follows the item, not a season

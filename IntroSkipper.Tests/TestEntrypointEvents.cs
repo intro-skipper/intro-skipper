@@ -24,7 +24,7 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Fact]
@@ -37,21 +37,22 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(movieId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Contains(movieId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Contains(movieId, EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Fact]
-    public void OnItemChanged_QueuesEpisodeUnderItsSeason()
+    public void OnItemChanged_QueuesTheEpisodeId_NotItsSeason()
     {
         using var scope = CreateScope(autoDetectIntros: true);
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
-        var seasonId = Guid.NewGuid();
-        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId);
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Equal(seasonId, Assert.Single(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint)));
+        // The run resolves the episode's season, the host season for an in-season
+        // special, when it starts rather than on the library event thread.
+        Assert.Equal(episode.Id, Assert.Single(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint)));
     }
 
     [Fact]
@@ -63,7 +64,7 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Theory]

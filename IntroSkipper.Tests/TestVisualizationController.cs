@@ -36,7 +36,7 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        using var pluginScope = CreateScope(updateMediaSegments: true);
         await SeedSeasonAsync(seasonId, episodeIds);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -51,7 +51,7 @@ public sealed class TestVisualizationController : IDisposable
             BlockedItemId = episodeIds[0]
         };
         await _h.Database.InitializeAsync();
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, SeasonLibrary(seriesId, seasonId, episodeIds));
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
         await writeEntered.Task;
@@ -79,9 +79,9 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
+        using var pluginScope = CreateScope(updateMediaSegments: false);
         await SeedSeasonAsync(seasonId, episodeIds);
-        var controller = CreateController(SegmentChangeHarness.MissingCachePath());
+        var controller = CreateController(SegmentChangeHarness.MissingCachePath(), SeasonLibrary(seriesId, seasonId, episodeIds));
 
         var result = await controller.EraseSeasonAsync(
             seriesId,
@@ -111,19 +111,17 @@ public sealed class TestVisualizationController : IDisposable
             UpdateMediaSegments = true,
             SeriesExclusions = { "Excluded Show" }
         };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, [excludedId, includedId], config);
+        using var pluginScope = CreateScope(config);
         await SeedSeasonAsync(seasonId, [excludedId, includedId]);
         SeedCache(pluginScope.CacheDbPath, excludedId, includedId);
 
-        // The controller enumerates the library through a fresh queue manager, so the
-        // exclusion policy decides from the enumerated series names.
+        // The controller resolves the library through the season resolver, so the
+        // exclusion policy decides from the resolved series names.
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
             [JellyfinItems.Folder("Shows")],
-            _ =>
-            [
+            JellyfinItems.WithParents(
                 JellyfinItems.Episode(excludedId, seriesId, seasonId, "Excluded Show", path: "/media/excluded/s01e01.mkv"),
-                JellyfinItems.Episode(includedId, seriesId, seasonId, "Included Show", path: "/media/included/s01e01.mkv")
-            ]);
+                JellyfinItems.Episode(includedId, Guid.NewGuid(), Guid.NewGuid(), "Included Show", path: "/media/included/s01e01.mkv")));
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var controller = CreateController(cacheAvailable ? pluginScope.CacheDbPath : SegmentChangeHarness.MissingCachePath(), libraryManager);
 
@@ -156,11 +154,9 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        using var pluginScope = CreateScope(updateMediaSegments: true);
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
 
         // Steady state before the toggle: an automatic segment already mirrored to
@@ -173,7 +169,7 @@ public sealed class TestVisualizationController : IDisposable
         {
             ExistingSegments = [SegmentChangeHarness.MirroredDto(episodeIds[0], mirroredRow.Id, startTicks: mirroredRow.StartTicks, endTicks: mirroredRow.EndTicks)]
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -203,21 +199,21 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var orphanId = Guid.NewGuid();
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        using var pluginScope = CreateScope(updateMediaSegments: true);
 
-        // The episode is not in the cached queue and Jellyfin resolved no season for
-        // it, so SeasonStateKeyResolver's last resort reports Guid.Empty.
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));
+        // Jellyfin has not attached the episode to a season yet and none of its siblings
+        // has its number, so the season key falls back to the episode's own id.
+        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            JellyfinItems.WithParents(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var result = await controller.DisableItem(orphanId, CancellationToken.None);
 
         // The toggle records the item's own id as its key (the movie convention)
-        // instead of rejecting the intent over the empty season key.
+        // instead of rejecting the intent over an empty season key.
         Assert.IsType<NoContentResult>(result);
         Assert.Equal([orphanId], await database.GetDisabledItemIdsAsync(orphanId));
     }
@@ -228,14 +224,12 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        using var pluginScope = CreateScope(updateMediaSegments: true);
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         _h.Store = new FakeJellyfinSegmentStore();
         var database = _h.Database;
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
@@ -252,11 +246,9 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        using var pluginScope = CreateScope(updateMediaSegments: true);
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
 
         // A stored automatic segment gives the sync rows to push (enable) or withdraw
@@ -274,7 +266,7 @@ public sealed class TestVisualizationController : IDisposable
             ExistingSegments = disable ? [SegmentChangeHarness.MirroredDto(episodeIds[0])] : [],
             WriteException = new InvalidOperationException("mirror write failed")
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var result = disable
             ? await controller.DisableItem(episodeIds[0], CancellationToken.None)
@@ -294,11 +286,9 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
-        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        using var pluginScope = CreateScope(updateMediaSegments: true);
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var database = _h.Database;
@@ -315,7 +305,7 @@ public sealed class TestVisualizationController : IDisposable
             WriteEntered = writeEntered,
             BlockedItemId = episodeIds[0]
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
         var segmentsController = new SegmentsController(_h.Database, _h.Change);
 
         // Request A commits the disable flag, then parks inside its projection write
@@ -354,7 +344,7 @@ public sealed class TestVisualizationController : IDisposable
     public async Task DisabledItems_MovieUsesItsOwnIdAsSeasonKey()
     {
         var movieId = Guid.NewGuid();
-        using var pluginScope = CreatePluginScope(Guid.NewGuid(), Guid.NewGuid(), [Guid.NewGuid(), Guid.NewGuid()], updateMediaSegments: true);
+        using var pluginScope = CreateScope(updateMediaSegments: true);
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_libraryManager",
@@ -372,13 +362,12 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public async Task AnalyzerActions_RoundTripThroughTheEndpoints_And404ForUnqueuedSeasons()
+    public async Task AnalyzerActions_RoundTripThroughTheEndpoints_And404ForUnknownSeasons()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seasonId = Guid.NewGuid();
-        QueueSeason(seasonId, Guid.NewGuid(), (Guid.NewGuid(), "Episode"));
         var database = _h.Database;
-        var controller = CreateController(scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(Guid.NewGuid(), seasonId, [Guid.NewGuid()]));
 
         Assert.IsType<NotFoundResult>((await controller.GetAnalyzerAction(Guid.NewGuid())).Result);
 
@@ -396,15 +385,14 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public void GetSeasonEpisodes_ReturnsQueuedEpisodes_WhenSeriesMatches()
+    public void GetSeasonEpisodes_ReturnsResolvedEpisodes_WhenSeriesMatches()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seasonId = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
         var firstEpisodeId = Guid.NewGuid();
         var secondEpisodeId = Guid.NewGuid();
-        QueueSeason(seasonId, seriesId, (firstEpisodeId, "First"), (secondEpisodeId, "Second"));
-        var controller = CreateController(scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, (firstEpisodeId, "First"), (secondEpisodeId, "Second")));
 
         var result = controller.GetSeasonEpisodes(seriesId, seasonId);
 
@@ -414,18 +402,32 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public void GetSeasonEpisodes_ReturnsNotFound_WhenSeasonIsMissingOrSeriesDoesNotMatch()
+    public void GetSeasonEpisodes_ReturnsNotFound_WhenSeasonIsUnknownOrSeriesDoesNotMatch()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seasonId = Guid.NewGuid();
-        QueueSeason(seasonId, Guid.NewGuid(), (Guid.NewGuid(), "Episode"));
-        var controller = CreateController(scope.CacheDbPath);
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(Guid.NewGuid(), seasonId, [Guid.NewGuid()]));
 
         var missingSeason = controller.GetSeasonEpisodes(Guid.NewGuid(), Guid.NewGuid());
         var wrongSeries = controller.GetSeasonEpisodes(Guid.NewGuid(), seasonId);
 
         Assert.IsType<NotFoundResult>(missingSeason.Result);
         Assert.IsType<NotFoundResult>(wrongSeries.Result);
+    }
+
+    [Fact]
+    public async Task EraseSeasonAsync_ReturnsNoContent_ForAKnownSeasonWithoutEpisodes()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId));
+
+        // A season the server knows is an answer even with nothing to erase. An id that
+        // is not a season or movie is missing, and so is a season under another series.
+        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(seriesId, Guid.NewGuid(), eraseCache: false, CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(Guid.NewGuid(), seasonId, eraseCache: false, CancellationToken.None));
     }
 
     [Fact]
@@ -465,11 +467,13 @@ public sealed class TestVisualizationController : IDisposable
     public void ScanSeason_ReturnsConflict_WhenScanLeaseIsHeld()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(scope.CacheDbPath);
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
         var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
         try
         {
-            var result = controller.ScanSeason(Guid.NewGuid(), Guid.NewGuid());
+            var result = controller.ScanSeason(seriesId, seasonId);
 
             var conflict = Assert.IsType<ConflictObjectResult>(result);
             Assert.Equal("A scan is already in progress.", conflict.Value!.GetType().GetProperty("message")!.GetValue(conflict.Value));
@@ -485,9 +489,11 @@ public sealed class TestVisualizationController : IDisposable
     public async Task ScanSeason_ReturnsAccepted_AndReleasesItsBackgroundLease()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(scope.CacheDbPath);
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
 
-        var result = controller.ScanSeason(Guid.NewGuid(), Guid.NewGuid(), new CancellationToken(canceled: true));
+        var result = controller.ScanSeason(seriesId, seasonId, new CancellationToken(canceled: true));
 
         Assert.IsType<AcceptedResult>(result);
         for (var attempt = 0; ScheduledTaskSemaphore.IsBusy && attempt < 100; attempt++)
@@ -498,43 +504,58 @@ public sealed class TestVisualizationController : IDisposable
         Assert.False(ScheduledTaskSemaphore.IsBusy);
     }
 
+    [Fact]
+    public void ScanSeason_ReturnsNotFound_ForAnIdTheServerDoesNotKnow_OrASeasonOfAnotherSeries()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
+
+        Assert.IsType<NotFoundResult>(controller.ScanSeason(seriesId, Guid.NewGuid()));
+        Assert.IsType<NotFoundResult>(controller.ScanSeason(Guid.NewGuid(), seasonId));
+        Assert.False(ScheduledTaskSemaphore.IsBusy);
+    }
+
     private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null)
     {
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+        var seasonResolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
         return new(
             NullLogger<VisualizationController>.Instance,
             _h.Change,
-            new AnalyzerTaskFactory(
+            new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                libraryManager!,
-                providerManager: null!,
-                fileSystem: null!,
+                seasonResolver,
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 cacheDatabase,
                 _h.Database),
+            seasonResolver,
             _h.Database,
             cacheDatabase,
             EntrypointTestHelpers.CreateTaskManager());
     }
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
-        => CreatePluginScope(
-            seriesId,
-            seasonId,
-            episodeIds,
-            new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+    private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool updateMediaSegments)
+        => CreateScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, PluginConfiguration config)
-    {
-        var scope = EntrypointTestHelpers.CreatePluginScope(config);
-        QueueSeason(seasonId, seriesId, (episodeIds[0], "Episode 1"), (episodeIds[1], "Episode 2"));
-        return scope;
-    }
+    private static EntrypointTestHelpers.PluginInstanceScope CreateScope(PluginConfiguration config)
+        => EntrypointTestHelpers.CreatePluginScope(config);
 
-    private static void QueueSeason(Guid seasonId, Guid seriesId, params (Guid EpisodeId, string Name)[] episodes)
-        => Plugin.Instance!.QueuedMediaItems[seasonId] =
-            [.. episodes.Select(e => new QueuedEpisode { EpisodeId = e.EpisodeId, SeasonId = seasonId, SeriesId = seriesId, Name = e.Name })];
+    // A library holding one series with one season and the given episodes, as the
+    // controller's resolver finds them.
+    private static ILibraryManager SeasonLibrary(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds)
+        => SeasonLibrary(seriesId, seasonId, [.. episodeIds.Select((id, index) => (id, $"Episode {index + 1}"))]);
+
+    private static ILibraryManager SeasonLibrary(Guid seriesId, Guid seasonId, params (Guid EpisodeId, string Name)[] episodes)
+        => EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            [
+                JellyfinItems.Series(seriesId),
+                JellyfinItems.Season(seasonId, seriesId),
+                .. episodes.Select((e, index) => JellyfinItems.Episode(e.EpisodeId, seriesId, seasonId, name: e.Name, episodeNumber: index + 1)),
+            ]);
 
     private async Task SeedSeasonAsync(Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
