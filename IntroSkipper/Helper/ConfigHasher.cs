@@ -133,8 +133,6 @@ internal static class ConfigHasher
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            CacheEntryType.Keyframe => $"cache|v1|{type}",
-
             CacheEntryType.KeyframeVisual => $"cache|v1|{type}|{mode}",
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)

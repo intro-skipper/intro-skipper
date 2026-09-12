@@ -37,7 +37,6 @@ public sealed class TestCacheOperations
             (AnalysisMode.Credits, CacheEntryType.BlackFrame, 100.5, 0),
             (AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0),
             (AnalysisMode.Introduction, CacheEntryType.Silence, 0, 30),
-            (AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30),
             (AnalysisMode.Introduction, CacheEntryType.BlackFrame, 0, 30),
         };
         foreach (var (entryMode, type, start, end) in entries)
@@ -486,7 +485,7 @@ public sealed class TestCacheOperations
 
         public string CacheDbPath => _inner.CacheDbPath;
 
-        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null) => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService);
+        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null) => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService, new FakeKeyframeManager());
 
         /// <summary>
         /// The hash a release without audio stream selection wrote on this configuration's

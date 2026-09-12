@@ -8,7 +8,8 @@ namespace IntroSkipper.FFmpeg;
 
 /// <summary>
 /// Provides FFmpeg-based media analysis operations including fingerprinting,
-/// silence detection, black frame detection, and key frame detection.
+/// silence detection and black frame detection, plus the keyframe lookup that
+/// backs onto Jellyfin's keyframe store.
 /// </summary>
 public interface IFFmpegService
 {
@@ -99,14 +100,20 @@ public interface IFFmpegService
     Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Detects key frames in a media file within a time range.
+    /// Lists the keyframes of a media file within a time range from Jellyfin's keyframe store.
     /// </summary>
+    /// <remarks>
+    /// An episode without a stored row is extracted once (Matroska cues for mkv, an ffprobe
+    /// packet listing otherwise) and saved through Jellyfin's keyframe manager, so later calls
+    /// and Jellyfin's own HLS remuxing reuse the row. Extraction blocks for the ffprobe run and
+    /// cannot be cancelled. A failed or empty extraction is logged, not stored, and yields an
+    /// empty list, so a snap leaves its time unchanged.
+    /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="range">Time range to search.</param>
-    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns timestamps of key frames.</returns>
-    Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
+    /// <param name="range">Time range to search, both ends inclusive.</param>
+    /// <param name="cancellationToken">Token checked before the store is read and before a fresh extraction is saved.</param>
+    /// <returns>A task that returns the keyframe timestamps in seconds.</returns>
+    Task<double[]> GetKeyframesAsync(QueuedEpisode episode, TimeRange range, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Probes the first audio stream's actual duration with ffprobe.

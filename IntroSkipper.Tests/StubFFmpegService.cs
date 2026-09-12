@@ -35,7 +35,7 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<QueuedEpisode, TimeRange, AnalysisMode, TimeRange[]>? Silence { get; init; }
 
-    public Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? KeyFrames { get; init; }
+    public Func<QueuedEpisode, TimeRange, double[]>? KeyFrames { get; init; }
 
     public Func<QueuedEpisode, KeyframeVisual[]>? KeyframeVisuals { get; init; }
 
@@ -116,8 +116,8 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(BlackIntervals)(episode, range, threshold, minimum));
     }
 
-    public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
+    public virtual Task<double[]> GetKeyframesAsync(QueuedEpisode episode, TimeRange range, CancellationToken cancellationToken = default)
+        => Task.FromResult(Hook(KeyFrames)(episode, range));
 
     public virtual Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
