@@ -16,11 +16,13 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
+using IntroSkipper.ScheduledTasks;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -44,24 +46,22 @@ internal static class EntrypointTestHelpers
     {
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        // The Entrypoint and its analyzer factory see the same cache database and season
-        // resolver, as they do in production DI.
+        // The Entrypoint and its analyzer factory see the same cache database, as they
+        // do in production DI.
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
-        var seasonResolver = CreateSeasonResolver(libraryManager);
 
         return new Entrypoint(
             libraryManager!,
             cacheDatabase,
             ffmpegService!,
             NullLogger<Entrypoint>.Instance,
-            new AnalyzerTaskFactory(
+            new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                seasonResolver,
+                CreateSeasonResolver(libraryManager),
                 ffmpegService!,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
                 cacheDatabase,
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
-            seasonResolver);
+                database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
     }
 
     /// <summary>
@@ -139,29 +139,33 @@ internal static class EntrypointTestHelpers
     /// resolver queries it: by item kind, by series ancestor, by explicit ids, by virtual
     /// flag. The ancestor model puts seasons and episodes under their series and nothing
     /// under a season, so an episode is found through its series whether or not it sits in
-    /// a season folder.
+    /// a season folder. Every item is in one library with the given options, or default
+    /// options.
     /// </summary>
     internal class FakeLibraryManager : DispatchProxy
     {
         private List<VirtualFolderInfo> _folders = [];
         private Func<InternalItemsQuery?, List<BaseItem>> _getItemList = _ => [];
         private Func<Guid, BaseItem?> _getItemById = _ => null;
+        private LibraryOptions _libraryOptions = new();
 
         public static ILibraryManager Create(
             List<VirtualFolderInfo> folders,
             Func<InternalItemsQuery?, List<BaseItem>> getItemList,
-            Func<Guid, BaseItem?>? getItemById = null)
+            Func<Guid, BaseItem?>? getItemById = null,
+            LibraryOptions? libraryOptions = null)
         {
             var proxy = Create<ILibraryManager, FakeLibraryManager>();
             var fake = (FakeLibraryManager)(object)proxy;
             fake._folders = folders;
             fake._getItemList = getItemList;
             fake._getItemById = getItemById ?? (_ => null);
+            fake._libraryOptions = libraryOptions ?? new LibraryOptions();
             return proxy;
         }
 
-        public static ILibraryManager Create(List<VirtualFolderInfo> folders, IReadOnlyList<BaseItem> items)
-            => Create(folders, query => Filter(items, query), id => items.FirstOrDefault(item => item.Id == id));
+        public static ILibraryManager Create(List<VirtualFolderInfo> folders, IReadOnlyList<BaseItem> items, LibraryOptions? libraryOptions = null)
+            => Create(folders, query => Filter(items, query), id => items.FirstOrDefault(item => item.Id == id), libraryOptions);
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -170,6 +174,7 @@ internal static class EntrypointTestHelpers
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
                 nameof(ILibraryManager.GetItemList) => _getItemList(args?.OfType<InternalItemsQuery>().FirstOrDefault()),
                 nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
+                nameof(ILibraryManager.GetLibraryOptions) => _libraryOptions,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };
         }
@@ -213,8 +218,8 @@ internal static class EntrypointTestHelpers
         };
     }
 
-    internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
-        => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
+    internal static HashSet<Guid> GetItemsToAnalyze(Entrypoint entrypoint)
+        => (HashSet<Guid>)GetPrivateField(entrypoint, "_itemsToAnalyze");
 
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {

@@ -43,13 +43,13 @@ public sealed class TestSeasonReanalysisPlanner
         // The test proxy throws on enumeration calls such as GetVirtualFolders.
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager();
         var progress = new RecordingProgress();
-        var analyzer = new AnalyzerTaskFactory(
+        var analyzer = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             ffmpegService: null!,
             cacheService: DatabaseTestHelpers.CreateTempCacheService(),
             cacheDatabase: null!,
-            database: DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();
+            database: DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         await analyzer.AnalyzeItemsAsync(
             progress,
@@ -468,13 +468,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Introduction, [new Segment(fixture.EpisodeId, new TimeRange(0, 30))], SegmentSource.Chromaprint, hash);
         cacheDatabase.Upsert(fixture.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
 
-        var analyzer = new AnalyzerTaskFactory(
+        var analyzer = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             EntrypointTestHelpers.CreateSeasonResolver(fixture.LibraryManager),
             new StubFFmpegService { VersionCheck = () => false },
             DatabaseTestHelpers.CreateCacheService(cacheDbPath),
             cacheDatabase,
-            database).CreateAnalyzerTask();
+            database);
         await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [fixture.SeasonId]);
 
         Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId, includeSuppressed: true), s => s.State == SegmentState.Active);
@@ -484,6 +484,18 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var record = await verifyDb.AnalyzedItems.AsNoTracking().SingleAsync();
         Assert.Equal(hash, record.ConfigHash);
         Assert.Equal(2, record.FileVersion);
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsAnEpisodeTheServerNoLongerKnows()
+    {
+        using var fixture = new VerifyQueueFixture(new PluginConfiguration());
+
+        // Resolved from the fixture's library, then verified against a server that has
+        // since dropped the episode. Analyzing it would write under a stale id.
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+
+        Assert.Empty(await fixture.VerifyAsync(ffmpegValid: false));
     }
 
     [Fact]
@@ -557,14 +569,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         {
             var resolver = EntrypointTestHelpers.CreateSeasonResolver(LibraryManager);
             var task = new BaseItemAnalyzerTask(
-                NullLogger.Instance,
                 NullLoggerFactory.Instance,
                 resolver,
                 new StubFFmpegService { VersionCheck = () => ffmpegValid },
                 cacheService: null!,
                 cacheDatabase: null!,
                 _db.CreateDatabase());
-            return task.VerifyQueueAsync(resolver.ResolveKey(SeasonId)!.Episodes, [AnalysisMode.Introduction]);
+            return task.VerifyQueueAsync(resolver.ResolveKey(SeasonId)!.Episodes, [AnalysisMode.Introduction], ffmpegValid);
         }
 
         public void Dispose()

@@ -13,6 +13,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
@@ -21,9 +22,12 @@ namespace IntroSkipper.Manager;
 /// Resolves Jellyfin library items into the seasons the analyzers work on, one series at
 /// a time. A series' non-virtual episodes are fetched through the series, so a flat series
 /// folder resolves like season folders. An in-season special (stored in Season 0, airing
-/// within another season) belongs to its host season when a non-virtual season with that
-/// number exists, otherwise to Specials. A movie is a season of one keyed by its own id.
-/// Stateless: one instance serves every pass, the watcher and the dashboard.
+/// within another season) joins its host season when that season resolves with episodes
+/// of its own, otherwise it stays in Specials. An episode Jellyfin attached to no season
+/// joins the season its numbered siblings resolved to, or is a season of one keyed by its
+/// own id. A movie is a season of one keyed by its own id. Items of a library the plugin
+/// is disabled for are unknown to every lookup. Stateless: one instance serves every
+/// pass, the watcher and the dashboard.
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
@@ -35,24 +39,30 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     private static PluginConfiguration Config => Plugin.Instance!.Configuration;
 
     /// <summary>
-    /// Returns the season key of an item: a movie's own id, an episode's season id, or the
-    /// host season's id for an in-season special. An episode Jellyfin attached to no
-    /// season is keyed by its own id, so it is still analyzed and can still be disabled.
-    /// Looks up the series' seasons only for Season 0 episodes and episodes without a season id.
+    /// Returns the season key an item is analyzed under: a movie's own id, or the key of
+    /// the resolved season holding the episode. An episode its series does not resolve
+    /// (excluded, without a path, or without a series) is keyed by its own id. Resolves
+    /// the whole series, so it suits a request, not a library event.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The season key.</returns>
     internal Guid SeasonKey(BaseItem item)
-        => item is Episode episode
-            ? SeasonKey(episode, new Lazy<IReadOnlyDictionary<int, Guid>>(() => SeasonsByNumber(episode.SeriesId)))
+        => item is Episode episode && FindSeries(episode.SeriesId) is { } series
+            ? Resolve(series).FirstOrDefault(season => season.Episodes.Any(queued => queued.EpisodeId == item.Id))?.Key ?? item.Id
             : item.Id;
 
     /// <summary>
-    /// Returns whether the id names a season or movie the server knows.
+    /// Returns whether the id is a season key the server knows: a movie, a season, or an
+    /// episode that is its own key.
     /// </summary>
     /// <param name="key">A season key.</param>
-    /// <returns><see langword="true"/> if the key resolves to a season or movie; otherwise, <see langword="false"/>.</returns>
-    internal bool IsKnownKey(Guid key) => FindKeyItem(key) is not null;
+    /// <returns><see langword="true"/> if the key resolves; otherwise, <see langword="false"/>.</returns>
+    internal bool IsKnownKey(Guid key) => FindItem(key) switch
+    {
+        Movie or Season => true,
+        Episode => ResolveKey(key) is not null,
+        _ => false,
+    };
 
     /// <summary>
     /// Resolves one season key. A known season with nothing to analyze resolves to a
@@ -60,24 +70,16 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// </summary>
     /// <param name="key">A season key.</param>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
-    /// <returns>The resolved season, or <see langword="null"/> when the key is not a season or movie the server knows.</returns>
-    internal ResolvedSeason? ResolveKey(Guid key, bool includeExcluded = false)
+    /// <returns>The resolved season, or <see langword="null"/> when the key is not a movie, a season, or an episode that is its own key.</returns>
+    internal ResolvedSeason? ResolveKey(Guid key, bool includeExcluded = false) => FindItem(key) switch
     {
-        switch (FindKeyItem(key))
-        {
-            case Movie movie:
-                return ResolveMovie(movie, ExclusionPolicy.FromConfiguration(Config), includeExcluded) ?? new ResolvedSeason(key, key, []);
-            case Season season:
-                if (FindSeries(season.SeriesId) is not { } series)
-                {
-                    return null;
-                }
-
-                return Resolve(series, includeExcluded).FirstOrDefault(resolved => resolved.Key == key) ?? new ResolvedSeason(key, series.Id, []);
-            default:
-                return null;
-        }
-    }
+        Movie movie => ResolveMovie(movie, ExclusionPolicy.FromConfiguration(Config), includeExcluded) ?? new ResolvedSeason(key, key, []),
+        Season season when FindSeries(season.SeriesId) is { } series
+            => Resolve(series, includeExcluded).FirstOrDefault(resolved => resolved.Key == key) ?? new ResolvedSeason(key, series.Id, []),
+        Episode episode when FindSeries(episode.SeriesId) is { } series
+            => Resolve(series, includeExcluded).FirstOrDefault(resolved => resolved.Key == key),
+        _ => null,
+    };
 
     /// <summary>
     /// Lists the series and movies of every library the plugin is enabled for, in sort
@@ -87,20 +89,22 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     internal IReadOnlyList<BaseItem> EnumerateLibrary() => EnumerateLibrary(out _);
 
     /// <summary>
-    /// Returns the series or movie each key belongs to, once each, so a scoped pass
-    /// resolves only the series it needs. Unknown keys are dropped.
+    /// Returns the series or movie each id belongs to, once each, so a scoped pass
+    /// resolves only the series it needs. An id may name a movie, a season or an
+    /// episode. Unknown ids are dropped.
     /// </summary>
-    /// <param name="keys">Season keys.</param>
+    /// <param name="ids">Item ids.</param>
     /// <returns>The series and movies to resolve.</returns>
-    internal IReadOnlyList<BaseItem> OwnersOf(IEnumerable<Guid> keys)
+    internal IReadOnlyList<BaseItem> OwnersOf(IEnumerable<Guid> ids)
     {
         List<BaseItem> owners = [];
-        foreach (var key in keys)
+        foreach (var id in ids)
         {
-            BaseItem? owner = FindKeyItem(key) switch
+            BaseItem? owner = FindItem(id) switch
             {
                 Movie movie => movie,
                 Season season => FindSeries(season.SeriesId),
+                Episode episode => FindSeries(episode.SeriesId),
                 _ => null,
             };
 
@@ -164,13 +168,25 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     internal static DateTime EpisodeAvailabilityDate(Episode episode)
         => episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
 
+    /// <summary>
+    /// Returns the file version Jellyfin holds for an item: its modification time in
+    /// ticks, or <see langword="null"/> when Jellyfin has none.
+    /// </summary>
+    /// <param name="item">An episode or movie.</param>
+    /// <returns>The file version.</returns>
+    internal static long? FileVersion(BaseItem item)
+        => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
 
-    private static Guid SeasonKey(Episode episode, Lazy<IReadOnlyDictionary<int, Guid>> seasonsByNumber)
+    // An in-season special joins its host season, an episode without a season id joins
+    // the season its numbered siblings resolved to, and an episode with neither is a
+    // season of one.
+    private static Guid SeasonKey(Episode episode, IReadOnlyDictionary<int, Guid> seasonsByNumber)
     {
         if (IsInSeasonSpecial(episode) && episode.AiredSeasonNumber is { } airedSeasonNumber
-            && seasonsByNumber.Value.TryGetValue(airedSeasonNumber, out var hostSeasonId))
+            && seasonsByNumber.TryGetValue(airedSeasonNumber, out var hostSeasonId))
         {
             return hostSeasonId;
         }
@@ -180,13 +196,13 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             return episode.SeasonId;
         }
 
-        return episode.ParentIndexNumber is { } seasonNumber && seasonsByNumber.Value.TryGetValue(seasonNumber, out var seasonId)
+        return episode.ParentIndexNumber is { } seasonNumber && seasonsByNumber.TryGetValue(seasonNumber, out var seasonId)
             ? seasonId
             : episode.Id;
     }
 
-    private static long? FileVersion(BaseItem item)
-        => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+    private static bool PluginDisabledIn(LibraryOptions? options)
+        => options?.DisabledMediaSegmentProviders?.Contains(Plugin.Instance!.Name) == true;
 
     private static InternalItemsQuery Query(params BaseItemKind[] kinds) => new()
     {
@@ -215,7 +231,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         List<BaseItem> owners = [];
         foreach (var folder in virtualFolders)
         {
-            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(Plugin.Instance!.Name) == true)
+            if (PluginDisabledIn(folder.LibraryOptions))
             {
                 LogLibraryDisabled(_logger, folder.Name);
                 continue;
@@ -264,14 +280,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         var items = _libraryManager.GetItemList(query, false)
             ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
 
-        var category = SeriesHelper.IsAnime(series) ? QueuedMediaCategory.AnimeEpisode : QueuedMediaCategory.Episode;
-        var seasonsByNumber = new Lazy<IReadOnlyDictionary<int, Guid>>(() => SeasonsByNumber(series.Id));
-        var config = Config;
-        var analysisPercent = config.AnalysisPercent / 100.0;
-
-        // Seasons keep the order their first episode appeared in.
-        List<Guid> keys = [];
-        Dictionary<Guid, List<QueuedEpisode>> episodesByKey = [];
+        List<(Episode Episode, ExclusionDecision Decision)> episodes = [];
         foreach (var item in items.DistinctBy(item => item.Id))
         {
             if (item is not Episode episode)
@@ -292,16 +301,42 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 continue;
             }
 
-            var key = SeasonKey(episode, seasonsByNumber);
-            if (!episodesByKey.TryGetValue(key, out var episodes))
+            episodes.Add((episode, decision));
+        }
+
+        // The season each number resolves to is the season of its first listed episode, so
+        // a number two season folders share resolves to one of them on every run. Only the
+        // episodes kept above seed it, so a season whose episodes are all excluded hosts
+        // nothing. An in-season special joining it would be a season of one with nothing
+        // to compare against.
+        Dictionary<int, Guid> seasonsByNumber = [];
+        foreach (var (episode, _) in episodes)
+        {
+            if (episode.SeasonId != Guid.Empty && episode.ParentIndexNumber is { } number)
             {
-                episodes = [];
-                episodesByKey[key] = episodes;
+                seasonsByNumber.TryAdd(number, episode.SeasonId);
+            }
+        }
+
+        var category = SeriesHelper.IsAnime(series) ? QueuedMediaCategory.AnimeEpisode : QueuedMediaCategory.Episode;
+        var config = Config;
+        var analysisPercent = config.AnalysisPercent / 100.0;
+
+        // Seasons keep the order their first episode appeared in.
+        List<Guid> keys = [];
+        Dictionary<Guid, List<QueuedEpisode>> episodesByKey = [];
+        foreach (var (episode, decision) in episodes)
+        {
+            var key = SeasonKey(episode, seasonsByNumber);
+            if (!episodesByKey.TryGetValue(key, out var queued))
+            {
+                queued = [];
+                episodesByKey[key] = queued;
                 keys.Add(key);
             }
 
             var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
-            episodes.Add(new QueuedEpisode
+            queued.Add(new QueuedEpisode
             {
                 SeriesName = series.Name,
                 SeasonNumber = episode.AiredSeasonNumber ?? 0,
@@ -354,33 +389,11 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         return new ResolvedSeason(movie.Id, movie.Id, [queued]);
     }
 
-    // The series' non-virtual seasons by number. A virtual season has no present
-    // episodes, so it can host nothing and the library pass never reaches it.
-    private IReadOnlyDictionary<int, Guid> SeasonsByNumber(Guid seriesId)
+    // A movie, season or episode the server knows, in a library the plugin is enabled for.
+    private BaseItem? FindItem(Guid id)
     {
-        if (seriesId == Guid.Empty)
-        {
-            return new Dictionary<int, Guid>();
-        }
-
-        var query = Query(BaseItemKind.Season);
-        query.AncestorIds = [seriesId];
-        Dictionary<int, Guid> seasons = [];
-        foreach (var season in (_libraryManager.GetItemList(query, false) ?? []).OfType<Season>())
-        {
-            if (season.IndexNumber is { } number)
-            {
-                seasons.TryAdd(number, season.Id);
-            }
-        }
-
-        return seasons;
-    }
-
-    private BaseItem? FindKeyItem(Guid key)
-    {
-        var item = key != Guid.Empty ? _libraryManager.GetItemById(key) : null;
-        return item is Movie or Season ? item : null;
+        var item = id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
+        return item is (Movie or Season or Episode) && !PluginDisabledIn(_libraryManager.GetLibraryOptions(item)) ? item : null;
     }
 
     private Series? FindSeries(Guid seriesId)

@@ -155,10 +155,8 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         using var pluginScope = CreateScope(updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
 
         // Steady state before the toggle: an automatic segment already mirrored to
@@ -171,7 +169,7 @@ public sealed class TestVisualizationController : IDisposable
         {
             ExistingSegments = [SegmentChangeHarness.MirroredDto(episodeIds[0], mirroredRow.Id, startTicks: mirroredRow.StartTicks, endTicks: mirroredRow.EndTicks)]
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -203,9 +201,11 @@ public sealed class TestVisualizationController : IDisposable
         var orphanId = Guid.NewGuid();
         using var pluginScope = CreateScope(updateMediaSegments: true);
 
-        // Jellyfin resolved no season for the episode and its series has no season
-        // with its number, so the season key falls back to the episode's own id.
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty));
+        // Jellyfin resolved no season for the episode and none of its siblings has its
+        // number, so the season key falls back to the episode's own id.
+        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            JellyfinItems.WithParents(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
         var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
@@ -225,13 +225,11 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         using var pluginScope = CreateScope(updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         _h.Store = new FakeJellyfinSegmentStore();
         var database = _h.Database;
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
@@ -249,10 +247,8 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         using var pluginScope = CreateScope(updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var database = _h.Database;
 
         // A stored automatic segment gives the sync rows to push (enable) or withdraw
@@ -270,7 +266,7 @@ public sealed class TestVisualizationController : IDisposable
             ExistingSegments = disable ? [SegmentChangeHarness.MirroredDto(episodeIds[0])] : [],
             WriteException = new InvalidOperationException("mirror write failed")
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
         var result = disable
             ? await controller.DisableItem(episodeIds[0], CancellationToken.None)
@@ -291,10 +287,8 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         using var pluginScope = CreateScope(updateMediaSegments: true);
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_libraryManager",
-            EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(episodeIds[0], seriesId, seasonId)));
+        var libraryManager = SeasonLibrary(seriesId, seasonId, episodeIds);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var database = _h.Database;
@@ -311,7 +305,7 @@ public sealed class TestVisualizationController : IDisposable
             WriteEntered = writeEntered,
             BlockedItemId = episodeIds[0]
         };
-        var controller = CreateController(pluginScope.CacheDbPath);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
         var segmentsController = new SegmentsController(_h.Database, _h.Change);
 
         // Request A commits the disable flag, then parks inside its projection write
@@ -526,7 +520,7 @@ public sealed class TestVisualizationController : IDisposable
         return new(
             NullLogger<VisualizationController>.Instance,
             _h.Change,
-            new AnalyzerTaskFactory(
+            new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
                 seasonResolver,
                 ffmpegService: null!,

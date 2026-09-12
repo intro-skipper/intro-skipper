@@ -34,7 +34,7 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation and converges journaled projections.</param>
-/// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+/// <param name="analyzer">Analyzer run over a season the scan resolved.</param>
 /// <param name="seasonResolver">Resolver of season keys into their episodes, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
@@ -43,11 +43,11 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalyzerTaskFactory analyzerFactory, SeasonResolver seasonResolver, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, BaseItemAnalyzerTask analyzer, SeasonResolver seasonResolver, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly BaseItemAnalyzerTask _analyzer = analyzer;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
@@ -114,13 +114,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        if (season.Episodes.Count == 0)
-        {
-            return NoContent();
-        }
-
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-        await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+        await EraseAsync(seriesId, season, eraseCache, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -235,6 +229,19 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
     }
 
+    // Erases the season's stored segments and analysis state, and its cache rows when
+    // asked. A known season with nothing to erase is a no-op.
+    private async Task EraseAsync(Guid seriesId, ResolvedSeason season, bool eraseCache, CancellationToken cancellationToken)
+    {
+        if (season.Episodes.Count == 0)
+        {
+            return;
+        }
+
+        LogErasingTimestamps(_logger, seriesId, season.Key);
+        await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Erases the items' stored segments and analysis state, optionally their detection
     /// cache rows, and converges their Jellyfin mirrors.
@@ -281,7 +288,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        if (_seasonResolver.ResolveKey(seasonId) is not { } season)
+        if (!_seasonResolver.IsKnownKey(seasonId))
         {
             return NotFound();
         }
@@ -303,25 +310,27 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
                         LogStartRescan(_logger, seasonId);
 
-                        // Erase season timestamps and cache first. An erase failure is logged
-                        // and the analysis still runs: its writes replace what the erase would
-                        // have removed.
-                        if (season.Episodes.Count > 0)
+                        // Resolved once, off the request thread, so the erase and the
+                        // analysis act on the same episodes.
+                        if (_seasonResolver.ResolveKey(seasonId) is not { } season)
                         {
-                            try
-                            {
-                                LogErasingTimestamps(_logger, seriesId, seasonId);
-                                await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache: true, CancellationToken.None).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
-                            }
+                            LogRescanSeasonGone(_logger, seasonId);
+                            return;
                         }
 
-                        var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
+                        // Erase the season's timestamps and cache first. An erase failure is
+                        // logged and the analysis still runs: its writes replace what the
+                        // erase would have removed.
+                        try
+                        {
+                            await EraseAsync(seriesId, season, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
+                        }
 
-                        await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
+                        await _analyzer.AnalyzeSeasonAsync(season, CancellationToken.None).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -347,6 +356,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
     private static partial void LogStartRescan(ILogger logger, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping the rescan of {SeasonId}: the server no longer knows it")]
+    private static partial void LogRescanSeasonGone(ILogger logger, Guid seasonId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Manual season rescan for {SeasonId} was canceled.")]
     private static partial void LogRescanCanceled(ILogger logger, Guid seasonId);

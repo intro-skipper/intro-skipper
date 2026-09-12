@@ -13,18 +13,18 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using MediaBrowser.Controller.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Runs the analyzers over every resolved season, one mode at a time. One instance is one
-/// run: it memoizes the ffmpeg capability probe for the run's duration.
+/// Runs the analyzers over every resolved season, one mode at a time. Holds no per-run
+/// state, so one instance serves every run.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
 /// </remarks>
-/// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="seasonResolver">Resolver of library items into seasons.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -32,7 +32,6 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="cacheDatabase">Detection cache database facade, for the per-item delete when a file was replaced.</param>
 /// <param name="database">Segment database facade.</param>
 public partial class BaseItemAnalyzerTask(
-    ILogger logger,
     ILoggerFactory loggerFactory,
     SeasonResolver seasonResolver,
     IFFmpegService ffmpegService,
@@ -42,14 +41,13 @@ public partial class BaseItemAnalyzerTask(
 {
     private static readonly AnalysisMode[] AllModes = Enum.GetValues<AnalysisMode>();
 
-    private readonly ILogger _logger = logger;
+    private readonly ILogger _logger = loggerFactory.CreateLogger<BaseItemAnalyzerTask>();
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
-    private bool? _ffmpegValid;
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
@@ -59,16 +57,109 @@ public partial class BaseItemAnalyzerTask(
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <summary>
-    /// Analyzes every season of every enabled library, or only the given season keys.
+    /// Analyzes every season of every enabled library, or only the seasons that are, or
+    /// contain, the given items.
     /// </summary>
-    /// <param name="progress">Progress reporter, advanced once per series or movie.</param>
+    /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="seasonsToAnalyze">Season keys to analyze, or <see langword="null"/> for the whole library.</param>
+    /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
+        IReadOnlyCollection<Guid>? itemIds = null)
+    {
+        if (itemIds?.Count == 0)
+        {
+            progress.Report(100);
+            return;
+        }
+
+        var (modes, ffmpegValid) = await StartRunAsync(cancellationToken).ConfigureAwait(false);
+
+        // A scoped run resolves only the series and movies owning the requested items. A
+        // full run resolves every series and movie.
+        var scope = itemIds?.ToHashSet();
+        var owners = scope is null ? _seasonResolver.EnumerateLibrary() : _seasonResolver.OwnersOf(scope);
+        if (owners.Count == 0 && scope is null)
+        {
+            LogNoLibrariesSelected(_logger);
+            return;
+        }
+
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Max(1, Config.MaxParallelism),
+            CancellationToken = cancellationToken
+        };
+
+        // The seasons stream out of the owners one series at a time as the parallel slots
+        // free up. A series' episodes are in memory only while its seasons run, and the
+        // slots share the seasons of one large series.
+        await Parallel.ForEachAsync(
+            SeasonsInScope(owners, scope, progress),
+            options,
+            (season, ct) => new ValueTask(AnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+        progress.Report(100);
+    }
+
+    // Resolves the owners in order, yielding the seasons in scope: every season, or those
+    // keyed by or holding a requested item. Progress counts the owners reached.
+    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, IProgress<double> progress)
+    {
+        var yielded = 0;
+        for (var i = 0; i < owners.Count; i++)
+        {
+            progress.Report(100.0 * i / owners.Count);
+            IReadOnlyList<ResolvedSeason> seasons;
+            try
+            {
+                seasons = _seasonResolver.Resolve(owners[i]);
+            }
+            catch (Exception ex)
+            {
+                LogFailedResolve(_logger, ex, owners[i].Name, owners[i].Id);
+                continue;
+            }
+
+            foreach (var season in seasons)
+            {
+                if (scope is null || scope.Contains(season.Key) || season.Episodes.Any(episode => scope.Contains(episode.EpisodeId)))
+                {
+                    yielded++;
+                    yield return season;
+                }
+            }
+        }
+
+        if (scope is not null && yielded == 0)
+        {
+            LogNothingInScope(_logger, scope.Count);
+        }
+    }
+
+    /// <summary>
+    /// Analyzes one season the caller resolved, so a scan erases and analyzes the same
+    /// episodes. A season without episodes is logged and skipped.
+    /// </summary>
+    /// <param name="season">The resolved season.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    internal async Task AnalyzeSeasonAsync(ResolvedSeason season, CancellationToken cancellationToken)
+    {
+        if (season.Episodes.Count == 0)
+        {
+            LogNothingToAnalyze(_logger, season.Key);
+            return;
+        }
+
+        var (modes, ffmpegValid) = await StartRunAsync(cancellationToken).ConfigureAwait(false);
+        await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+    }
+
+    // The modes the configuration enables and whether ffmpeg supports chromaprint,
+    // probed once per run.
+    private async Task<(IReadOnlyList<AnalysisMode> Modes, bool FfmpegValid)> StartRunAsync(CancellationToken cancellationToken)
     {
         List<AnalysisMode> modes = [
             .. Config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
@@ -78,64 +169,13 @@ public partial class BaseItemAnalyzerTask(
             .. Config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
-        if (seasonsToAnalyze?.Count == 0)
-        {
-            progress.Report(100);
-            return;
-        }
-
-        var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
-
-        // A scoped run resolves only the series and movies owning the requested keys and
-        // analyzes only those keys. A full run resolves every series and movie, one at a
-        // time per parallel slot, so a series' episodes are in memory only while it runs.
-        var keyFilter = seasonsToAnalyze?.ToHashSet();
-        var owners = keyFilter is null ? _seasonResolver.EnumerateLibrary() : _seasonResolver.OwnersOf(keyFilter);
-        if (owners.Count == 0)
-        {
-            if (keyFilter is null)
-            {
-                LogNoLibrariesSelected(_logger);
-            }
-
-            return;
-        }
-
+        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
         if (!ffmpegValid)
         {
             LogSkippingChromaprint(_logger);
         }
 
-        var totalProcessed = 0;
-        var options = new ParallelOptions
-        {
-            MaxDegreeOfParallelism = Math.Max(1, Config.MaxParallelism),
-            CancellationToken = cancellationToken
-        };
-
-        await Parallel.ForEachAsync(owners, options, async (owner, ct) =>
-        {
-            IReadOnlyList<ResolvedSeason> seasons;
-            try
-            {
-                seasons = _seasonResolver.Resolve(owner);
-            }
-            catch (Exception ex)
-            {
-                LogFailedResolve(_logger, ex, owner.Name, owner.Id);
-                seasons = [];
-            }
-
-            foreach (var season in seasons)
-            {
-                if (keyFilter is null || keyFilter.Contains(season.Key))
-                {
-                    await AnalyzeSeasonAsync(season, modes, ffmpegValid, ct).ConfigureAwait(false);
-                }
-            }
-
-            progress.Report((double)Interlocked.Increment(ref totalProcessed) / owners.Count * 100);
-        }).ConfigureAwait(false);
+        return (modes, ffmpegValid);
     }
 
     /// <summary>
@@ -146,7 +186,7 @@ public partial class BaseItemAnalyzerTask(
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, cancellationToken).ConfigureAwait(false);
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
         if (episodes.Count == 0)
         {
             return;
@@ -254,15 +294,18 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Verifies that a season's resolved episodes still exist on disk and are not excluded,
-    /// then classifies each against the stored analysis state. Runs right after resolution,
-    /// so the path and file version on each candidate are current.
+    /// Verifies that a season's resolved episodes are still in the library and on disk and
+    /// are not excluded, then classifies each against the stored analysis state. Fetches
+    /// each episode from the server again, because a season can wait behind the rest of
+    /// its series after resolution, and one removed or re-imported meanwhile must not be
+    /// analyzed under a stale id, path or file version.
     /// </summary>
     /// <param name="candidates">One season's resolved episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
+    /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken = default)
     {
         if (candidates.Count == 0)
         {
@@ -275,7 +318,6 @@ public partial class BaseItemAnalyzerTask(
         // Built from the live configuration, not the resolution-time policy: exclusions
         // saved between resolution and this verification must apply.
         var policy = ExclusionPolicy.FromConfiguration(config);
-        var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         if (await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
         {
@@ -289,21 +331,24 @@ public partial class BaseItemAnalyzerTask(
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (string.IsNullOrEmpty(candidate.Path) || !File.Exists(candidate.Path))
+                var item = Plugin.Instance!.GetItem(candidate.EpisodeId);
+                if (item is not { Path: { Length: > 0 } path } || !File.Exists(path))
                 {
                     LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
                     continue;
                 }
 
                 var decision = candidate.Category == QueuedMediaCategory.Movie
-                    ? policy.EvaluateMovie(candidate.Name, candidate.Path)
-                    : policy.EvaluateSeries(candidate.SeriesName, candidate.Path);
+                    ? policy.EvaluateMovie(candidate.Name, path)
+                    : policy.EvaluateSeries(candidate.SeriesName, path);
                 if (decision.IsExcluded)
                 {
                     LogSkippingExcludedItem(_logger, candidate.Name, decision.RuleLabel);
                     continue;
                 }
 
+                candidate.Path = path;
+                candidate.FileVersion = SeasonResolver.FileVersion(item);
                 verified.Add(candidate);
                 verifier.Classify(candidate);
             }
@@ -321,21 +366,6 @@ public partial class BaseItemAnalyzerTask(
         await _database.BackfillFileVersionsAsync(verifier.FileVersionBackfill, cancellationToken).ConfigureAwait(false);
 
         return verified;
-    }
-
-    // Per-run memo on top of the service's success-only memoization: while ffmpeg is
-    // invalid the service re-probes every call, so cache the verdict here to keep an
-    // analysis run at one probe instead of one per season.
-    internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
-    {
-        if (_ffmpegValid is { } cached)
-        {
-            return cached;
-        }
-
-        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
-        _ffmpegValid = ffmpegValid;
-        return ffmpegValid;
     }
 
     /// <summary>
@@ -523,6 +553,12 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve {Name} ({Id}); skipping it this run")]
     private static partial void LogFailedResolve(ILogger logger, Exception exception, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "None of the {Count} requested items resolved to a season to analyze")]
+    private static partial void LogNothingInScope(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Season {SeasonId} has no episodes to analyze")]
+    private static partial void LogNothingToAnalyze(ILogger logger, Guid seasonId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);

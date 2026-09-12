@@ -41,9 +41,9 @@ The last write time Jellyfin observed for an item's media file, recorded with ea
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
 
 **Season key**:
-The id a group of items is analyzed and stored under. A movie's key is its own id. An episode's key is its season's id, except for an in-season special, whose key is its host season's id when that season exists and is not virtual.
+The id a group of items is analyzed and stored under. A movie's key is its own id. An episode's key is its season's id, except for an in-season special, whose key is its host season's id when that season resolves with episodes of its own.
 _Avoid_: Queue key, season-state key, group id
 
 **In-season special**:
-An episode stored in Season 0 whose aired season number names another season. Its host season is the series' season with that number, and the special is analyzed with it.
+An episode stored in Season 0 whose aired season number names another season. Its host season is the season the series' episodes with that number resolved to, and the special is analyzed with it.
 _Avoid_: Interleaved special, cross-season special

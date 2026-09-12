@@ -24,7 +24,7 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Fact]
@@ -37,42 +37,22 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(movieId), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Contains(movieId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Contains(movieId, EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Fact]
-    public void OnItemChanged_QueuesEpisodeUnderItsSeason()
+    public void OnItemChanged_QueuesTheEpisodeId_NotItsSeason()
     {
         using var scope = CreateScope(autoDetectIntros: true);
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
-        var seasonId = Guid.NewGuid();
-        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId);
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Equal(seasonId, Assert.Single(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint)));
-    }
-
-    [Fact]
-    public void OnItemChanged_QueuesInSeasonSpecialUnderItsHostSeason()
-    {
-        using var scope = CreateScope(autoDetectIntros: true);
-        var seriesId = Guid.NewGuid();
-        var hostSeasonId = Guid.NewGuid();
-        var special = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.NewGuid(), seasonNumber: 0);
-        special.AirsBeforeSeasonNumber = 1;
-        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
-            [JellyfinItems.Folder("Media")],
-            [JellyfinItems.Season(hostSeasonId, seriesId, number: 1)]);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(libraryManager);
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(special, ItemUpdateType.None);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
-
-        // Resolving the Specials season leaves the special to its host season, so
-        // queueing the raw season id would never analyze it before the nightly run.
-        Assert.Equal(hostSeasonId, Assert.Single(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint)));
+        // The run resolves the episode's season, the host season for an in-season
+        // special, when it starts rather than on the library event thread.
+        Assert.Equal(episode.Id, Assert.Single(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint)));
     }
 
     [Fact]
@@ -84,7 +64,7 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Empty(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
     }
 
     [Theory]

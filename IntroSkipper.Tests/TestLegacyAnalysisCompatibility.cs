@@ -120,7 +120,7 @@ public sealed class TestLegacyAnalysisCompatibility
             var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
-            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
+            var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
             var candidates = ids.Select(id => new QueuedEpisode
             {
                 EpisodeId = id,
@@ -130,7 +130,7 @@ public sealed class TestLegacyAnalysisCompatibility
                 DateAdded = DateTime.UtcNow.AddDays(-30),
             }).ToArray();
 
-            var verified = await task.VerifyQueueAsync(candidates, [mode]);
+            var verified = await task.VerifyQueueAsync(candidates, [mode], ffmpegValid: true);
 
             Assert.Equal(3, verified.Count);
             Assert.Equal(compatible ? EpisodeState.Analyzed : EpisodeState.NotAnalyzed, verified[0].GetAnalyzed(mode));
@@ -301,9 +301,9 @@ public sealed class TestLegacyAnalysisCompatibility
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
             var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Path = mediaPath, Duration = 1320, Category = QueuedMediaCategory.AnimeEpisode };
-            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
+            var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
 
-            Assert.Single(await task.VerifyQueueAsync([candidate], [AnalysisMode.Preview]));
+            Assert.Single(await task.VerifyQueueAsync([candidate], [AnalysisMode.Preview], ffmpegValid: true));
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Preview));
             await task.AnalyzeItemsAsync([candidate], AnalysisMode.Preview, AnalyzerAction.Default, true, CancellationToken.None);
 

@@ -3,6 +3,8 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,13 +26,13 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
 
-        var analyzer = new AnalyzerTaskFactory(
+        var analyzer = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             EntrypointTestHelpers.CreateSeasonResolver(EntrypointTestHelpers.CreateLibraryManager()),
             ffmpegService: FfmpegTestHelpers.CreateFFmpegService(),
             cacheService: null!,
             cacheDatabase: null!,
-            database: null!).CreateAnalyzerTask();
+            database: null!);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => analyzer.AnalyzeItemsAsync(new Progress<double>(), cancellation.Token));
@@ -83,7 +85,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(EpisodeState.UserProvided, episode.GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview));
 
-        var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, new StubFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), null!, database);
+        var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, null!, new StubFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), null!, database);
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Credits, AnalyzerAction.Default, false, CancellationToken.None);
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
 
@@ -100,17 +102,75 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var ffmpegService = new StubFFmpegService { VersionCheck = () => false };
-        var analyzer = new AnalyzerTaskFactory(
+        var analyzer = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             ffmpegService,
             cacheService: null!,
             cacheDatabase: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
 
         Assert.Equal(1, ffmpegService.VersionCheckCalls);
+    }
+
+    /// <summary>
+    /// The watcher queues changed items by their own id and the run analyzes the season
+    /// holding each one. A scan hands over the season it resolved itself.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnalyzeItemsAsync_ScopedToAnEpisodeIdOrAResolvedSeason_AnalyzesThatSeason(bool byEpisodeId)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = true,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var seasonId = Guid.NewGuid();
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: mediaPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+            // A season whose analyzer action is None runs no analyzer and records the
+            // episode as analyzed, the only trace a run leaves without media to scan.
+            await database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None });
+            var resolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                resolver,
+                new StubFFmpegService { VersionCheck = () => false },
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            if (byEpisodeId)
+            {
+                await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [episode.Id]);
+            }
+            else
+            {
+                await analyzer.AnalyzeSeasonAsync(resolver.ResolveKey(seasonId)!, CancellationToken.None);
+            }
+
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
+            Assert.Contains((episode.Id, AnalysisMode.Introduction), snapshot.AnalysisRecords.Keys);
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
     }
 
     /// <summary>
@@ -183,7 +243,6 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Silence = (_, _, _) => [],
         };
         var task = new BaseItemAnalyzerTask(
-            NullLogger.Instance,
             NullLoggerFactory.Instance,
             seasonResolver: null!,
             ffmpeg,

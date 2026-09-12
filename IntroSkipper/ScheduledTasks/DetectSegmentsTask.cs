@@ -6,7 +6,6 @@
 
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
-using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -23,15 +22,15 @@ namespace IntroSkipper.ScheduledTasks;
 /// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+/// <param name="analyzer">Analyzer run over the resolved seasons.</param>
 /// <param name="entrypoint">Owner of the automatic analysis, which this task cancels before it starts.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
-    AnalyzerTaskFactory analyzerFactory,
+    BaseItemAnalyzerTask analyzer,
     Entrypoint entrypoint) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly BaseItemAnalyzerTask _analyzer = analyzer;
     private readonly Entrypoint _entrypoint = entrypoint;
 
     /// <summary>
@@ -74,9 +73,7 @@ public partial class DetectSegmentsTask(
         {
             LogScheduledTaskStarting(_logger);
 
-            var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
-
-            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
+            await _analyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }
     }
 
