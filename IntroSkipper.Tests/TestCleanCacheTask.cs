@@ -25,7 +25,7 @@ using FakeLibraryManager = EntrypointTestHelpers.FakeLibraryManager;
 
 /// <summary>
 /// Tests for <see cref="CleanCacheTask"/>. The cleanup task deletes the rows of ids that are
-/// absent from the enumerated library queue AND no longer resolve on the server, so these
+/// absent from the resolved seasons AND no longer resolve on the server, so these
 /// tests pin the guards that keep an incomplete or empty enumeration, including a library
 /// whose media segment provider is disabled, from mass-deleting healthy data.
 /// </summary>
@@ -39,13 +39,13 @@ public sealed class TestCleanCacheTask : IDisposable
     /// </summary>
     public enum IncompleteInventory
     {
-        /// <summary>One library enumerates fine (non-empty queue) while a second one throws.</summary>
+        /// <summary>One library enumerates fine (non-empty result) while a second one throws.</summary>
         LibraryThrows,
 
         /// <summary>The library enumerates fine but one series' episodes cannot be fetched, beside a movie that resolves fine.</summary>
         SeriesThrows,
 
-        /// <summary>No virtual folders at all: an empty queue must not classify everything as stale.</summary>
+        /// <summary>No virtual folders at all: an empty result must not classify everything as stale.</summary>
         NoLibraries,
     }
 
@@ -153,7 +153,7 @@ public sealed class TestCleanCacheTask : IDisposable
         cacheDatabase.Upsert(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, currentHash);
 
         // One enabled library with a live movie; a second library has the plugin's
-        // provider disabled, so the queue never enumerates its episode. The episode
+        // provider disabled, so the resolver never lists its episode. The episode
         // still resolves on the server, so all its rows must survive the reversible
         // toggle, while the id the server no longer knows is cleaned everywhere.
         var moviesFolder = JellyfinItems.Folder("Movies");

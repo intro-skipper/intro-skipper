@@ -101,7 +101,11 @@ public sealed class TestSeasonResolver
 
         var hostSeason = Assert.Single(seasons, season => season.Key == hostSeasonId);
         Assert.Equal([host.Id, inSeasonSpecial.Id], hostSeason.Episodes.Select(episode => episode.EpisodeId));
-        Assert.All(hostSeason.Episodes, episode => Assert.Equal(hostSeasonId, episode.SeasonId));
+        Assert.All(hostSeason.Episodes, episode =>
+        {
+            Assert.Equal(hostSeasonId, episode.SeasonId);
+            Assert.Equal(1, episode.SeasonNumber);
+        });
 
         var specials = Assert.Single(seasons, season => season.Key == specialsSeasonId);
         Assert.Equal(plainSpecial.Id, Assert.Single(specials.Episodes).EpisodeId);
@@ -148,7 +152,7 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
-    public void Resolve_KeysEpisodeWithoutSeasonIdWithItsNumberedSiblings_ElseByItsOwnId()
+    public void Resolve_KeysEpisodeWithoutSeasonIdWithItsNumberedSiblings_ElseWaitsForJellyfin()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
@@ -160,8 +164,12 @@ public sealed class TestSeasonResolver
 
         var seasons = resolver.ResolveLibrary(includeExcluded: false, CancellationToken.None).Seasons;
 
-        Assert.Equal([secondSeasonId, unnumbered.Id], seasons.Select(season => season.Key));
-        Assert.Equal([sibling.Id, numbered.Id], seasons[0].Episodes.Select(episode => episode.EpisodeId));
+        // Analyzed alone, the fifth-season episode would be recorded as analyzed before
+        // its season exists. It waits for the series refresh that attaches it, whose save
+        // queues it again.
+        var season = Assert.Single(seasons);
+        Assert.Equal(secondSeasonId, season.Key);
+        Assert.Equal([sibling.Id, numbered.Id], season.Episodes.Select(episode => episode.EpisodeId));
     }
 
     [Fact]
@@ -176,11 +184,15 @@ public sealed class TestSeasonResolver
         var resolver = CreateResolver(JellyfinItems.WithParents(host, special));
 
         // Joining the excluded host would leave the special a season of one with nothing
-        // to compare against. In Specials it is compared with the other specials.
+        // to compare against. In Specials it is compared with the other specials, and it
+        // carries the Specials number, not the one it airs after, so the Specials opt-out
+        // applies to it.
         var season = Assert.Single(resolver.ResolveLibrary(includeExcluded: false, CancellationToken.None).Seasons);
 
         Assert.Equal(specialsSeasonId, season.Key);
-        Assert.Equal(special.Id, Assert.Single(season.Episodes).EpisodeId);
+        var queued = Assert.Single(season.Episodes);
+        Assert.Equal(special.Id, queued.EpisodeId);
+        Assert.Equal(0, queued.SeasonNumber);
     }
 
     [Fact]
@@ -230,16 +242,33 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void SeasonKey_KeepsTheSeasonIdOfAnExcludedEpisode()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { PathExclusions = { "/media/series/season-1" } });
+        var seasonId = Guid.NewGuid();
+        var excluded = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: "/media/series/season-1/s01e03.mkv", episodeNumber: 3);
+        var resolver = CreateResolver(JellyfinItems.WithParents(excluded));
+
+        // The dashboard lists the episode under its Jellyfin season and toggles it there,
+        // so the disable flag it writes must land under that key.
+        Assert.Equal(seasonId, resolver.SeasonKey(excluded));
+    }
+
+    [Fact]
     public void ResolveKey_ResolvesMoviesAndSeasons_AndAnswersNullForUnknownIds()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var emptySeasonId = Guid.NewGuid();
+        var orphanSeasonId = Guid.NewGuid();
         var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId);
-        var orphan = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.Empty, seasonNumber: 7);
         var movie = JellyfinItems.Movie(Guid.NewGuid());
-        var resolver = CreateResolver([.. JellyfinItems.WithParents(episode, orphan, movie), JellyfinItems.Season(emptySeasonId, seriesId, number: 2)]);
+        var resolver = CreateResolver([
+            .. JellyfinItems.WithParents(episode, movie),
+            JellyfinItems.Season(emptySeasonId, seriesId, number: 2),
+            JellyfinItems.Season(orphanSeasonId, Guid.NewGuid(), number: 3),
+        ]);
 
         var season = resolver.ResolveKey(seasonId);
         Assert.NotNull(season);
@@ -258,12 +287,12 @@ public sealed class TestSeasonResolver
         Assert.Empty(emptySeason.Episodes);
         Assert.True(resolver.IsKnownKey(emptySeasonId));
 
-        // An episode that is its own key (no season, no numbered siblings) is one too.
-        var orphanSeason = resolver.ResolveKey(orphan.Id);
-        Assert.NotNull(orphanSeason);
-        Assert.Equal(orphan.Id, Assert.Single(orphanSeason.Episodes).EpisodeId);
-        Assert.True(resolver.IsKnownKey(orphan.Id));
+        // A season under a series the server does not know is missing to both lookups, so
+        // the analyzer actions answer 404 as the season endpoints do.
+        Assert.Null(resolver.ResolveKey(orphanSeasonId));
+        Assert.False(resolver.IsKnownKey(orphanSeasonId));
 
+        // An episode id is never a season key.
         Assert.Null(resolver.ResolveKey(Guid.NewGuid()));
         Assert.Null(resolver.ResolveKey(episode.Id));
         Assert.False(resolver.IsKnownKey(episode.Id));

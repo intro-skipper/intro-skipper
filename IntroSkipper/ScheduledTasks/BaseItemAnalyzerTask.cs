@@ -80,7 +80,7 @@ public partial class BaseItemAnalyzerTask(
         // A scoped run resolves only the series and movies owning the requested items. A
         // full run resolves every series and movie.
         var scope = itemIds?.ToHashSet();
-        var owners = scope is null ? _seasonResolver.EnumerateLibrary() : _seasonResolver.OwnersOf(scope);
+        var owners = scope is null ? _seasonResolver.EnumerateLibrary(out _) : _seasonResolver.OwnersOf(scope);
         if (owners.Count == 0 && scope is null)
         {
             LogNoLibrariesSelected(_logger);
@@ -111,14 +111,8 @@ public partial class BaseItemAnalyzerTask(
         for (var i = 0; i < owners.Count; i++)
         {
             progress.Report(100.0 * i / owners.Count);
-            IReadOnlyList<ResolvedSeason> seasons;
-            try
+            if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
             {
-                seasons = _seasonResolver.Resolve(owners[i]);
-            }
-            catch (Exception ex)
-            {
-                LogFailedResolve(_logger, ex, owners[i].Name, owners[i].Id);
                 continue;
             }
 
@@ -550,9 +544,6 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve {Name} ({Id}); skipping it this run")]
-    private static partial void LogFailedResolve(ILogger logger, Exception exception, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "None of the {Count} requested items resolved to a season to analyze")]
     private static partial void LogNothingInScope(ILogger logger, int count);

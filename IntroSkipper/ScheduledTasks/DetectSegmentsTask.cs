@@ -54,7 +54,7 @@ public partial class DetectSegmentsTask(
     public string Key => "IntroSkipperDetectSegmentsTask";
 
     /// <summary>
-    /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
+    /// Analyzes every season of every enabled library. Only one instance of this task should be run at a time.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

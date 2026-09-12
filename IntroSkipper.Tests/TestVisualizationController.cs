@@ -201,8 +201,8 @@ public sealed class TestVisualizationController : IDisposable
         var orphanId = Guid.NewGuid();
         using var pluginScope = CreateScope(updateMediaSegments: true);
 
-        // Jellyfin resolved no season for the episode and none of its siblings has its
-        // number, so the season key falls back to the episode's own id.
+        // Jellyfin has not attached the episode to a season yet and none of its siblings
+        // has its number, so the season key falls back to the episode's own id.
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
             [JellyfinItems.Folder("Shows")],
             JellyfinItems.WithParents(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));

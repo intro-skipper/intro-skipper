@@ -67,8 +67,8 @@ public partial class CleanCacheTask(
     /// <summary>
     /// Cleans the cache of unused rows.
     /// Clears segment, season-state and cache rows of items the server no longer knows.
-    /// Items that still exist but were not enumerated (a provider-disabled library, a
-    /// per-item queue guard) keep all their rows.
+    /// Items that still exist but were not resolved (a provider-disabled library, an
+    /// episode waiting for its season) keep all their rows.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -101,11 +101,11 @@ public partial class CleanCacheTask(
             return;
         }
 
-        // Absence from the queue only proves an id was not enumerated: the queue skips
-        // provider-disabled libraries, whose rows (user segments, tombstones, analyzer
-        // actions) must survive that reversible toggle. Only ids the server itself no
-        // longer resolves are deleted. Season keys resolve the same way — each is a
-        // real item id (a season's, or the queueing fallback of an episode's own id).
+        // Absence from the resolved seasons only proves an id was not resolved: the
+        // resolver skips provider-disabled libraries, whose rows (user segments,
+        // tombstones, analyzer actions) must survive that reversible toggle. Only ids the
+        // server itself no longer resolves are deleted. Season keys are checked the same
+        // way: each is a real item id, a season's or a movie's.
         var existsById = new Dictionary<Guid, bool>();
         bool IsGone(Guid id)
         {
@@ -127,7 +127,7 @@ public partial class CleanCacheTask(
         if (staleTimestampEpisodeIds.Count > 0)
         {
             // The erase journals every affected item's projection with the delete, so
-            // the Jellyfin rows converge away durably — a sync racing this cleanup
+            // the Jellyfin rows converge away durably: a sync racing this cleanup
             // from a stale read is followed by the marker's own projection, and a
             // crash mid-cleanup leaves the work journaled instead of orphaning rows.
             await _database
@@ -135,7 +135,7 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
 
             // Converge exactly the erased items now rather than waiting for the
-            // worker's poll — unrelated pending work keeps its backoff; anything this
+            // worker's poll. Unrelated pending work keeps its backoff; anything this
             // pass cannot finish stays journaled. Uncancelable: the erase is committed.
             await _segmentChange
                 .ProjectItemsAsync(staleTimestampEpisodeIds, CancellationToken.None)
