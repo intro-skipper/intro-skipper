@@ -26,8 +26,8 @@ namespace IntroSkipper.Manager;
 /// of its own, otherwise it stays in Specials. An episode Jellyfin attached to no season
 /// joins the season its numbered siblings resolved to, or is a season of one keyed by its
 /// own id. A movie is a season of one keyed by its own id. Items of a library the plugin
-/// is disabled for are unknown to every lookup. Stateless: one instance serves every
-/// pass, the watcher and the dashboard.
+/// is disabled for are unknown to every key lookup. Stateless: one instance serves
+/// every pass, the watcher and the dashboard.
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
@@ -41,7 +41,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <summary>
     /// Returns the season key an item is analyzed under: a movie's own id, or the key of
     /// the resolved season holding the episode. An episode its series does not resolve
-    /// (excluded, without a path, or without a series) is keyed by its own id. Resolves
+    /// (excluded, without a path, or without a series) is keyed by its own id. The
+    /// library's provider setting does not apply: the key records user intent. Resolves
     /// the whole series, so it suits a request, not a library event.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
