@@ -33,3 +33,9 @@ _Avoid_: Black frames (for the data), pblack
 **Keyframe visuals**:
 The per-keyframe entropy and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
 _Avoid_: Entropy data, visual stats, card evidence
+
+### Analysis
+
+**File version**:
+The last write time Jellyfin observed for an item's media file, recorded with each analysis record. An analysis whose file version differs from the item's current one no longer describes the file.
+_Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag

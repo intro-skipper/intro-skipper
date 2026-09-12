@@ -97,6 +97,20 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the file version Jellyfin currently holds for the item: the ticks of
+    /// the media file's last write time as of its last refresh. Null when Jellyfin holds
+    /// none. Recorded with the analysis so a later file replacement reopens the item.
+    /// </summary>
+    public long? FileVersion { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a stored analysis record carries a different
+    /// file version than <see cref="FileVersion"/>. The pass then discards the item's
+    /// automatic segments and fingerprints before analyzing it again.
+    /// </summary>
+    public bool FileChanged { get; set; }
+
+    /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>

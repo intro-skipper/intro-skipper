@@ -11,7 +11,10 @@ namespace IntroSkipper.Db;
 /// or not segments were found. Queue verification settles an item whose record matches
 /// the current hash (<c>Analyzed</c> with segments, <c>NoSegments</c> without) and
 /// re-analyzes it otherwise; deleting the record reopens the item for the mode. One row
-/// per (item, mode).
+/// per (item, mode). The file version ties the record to the media file Jellyfin held
+/// at analysis time: a record whose version differs from the item's current one no
+/// longer describes the file and is re-analyzed. A null version makes no claim and
+/// matches any file (rows written before versions were recorded).
 /// </summary>
 public sealed class DbAnalyzedItem
 {
@@ -50,4 +53,11 @@ public sealed class DbAnalyzedItem
     /// with a set-based upsert, never through a tracked entity.
     /// </summary>
     public string ConfigHash { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the file version the item was analyzed at: the ticks of the last write time
+    /// Jellyfin held for the media file. Null when the record predates versioning or
+    /// Jellyfin held no write time. Written only by the facade's set-based statements.
+    /// </summary>
+    public long? FileVersion { get; private set; }
 }

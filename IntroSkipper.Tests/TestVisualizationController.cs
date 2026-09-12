@@ -499,7 +499,9 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null)
-        => new(
+    {
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+        return new(
             NullLogger<VisualizationController>.Instance,
             _h.Change,
             new AnalyzerTaskFactory(
@@ -509,10 +511,12 @@ public sealed class TestVisualizationController : IDisposable
                 fileSystem: null!,
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+                cacheDatabase,
                 _h.Database),
             _h.Database,
-            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+            cacheDatabase,
             EntrypointTestHelpers.CreateTaskManager());
+    }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
         => CreatePluginScope(

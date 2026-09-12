@@ -107,8 +107,8 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.Equal("cfg-credits", credits.ConfigHash);
 
         var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
-        Assert.Equal("cfg-intro", snapshot.AnalyzedConfigHashes[(itemId, AnalysisMode.Introduction)]);
-        Assert.Equal("cfg-credits", snapshot.AnalyzedConfigHashes[(itemId, AnalysisMode.Credits)]);
+        Assert.Equal("cfg-intro", snapshot.AnalysisRecords[(itemId, AnalysisMode.Introduction)].ConfigHash);
+        Assert.Equal("cfg-credits", snapshot.AnalysisRecords[(itemId, AnalysisMode.Credits)].ConfigHash);
     }
 
     [Fact]

@@ -150,7 +150,7 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
 
         return new SeasonQueueSnapshot(
-            analyzed.ToDictionary(a => (a.ItemId, a.Type), a => a.ConfigHash),
+            analyzed.ToDictionary(a => (a.ItemId, a.Type), a => new AnalysisRecord(a.ConfigHash, a.FileVersion)),
             analyzerActions,
             segments
                 .GroupBy(s => s.ItemId)

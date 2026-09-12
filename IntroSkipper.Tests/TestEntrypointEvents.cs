@@ -41,19 +41,17 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
-    public void OnItemChanged_QueuesChangedEpisodeForCoordinatedInvalidation()
+    public void OnItemChanged_QueuesEpisodeUnderItsSeason()
     {
         using var scope = CreateScope(autoDetectIntros: true);
         using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
-        var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var episode = JellyfinItems.Episode(itemId, Guid.NewGuid(), seasonId);
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
         EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
 
-        Assert.Equal(seasonId, EntrypointTestHelpers.GetItemsToReset(entrypoint)[itemId]);
-        Assert.Contains(seasonId, EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint));
+        Assert.Equal(seasonId, Assert.Single(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint)));
     }
 
     [Fact]

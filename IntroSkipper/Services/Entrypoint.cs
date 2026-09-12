@@ -8,7 +8,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
-using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
@@ -33,12 +32,10 @@ namespace IntroSkipper.Services
     {
         private readonly ILibraryManager _libraryManager;
         private readonly IDetectionCacheDatabase _cacheDatabase;
-        private readonly IIntroSkipperDatabase _database;
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly AnalyzerTaskFactory _analyzerFactory;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
-        private readonly Dictionary<Guid, Guid> _itemsToReset = [];
         private readonly Lock _seasonsLock = new();
         private readonly Timer _queueTimer;
         private readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
@@ -50,21 +47,18 @@ namespace IntroSkipper.Services
         /// </summary>
         /// <param name="libraryManager">Library manager.</param>
         /// <param name="cacheDatabase">Detection cache database facade.</param>
-        /// <param name="database">Segment database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             IDetectionCacheDatabase cacheDatabase,
-            IIntroSkipperDatabase database,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
             AnalyzerTaskFactory analyzerFactory)
         {
             _libraryManager = libraryManager;
             _cacheDatabase = cacheDatabase;
-            _database = database;
             _ffmpegService = ffmpegService;
             _logger = logger;
             _analyzerFactory = analyzerFactory;
@@ -177,27 +171,16 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            // Episodes queue under their season, movies under their own id.
+            // Episodes queue under their season, movies under their own id. A replaced file
+            // needs no special handling here: queue verification compares the stored file
+            // version and reopens the item.
             var id = item is Episode episode ? episode.SeasonId : item.Id;
-            var delay = itemChangeEventArgs.UpdateReason == ItemUpdateType.None ? 120 : 60;
-
             lock (_seasonsLock)
             {
-                // Jellyfin uses ItemUpdateType.None for filesystem-driven item updates. A
-                // replacement at the same path retains the Jellyfin item ID, so the normal
-                // queue would otherwise treat the old automatic analysis and fingerprint
-                // cache as still valid. Defer invalidation until the coordinated analysis
-                // pass, after any currently running analysis has finished writing its state.
-                if (itemChangeEventArgs.UpdateReason == ItemUpdateType.None &&
-                    item.Id != Guid.Empty)
-                {
-                    _itemsToReset[item.Id] = id;
-                }
-
                 _seasonsToAnalyze.Add(id);
             }
 
-            StartTimer(delay);
+            StartTimer();
         }
 
         /// <summary>
@@ -242,7 +225,7 @@ namespace IntroSkipper.Services
         /// Start timer to debounce analyzing. Callers queue their work before calling; a
         /// running analysis picks it up through <see cref="ScheduleAnalysisIfNeeded"/> when it ends.
         /// </summary>
-        private void StartTimer(int delay)
+        private void StartTimer()
         {
             lock (_seasonsLock)
             {
@@ -252,7 +235,7 @@ namespace IntroSkipper.Services
                 }
 
                 LogMediaLibraryChanged();
-                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
+                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
             }
         }
 
@@ -305,49 +288,10 @@ namespace IntroSkipper.Services
                     {
                         LogInitiatingAutomaticAnalysis();
                         HashSet<Guid> seasonIds;
-                        Dictionary<Guid, Guid> itemsToReset;
                         lock (_seasonsLock)
                         {
                             seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
-                            itemsToReset = new Dictionary<Guid, Guid>(_itemsToReset);
                             _seasonsToAnalyze.Clear();
-                            _itemsToReset.Clear();
-                        }
-
-                        if (itemsToReset.Count > 0)
-                        {
-                            try
-                            {
-                                // One batch for every changed item; the reset journals its
-                                // deletions' projections and the projection worker converges
-                                // Jellyfin durably. The cache delete follows the committed
-                                // reset uncancelled so the two cannot be split by cancellation.
-                                await _database.ResetItemsForReanalysisAsync(
-                                    itemsToReset.Keys,
-                                    Enum.GetValues<AnalysisMode>(),
-                                    cts.Token).ConfigureAwait(false);
-                                await _cacheDatabase.DeleteForItemsAsync(itemsToReset.Keys, CancellationToken.None).ConfigureAwait(false);
-
-                                foreach (var itemId in itemsToReset.Keys)
-                                {
-                                    LogMediaItemChanged(_logger, itemId);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                // Requeue the whole batch and skip its seasons this pass.
-                                lock (_seasonsLock)
-                                {
-                                    foreach (var (itemId, seasonId) in itemsToReset)
-                                    {
-                                        _itemsToReset[itemId] = seasonId;
-                                        _seasonsToAnalyze.Add(seasonId);
-                                    }
-                                }
-
-                                seasonIds.ExceptWith(itemsToReset.Values);
-                                LogErrorResettingChangedMediaItems(_logger, ex, itemsToReset.Count);
-                            }
                         }
 
                         var analyzer = _analyzerFactory.CreateAnalyzerTask();
@@ -382,8 +326,7 @@ namespace IntroSkipper.Services
                     return;
                 }
 
-                var needsRestart = _seasonsToAnalyze.Count > 0 || _itemsToReset.Count > 0;
-                if (needsRestart && AutomaticTaskState == TaskState.Idle)
+                if (_seasonsToAnalyze.Count > 0 && AutomaticTaskState == TaskState.Idle)
                 {
                     LogAnalyzingEndedNeedsRestart();
                     _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
@@ -429,12 +372,6 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
         private partial void LogMediaItemRemoved(Guid id);
-
-        [LoggerMessage(Level = LogLevel.Debug, Message = "Media item changed, invalidating automatic analysis and fingerprint cache for {Id}")]
-        private static partial void LogMediaItemChanged(ILogger logger, Guid id);
-
-        [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to invalidate automatic analysis for {Count} changed media items")]
-        private static partial void LogErrorResettingChangedMediaItems(ILogger logger, Exception ex, int count);
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media Library changed, analysis will start soon!")]
         private partial void LogMediaLibraryChanged();

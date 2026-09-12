@@ -31,6 +31,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             fileSystem: null!,
             ffmpegService: FfmpegTestHelpers.CreateFFmpegService(),
             cacheService: null!,
+            cacheDatabase: null!,
             database: null!).CreateAnalyzerTask();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -84,7 +85,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(EpisodeState.UserProvided, episode.GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview));
 
-        var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, new StubFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), database);
+        var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, new StubFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), null!, database);
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Credits, AnalyzerAction.Default, false, CancellationToken.None);
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
 
@@ -108,6 +109,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             fileSystem: null!,
             ffmpegService,
             cacheService: null!,
+            cacheDatabase: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase()).CreateAnalyzerTask();
 
         await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
