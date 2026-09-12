@@ -25,8 +25,9 @@ public sealed class SkipMeIntegration
 
     /// <summary>
     /// Registers SkipMe as an authoritative analyzer source instead of a Jellyfin provider.
-    /// The caller must retain its standalone provider when this entry point is unavailable,
-    /// and must not register that provider with Jellyfin when this registration succeeds.
+    /// The caller must obtain explicit administrator opt-in and retain its standalone
+    /// provider when consent or this entry point is unavailable. It must not register
+    /// that provider with Jellyfin when this registration succeeds.
     /// </summary>
     /// <param name="services">Jellyfin's shared service collection.</param>
     /// <param name="providerFactory">Creates the local SkipMe segment reader after DI is built.</param>

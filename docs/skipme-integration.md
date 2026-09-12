@@ -1,9 +1,15 @@
 # SkipMe analyzer integration
 
-When compatible versions of both plugins are installed, SkipMe registers its local
-segment reader with Intro Skipper instead of publishing segments through a separate
-Jellyfin media segment provider. SkipMe still owns its database sync, configuration,
-and sharing features. Intro Skipper owns analysis and publication to Jellyfin.
+Integration is **off by default**. Installing compatible versions of both plugins
+does not change SkipMe's standalone provider. To opt in, enable **Use Intro Skipper
+for segment analysis** on SkipMe's Sync tab, save settings, and restart Jellyfin.
+
+With that preference enabled and a compatible host installed, SkipMe registers its
+local segment reader with Intro Skipper instead of publishing segments through a
+separate Jellyfin media segment provider. SkipMe still owns its database sync,
+configuration, and sharing features. Intro Skipper owns analysis and publication
+to Jellyfin. Changing the preference requires another restart; saving settings
+does not switch the running provider.
 
 ## Precedence
 
@@ -60,7 +66,13 @@ assembly dependency or a bundled copy of Intro Skipper. The factory is evaluated
 when the shared DI container resolves the integration, after service registration
 has finished. The provider is an input reader, not a Jellyfin provider registration.
 
-SkipMe must keep its standalone provider when the compatible entry point is absent.
+SkipMe reads its saved `EnableIntroSkipperIntegration` preference before registration
+using Jellyfin's existing configuration-path and XML-serializer instances. Missing,
+legacy, disabled, or unreadable configuration does not opt in. No secondary service
+container is built to load the preference.
+
+SkipMe must keep its standalone provider when consent is absent or the compatible
+entry point is unavailable.
 When registration succeeds, SkipMe must stop registering that provider with Jellyfin,
 route successful syncs to `IntroSkipperDetectSegmentsTask`, and retire only its own
 previously published Jellyfin segments during handover. Intro Skipper's normal
