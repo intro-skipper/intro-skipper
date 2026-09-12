@@ -423,10 +423,11 @@ public sealed class TestVisualizationController : IDisposable
         var seasonId = Guid.NewGuid();
         var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId));
 
-        // A season the server knows is an answer even with nothing to erase; only an
-        // id that is not a season or movie is missing.
+        // A season the server knows is an answer even with nothing to erase. An id that
+        // is not a season or movie is missing, and so is a season under another series.
         Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None));
         Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(seriesId, Guid.NewGuid(), eraseCache: false, CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(Guid.NewGuid(), seasonId, eraseCache: false, CancellationToken.None));
     }
 
     [Fact]
@@ -504,12 +505,15 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public void ScanSeason_ReturnsNotFound_ForAnIdTheServerDoesNotKnow()
+    public void ScanSeason_ReturnsNotFound_ForAnIdTheServerDoesNotKnow_OrASeasonOfAnotherSeries()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(Guid.NewGuid(), Guid.NewGuid(), [Guid.NewGuid()]));
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
 
-        Assert.IsType<NotFoundResult>(controller.ScanSeason(Guid.NewGuid(), Guid.NewGuid()));
+        Assert.IsType<NotFoundResult>(controller.ScanSeason(seriesId, Guid.NewGuid()));
+        Assert.IsType<NotFoundResult>(controller.ScanSeason(Guid.NewGuid(), seasonId));
         Assert.False(ScheduledTaskSemaphore.IsBusy);
     }
 

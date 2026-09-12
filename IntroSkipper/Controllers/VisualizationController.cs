@@ -101,7 +101,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="eraseCache">Erase cache.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
-    /// <response code="404">The season id is not a season or movie the server knows.</response>
+    /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -109,12 +109,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        if (_seasonResolver.ResolveKey(seasonId) is not { } season)
+        if (_seasonResolver.ResolveKey(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
 
-        await EraseAsync(seriesId, season, eraseCache, cancellationToken).ConfigureAwait(false);
+        await EraseAsync(season, eraseCache, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -231,14 +231,14 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     // Erases the season's stored segments and analysis state, and its cache rows when
     // asked. A known season with nothing to erase is a no-op.
-    private async Task EraseAsync(Guid seriesId, ResolvedSeason season, bool eraseCache, CancellationToken cancellationToken)
+    private async Task EraseAsync(ResolvedSeason season, bool eraseCache, CancellationToken cancellationToken)
     {
         if (season.Episodes.Count == 0)
         {
             return;
         }
 
-        LogErasingTimestamps(_logger, seriesId, season.Key);
+        LogErasingTimestamps(_logger, season.SeriesId, season.Key);
         await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
     }
 
@@ -281,14 +281,15 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">cancellationToken.</param>
-    /// <returns>Accepted if the scan was started; Conflict if a scan is already running; Not Found if the id is not a season or movie the server knows.</returns>
+    /// <returns>Accepted if the scan was started; Conflict if a scan is already running; Not Found if the id is not a season or movie of the series the server knows.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        if (!_seasonResolver.IsKnownKey(seasonId))
+        // Resolved once, here, so the erase and the analysis act on the same episodes.
+        if (_seasonResolver.ResolveKey(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
@@ -310,20 +311,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
                         LogStartRescan(_logger, seasonId);
 
-                        // Resolved once, off the request thread, so the erase and the
-                        // analysis act on the same episodes.
-                        if (_seasonResolver.ResolveKey(seasonId) is not { } season)
-                        {
-                            LogRescanSeasonGone(_logger, seasonId);
-                            return;
-                        }
-
                         // Erase the season's timestamps and cache first. An erase failure is
                         // logged and the analysis still runs: its writes replace what the
                         // erase would have removed.
                         try
                         {
-                            await EraseAsync(seriesId, season, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
+                            await EraseAsync(season, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -356,9 +349,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
     private static partial void LogStartRescan(ILogger logger, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping the rescan of {SeasonId}: the server no longer knows it")]
-    private static partial void LogRescanSeasonGone(ILogger logger, Guid seasonId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Manual season rescan for {SeasonId} was canceled.")]
     private static partial void LogRescanCanceled(ILogger logger, Guid seasonId);
