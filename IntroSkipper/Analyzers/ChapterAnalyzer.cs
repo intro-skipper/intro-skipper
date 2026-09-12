@@ -157,7 +157,7 @@ internal sealed partial class ChapterAnalyzer(
 
     /// <summary>
     /// Finds the episode's chapter matches for the mode without adjusting times or writing.
-    /// The credits pass combines these with other analyzers' candidates.
+    /// The credits pass trusts these ranges unless chapter enhancement is enabled.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
