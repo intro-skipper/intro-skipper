@@ -91,7 +91,8 @@ internal sealed partial class ChromaprintAnalyzer(
 
     /// <summary>
     /// Finds the shared-audio candidate of every episode in the season without adjusting
-    /// times or writing. The credits pass combines these with other analyzers' candidates.
+    /// times or writing. The credits pass combines these with other analyzers' candidates
+    /// for the episodes no credits chapter settled.
     /// </summary>
     /// <remarks>
     /// Compares the episodes that need analysis plus the already-analyzed ones that still

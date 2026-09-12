@@ -78,6 +78,9 @@ public sealed class TestConfigHasher
         Case("Introduction analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Introduction), Analysis(defaults, AnalysisMode.Introduction, ffmpegValid: false), false);
         Case("Credits analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Credits), Analysis(defaults, AnalysisMode.Credits, ffmpegValid: false), false);
         Case("Credits analysis changes with a BlackFrame action", Analysis(defaults, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), false);
+        // The credits pass never consults chapters under a BlackFrame action, so the enhancement
+        // option cannot change those seasons' results and must not re-scan them.
+        Case("Credits analysis ignores chapter enhancement under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
         // The string is frozen to what releases before the credits pass wrote, so seasons the
         // first-wins chain settled stay settled after the upgrade instead of re-scanning.
         Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "353008E48A5F559E", true);

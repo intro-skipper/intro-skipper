@@ -17,10 +17,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// With chapter enhancement enabled, chapter matches, the black-frame scan and the
 /// season-wide chromaprint comparison each contribute a candidate;
 /// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
-/// keeps the rest apart. Otherwise chapter matches settle an episode first. Settled episodes
-/// may still supply reference fingerprints for siblings without credits chapters, but their
-/// results are not replaced. Times are adjusted once per stored segment and every episode
-/// is written once.
+/// keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
+/// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
+/// references for siblings without credits chapters, but their results are not replaced.
+/// Times are adjusted once per stored segment and every episode is written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -75,8 +75,10 @@ internal sealed partial class CreditsPass(
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        // Episodes the chapter pre-pass decided, whatever the outcome. Offset-consumed and
+        // failed ones still need analysis by state, so the main loop skips them by id rather
+        // than falling back to combined detection.
         HashSet<Guid> chapterHandled = [];
-        HashSet<Guid> unavailableReferences = [];
         if (chapter is not null && !_config.EnhanceChapterCredits)
         {
             foreach (var episode in pendingItems)
@@ -84,40 +86,35 @@ internal sealed partial class CreditsPass(
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var candidates = chapter.FindChapterCandidates(episode, Mode)
-                        .Select(c => new AttributedSegment(c, SegmentSource.Chapter)).ToList();
-                    if (candidates.Count == 0)
+                    var matches = chapter.FindChapterCandidates(episode, Mode);
+                    if (matches.Count == 0)
                     {
                         continue;
                     }
 
                     chapterHandled.Add(episode.EpisodeId);
-                    var state = await StoreCandidatesAsync(episode, candidates, timeAdjustmentHelper, false, cancellationToken).ConfigureAwait(false);
-                    episode.SetAnalyzed(Mode, state);
-                    if (state != EpisodeState.Analyzed)
-                    {
-                        unavailableReferences.Add(episode.EpisodeId);
-                    }
+                    episode.SetAnalyzed(Mode, await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, cancellationToken).ConfigureAwait(false));
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     chapterHandled.Add(episode.EpisodeId);
-                    unavailableReferences.Add(episode.EpisodeId);
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                     LogErrorAnalyzingCredits(ex, episode.Name);
                 }
             }
         }
 
+        // The whole season takes part in the comparison. A chapter-handled episode's audio is
+        // a valid reference whatever its outcome, and dropping one can leave a two-episode
+        // season with nothing to compare against.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
-            var comparisonItems = items.Where(e => !unavailableReferences.Contains(e.EpisodeId)).ToList();
             try
             {
                 (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
-                    .FindCandidatesAsync(comparisonItems, Mode, cancellationToken).ConfigureAwait(false);
+                    .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -125,7 +122,7 @@ internal sealed partial class CreditsPass(
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
                 LogChromaprintComparisonFailed(ex);
-                fingerprintFailures = [.. comparisonItems.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
+                fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
 

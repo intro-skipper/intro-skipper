@@ -613,16 +613,18 @@ public sealed class TestCreditsPass
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
     }
 
+    /// <summary>
+    /// A two-episode season where the chaptered episode's result is unusable: its audio must
+    /// still serve as the reference, or the unchaptered sibling has nothing to compare against
+    /// and would be recorded as having no credits.
+    /// </summary>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task UnusableChapterResult_IsExcludedFromMixedSeasonComparison(bool chapterLookupFails)
+    public async Task UnusableChapterResult_StillSuppliesComparisonWithoutBeingReplaced(bool chapterLookupFails)
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(fingerprintFailure: episode => episode.EpisodeNumber == 1
-            ? new InvalidOperationException("Unusable chapter result should not be fingerprinted")
-            : null);
-        episodes.Add(Episode(episodes[0].SeasonId, 3));
+        var (episodes, ffmpeg, database) = CreateSeason();
         var manager = ChapterManagerStub.CreateForItems(id => id != episodes[0].EpisodeId
             ? []
             : chapterLookupFails
@@ -636,12 +638,9 @@ public sealed class TestCreditsPass
         Assert.Equal(chapterLookupFails ? EpisodeState.AnalysisFailed : EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
-        Assert.Equal(2, ffmpeg.CreditsScanCalls);
-        foreach (var episode in episodes.Skip(1))
-        {
-            Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits));
-            Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).Source);
-        }
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
 
     [Theory]
