@@ -470,6 +470,16 @@ a {
     flex-wrap: wrap;
 }
 
+.ts-full-series {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-size: 0.85em;
+    color: var(--is-text);
+    cursor: pointer;
+}
+
 .ts-analyzer-group {
     display: flex;
     align-items: center;
