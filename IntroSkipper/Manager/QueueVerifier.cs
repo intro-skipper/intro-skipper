@@ -13,9 +13,8 @@ namespace IntroSkipper.Manager;
 /// analysis record under the current configuration hash settles an episode for the
 /// mode (<see cref="EpisodeState.Analyzed"/> with segments,
 /// <see cref="EpisodeState.NoSegments"/> without), user segments always settle it, and
-/// anything else stays <see cref="EpisodeState.NotAnalyzed"/>. The expected hash depends
-/// on the season's analyzer action and the mode, not on the episode, so every per-mode
-/// value is computed once per instance.
+/// anything else stays <see cref="EpisodeState.NotAnalyzed"/>. Base hashes are computed
+/// once per mode, then combined with each item's authoritative SkipMe input, if present.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -32,7 +31,7 @@ internal sealed partial class QueueVerifier
 
     // First stored hash seen per mode, replaced by the first mismatching one, so the
     // reason log can quote the hash that caused the reprocessing.
-    private readonly Dictionary<AnalysisMode, (string Stored, bool Mismatch)> _storedHashByMode = [];
+    private readonly Dictionary<AnalysisMode, (string Stored, string Expected, bool Mismatch)> _storedHashByMode = [];
 
     /// <summary>
     /// Initializes a new instance of the <see cref="QueueVerifier"/> class.
@@ -71,7 +70,8 @@ internal sealed partial class QueueVerifier
             // rows created before hashing was recorded and must not settle an item forever.
             var hasAnalyzedHash = _snapshot.AnalyzedConfigHashes.TryGetValue((candidate.EpisodeId, mode), out var analyzedHash)
                 && !string.IsNullOrEmpty(analyzedHash);
-            var hashMatches = hasAnalyzedHash && string.Equals(analyzedHash, _expectedHashByMode[mode], StringComparison.Ordinal);
+            var expectedHash = ConfigHasher.WithSkipMe(_expectedHashByMode[mode], mode, _actionByMode[mode], candidate.SkipMe);
+            var hashMatches = hasAnalyzedHash && string.Equals(analyzedHash, expectedHash, StringComparison.Ordinal);
 
             // A failed FFmpeg capability probe must not invalidate good Chromaprint results.
             // Availability is an upward invalidation: a later successful probe can reopen a
@@ -79,7 +79,7 @@ internal sealed partial class QueueVerifier
             // discard results produced while it was available.
             if (!hashMatches && hasAnalyzedHash && _availableHashByMode is { } availableHashByMode)
             {
-                hashMatches = string.Equals(analyzedHash, availableHashByMode[mode], StringComparison.Ordinal);
+                hashMatches = string.Equals(analyzedHash, ConfigHasher.WithSkipMe(availableHashByMode[mode], mode, _actionByMode[mode], candidate.SkipMe), StringComparison.Ordinal);
             }
 
             if (hasAnalyzedHash)
@@ -87,7 +87,7 @@ internal sealed partial class QueueVerifier
                 var mismatch = !hashMatches;
                 if (!_storedHashByMode.TryGetValue(mode, out var stored) || (mismatch && !stored.Mismatch))
                 {
-                    _storedHashByMode[mode] = (analyzedHash!, mismatch);
+                    _storedHashByMode[mode] = (analyzedHash!, expectedHash, mismatch);
                 }
             }
 
@@ -149,7 +149,7 @@ internal sealed partial class QueueVerifier
                     first.SeriesName,
                     first.SeasonNumber,
                     stored.Stored,
-                    _expectedHashByMode[mode],
+                    stored.Expected,
                     ChromaprintAffectsMode(mode) ? _ffmpegValid.ToString() : "n/a");
             }
             else

@@ -96,6 +96,8 @@ public sealed class QueuedEpisode
     /// </summary>
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
+    internal SkipMeSnapshot? SkipMe { get; set; }
+
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>

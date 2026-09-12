@@ -119,7 +119,7 @@ internal sealed partial class IntroSkipperDatabase
                     continue;
                 }
 
-                if (intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
+                if (source != SegmentSource.SkipMe && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                 {
                     LogCreditsOverlapWithIntro(_logger, itemId);
                     rejected++;

@@ -5,9 +5,11 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Per-season choice of analyzer. In the first-wins chain the named analyzer runs first and
-/// the rest still follow. In the credits pass, BlackFrame and Chromaprint make that analyzer
-/// the only one consulted, while Chapter changes nothing because chapters always take part.
+/// Per-season choice of local analyzer, used when no authoritative SkipMe match exists.
+/// None disables analysis from every source. In the first-wins chain the named analyzer
+/// runs first and the rest still follow. In the credits pass, BlackFrame and Chromaprint
+/// make that analyzer the only one consulted, while Chapter changes nothing because
+/// chapters always take part.
 /// </summary>
 public enum AnalyzerAction
 {

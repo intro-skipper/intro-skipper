@@ -49,6 +49,16 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
     - Find "File Transformation" in the Catalog and install it.
 </details>
 
+## Optional: SkipMe.db plugin
+
+With compatible versions of [SkipMe.db](https://github.com/intro-skipper/skipme.db-plugin)
+and Intro Skipper installed, you can opt in to using SkipMe's synced timestamps as
+authoritative analyzer inputs instead of a separate Jellyfin segment provider.
+Enable **Use Intro Skipper for segment analysis** in SkipMe's Sync tab, save, and
+restart Jellyfin; integration is off by default. Manual edits stay protected;
+local detection runs only for segment types where SkipMe has no valid match.
+See the [integration guide](docs/skipme-integration.md) for precedence and update behavior.
+
 ## System requirements
 
 * Jellyfin 12.0.0 (or newer)

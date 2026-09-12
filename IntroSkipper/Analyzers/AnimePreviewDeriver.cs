@@ -44,6 +44,11 @@ internal static class AnimePreviewDeriver
                 break;
             }
 
+            if (episode.SkipMe?.HasSegments(AnalysisMode.Preview) == true)
+            {
+                continue;
+            }
+
             var dbSegments = await database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.User))
             {

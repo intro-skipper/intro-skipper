@@ -254,29 +254,35 @@ public partial class BaseItemAnalyzerTask(
 
         foreach (var item in items)
         {
-            item.AnalysisConfigHash = configHash;
+            item.AnalysisConfigHash = ConfigHasher.WithSkipMe(configHash, mode, action, item.SkipMe);
         }
 
         // The cleanup journals the removed rows' projections, so they reach the
         // mirror even if the analyzers below detect nothing new.
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
-            mode,
-            configHash,
-            cancellationToken).ConfigureAwait(false);
+        foreach (var group in items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).GroupBy(e => e.AnalysisConfigHash))
+        {
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                group.Select(e => e.EpisodeId),
+                mode,
+                group.Key,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
-        if (mode == AnalysisMode.Credits)
+        await new SkipMeAnalyzer(_database).AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<QueuedEpisode> localItems = items.Where(item => item.SkipMe?.HasSegments(mode) != true).ToArray();
+
+        if (localItems.Count > 0 && mode == AnalysisMode.Credits)
         {
             // Credits combine every analyzer's candidate instead of settling on the first;
             // the pass skips chromaprint when the season has a single item.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
-            await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await pass.RunAsync(localItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
-        else
+        else if (localItems.Count > 0)
         {
-            await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
+            await RunAnalyzerChainAsync(localItems, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
         }
 
         // Anime previews derive from the credits: right after a credits result lands, and again
@@ -298,11 +304,14 @@ public partial class BaseItemAnalyzerTask(
 
         // Record completed items under this hash, found segments or not. Failed items are omitted so
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
-        await _database.MarkItemsAnalyzedAsync(
-            mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(item => item.EpisodeId),
-            configHash,
-            cancellationToken).ConfigureAwait(false);
+        foreach (var group in items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).GroupBy(item => item.AnalysisConfigHash))
+        {
+            await _database.MarkItemsAnalyzedAsync(
+                mode,
+                group.Select(item => item.EpisodeId),
+                group.Key,
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
