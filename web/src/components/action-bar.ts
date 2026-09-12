@@ -182,21 +182,33 @@ export function actionBar(opts: ActionBarOptions): {
     const handleApplyClick = async () => {
         if (destroyed) return;
 
+        const operationLoadVersion = loadVersion;
+        const seasonIds = targetSeasonIds();
+        const actions: AnalyzerActions = {};
+        for (const [key, select] of actionSelects) {
+            actions[key] = select.value;
+        }
+
         statusMessage.show("Saving analyzer overrides\u2026", "var(--is-text-muted)");
 
         try {
-            await withDashboardLoading(async () => {
-                const actions: AnalyzerActions = {};
-                for (const [key, select] of actionSelects) {
-                    actions[key] = select.value;
-                }
-                for (const seasonId of targetSeasonIds()) {
+            const completed = await withDashboardLoading(async () => {
+                for (const seasonId of seasonIds) {
+                    if (destroyed || loadVersion !== operationLoadVersion) {
+                        return false;
+                    }
+
                     const response = await api.updateAnalyzerActions(seasonId, actions);
+                    if (destroyed || loadVersion !== operationLoadVersion) {
+                        return false;
+                    }
                     if (!response.ok) {
                         throw new Error("Failed to update analyzer overrides");
                     }
                 }
+                return true;
             });
+            if (!completed || destroyed || loadVersion !== operationLoadVersion) return;
             statusMessage.show("Analyzer overrides updated.", "var(--is-success)");
         } catch {
             statusMessage.show("Failed to update analyzer overrides.", "var(--is-error)");
