@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using MediaBrowser.Controller.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -21,9 +22,13 @@ internal static class FfmpegTestHelpers
     /// </summary>
     /// <param name="versionProbe">Replaces the ffmpeg version probe; <see langword="null"/> runs the real one.</param>
     /// <param name="versionProbeTimeout">Bounds one probe attempt.</param>
+    /// <param name="keyframeManager">Jellyfin's keyframe store; <see langword="null"/> uses an empty <see cref="FakeKeyframeManager"/>.</param>
     /// <returns>The service.</returns>
-    internal static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>>? versionProbe = null, TimeSpan? versionProbeTimeout = null)
-        => new(NullLogger<FFmpegService>.Instance, DatabaseTestHelpers.CreateTempCacheService(), versionProbe, versionProbeTimeout);
+    internal static FFmpegService CreateFFmpegService(
+        Func<CancellationToken, Task<bool>>? versionProbe = null,
+        TimeSpan? versionProbeTimeout = null,
+        IKeyframeManager? keyframeManager = null)
+        => new(NullLogger<FFmpegService>.Instance, DatabaseTestHelpers.CreateTempCacheService(), keyframeManager ?? new FakeKeyframeManager(), versionProbe, versionProbeTimeout);
 
     /// <summary>
     /// Queues a fixture file for analysis.

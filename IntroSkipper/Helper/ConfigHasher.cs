@@ -146,8 +146,6 @@ internal static class ConfigHasher
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            CacheEntryType.Keyframe => $"cache|v1|{type}",
-
             CacheEntryType.KeyframeVisual => $"cache|v3|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.

@@ -201,7 +201,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     /// </summary>
     private async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
     {
-        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+        var keyframes = await _ffmpegService.GetKeyframesAsync(episode, searchRange, cancellationToken).ConfigureAwait(false);
         return SelectNearest(keyframes, time);
     }
 

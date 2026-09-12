@@ -842,7 +842,7 @@ public sealed class TestCreditsPass
             RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
             BlackIntervals = (_, _, _, _) => [],
             Silence = (_, _, _) => [],
-            KeyFrames = (_, _, _) => [],
+            KeyFrames = (_, _) => [],
         };
 
         return (episodes, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());

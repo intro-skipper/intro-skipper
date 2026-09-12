@@ -62,31 +62,15 @@ public class TestBlackFrames
         try
         {
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "gray10", Path = path, Duration = 3 };
-            var ffmpegService = FfmpegTestHelpers.CreateFFmpegService();
+            var frames = await FfmpegTestHelpers.CreateFFmpegService().DetectBlackFramesAsync(episode, 28);
 
-            var frames = await ffmpegService.DetectBlackFramesAsync(episode, 28);
-            var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
-            var keyframes = await ffmpegService.DetectKeyFramesAsync(episode, new(start, end - start), AnalysisMode.Credits);
-
-            Assert.NotEmpty(keyframes);
-            Assert.Equal(keyframes.Length, frames.Length);
+            Assert.NotEmpty(frames);
             Assert.All(frames, frame => Assert.Equal(100, frame.Percentage));
         }
         finally
         {
             File.Delete(path);
         }
-    }
-
-    [FactSkipFFmpegTests]
-    public async Task TestSeekSampleKeyFrames()
-    {
-        var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(
-            FfmpegTestHelpers.QueueFile("video/seek-sample.mp4"),
-            new(0, 8),
-            AnalysisMode.Introduction);
-
-        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
     }
 
     [FactSkipFFmpegTests]
