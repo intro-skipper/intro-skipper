@@ -55,6 +55,27 @@ public sealed class TestEntrypointEvents
     }
 
     [Fact]
+    public void OnItemChanged_QueuesInSeasonSpecialUnderItsHostSeason()
+    {
+        using var scope = CreateScope(autoDetectIntros: true);
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var special = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.NewGuid(), seasonNumber: 0);
+        special.AirsBeforeSeasonNumber = 1;
+        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Media")],
+            [JellyfinItems.Season(hostSeasonId, seriesId, number: 1)]);
+        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(libraryManager);
+
+        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(special, ItemUpdateType.None);
+        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+
+        // Resolving the Specials season leaves the special to its host season, so
+        // queueing the raw season id would never analyze it before the nightly run.
+        Assert.Equal(hostSeasonId, Assert.Single(EntrypointTestHelpers.GetSeasonsToAnalyze(entrypoint)));
+    }
+
+    [Fact]
     public void OnItemChanged_DoesNothing_WhenAutoDetectDisabled()
     {
         using var scope = CreateScope(autoDetectIntros: false);

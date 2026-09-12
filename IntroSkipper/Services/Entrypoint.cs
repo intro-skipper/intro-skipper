@@ -35,6 +35,7 @@ namespace IntroSkipper.Services
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly AnalyzerTaskFactory _analyzerFactory;
+        private readonly SeasonResolver _seasonResolver;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Lock _seasonsLock = new();
         private readonly Timer _queueTimer;
@@ -50,18 +51,21 @@ namespace IntroSkipper.Services
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+        /// <param name="seasonResolver">Resolver of the season key a changed item is analyzed under.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             IDetectionCacheDatabase cacheDatabase,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
-            AnalyzerTaskFactory analyzerFactory)
+            AnalyzerTaskFactory analyzerFactory,
+            SeasonResolver seasonResolver)
         {
             _libraryManager = libraryManager;
             _cacheDatabase = cacheDatabase;
             _ffmpegService = ffmpegService;
             _logger = logger;
             _analyzerFactory = analyzerFactory;
+            _seasonResolver = seasonResolver;
 
             _queueTimer = new Timer(
                     OnTimerCallback,
@@ -171,10 +175,10 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            // Episodes queue under their season, movies under their own id. A replaced file
-            // needs no special handling here: queue verification compares the stored file
-            // version and reopens the item.
-            var id = item is Episode episode ? episode.SeasonId : item.Id;
+            // An in-season special queues under its host season, so its key is looked up
+            // here rather than read off the item. A replaced file needs no special handling:
+            // queue verification compares the stored file version and reopens the item.
+            var id = _seasonResolver.SeasonKey(item);
             lock (_seasonsLock)
             {
                 _seasonsToAnalyze.Add(id);

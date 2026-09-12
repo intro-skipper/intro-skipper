@@ -21,7 +21,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// Clean the Intro Skipper cache of unused rows.
 /// </summary>
 /// <param name="logger">Logger.</param>
-/// <param name="analyzerFactory">Factory for per-run queue managers.</param>
+/// <param name="seasonResolver">Resolver of every enabled library's seasons.</param>
 /// <param name="libraryManager">Library manager, used to check whether a stale-candidate id still resolves to a server item.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
@@ -29,7 +29,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="segmentChange">Durable segment-change coordinator; converges the erased items' journaled projections.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
-    AnalyzerTaskFactory analyzerFactory,
+    SeasonResolver seasonResolver,
     ILibraryManager libraryManager,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
@@ -37,7 +37,7 @@ public partial class CleanCacheTask(
     SegmentChange segmentChange) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
@@ -75,24 +75,22 @@ public partial class CleanCacheTask(
     /// <returns>Task.</returns>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var queueManager = _analyzerFactory.CreateQueueManager();
-
-        // QueueManager.GetMediaInventoryAsync() already skips libraries where the plugin is disabled via
+        // The resolver already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var (seasons, failures) = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken);
 
-        // Every cleanup below starts from rows that are NOT in the enumerated queue, so an
-        // incomplete queue would push swathes of healthy data through the stale-candidate
+        // Every cleanup below starts from rows that are NOT in the resolved seasons, so an
+        // incomplete result would push swathes of healthy data through the stale-candidate
         // path and lean entirely on the per-id existence check below. Bail out instead.
-        if (queueManager.EnumerationFailureCount > 0)
+        if (failures > 0)
         {
-            LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
+            LogSkippingCleanupEnumerationFailures(_logger, failures);
             progress.Report(100);
             return;
         }
 
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(static episodes => episodes)
+        var enabledLibraryEpisodeIds = seasons
+            .SelectMany(static season => season.Episodes)
             .Select(static episode => episode.EpisodeId)
             .ToHashSet();
 
@@ -161,8 +159,9 @@ public partial class CleanCacheTask(
         }
 
         // Clean up season state by removing seasons that no longer exist.
-        var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
-        var retainedSeasonIds = queue.Keys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
+        var seasonKeys = seasons.Select(static season => season.Key).ToList();
+        var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(seasonKeys, cancellationToken).ConfigureAwait(false);
+        var retainedSeasonIds = seasonKeys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
         await _database.CleanSeasonStateAsync(retainedSeasonIds, cancellationToken).ConfigureAwait(false);
 
         // Per-item state (disable flags, analysis records) follows the item, not a season

@@ -42,8 +42,8 @@ public sealed class TestCleanCacheTask : IDisposable
         /// <summary>One library enumerates fine (non-empty queue) while a second one throws.</summary>
         LibraryThrows,
 
-        /// <summary>An episode fails to queue (its SeasonId repair needs the unavailable provider manager) beside a movie that queues fine.</summary>
-        ItemFailsToQueue,
+        /// <summary>The library enumerates fine but one series' episodes cannot be fetched, beside a movie that resolves fine.</summary>
+        SeriesThrows,
 
         /// <summary>No virtual folders at all: an empty queue must not classify everything as stale.</summary>
         NoLibraries,
@@ -51,7 +51,7 @@ public sealed class TestCleanCacheTask : IDisposable
 
     [Theory]
     [InlineData(IncompleteInventory.LibraryThrows)]
-    [InlineData(IncompleteInventory.ItemFailsToQueue)]
+    [InlineData(IncompleteInventory.SeriesThrows)]
     [InlineData(IncompleteInventory.NoLibraries)]
     public async Task ExecuteAsync_SkipsAllCleanup_WhenTheInventoryIsIncomplete(IncompleteInventory reason)
     {
@@ -69,30 +69,6 @@ public sealed class TestCleanCacheTask : IDisposable
         Assert.Equal(100, progress.Value);
         Assert.Equal(0, store.WriteCallCount);
         await AssertSeededDataIntactAsync(database, cacheDatabase, liveEpisodeId);
-    }
-
-    [Fact]
-    public async Task GetMediaInventoryAsync_ResetsEnumerationFailureCount_AcrossCalls()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-
-        var calls = 0;
-        var libraryManager = FakeLibraryManager.Create(
-            [JellyfinItems.Folder("Movies")],
-            _ => ++calls == 1 ? throw new InvalidOperationException("first pass fails") : []);
-        var queueManager = new QueueManager(
-            NullLogger<QueueManager>.Instance,
-            libraryManager,
-            providerManager: null!,
-            fileSystem: null!,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
-
-        await queueManager.GetMediaInventoryAsync(includeExcluded: true);
-        Assert.Equal(1, queueManager.EnumerationFailureCount);
-
-        await queueManager.GetMediaInventoryAsync(includeExcluded: true);
-        Assert.Equal(0, queueManager.EnumerationFailureCount);
     }
 
     [Fact]
@@ -247,15 +223,19 @@ public sealed class TestCleanCacheTask : IDisposable
                 var moviesFolder = JellyfinItems.Folder("Movies");
                 return FakeLibraryManager.Create(
                     [moviesFolder, JellyfinItems.Folder("Shows")],
-                    folderId => folderId == Guid.Parse(moviesFolder.ItemId!)
+                    query => query?.ParentId == Guid.Parse(moviesFolder.ItemId!)
                         ? [JellyfinItems.Movie(Guid.NewGuid())]
                         : throw new InvalidOperationException("library database unavailable"));
 
-            case IncompleteInventory.ItemFailsToQueue:
-                // The live episode itself is the one that fails to queue (an empty
-                // SeasonId needs the unavailable provider manager), so it must survive.
-                var brokenEpisode = JellyfinItems.Episode(liveEpisodeId, Guid.NewGuid(), Guid.Empty, "Show", path: "/media/show/s01e01.mkv");
-                return FakeLibraryManager.Create([JellyfinItems.Folder("Media")], _ => [brokenEpisode, JellyfinItems.Movie(Guid.NewGuid())]);
+            case IncompleteInventory.SeriesThrows:
+                // The live episode's series is the one whose episodes cannot be fetched,
+                // so it never enters the resolved seasons and must survive.
+                var series = JellyfinItems.Series(Guid.NewGuid(), "Show");
+                return FakeLibraryManager.Create(
+                    [JellyfinItems.Folder("Media")],
+                    query => query?.AncestorIds is { Length: > 0 }
+                        ? throw new InvalidOperationException("series unavailable")
+                        : [series, JellyfinItems.Movie(Guid.NewGuid())]);
 
             default:
                 return FakeLibraryManager.Create([], _ => []);
@@ -269,15 +249,7 @@ public sealed class TestCleanCacheTask : IDisposable
         FakeJellyfinSegmentStore? store = null)
         => new(
             NullLogger<CleanCacheTask>.Instance,
-            new AnalyzerTaskFactory(
-                NullLoggerFactory.Instance,
-                libraryManager,
-                providerManager: null!,
-                fileSystem: null!,
-                ffmpegService: null!,
-                cacheService: null!,
-                cacheDatabase,
-                database),
+            EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             libraryManager,
             database,
             cacheDatabase,

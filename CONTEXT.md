@@ -39,3 +39,11 @@ _Avoid_: Entropy data, visual stats, card evidence
 **File version**:
 The last write time Jellyfin observed for an item's media file, recorded with each analysis record. An analysis whose file version differs from the item's current one no longer describes the file.
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
+
+**Season key**:
+The id a group of items is analyzed and stored under. A movie's key is its own id. An episode's key is its season's id, except for an in-season special, whose key is its host season's id when that season exists and is not virtual.
+_Avoid_: Queue key, season-state key, group id
+
+**In-season special**:
+An episode stored in Season 0 whose aired season number names another season. Its host season is the series' season with that number, and the special is analyzed with it.
+_Avoid_: Interleaved special, cross-season special

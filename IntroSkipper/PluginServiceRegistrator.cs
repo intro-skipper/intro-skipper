@@ -52,9 +52,12 @@ namespace IntroSkipper
             // automatic-analysis owner that DetectSegmentsTask cancels before it starts.
             serviceCollection.AddSingleton<Entrypoint>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
-            // Owns the shared dependency set of the per-run analysis objects
-            // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
-            // therefore created fresh by this factory instead of being singletons.
+            // Stateless resolution of library items into seasons, shared by every pass,
+            // the watcher and the dashboard.
+            serviceCollection.AddSingleton<SeasonResolver>();
+            // Owns the shared dependency set of the per-run analyzer task, which is
+            // stateful per run and therefore created fresh by this factory instead of
+            // being a singleton.
             serviceCollection.AddSingleton<AnalyzerTaskFactory>();
             serviceCollection.AddSingleton<DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();

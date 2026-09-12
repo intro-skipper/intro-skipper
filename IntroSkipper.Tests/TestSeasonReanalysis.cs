@@ -14,6 +14,7 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.EntityFrameworkCore;
@@ -44,9 +45,7 @@ public sealed class TestSeasonReanalysisPlanner
         var progress = new RecordingProgress();
         var analyzer = new AnalyzerTaskFactory(
             NullLoggerFactory.Instance,
-            libraryManager,
-            providerManager: null!,
-            fileSystem: null!,
+            EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             ffmpegService: null!,
             cacheService: DatabaseTestHelpers.CreateTempCacheService(),
             cacheDatabase: null!,
@@ -109,7 +108,7 @@ public sealed class TestSeasonReanalysisPlanner
             DateLastSaved = saved,
         };
 
-        Assert.Equal(created, QueueManager.EpisodeAvailabilityDate(episode));
+        Assert.Equal(created, SeasonResolver.EpisodeAvailabilityDate(episode));
     }
 
     [Fact]
@@ -121,7 +120,7 @@ public sealed class TestSeasonReanalysisPlanner
             DateLastSaved = saved,
         };
 
-        Assert.Equal(saved, QueueManager.EpisodeAvailabilityDate(episode));
+        Assert.Equal(saved, SeasonResolver.EpisodeAvailabilityDate(episode));
     }
 
     [Theory]
@@ -471,9 +470,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         var analyzer = new AnalyzerTaskFactory(
             NullLoggerFactory.Instance,
-            fixture.LibraryManager,
-            providerManager: null!,
-            fileSystem: null!,
+            EntrypointTestHelpers.CreateSeasonResolver(fixture.LibraryManager),
             new StubFFmpegService { VersionCheck = () => false },
             DatabaseTestHelpers.CreateCacheService(cacheDbPath),
             cacheDatabase,
@@ -540,7 +537,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             _scope = EntrypointTestHelpers.CreatePluginScope(config);
             var episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
             episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
-            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], [episode]);
+            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", LibraryManager);
         }
 
@@ -554,23 +551,20 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         public IntroSkipperDatabase CreateDatabase() => _db.CreateDatabase();
 
+        // Verifies the season as a pass would: resolved from the library right before
+        // verification, so the path and file version come from the resolver.
         public Task<IReadOnlyList<QueuedEpisode>> VerifyAsync(bool ffmpegValid)
         {
-            var queueManager = new QueueManager(
-                NullLogger<QueueManager>.Instance,
-                LibraryManager,
-                providerManager: null!,
-                fileSystem: null!,
-                ffmpegService: new StubFFmpegService { VersionCheck = () => ffmpegValid },
-                database: _db.CreateDatabase());
-            var queued = new QueuedEpisode
-            {
-                EpisodeId = EpisodeId,
-                SeasonId = SeasonId,
-                Name = "S01E01",
-                SeriesName = "Rick and Morty",
-            };
-            return queueManager.VerifyQueueAsync([queued], [AnalysisMode.Introduction]);
+            var resolver = EntrypointTestHelpers.CreateSeasonResolver(LibraryManager);
+            var task = new BaseItemAnalyzerTask(
+                NullLogger.Instance,
+                NullLoggerFactory.Instance,
+                resolver,
+                new StubFFmpegService { VersionCheck = () => ffmpegValid },
+                cacheService: null!,
+                cacheDatabase: null!,
+                _db.CreateDatabase());
+            return task.VerifyQueueAsync(resolver.ResolveKey(SeasonId)!.Episodes, [AnalysisMode.Introduction]);
         }
 
         public void Dispose()

@@ -18,14 +18,15 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Runs the analyzers over every queued season, one mode at a time.
+/// Runs the analyzers over every resolved season, one mode at a time. One instance is one
+/// run: it memoizes the ffmpeg capability probe for the run's duration.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
 /// </remarks>
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
-/// <param name="analyzerFactory">Factory used to create fresh queue managers per run.</param>
+/// <param name="seasonResolver">Resolver of library items into seasons.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="cacheDatabase">Detection cache database facade, for the per-item delete when a file was replaced.</param>
@@ -33,7 +34,7 @@ namespace IntroSkipper.ScheduledTasks;
 public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
-    AnalyzerTaskFactory analyzerFactory,
+    SeasonResolver seasonResolver,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IDetectionCacheDatabase cacheDatabase,
@@ -43,11 +44,12 @@ public partial class BaseItemAnalyzerTask(
 
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
+    private bool? _ffmpegValid;
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
@@ -57,11 +59,11 @@ public partial class BaseItemAnalyzerTask(
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <summary>
-    /// Analyze all media items on the server.
+    /// Analyzes every season of every enabled library, or only the given season keys.
     /// </summary>
-    /// <param name="progress">Progress reporter.</param>
+    /// <param name="progress">Progress reporter, advanced once per series or movie.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
+    /// <param name="seasonsToAnalyze">Season keys to analyze, or <see langword="null"/> for the whole library.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
@@ -82,24 +84,20 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        var seasonFilter = seasonsToAnalyze?.ToHashSet();
+        var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
-        var queueManager = _analyzerFactory.CreateQueueManager();
-
-        var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
-
-        var queue = await queueManager.GetMediaInventoryAsync(seasonIds: seasonFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (seasonFilter is not null)
+        // A scoped run resolves only the series and movies owning the requested keys and
+        // analyzes only those keys. A full run resolves every series and movie, one at a
+        // time per parallel slot, so a series' episodes are in memory only while it runs.
+        var keyFilter = seasonsToAnalyze?.ToHashSet();
+        var owners = keyFilter is null ? _seasonResolver.EnumerateLibrary() : _seasonResolver.OwnersOf(keyFilter);
+        if (owners.Count == 0)
         {
-            queue = queue.Where(kvp => seasonFilter.Contains(kvp.Key))
-                         .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-        }
+            if (keyFilter is null)
+            {
+                LogNoLibrariesSelected(_logger);
+            }
 
-        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
-        if (totalQueued == 0)
-        {
-            LogNoLibrariesSelected(_logger);
             return;
         }
 
@@ -108,126 +106,236 @@ public partial class BaseItemAnalyzerTask(
             LogSkippingChromaprint(_logger);
         }
 
-        int totalProcessed = 0;
+        var totalProcessed = 0;
         var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = Math.Max(1, Config.MaxParallelism),
             CancellationToken = cancellationToken
         };
 
-        await Parallel.ForEachAsync(queue, options, async (season, ct) =>
+        await Parallel.ForEachAsync(owners, options, async (owner, ct) =>
         {
-            IReadOnlyList<AnalysisMode> settledResetModes = [];
-
-            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
-            if (episodes.Count == 0)
-            {
-                return;
-            }
-
-            var first = episodes[0];
-
-            // A replaced file makes the old automatic segments and fingerprints wrong for every
-            // mode, not only the ones this run covers. The fingerprints go first: the records
-            // are the only evidence the file changed, so if the reset does not commit the
-            // mismatch persists and the next run retries both. The reset journals its
-            // deletions' projections. Every mode of the episode then reopens in memory too,
-            // or a mode whose record matched would keep its settled state after its segments
-            // were deleted and be recorded again with nothing behind it.
-            var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
-            if (changedFiles.Length > 0)
-            {
-                await _cacheDatabase.DeleteForItemsAsync(changedFiles, ct).ConfigureAwait(false);
-                await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, ct).ConfigureAwait(false);
-                foreach (var episode in episodes.Where(e => e.FileChanged))
-                {
-                    foreach (var mode in modes)
-                    {
-                        if (episode.GetAnalyzed(mode) != EpisodeState.UserProvided)
-                        {
-                            episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
-                        }
-                    }
-                }
-            }
-
-            // Run settled-season reanalysis from scratch after no new episodes have been added
-            // for the configured delay so segments first derived from a partial season are
-            // recomputed against the full season.
-            // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
-            var utcNow = DateTime.UtcNow;
-            var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
-
-            // One season-state read serves both the settle decision and every mode's
-            // analyzer action below.
-            var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, ct).ConfigureAwait(false);
-            if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
-            {
-                settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
-                if (settledResetModes.Count > 0)
-                {
-                    var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, Config.AnimePreviewFromCreditsEnd);
-                    LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
-
-                    // The reset journals its deletions' projections, so they propagate
-                    // to Jellyfin even if the recompute finds nothing.
-                    await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, ct).ConfigureAwait(false);
-                    foreach (var episode in episodes)
-                    {
-                        foreach (var resetMode in resetModes)
-                        {
-                            if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
-                            {
-                                episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
-                            }
-                        }
-                    }
-                }
-            }
-
-            var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
-
+            IReadOnlyList<ResolvedSeason> seasons;
             try
+            {
+                seasons = _seasonResolver.Resolve(owner);
+            }
+            catch (Exception ex)
+            {
+                LogFailedResolve(_logger, ex, owner.Name, owner.Id);
+                seasons = [];
+            }
+
+            foreach (var season in seasons)
+            {
+                if (keyFilter is null || keyFilter.Contains(season.Key))
+                {
+                    await AnalyzeSeasonAsync(season, modes, ffmpegValid, ct).ConfigureAwait(false);
+                }
+            }
+
+            progress.Report((double)Interlocked.Increment(ref totalProcessed) / owners.Count * 100);
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Verifies one season against the stored analysis state, reopens what a replaced file
+    /// or a settled-season reanalysis invalidates, and runs every mode over it.
+    /// </summary>
+    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<AnalysisMode> settledResetModes = [];
+
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, cancellationToken).ConfigureAwait(false);
+        if (episodes.Count == 0)
+        {
+            return;
+        }
+
+        var first = episodes[0];
+
+        // A replaced file makes the old automatic segments and fingerprints wrong for every
+        // mode, not only the ones this run covers. The fingerprints go first: the records
+        // are the only evidence the file changed, so if the reset does not commit the
+        // mismatch persists and the next run retries both. The reset journals its
+        // deletions' projections. Every mode of the episode then reopens in memory too,
+        // or a mode whose record matched would keep its settled state after its segments
+        // were deleted and be recorded again with nothing behind it.
+        var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
+        if (changedFiles.Length > 0)
+        {
+            await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
+            await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken).ConfigureAwait(false);
+            foreach (var episode in episodes.Where(e => e.FileChanged))
             {
                 foreach (var mode in modes)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    await AnalyzeItemsAsync(
-                        episodes,
-                        mode,
-                        seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
-                        ffmpegValid,
-                        ct).ConfigureAwait(false);
-                    Interlocked.Add(ref totalProcessed, episodes.Count);
-
-                    // Record only the modes we independently selected for reanalysis. A derived mode added
-                    // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
-                    // regenerated as a side effect of its source mode's analysis, so its completion rides on
-                    // the source mode's record and is intentionally not tracked separately here.
-                    if (settledResetModes.Contains(mode))
+                    if (episode.GetAnalyzed(mode) != EpisodeState.UserProvided)
                     {
-                        completedSettledModes.Add(mode);
+                        episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
                     }
-
-                    progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
-            catch (FingerprintException ex)
-            {
-                LogFingerprintExceptionDuringAnalysis(_logger, ex);
-            }
-            catch (TimeoutException ex)
-            {
-                LogFfmpegTimeoutDuringAnalysis(_logger, ex);
-            }
+        }
 
-            // No mirror push here: every write above journaled its item's projection
-            // with the change, and the projection worker converges Jellyfin durably.
-            if (completedSettledModes.Count > 0)
+        // Run settled-season reanalysis from scratch after no new episodes have been added
+        // for the configured delay so segments first derived from a partial season are
+        // recomputed against the full season.
+        // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
+        var utcNow = DateTime.UtcNow;
+        var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
+
+        // One season-state read serves both the settle decision and every mode's
+        // analyzer action below.
+        var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
+        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        {
+            settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
+            if (settledResetModes.Count > 0)
             {
-                await _database.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
+                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, Config.AnimePreviewFromCreditsEnd);
+                LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+
+                // The reset journals its deletions' projections, so they propagate
+                // to Jellyfin even if the recompute finds nothing.
+                await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
+                foreach (var episode in episodes)
+                {
+                    foreach (var resetMode in resetModes)
+                    {
+                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                        {
+                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                        }
+                    }
+                }
             }
-        }).ConfigureAwait(false);
+        }
+
+        var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
+
+        try
+        {
+            foreach (var mode in modes)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await AnalyzeItemsAsync(
+                    episodes,
+                    mode,
+                    seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
+                    ffmpegValid,
+                    cancellationToken).ConfigureAwait(false);
+
+                // Record only the modes we independently selected for reanalysis. A derived mode added
+                // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
+                // regenerated as a side effect of its source mode's analysis, so its completion rides on
+                // the source mode's record and is intentionally not tracked separately here.
+                if (settledResetModes.Contains(mode))
+                {
+                    completedSettledModes.Add(mode);
+                }
+            }
+        }
+        catch (FingerprintException ex)
+        {
+            LogFingerprintExceptionDuringAnalysis(_logger, ex);
+        }
+        catch (TimeoutException ex)
+        {
+            LogFfmpegTimeoutDuringAnalysis(_logger, ex);
+        }
+
+        // No mirror push here: every write above journaled its item's projection
+        // with the change, and the projection worker converges Jellyfin durably.
+        if (completedSettledModes.Count > 0)
+        {
+            await _database.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a season's resolved episodes still exist on disk and are not excluded,
+    /// then classifies each against the stored analysis state. Runs right after resolution,
+    /// so the path and file version on each candidate are current.
+    /// </summary>
+    /// <param name="candidates">One season's resolved episodes.</param>
+    /// <param name="modes">Analysis modes of the run.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var verified = new List<QueuedEpisode>(candidates.Count);
+        var config = Config;
+
+        // Built from the live configuration, not the resolution-time policy: exclusions
+        // saved between resolution and this verification must apply.
+        var policy = ExclusionPolicy.FromConfiguration(config);
+        var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        if (await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
+        {
+            snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        }
+
+        var verifier = new QueueVerifier(config, modes, snapshot, ffmpegValid);
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (string.IsNullOrEmpty(candidate.Path) || !File.Exists(candidate.Path))
+                {
+                    LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
+                    continue;
+                }
+
+                var decision = candidate.Category == QueuedMediaCategory.Movie
+                    ? policy.EvaluateMovie(candidate.Name, candidate.Path)
+                    : policy.EvaluateSeries(candidate.SeriesName, candidate.Path);
+                if (decision.IsExcluded)
+                {
+                    LogSkippingExcludedItem(_logger, candidate.Name, decision.RuleLabel);
+                    continue;
+                }
+
+                verified.Add(candidate);
+                verifier.Classify(candidate);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogSkippingAnalysisException(_logger, candidate.Name, candidate.EpisodeId, ex);
+            }
+        }
+
+        verifier.LogAnalysisReasons(_logger, verified);
+        await _database.BackfillFileVersionsAsync(verifier.FileVersionBackfill, cancellationToken).ConfigureAwait(false);
+
+        return verified;
+    }
+
+    // Per-run memo on top of the service's success-only memoization: while ffmpeg is
+    // invalid the service re-probes every call, so cache the verdict here to keep an
+    // analysis run at one probe instead of one per season.
+    internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
+    {
+        if (_ffmpegValid is { } cached)
+        {
+            return cached;
+        }
+
+        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+        _ffmpegValid = ffmpegValid;
+        return ffmpegValid;
     }
 
     /// <summary>
@@ -298,6 +406,8 @@ public partial class BaseItemAnalyzerTask(
 
         if (mode == AnalysisMode.Credits)
         {
+            await SetCreditsWindowsAsync(items, isMovie, cancellationToken).ConfigureAwait(false);
+
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
@@ -378,8 +488,50 @@ public partial class BaseItemAnalyzerTask(
         }
     }
 
+    /// <summary>
+    /// Sets each episode's credits fingerprint window. Every episode of the season gets
+    /// one, settled siblings included, because the chromaprint comparison reads their
+    /// cached fingerprints under the same window. The audio duration is probed only here,
+    /// so a run that settles a season without entering the credits pass spawns no ffprobe.
+    /// </summary>
+    private async Task SetCreditsWindowsAsync(IReadOnlyList<QueuedEpisode> items, bool isMovie, CancellationToken cancellationToken)
+    {
+        var config = Config;
+
+        // Credits have their own maximum duration in seconds. The general analysis
+        // percentage is not applied to them, since it can exclude the actual credits boundary.
+        var maxCreditsDuration = isMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
+        foreach (var item in items)
+        {
+            var creditsEnd = item.Duration;
+            if (config.ProbeAudioDuration)
+            {
+                var audioDuration = await _ffmpegService.ProbeAudioDurationAsync(item.Path, cancellationToken).ConfigureAwait(false);
+                if (audioDuration is > 0 && audioDuration.Value < item.Duration)
+                {
+                    creditsEnd = audioDuration.Value;
+                }
+            }
+
+            item.CreditsFingerprintStart = Math.Max(0, creditsEnd - maxCreditsDuration);
+            item.CreditsFingerprintEnd = creditsEnd;
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve {Name} ({Id}); skipping it this run")]
+    private static partial void LogFailedResolve(ILogger logger, Exception exception, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
+    private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded item {Name}: matched {RuleLabel}")]
+    private static partial void LogSkippingExcludedItem(ILogger logger, string name, string ruleLabel);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
+    private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.")]
     private static partial void LogSkippingChromaprint(ILogger logger);
