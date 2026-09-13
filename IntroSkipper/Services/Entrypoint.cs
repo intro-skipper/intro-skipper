@@ -11,7 +11,6 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -34,9 +33,9 @@ namespace IntroSkipper.Services
         private readonly IDetectionCacheDatabase _cacheDatabase;
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
-        private readonly AnalyzerTaskFactory _analyzerFactory;
-        private readonly HashSet<Guid> _seasonsToAnalyze = [];
-        private readonly Lock _seasonsLock = new();
+        private readonly BaseItemAnalyzerTask _analyzer;
+        private readonly HashSet<Guid> _itemsToAnalyze = [];
+        private readonly Lock _itemsLock = new();
         private readonly Timer _queueTimer;
         private readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private volatile bool _isStopping;
@@ -49,19 +48,19 @@ namespace IntroSkipper.Services
         /// <param name="cacheDatabase">Detection cache database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
-        /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
+        /// <param name="analyzer">Analyzer run over the queued items' seasons.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             IDetectionCacheDatabase cacheDatabase,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
-            AnalyzerTaskFactory analyzerFactory)
+            BaseItemAnalyzerTask analyzer)
         {
             _libraryManager = libraryManager;
             _cacheDatabase = cacheDatabase;
             _ffmpegService = ffmpegService;
             _logger = logger;
-            _analyzerFactory = analyzerFactory;
+            _analyzer = analyzer;
 
             _queueTimer = new Timer(
                     OnTimerCallback,
@@ -94,7 +93,7 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            lock (_seasonsLock)
+            lock (_itemsLock)
             {
                 _isStopping = false;
             }
@@ -115,7 +114,7 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            lock (_seasonsLock)
+            lock (_itemsLock)
             {
                 _isStopping = true;
                 _queueTimer.Change(Timeout.Infinite, 0);
@@ -171,13 +170,13 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            // Episodes queue under their season, movies under their own id. A replaced file
-            // needs no special handling here: queue verification compares the stored file
-            // version and reopens the item.
-            var id = item is Episode episode ? episode.SeasonId : item.Id;
-            lock (_seasonsLock)
+            // Queues the item's own id. The run resolves the season it belongs to when it
+            // starts, off this library event thread and after Jellyfin has attached a new
+            // episode to its season. A replaced file needs no special handling: queue
+            // verification compares the stored file version and reopens the item.
+            lock (_itemsLock)
             {
-                _seasonsToAnalyze.Add(id);
+                _itemsToAnalyze.Add(item.Id);
             }
 
             StartTimer();
@@ -227,7 +226,7 @@ namespace IntroSkipper.Services
         /// </summary>
         private void StartTimer()
         {
-            lock (_seasonsLock)
+            lock (_itemsLock)
             {
                 if (_isStopping || AutomaticTaskState != TaskState.Idle)
                 {
@@ -271,7 +270,7 @@ namespace IntroSkipper.Services
                 // Checking the flag and publishing the cancellation source under the same
                 // lock StopAsync uses to set the flag guarantees shutdown either sees the
                 // published source and cancels it, or this callback sees the flag and stops.
-                lock (_seasonsLock)
+                lock (_itemsLock)
                 {
                     if (_isStopping)
                     {
@@ -287,15 +286,14 @@ namespace IntroSkipper.Services
                     using (await ScheduledTaskSemaphore.AcquireAsync(cts.Token).ConfigureAwait(false))
                     {
                         LogInitiatingAutomaticAnalysis();
-                        HashSet<Guid> seasonIds;
-                        lock (_seasonsLock)
+                        HashSet<Guid> itemIds;
+                        lock (_itemsLock)
                         {
-                            seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
-                            _seasonsToAnalyze.Clear();
+                            itemIds = new HashSet<Guid>(_itemsToAnalyze);
+                            _itemsToAnalyze.Clear();
                         }
 
-                        var analyzer = _analyzerFactory.CreateAnalyzerTask();
-                        await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
+                        await _analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, itemIds).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -319,14 +317,14 @@ namespace IntroSkipper.Services
 
         private void ScheduleAnalysisIfNeeded()
         {
-            lock (_seasonsLock)
+            lock (_itemsLock)
             {
                 if (_isStopping)
                 {
                     return;
                 }
 
-                if (_seasonsToAnalyze.Count > 0 && AutomaticTaskState == TaskState.Idle)
+                if (_itemsToAnalyze.Count > 0 && AutomaticTaskState == TaskState.Idle)
                 {
                     LogAnalyzingEndedNeedsRestart();
                     _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);

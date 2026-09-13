@@ -83,7 +83,7 @@ internal static class LegacySchemaFixtures
         IReadOnlyList<LegacySegmentRow> segments,
         IReadOnlyList<LegacySeasonRow> seasons)
     {
-        using var connection = new SqliteConnection($"Data Source={path}");
+        using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
         connection.Open();
 
         var segmentColumns = "\"ItemId\" TEXT NOT NULL, \"Type\" INTEGER NOT NULL, \"Start\" REAL NOT NULL DEFAULT 0.0, \"End\" REAL NOT NULL DEFAULT 0.0";

@@ -8,9 +8,7 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Concurrent;
 using IntroSkipper.Configuration;
-using IntroSkipper.Data;
 using IntroSkipper.Db;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -73,21 +71,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
-
-    /// <summary>
-    /// Gets the most recent media item queue.
-    /// </summary>
-    internal ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
-
-    /// <summary>
-    /// Gets the total number of media items in the queue.
-    /// </summary>
-    internal int TotalQueued => QueuedMediaItems.Values.Sum(episodes => episodes.Count);
-
-    /// <summary>
-    /// Gets the number of seasons in the queue.
-    /// </summary>
-    internal int TotalSeasons => QueuedMediaItems.Count;
 
     /// <summary>
     /// Gets the full path to FFmpeg.

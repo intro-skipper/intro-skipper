@@ -287,9 +287,7 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Removes per-item state (disable flags and analysis records) of items that no
-    /// longer exist in enabled libraries. Rows are pruned by item ID — never by a stored
-    /// season key, which is mutable metadata that can go stale when an item moves season
-    /// keys — so the state survives key drift and disappears only when the item does.
+    /// longer exist in enabled libraries.
     /// </summary>
     /// <param name="retainedItemIds">Item IDs that still exist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -297,13 +295,13 @@ public interface IIntroSkipperDatabase
     Task CleanItemStateAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the IDs of the season's items whose automatic segments are withheld
+    /// Returns the IDs among the given items whose automatic segments are withheld
     /// from Jellyfin.
     /// </summary>
-    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="itemIds">Item IDs to check.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The disabled item IDs.</returns>
-    Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
+    Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Rebuilds the database while attempting to preserve segments, season state,

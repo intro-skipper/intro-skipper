@@ -24,8 +24,11 @@ internal class StubFFmpegService : IFFmpegService
     private int _fingerprintCalls;
     private int _visualScanCalls;
     private int _intervalScanCalls;
+    private int _probeCalls;
 
     public Func<bool>? VersionCheck { get; init; }
+
+    public Func<string, double?>? AudioDuration { get; init; }
 
     public Func<QueuedEpisode, AnalysisMode, uint[]>? Fingerprints { get; init; }
 
@@ -52,6 +55,8 @@ internal class StubFFmpegService : IFFmpegService
     public int VisualScanCalls => Volatile.Read(ref _visualScanCalls);
 
     public int IntervalScanCalls => Volatile.Read(ref _intervalScanCalls);
+
+    public int ProbeCalls => Volatile.Read(ref _probeCalls);
 
     /// <summary>Gets the arguments of the most recent range black-frame scan.</summary>
     public (TimeRange Range, int Minimum, int Threshold, AnalysisMode Mode)? LastRangeScan { get; private set; }
@@ -120,7 +125,11 @@ internal class StubFFmpegService : IFFmpegService
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
     public virtual Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
+    {
+        Interlocked.Increment(ref _probeCalls);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(AudioDuration)(filePath));
+    }
 
     public virtual FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
 

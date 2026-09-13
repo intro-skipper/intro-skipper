@@ -147,8 +147,7 @@ public class IntroSkipperDbContext : DbContext
         {
             entity.ToTable("DisabledItems");
 
-            // One flag per item by construction; the SeasonId index serves the
-            // per-season listing (cleanup prunes by item ID).
+            // One flag per item by construction; every read is by item ID.
             entity.HasKey(e => e.ItemId);
 
             // The key is always a real library item id — never client-generated. Without
@@ -156,8 +155,6 @@ public class IntroSkipperDbContext : DbContext
             // default ItemId instead of surfacing the caller's bug.
             entity.Property(e => e.ItemId)
                   .ValueGeneratedNever();
-
-            entity.HasIndex(e => e.SeasonId);
         });
 
         modelBuilder.Entity<DbProjectionQueueItem>(entity =>

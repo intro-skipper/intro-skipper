@@ -221,10 +221,8 @@ internal sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        // Both tables are pruned by item ID, never by a season key: the disable row's key
-        // is mutable metadata that goes stale when an item moves season keys, so the flag
-        // must follow the item. EF.Parameter binds the retained set as one JSON
-        // parameter, so this is safe for arbitrarily large libraries.
+        // EF.Parameter binds the retained set as one JSON parameter, so this is safe for
+        // arbitrarily large libraries.
         await db.DisabledItems
             .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
             .ExecuteDeleteAsync(cancellationToken)

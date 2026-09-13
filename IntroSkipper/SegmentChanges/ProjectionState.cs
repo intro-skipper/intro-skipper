@@ -71,9 +71,6 @@ public enum SegmentChangeRejectedReason
     /// <summary>The external segment has another type.</summary>
     ExternalTypeMismatch,
 
-    /// <summary>The season ID is empty.</summary>
-    EmptySeasonId,
-
     /// <summary>The intent type is not supported.</summary>
     UnsupportedIntent
 }

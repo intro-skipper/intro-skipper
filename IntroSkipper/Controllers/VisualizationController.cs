@@ -34,7 +34,8 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation and converges journaled projections.</param>
-/// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
+/// <param name="analyzer">Analyzer run over the seasons holding the episodes a scan erased.</param>
+/// <param name="seasonResolver">Resolver of season keys into the episodes the dashboard shows, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="taskManager">Scheduled task manager, used to report the detection task's state.</param>
@@ -42,11 +43,12 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, BaseItemAnalyzerTask analyzer, SeasonResolver seasonResolver, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
-    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
+    private readonly BaseItemAnalyzerTask _analyzer = analyzer;
+    private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly ITaskManager _taskManager = taskManager;
@@ -62,7 +64,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>>> GetAnalyzerAction([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
+        if (!_seasonResolver.IsKnownKey(seasonId))
         {
             return NotFound();
         }
@@ -73,7 +75,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the names and unique identifiers of all episodes in the provided season.
+    /// Returns the names and unique identifiers of the episodes Jellyfin shows under the provided season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -83,17 +85,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
+        if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
 
-        if (!episodes.Any(e => e.SeriesId == seriesId))
-        {
-            return NotFound();
-        }
-
-        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
+        return season.Episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
 
     /// <summary>
@@ -103,8 +100,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
-    /// <response code="204">Season timestamps erased.</response>
-    /// <response code="404">Unable to find season in provided series.</response>
+    /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
+    /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -112,18 +109,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
+        if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
 
-        if (episodes.Count == 0)
-        {
-            return NotFound();
-        }
-
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-        await EraseItemsAsync(episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+        await EraseAsync(seriesId, seasonId, season, eraseCache, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -137,9 +128,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken = default)
     {
-        var queue = await _analyzerFactory.CreateQueueManager().GetMediaInventoryAsync(includeExcluded: true, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var excludedIds = queue.Values
-            .SelectMany(static episodes => episodes)
+        var excludedIds = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken).Seasons
+            .SelectMany(static season => season.Episodes)
             .Where(static episode => episode.IsExcluded)
             .Select(static episode => episode.EpisodeId)
             .ToHashSet();
@@ -168,18 +158,19 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the IDs of the items recorded under the given season-state key whose
-    /// automatic segments are withheld from Jellyfin. A key with no recorded
-    /// disabled items yields an empty set rather than an error.
+    /// Returns the IDs of the items Jellyfin shows under the season whose automatic
+    /// segments are withheld from Jellyfin. Unknown or empty seasons yield an empty set
+    /// rather than an error.
     /// </summary>
-    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="seasonId">Season ID (a movie's own ID for movies).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The disabled item IDs.</returns>
     [HttpGet("DisabledItems/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        return Ok(await _database.GetDisabledItemIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+        var itemIds = _seasonResolver.ResolveDisplayed(seasonId)?.ItemIds ?? [];
+        return Ok(await _database.GetDisabledItemIdsAsync(itemIds, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -217,19 +208,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
-        if (MediaItemHelper.FindSupported(itemId) is not { } item)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
-        }
-
-        // The row's season key is a server-side pruning detail; callers only name the
-        // item. An episode Jellyfin resolved no season for reports Guid.Empty — fall
-        // back to the item's own id (the movie convention) so the toggle keeps
-        // working: cleanup prunes by item id, the key only serves the listing.
-        var seasonKey = SeasonStateKeyResolver.Resolve(item);
-        if (seasonKey == Guid.Empty)
-        {
-            seasonKey = itemId;
         }
 
         // The coordinator commits the flag durably with its projection work in one
@@ -237,11 +218,24 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         // the journaled work converges the mirror instead. Only a failure to commit
         // throws, and nothing was changed then.
         var outcome = await _segmentChange
-            .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
+            .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: !disabled), cancellationToken)
             .ConfigureAwait(false);
         // An idempotent toggle succeeds too (its journaled re-projection still
         // heals a diverged mirror).
         return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
+    }
+
+    // Erases the stored segments and analysis state of the episodes the season shows, and
+    // their cache rows when asked. A known season with nothing to erase is a no-op.
+    private async Task EraseAsync(Guid seriesId, Guid seasonId, DisplayedSeason season, bool eraseCache, CancellationToken cancellationToken)
+    {
+        if (season.Episodes.Count == 0)
+        {
+            return;
+        }
+
+        LogErasingTimestamps(_logger, seriesId, seasonId);
+        await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -278,22 +272,33 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Scans the provided season for intros.
+    /// Erases and re-analyzes the episodes Jellyfin shows under the provided season, each in the season it is analyzed in.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">cancellationToken.</param>
-    /// <returns>Accepted if the scan was started; Conflict if a scan is already running.</returns>
+    /// <returns>Accepted if the scan was started; Conflict if a scan is already running; Not Found if the id is not a season or movie of the series the server knows.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
+        // The episodes Jellyfin shows under the season. The run analyzes the seasons they
+        // are analyzed in, which for an in-season special is its host season, so a scan of
+        // Specials reaches every special.
+        if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
+        {
+            return NotFound();
+        }
+
         var scanLease = ScheduledTaskSemaphore.TryAcquire();
         if (scanLease is null)
         {
             return Conflict(new { message = "A scan is already in progress." });
         }
+
+        var episodeIds = season.Episodes.Select(e => e.EpisodeId).ToHashSet();
 
         // Run erase + analyze in background so it doesn't get canceled when the HTTP request ends/timeouts
         _ = Task.Run(
@@ -306,26 +311,19 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
                         LogStartRescan(_logger, seasonId);
 
-                        // Erase season timestamps and cache first; a season the queue does not
-                        // know has nothing to erase. An erase failure is logged and the
-                        // analysis still runs: its writes replace what the erase would have
-                        // removed.
-                        if (Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes) && episodes.Count > 0)
+                        // Erase the season's timestamps and cache first. An erase failure is
+                        // logged and the analysis still runs: its writes replace what the
+                        // erase would have removed.
+                        try
                         {
-                            try
-                            {
-                                LogErasingTimestamps(_logger, seriesId, seasonId);
-                                await EraseItemsAsync(episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache: true, CancellationToken.None).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
-                            }
+                            await EraseAsync(seriesId, seasonId, season, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
                         }
 
-                        var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
-
-                        await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
+                        await _analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, episodeIds).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {

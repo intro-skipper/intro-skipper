@@ -120,16 +120,17 @@ public sealed class TestLegacyAnalysisCompatibility
             var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
-            var queue = new QueueManager(NullLogger<QueueManager>.Instance, library, null!, null!, ffmpeg, database);
+            var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
             var candidates = ids.Select(id => new QueuedEpisode
             {
                 EpisodeId = id,
                 SeasonId = seasonId,
                 SeasonNumber = 1,
+                Path = mediaPath,
                 DateAdded = DateTime.UtcNow.AddDays(-30),
             }).ToArray();
 
-            var verified = await queue.VerifyQueueAsync(candidates, [mode]);
+            var verified = await task.VerifyQueueAsync(candidates, [mode], ffmpegValid: true);
 
             Assert.Equal(3, verified.Count);
             Assert.Equal(compatible ? EpisodeState.Analyzed : EpisodeState.NotAnalyzed, verified[0].GetAnalyzed(mode));
@@ -140,7 +141,6 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.Empty(SeasonReanalysisPlanner.GetSettleReanalysisModes(states, ids, [mode], true));
             if (compatible)
             {
-                var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, null!, database);
                 await task.AnalyzeItemsAsync(verified, mode, action, true, CancellationToken.None);
             }
 
@@ -300,12 +300,11 @@ public sealed class TestLegacyAnalysisCompatibility
             var library = EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(id, Guid.NewGuid(), seasonId, path: mediaPath));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
-            var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Duration = 1320, Category = QueuedMediaCategory.AnimeEpisode };
-            var queue = new QueueManager(NullLogger<QueueManager>.Instance, library, null!, null!, ffmpeg, database);
+            var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Path = mediaPath, Duration = 1320, Category = QueuedMediaCategory.AnimeEpisode };
+            var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
 
-            Assert.Single(await queue.VerifyQueueAsync([candidate], [AnalysisMode.Preview]));
+            Assert.Single(await task.VerifyQueueAsync([candidate], [AnalysisMode.Preview], ffmpegValid: true));
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Preview));
-            var task = new BaseItemAnalyzerTask(NullLogger.Instance, NullLoggerFactory.Instance, null!, ffmpeg, null!, null!, database);
             await task.AnalyzeItemsAsync([candidate], AnalysisMode.Preview, AnalyzerAction.Default, true, CancellationToken.None);
 
             Assert.Equal(AnalysisMode.Credits, Assert.Single(await database.GetSegmentsAsync(id)).Type);

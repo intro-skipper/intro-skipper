@@ -109,7 +109,6 @@ public partial class TroubleshootingController : ControllerBase
                     new("Debug logging", _logger.IsEnabled(LogLevel.Debug) ? "on" : "off"),
                     new("Last scan", detectTask is null ? "unknown" : DescribeLastRun(detectTask)),
                     new("Scan running", DescribeScanState(detectTask)),
-                    new("Queue contents", FormattableString.Invariant($"{plugin.TotalQueued} episodes, {plugin.TotalSeasons} seasons")),
                     new("Warnings", WarningManager.GetWarnings()),
                     new(
                         "File Transformation plugin",

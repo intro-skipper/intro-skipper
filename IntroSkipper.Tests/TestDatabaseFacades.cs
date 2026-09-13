@@ -736,7 +736,7 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.SetAnalyzerActionAsync(
             seasonId,
             new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Credits] = AnalyzerAction.None });
-        await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
+        await database.SetItemDisabledAsync(episodeIds[0], disabled: true);
 
         // Tombstones record user intent and must survive corruption recovery.
         await database.ReplaceAutoSegmentsAsync(tombstonedItemId, AnalysisMode.Introduction, [new Segment(tombstonedItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
@@ -765,7 +765,7 @@ public sealed class TestDatabaseFacades : IDisposable
         var analyzed = await db.AnalyzedItems.AsNoTracking().ToListAsync();
         Assert.Equal(episodeIds.OrderBy(id => id), analyzed.Select(a => a.ItemId).OrderBy(id => id));
         Assert.All(analyzed, a => Assert.Equal("cfg-season", a.ConfigHash));
-        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(episodeIds));
 
         // The import marker survives the rebuild, so the next initialization never
         // re-runs the legacy import on top of the restored rows.
