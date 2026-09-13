@@ -158,18 +158,19 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the IDs of the items recorded under the given season-state key whose
-    /// automatic segments are withheld from Jellyfin. A key with no recorded
-    /// disabled items yields an empty set rather than an error.
+    /// Returns the IDs of the displayed season's items whose automatic segments are
+    /// withheld from Jellyfin, regardless of their stored analysis season key.
+    /// Unknown or empty seasons yield an empty set rather than an error.
     /// </summary>
-    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="seasonId">Displayed season ID (a movie's own ID for movies).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The disabled item IDs.</returns>
     [HttpGet("DisabledItems/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        return Ok(await _database.GetDisabledItemIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+        var itemIds = _seasonResolver.ResolveDisplayed(seasonId)?.Episodes.Select(episode => episode.EpisodeId) ?? [];
+        return Ok(await _database.GetDisabledItemIdsAsync(itemIds, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -212,9 +213,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        // The row's season key is a server-side pruning detail; callers only name the
-        // item. It is the key the item is analyzed under, so an in-season special lists
-        // under the season it airs within.
         var seasonKey = _seasonResolver.SeasonKey(item);
 
         // The coordinator commits the flag durably with its projection work in one

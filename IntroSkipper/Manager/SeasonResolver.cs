@@ -188,7 +188,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
         List<BaseItem> owners = [];
         HashSet<Guid> ownerIds = [];
-        foreach (var item in _libraryManager.GetItemList(query, false))
+        foreach (var item in _libraryManager.GetItemList(query, false) ?? [])
         {
             var ownerId = item switch
             {

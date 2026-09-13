@@ -26,6 +26,26 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return new HashSet<Guid>();
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.DisabledItems
+            .AsNoTracking()
+            .Where(e => EF.Parameter(ids).Contains(e.ItemId))
+            .Select(e => e.ItemId)
+            .ToHashSetAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Sets whether the item's automatic segments are withheld from Jellyfin, on a
     /// caller-owned context: disabling rewrites a stale season key in place

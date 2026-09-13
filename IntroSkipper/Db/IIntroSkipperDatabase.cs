@@ -306,6 +306,15 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the IDs among the given items whose automatic segments are withheld
+    /// from Jellyfin, regardless of their stored season keys.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Rebuilds the database while attempting to preserve segments, season state,
     /// analysis records, disabled items and the legacy-import marker. Runs even when
     /// initialization fails (it recreates the schema itself), so a database whose

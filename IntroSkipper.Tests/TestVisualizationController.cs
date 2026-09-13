@@ -193,6 +193,64 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
+    public async Task DisabledItems_ListsHostedSpecialsUnderTheirDisplayedSeason()
+    {
+        using var scope = CreateScope(updateMediaSegments: true);
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var regular = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0);
+        hosted.AirsBeforeSeasonNumber = 1;
+        var plain = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0, episodeNumber: 2);
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(regular, hosted, plain));
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
+        var controller = CreateController(scope.CacheDbPath, library);
+
+        foreach (var item in new[] { regular, hosted, plain })
+        {
+            Assert.IsType<NoContentResult>(await controller.DisableItem(item.Id));
+        }
+
+        Assert.Contains(hosted.Id, await _h.Database.GetDisabledItemIdsAsync(hostSeasonId));
+        controller = CreateController(scope.CacheDbPath, library);
+        var specialsResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(specialsSeasonId)).Result);
+        var specialsIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(specialsResult.Value);
+        Assert.True(specialsIds.SetEquals([hosted.Id, plain.Id]));
+        var hostResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(hostSeasonId)).Result);
+        Assert.Equal([regular.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(hostResult.Value));
+
+        Assert.IsType<NoContentResult>(await controller.EnableItem(hosted.Id));
+        var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(specialsSeasonId)).Result);
+        Assert.Equal([plain.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(enabledResult.Value));
+    }
+
+    [Fact]
+    public async Task DisabledItems_ListsDisplayedMovies_AndReturnsEmptyForUnknownOrEmptySeasons()
+    {
+        using var scope = CreateScope(updateMediaSegments: true);
+        var movie = JellyfinItems.Movie(Guid.NewGuid());
+        var seriesId = Guid.NewGuid();
+        var emptySeasonId = Guid.NewGuid();
+        var unknownId = Guid.NewGuid();
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Media")],
+            [movie, JellyfinItems.Series(seriesId), JellyfinItems.Season(emptySeasonId, seriesId)]);
+        var controller = CreateController(scope.CacheDbPath, library);
+        await _h.Database.SetItemDisabledAsync(movie.Id, movie.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(emptySeasonId, Guid.NewGuid(), disabled: true);
+        await _h.Database.SetItemDisabledAsync(unknownId, Guid.NewGuid(), disabled: true);
+
+        var movieResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(movie.Id)).Result);
+        Assert.Equal([movie.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(movieResult.Value));
+        foreach (var id in new[] { emptySeasonId, unknownId })
+        {
+            var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(id)).Result);
+            Assert.Empty(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(result.Value));
+        }
+    }
+
+    [Fact]
     public async Task DisabledItems_EpisodeWithoutSeason_FallsBackToItsOwnKey()
     {
         var seriesId = Guid.NewGuid();

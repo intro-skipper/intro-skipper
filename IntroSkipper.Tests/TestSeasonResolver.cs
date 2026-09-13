@@ -344,6 +344,16 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void OwnersOf_ReturnsEmpty_WhenTheLibraryReturnsNull()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Media")], _ => null!);
+        var resolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
+
+        Assert.Empty(resolver.OwnersOf([Guid.NewGuid()]));
+    }
+
+    [Fact]
     public void Resolve_DropsExcludedItems_UnlessAskedToFlagThem()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { SeriesExclusions = { "Excluded Show" } });
