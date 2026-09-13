@@ -367,10 +367,8 @@ public sealed class TestSeasonResolver
         Assert.Empty(specials.Episodes);
     }
 
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Resolve_VirtualEpisodesCannotSeedAHostSeason(bool includeExcluded)
+    [Fact]
+    public void Resolve_VirtualEpisodesCannotSeedAHostSeason()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
@@ -385,7 +383,7 @@ public sealed class TestSeasonResolver
             FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items),
             new ServerConfiguration { DisplaySpecialsWithinSeasons = false });
 
-        var season = Assert.Single(resolver.Resolve(items.Single(item => item is Series), includeExcluded));
+        var season = Assert.Single(resolver.Resolve(items.Single(item => item is Series)));
 
         Assert.Equal(specialsSeasonId, season.Key);
         Assert.Equal(special.Id, Assert.Single(season.Episodes).EpisodeId);

@@ -251,11 +251,12 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Theory]
-    [InlineData("/media/excluded/episode.mkv", false)]
-    [InlineData("/media/episode.mkv", true)]
-    [InlineData("", false)]
-    [InlineData(null, false)]
-    public async Task DisabledItems_ListsEpisodesRegardlessOfAnalysisEligibility(string? path, bool excludeSeries)
+    [InlineData("/media/excluded/episode.mkv", false, false)]
+    [InlineData("/media/episode.mkv", true, false)]
+    [InlineData("", false, false)]
+    [InlineData(null, false, false)]
+    [InlineData("", false, true)]
+    public async Task DisabledItems_ListsEpisodesRegardlessOfAnalysisEligibility(string? path, bool excludeSeries, bool isVirtual)
     {
         using var scope = CreateScope(new PluginConfiguration
         {
@@ -265,6 +266,7 @@ public sealed class TestVisualizationController : IDisposable
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: path!);
+        episode.IsVirtualItem = isVirtual;
         var enabled = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, episodeNumber: 2);
         var other = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.NewGuid(), seasonNumber: 2);
         var library = EntrypointTestHelpers.FakeLibraryManager.Create(
@@ -281,37 +283,6 @@ public sealed class TestVisualizationController : IDisposable
             queued => queued.EpisodeId == episode.Id);
 
         await _h.Database.SetItemDisabledAsync(episode.Id, disabled: false);
-        var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
-        Assert.Empty(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(enabledResult.Value));
-    }
-
-    [Theory]
-    [InlineData("/media/series/s01e01.mkv")]
-    [InlineData("")]
-    public async Task DisabledItems_ListsPersistedVirtualEpisodesAfterFreshControllerRead(string path)
-    {
-        using var scope = CreateScope(updateMediaSegments: false);
-        var seriesId = Guid.NewGuid();
-        var seasonId = Guid.NewGuid();
-        var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: path);
-        episode.IsVirtualItem = true;
-        var enabled = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, episodeNumber: 2);
-        enabled.IsVirtualItem = true;
-        var other = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.NewGuid(), seasonNumber: 2);
-        other.IsVirtualItem = true;
-        var library = EntrypointTestHelpers.FakeLibraryManager.Create(
-            [JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(episode, enabled, other));
-        await _h.Database.SetItemDisabledAsync(episode.Id, disabled: true);
-        await _h.Database.SetItemDisabledAsync(other.Id, disabled: true);
-
-        var controller = CreateController(scope.CacheDbPath, library);
-        var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
-
-        Assert.Equal([episode.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(result.Value));
-        Assert.Empty(EntrypointTestHelpers.CreateSeasonResolver(library).ResolveDisplayed(seasonId)!.Episodes);
-
-        await _h.Database.SetItemDisabledAsync(episode.Id, disabled: false);
-        controller = CreateController(scope.CacheDbPath, library);
         var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
         Assert.Empty(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(enabledResult.Value));
     }

@@ -25,12 +25,11 @@ namespace IntroSkipper.Manager;
 /// resolves like season folders; virtual episodes are shown but never analyzed. An
 /// in-season special (stored in Season 0, airing within another season) joins its host
 /// season when that season resolves with episodes of its own, otherwise it stays in
-/// Specials. An episode Jellyfin has not attached to a
-/// season yet joins the season its numbered siblings resolved to, or waits: the series
-/// refresh that attaches it saves the episode, which queues it again. A movie is a season
-/// of one keyed by its own id. Items of a library the plugin is disabled for are unknown
-/// to every key lookup. Stateless: one instance serves every pass, the watcher and the
-/// dashboard.
+/// Specials. An episode Jellyfin has not attached to a season yet joins the season its
+/// numbered siblings resolved to, or waits: the series refresh that attaches it saves the
+/// episode, which queues it again. A movie is a season of one keyed by its own id. Items
+/// of a library the plugin is disabled for are unknown to every key lookup. Stateless:
+/// one instance serves every pass, the watcher and the dashboard.
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
@@ -307,6 +306,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     private static bool PluginDisabledIn(LibraryOptions? options)
         => options?.DisabledMediaSegmentProviders?.Contains(Plugin.Instance!.Name) == true;
 
+    // Non-virtual items of the given kinds.
     private static InternalItemsQuery Query(params BaseItemKind[] kinds) => new()
     {
         IncludeItemTypes = kinds,
@@ -314,15 +314,18 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         IsVirtualItem = false,
     };
 
-    // The series' episodes as Jellyfin lists them, and the non-virtual ones eligible for
-    // analysis (with a path, not excluded unless asked to keep them flagged) placed in the
-    // season each is analyzed in.
+    // The series' episodes as Jellyfin lists them, virtual ones included, and the
+    // non-virtual ones eligible for analysis (with a path, not excluded unless asked to
+    // keep them flagged) placed in the season each is analyzed in.
     private (List<Episode> Shown, List<PlacedEpisode> Placed) PlaceEpisodes(Series series, ExclusionPolicy policy, bool includeExcluded)
     {
-        var query = Query(BaseItemKind.Episode);
-        query.IsVirtualItem = null;
-        query.AncestorIds = [series.Id];
-        query.OrderBy = [(ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)];
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            AncestorIds = [series.Id],
+            OrderBy = [(ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending)],
+        };
         var items = _libraryManager.GetItemList(query, false)
             ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
 
