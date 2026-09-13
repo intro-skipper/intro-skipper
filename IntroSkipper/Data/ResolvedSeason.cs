@@ -21,3 +21,13 @@ internal sealed record ResolvedSeason(Guid Key, Guid SeriesId, IReadOnlyList<Que
 /// <param name="Seasons">The resolved seasons.</param>
 /// <param name="Failures">The number of libraries and series that failed.</param>
 internal sealed record LibraryResolution(IReadOnlyList<ResolvedSeason> Seasons, int Failures);
+
+/// <summary>
+/// One season as the dashboard shows it: a movie, or the episodes Jellyfin stores under a
+/// season. Each episode carries the key of the season it is analyzed in, which for an
+/// in-season special is its host season, so an erase acts on what the dashboard shows and
+/// a scan runs the seasons those episodes are analyzed in.
+/// </summary>
+/// <param name="SeriesId">The id of the series the season belongs to; a movie's own id for a movie.</param>
+/// <param name="Episodes">The episodes shown; empty for a known season with nothing to analyze.</param>
+internal sealed record DisplayedSeason(Guid SeriesId, IReadOnlyList<QueuedEpisode> Episodes);

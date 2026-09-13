@@ -575,7 +575,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
                 cacheService: null!,
                 cacheDatabase: null!,
                 _db.CreateDatabase());
-            return task.VerifyQueueAsync(resolver.ResolveKey(SeasonId)!.Episodes, [AnalysisMode.Introduction], ffmpegValid);
+            return task.VerifyQueueAsync(resolver.ResolveDisplayed(SeasonId)!.Episodes, [AnalysisMode.Introduction], ffmpegValid);
         }
 
         public void Dispose()

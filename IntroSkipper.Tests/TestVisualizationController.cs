@@ -431,6 +431,35 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
+    public async Task EraseSeasonAsync_ErasesEverySpecialStoredInSeasonZero_HostedOnesIncluded()
+    {
+        using var scope = CreateScope(updateMediaSegments: true);
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var regular = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0);
+        hosted.AirsBeforeSeasonNumber = 1;
+        var plain = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0, episodeNumber: 2);
+        var database = _h.Database;
+        foreach (var id in new[] { regular.Id, hosted.Id, plain.Id })
+        {
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Introduction, [new Segment(id, new TimeRange(10, 20))], SegmentSource.Chapter);
+        }
+
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(regular, hosted, plain));
+        var controller = CreateController(scope.CacheDbPath, library);
+
+        // The hosted special is analyzed with season 1, but Jellyfin stores it in Season 0,
+        // which is where the dashboard shows it and where its erase button is.
+        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, specialsSeasonId, eraseCache: false, CancellationToken.None));
+
+        Assert.Empty(await database.GetSegmentsAsync(hosted.Id));
+        Assert.Empty(await database.GetSegmentsAsync(plain.Id));
+        Assert.Single(await database.GetSegmentsAsync(regular.Id));
+    }
+
+    [Fact]
     public void GetScanStatus_ReflectsHeldScanLease()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());

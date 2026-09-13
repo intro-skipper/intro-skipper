@@ -255,7 +255,7 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
-    public void ResolveKey_ResolvesMoviesAndSeasons_AndAnswersNullForUnknownIds()
+    public void ResolveDisplayed_ResolvesMoviesAndSeasons_AndAnswersNullForUnknownIds()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
@@ -270,18 +270,18 @@ public sealed class TestSeasonResolver
             JellyfinItems.Season(orphanSeasonId, Guid.NewGuid(), number: 3),
         ]);
 
-        var season = resolver.ResolveKey(seasonId);
+        var season = resolver.ResolveDisplayed(seasonId);
         Assert.NotNull(season);
         Assert.Equal(seriesId, season.SeriesId);
         Assert.Equal(episode.Id, Assert.Single(season.Episodes).EpisodeId);
 
-        var movieSeason = resolver.ResolveKey(movie.Id);
+        var movieSeason = resolver.ResolveDisplayed(movie.Id);
         Assert.NotNull(movieSeason);
         Assert.Equal(movie.Id, movieSeason.SeriesId);
         Assert.Equal(movie.Id, Assert.Single(movieSeason.Episodes).EpisodeId);
 
         // A known season with nothing to analyze is an answer, not a missing season.
-        var emptySeason = resolver.ResolveKey(emptySeasonId);
+        var emptySeason = resolver.ResolveDisplayed(emptySeasonId);
         Assert.NotNull(emptySeason);
         Assert.Equal(seriesId, emptySeason.SeriesId);
         Assert.Empty(emptySeason.Episodes);
@@ -289,13 +289,35 @@ public sealed class TestSeasonResolver
 
         // A season under a series the server does not know is missing to both lookups, so
         // the analyzer actions answer 404 as the season endpoints do.
-        Assert.Null(resolver.ResolveKey(orphanSeasonId));
+        Assert.Null(resolver.ResolveDisplayed(orphanSeasonId));
         Assert.False(resolver.IsKnownKey(orphanSeasonId));
 
         // An episode id is never a season key.
-        Assert.Null(resolver.ResolveKey(Guid.NewGuid()));
-        Assert.Null(resolver.ResolveKey(episode.Id));
+        Assert.Null(resolver.ResolveDisplayed(Guid.NewGuid()));
+        Assert.Null(resolver.ResolveDisplayed(episode.Id));
         Assert.False(resolver.IsKnownKey(episode.Id));
+    }
+
+    [Fact]
+    public void ResolveDisplayed_ListsTheSpecialsStoredInSeasonZero_WithTheKeyEachIsAnalyzedUnder()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var regular = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0);
+        hosted.AirsBeforeSeasonNumber = 1;
+        var plain = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0, episodeNumber: 2);
+        var resolver = CreateResolver(JellyfinItems.WithParents(regular, hosted, plain));
+
+        // The dashboard shows Season 0 as Jellyfin stores it, hosted special included, so
+        // its erase reaches the special and its scan runs the host season the special is
+        // analyzed in. The host season shows only what Jellyfin stores under it.
+        var specials = resolver.ResolveDisplayed(specialsSeasonId);
+        Assert.NotNull(specials);
+        Assert.Equal([(hosted.Id, hostSeasonId), (plain.Id, specialsSeasonId)], specials.Episodes.Select(episode => (episode.EpisodeId, episode.SeasonId)));
+        Assert.Equal([regular.Id], resolver.ResolveDisplayed(hostSeasonId)!.Episodes.Select(episode => episode.EpisodeId));
     }
 
     [Fact]
@@ -317,7 +339,7 @@ public sealed class TestSeasonResolver
         var optedOutResolver = EntrypointTestHelpers.CreateSeasonResolver(FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items, optedOut));
 
         Assert.Empty(optedOutResolver.OwnersOf([episode.Id, seasonId, movie.Id]));
-        Assert.Null(optedOutResolver.ResolveKey(seasonId));
+        Assert.Null(optedOutResolver.ResolveDisplayed(seasonId));
         Assert.False(optedOutResolver.IsKnownKey(movie.Id));
     }
 

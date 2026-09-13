@@ -132,25 +132,6 @@ public partial class BaseItemAnalyzerTask(
         }
     }
 
-    /// <summary>
-    /// Analyzes one season the caller resolved, so a scan erases and analyzes the same
-    /// episodes. A season without episodes is logged and skipped.
-    /// </summary>
-    /// <param name="season">The resolved season.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
-    internal async Task AnalyzeSeasonAsync(ResolvedSeason season, CancellationToken cancellationToken)
-    {
-        if (season.Episodes.Count == 0)
-        {
-            LogNothingToAnalyze(_logger, season.Key);
-            return;
-        }
-
-        var (modes, ffmpegValid) = await StartRunAsync(cancellationToken).ConfigureAwait(false);
-        await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
-    }
-
     // The modes the configuration enables and whether ffmpeg supports chromaprint,
     // probed once per run.
     private async Task<(IReadOnlyList<AnalysisMode> Modes, bool FfmpegValid)> StartRunAsync(CancellationToken cancellationToken)
@@ -547,9 +528,6 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "None of the {Count} requested items resolved to a season to analyze")]
     private static partial void LogNothingInScope(ILogger logger, int count);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Season {SeasonId} has no episodes to analyze")]
-    private static partial void LogNothingToAnalyze(ILogger logger, Guid seasonId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);

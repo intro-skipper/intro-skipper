@@ -117,12 +117,12 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
     /// <summary>
     /// The watcher queues changed items by their own id and the run analyzes the season
-    /// holding each one. A scan hands over the season it resolved itself.
+    /// holding each one. A scan hands over the ids of the episodes it erased.
     /// </summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AnalyzeItemsAsync_ScopedToAnEpisodeIdOrAResolvedSeason_AnalyzesThatSeason(bool byEpisodeId)
+    public async Task AnalyzeItemsAsync_ScopedToAnEpisodeIdOrASeasonId_AnalyzesThatSeason(bool byEpisodeId)
     {
         var config = new PluginConfiguration
         {
@@ -155,14 +155,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 cacheDatabase: null!,
                 database);
 
-            if (byEpisodeId)
-            {
-                await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [episode.Id]);
-            }
-            else
-            {
-                await analyzer.AnalyzeSeasonAsync(resolver.ResolveKey(seasonId)!, CancellationToken.None);
-            }
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [byEpisodeId ? episode.Id : seasonId]);
 
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
             Assert.Contains((episode.Id, AnalysisMode.Introduction), snapshot.AnalysisRecords.Keys);
