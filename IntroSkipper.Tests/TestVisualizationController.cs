@@ -217,8 +217,10 @@ public sealed class TestVisualizationController : IDisposable
         var specialsResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(specialsSeasonId)).Result);
         var specialsIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(specialsResult.Value);
         Assert.True(specialsIds.SetEquals([hosted.Id, plain.Id]));
+        // The host season lists the hosted special too: with specials shown within
+        // seasons, Jellyfin's season view shows it there as well as under Season 0.
         var hostResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(hostSeasonId)).Result);
-        Assert.Equal([regular.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(hostResult.Value));
+        Assert.True(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(hostResult.Value).SetEquals([regular.Id, hosted.Id]));
 
         Assert.IsType<NoContentResult>(await controller.EnableItem(hosted.Id));
         var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(specialsSeasonId)).Result);
@@ -488,8 +490,10 @@ public sealed class TestVisualizationController : IDisposable
         Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(Guid.NewGuid(), seasonId, eraseCache: false, CancellationToken.None));
     }
 
-    [Fact]
-    public async Task EraseSeasonAsync_ErasesEverySpecialStoredInSeasonZero_HostedOnesIncluded()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EraseSeasonAsync_ErasesTheEpisodesJellyfinShowsUnderTheSeason_HostedSpecialIncluded(bool eraseSpecials)
     {
         using var scope = CreateScope(updateMediaSegments: true);
         var seriesId = Guid.NewGuid();
@@ -508,13 +512,14 @@ public sealed class TestVisualizationController : IDisposable
         var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(regular, hosted, plain));
         var controller = CreateController(scope.CacheDbPath, library);
 
-        // The hosted special is analyzed with season 1, but Jellyfin stores it in Season 0,
-        // which is where the dashboard shows it and where its erase button is.
-        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, specialsSeasonId, eraseCache: false, CancellationToken.None));
+        // Jellyfin stores the hosted special in Season 0 and, showing specials within
+        // seasons, lists it under season 1 as well, so the erase of either season reaches it.
+        var seasonId = eraseSpecials ? specialsSeasonId : hostSeasonId;
+        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None));
 
         Assert.Empty(await database.GetSegmentsAsync(hosted.Id));
-        Assert.Empty(await database.GetSegmentsAsync(plain.Id));
-        Assert.Single(await database.GetSegmentsAsync(regular.Id));
+        Assert.Equal(eraseSpecials ? 1 : 0, (await database.GetSegmentsAsync(regular.Id)).Count);
+        Assert.Equal(eraseSpecials ? 0 : 1, (await database.GetSegmentsAsync(plain.Id)).Count);
     }
 
     [Fact]

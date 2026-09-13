@@ -18,6 +18,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.Services;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -65,11 +66,12 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
-    /// A season resolver over the given library manager. Tests whose keys need no lookup
-    /// (movies, episodes with a season id) may pass <see langword="null"/>.
+    /// A season resolver over the given library manager and server configuration (the
+    /// defaults show specials within seasons). Tests whose keys need no lookup (movies,
+    /// episodes with a season id) may pass <see langword="null"/> for the library.
     /// </summary>
-    internal static SeasonResolver CreateSeasonResolver(ILibraryManager? libraryManager)
-        => new(NullLogger<SeasonResolver>.Instance, libraryManager!);
+    internal static SeasonResolver CreateSeasonResolver(ILibraryManager? libraryManager, ServerConfiguration? serverConfiguration = null)
+        => new(NullLogger<SeasonResolver>.Instance, libraryManager!, ServerConfigurationProxy.Create(serverConfiguration ?? new ServerConfiguration()));
 
     // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
     // and returns null for any other id. Shared by the controller test suites.
@@ -129,6 +131,24 @@ internal static class EntrypointTestHelpers
 
             throw new NotImplementedException(targetMethod?.Name);
         }
+    }
+
+    // IServerConfigurationManager stub that answers the given configuration and nothing else.
+    private class ServerConfigurationProxy : DispatchProxy
+    {
+        private ServerConfiguration _configuration = new();
+
+        public static IServerConfigurationManager Create(ServerConfiguration configuration)
+        {
+            var proxy = Create<IServerConfigurationManager, ServerConfigurationProxy>();
+            ((ServerConfigurationProxy)(object)proxy)._configuration = configuration;
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == $"get_{nameof(IServerConfigurationManager.Configuration)}"
+                ? _configuration
+                : throw new NotImplementedException(targetMethod?.Name);
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -32,10 +33,12 @@ namespace IntroSkipper.Manager;
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
-public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibraryManager libraryManager)
+/// <param name="serverConfiguration">Server configuration, read for whether Jellyfin shows specials within seasons.</param>
+public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibraryManager libraryManager, IServerConfigurationManager serverConfiguration)
 {
     private readonly ILogger<SeasonResolver> _logger = logger;
     private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly IServerConfigurationManager _serverConfiguration = serverConfiguration;
 
     private static PluginConfiguration Config => Plugin.Instance!.Configuration;
 
@@ -83,9 +86,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Resolves the season the dashboard shows under a key: a movie, or the episodes
-    /// Jellyfin stores under a season, each with the key of the season it is analyzed
-    /// in. A known season with nothing to analyze resolves to a season without episodes,
-    /// not to <see langword="null"/>.
+    /// Jellyfin shows under a season by its own season view rule, each with the key of the
+    /// season it is analyzed in. A known season with nothing to analyze resolves to a
+    /// season without episodes, not to <see langword="null"/>.
     /// </summary>
     /// <param name="key">A season key.</param>
     /// <returns>The displayed season, or <see langword="null"/> when the key is not a movie or a season under a series the server knows.</returns>
@@ -97,7 +100,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         {
             Movie movie => new DisplayedSeason(key, ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? []),
             Season season when FindSeries(season.SeriesId) is { } series
-                => new DisplayedSeason(series.Id, QueueEpisodes(series, PlaceEpisodes(series, policy, includeExcluded: false).Where(placed => placed.Episode.SeasonId == key))),
+                => new DisplayedSeason(series.Id, QueueEpisodes(series, PlaceEpisodes(series, policy, includeExcluded: false).Where(placed => IsShownIn(placed.Episode, season)))),
             _ => null,
         };
     }
@@ -472,6 +475,17 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     private bool PluginDisabledFor(BaseItem item)
         => PluginDisabledIn(_libraryManager.GetLibraryOptions(item));
+
+    // Jellyfin's season view rule (Series.FilterEpisodesBySeason): Season 0 shows every
+    // special; a numbered season shows the episodes numbered with it and, when the server
+    // shows specials within seasons, the in-season specials airing within it; an episode
+    // stored under the season is shown there whatever its numbers.
+    private bool IsShownIn(Episode episode, Season season)
+    {
+        var withSpecials = _serverConfiguration.Configuration.DisplaySpecialsWithinSeasons && season.IndexNumber is not (null or 0);
+        var seasonNumber = withSpecials ? episode.AiredSeasonNumber : episode.ParentIndexNumber;
+        return (seasonNumber is { } number && number == season.IndexNumber) || episode.SeasonId == season.Id;
+    }
 
     private Series? FindSeries(Guid seriesId)
         => seriesId != Guid.Empty ? _libraryManager.GetItemById(seriesId) as Series : null;

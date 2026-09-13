@@ -75,7 +75,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the names and unique identifiers of the episodes Jellyfin stores under the provided season.
+    /// Returns the names and unique identifiers of the episodes Jellyfin shows under the provided season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -274,7 +274,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases and re-analyzes the episodes Jellyfin stores under the provided season, each in the season it is analyzed in.
+    /// Erases and re-analyzes the episodes Jellyfin shows under the provided season, each in the season it is analyzed in.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -286,7 +286,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        // The episodes Jellyfin stores under the season. The run analyzes the seasons they
+        // The episodes Jellyfin shows under the season. The run analyzes the seasons they
         // are analyzed in, which for an in-season special is its host season, so a scan of
         // Specials reaches every special.
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)

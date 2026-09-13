@@ -298,8 +298,10 @@ public sealed class TestSeasonResolver
         Assert.False(resolver.IsKnownKey(episode.Id));
     }
 
-    [Fact]
-    public void ResolveDisplayed_ListsTheSpecialsStoredInSeasonZero_WithTheKeyEachIsAnalyzedUnder()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveDisplayed_ListsTheEpisodesJellyfinShowsUnderASeason_WithTheKeyEachIsAnalyzedUnder(bool specialsWithinSeasons)
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
@@ -309,15 +311,20 @@ public sealed class TestSeasonResolver
         var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0);
         hosted.AirsBeforeSeasonNumber = 1;
         var plain = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0, episodeNumber: 2);
-        var resolver = CreateResolver(JellyfinItems.WithParents(regular, hosted, plain));
+        var resolver = EntrypointTestHelpers.CreateSeasonResolver(
+            FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(regular, hosted, plain)),
+            new ServerConfiguration { DisplaySpecialsWithinSeasons = specialsWithinSeasons });
 
-        // The dashboard shows Season 0 as Jellyfin stores it, hosted special included, so
-        // its erase reaches the special and its scan runs the host season the special is
-        // analyzed in. The host season shows only what Jellyfin stores under it.
+        // Season 0 shows every special, the hosted one with the key of the host season it
+        // is analyzed in, so its erase reaches the special and its scan runs the host.
         var specials = resolver.ResolveDisplayed(specialsSeasonId);
         Assert.NotNull(specials);
         Assert.Equal([(hosted.Id, hostSeasonId), (plain.Id, specialsSeasonId)], specials.Episodes.Select(episode => (episode.EpisodeId, episode.SeasonId)));
-        Assert.Equal([regular.Id], resolver.ResolveDisplayed(hostSeasonId)!.Episodes.Select(episode => episode.EpisodeId));
+
+        // Jellyfin's season view lists the special under its host season too when the
+        // server shows specials within seasons, and the host season's erase must reach it there.
+        IEnumerable<Guid> shownInHost = specialsWithinSeasons ? [regular.Id, hosted.Id] : [regular.Id];
+        Assert.Equal(shownInHost, resolver.ResolveDisplayed(hostSeasonId)!.Episodes.Select(episode => episode.EpisodeId));
     }
 
     [Fact]
