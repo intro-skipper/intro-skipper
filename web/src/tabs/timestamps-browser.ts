@@ -29,6 +29,7 @@ export const timestampsTab: Tab = {
 function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
     const nav$ = createNavState();
     let currentSeasonTabs: ReturnType<typeof seasonTabs> | null = null;
+    let currentSeasons: SeasonItem[] = [];
 
     const contentEl = el("div");
     const libraryCountEls = new Map<string, HTMLElement>();
@@ -78,6 +79,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
 
     function resetViewContent(): void {
         currentSeasonTabs = null;
+        currentSeasons = [];
         contentEl.replaceChildren();
         setPanelBusy(false);
         setPanelTabState(null);
@@ -216,6 +218,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
     async function navigateToShow(show: ShowItem): Promise<void> {
         const viewToken = nav$.nextViewVersion();
 
+        actions.prepareForShow(show.Id);
         resetViewContent();
 
         if (show.Type === "Movie") {
@@ -244,6 +247,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
             }
 
             const firstSeason = seasons[0];
+            currentSeasons = seasons;
             nav$.setState({
                 view: "episodes",
                 show,
@@ -266,7 +270,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
             setPanelTabState(currentSeasonTabs.getTabId(firstSeason.Id));
             contentEl.append(currentSeasonTabs.container, panelEl);
 
-            await loadSeasonEpisodes(show, firstSeason);
+            await loadSeasonEpisodes(show, firstSeason, seasons);
         } catch (err) {
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
@@ -287,10 +291,14 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         nav$.setState({ view: "episodes", show, seasonId: season.Id, seasonName: season.Name });
         setPanelTabState(currentSeasonTabs?.getTabId(season.Id) ?? null);
         updateBreadcrumbs();
-        await loadSeasonEpisodes(show, season);
+        await loadSeasonEpisodes(show, season, currentSeasons);
     }
 
-    async function loadSeasonEpisodes(show: ShowItem, season: SeasonItem): Promise<void> {
+    async function loadSeasonEpisodes(
+        show: ShowItem,
+        season: SeasonItem,
+        seriesSeasons: readonly SeasonItem[] = currentSeasons,
+    ): Promise<void> {
         const panelToken = nav$.nextPanelVersion();
 
         setPanelBusy(true);
@@ -316,7 +324,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
                 disabledItemIds,
                 "Failed to load media-segment settings; the enable/disable toggles are hidden.",
             );
-            await actions.loadForSeason(show.Id, season.Id, false);
+            await actions.loadForSeason(show.Id, season.Id, false, seriesSeasons);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
@@ -434,7 +442,7 @@ function createTimestampsBrowser(container: HTMLElement): { destroy: () => void 
         }
 
         const season: SeasonItem = { Id: seasonId, Name: seasonName, IndexNumber: null };
-        await loadSeasonEpisodes(show, season);
+        await loadSeasonEpisodes(show, season, currentSeasons);
     }
 
     function updateBreadcrumbs(): void {
