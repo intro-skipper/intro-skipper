@@ -158,18 +158,18 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the IDs of the displayed season's items whose automatic segments are
-    /// withheld from Jellyfin, regardless of their stored analysis season key.
-    /// Unknown or empty seasons yield an empty set rather than an error.
+    /// Returns the IDs of the items Jellyfin shows under the season whose automatic
+    /// segments are withheld from Jellyfin. Unknown or empty seasons yield an empty set
+    /// rather than an error.
     /// </summary>
-    /// <param name="seasonId">Displayed season ID (a movie's own ID for movies).</param>
+    /// <param name="seasonId">Season ID (a movie's own ID for movies).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The disabled item IDs.</returns>
     [HttpGet("DisabledItems/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        var itemIds = _seasonResolver.GetDisplayedItemIds(seasonId);
+        var itemIds = _seasonResolver.ResolveDisplayed(seasonId)?.ItemIds ?? [];
         return Ok(await _database.GetDisabledItemIdsAsync(itemIds, cancellationToken).ConfigureAwait(false));
     }
 
@@ -208,19 +208,17 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
-        if (MediaItemHelper.FindSupported(itemId) is not { } item)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
-
-        var seasonKey = _seasonResolver.SeasonKey(item);
 
         // The coordinator commits the flag durably with its projection work in one
         // transaction; a failed or skipped Jellyfin resync never rolls the flag back,
         // the journaled work converges the mirror instead. Only a failure to commit
         // throws, and nothing was changed then.
         var outcome = await _segmentChange
-            .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, seasonKey, Visible: !disabled), cancellationToken)
+            .ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: !disabled), cancellationToken)
             .ConfigureAwait(false);
         // An idempotent toggle succeeds too (its journaled re-projection still
         // heals a diverged mirror).

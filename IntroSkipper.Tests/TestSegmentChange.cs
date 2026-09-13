@@ -439,7 +439,7 @@ public sealed class TestSegmentChange : IDisposable
         var service = CreateService(adapter);
 
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
-            new SegmentVisibilityChangeIntent(itemId, Guid.NewGuid(), Visible: false)));
+            new SegmentVisibilityChangeIntent(itemId, Visible: false)));
 
         Assert.Equal(ProjectionState.Pending, outcome.Projection);
         Assert.Equal(SegmentSource.User, Assert.Single(Assert.Single(adapter.Attempts).Segments).Source);

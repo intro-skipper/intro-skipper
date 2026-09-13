@@ -216,45 +216,6 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
-    public void SeasonKey_AgreesWithResolution()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var seriesId = Guid.NewGuid();
-        var hostSeasonId = Guid.NewGuid();
-        var specialsSeasonId = Guid.NewGuid();
-        var regular = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
-        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0);
-        hosted.AirsBeforeSeasonNumber = 1;
-        var unhosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, seasonNumber: 0, episodeNumber: 2);
-        unhosted.AirsBeforeSeasonNumber = 9;
-        var movie = JellyfinItems.Movie(Guid.NewGuid());
-        var resolver = CreateResolver(JellyfinItems.WithParents(regular, hosted, unhosted, movie));
-
-        var keysByEpisode = resolver.ResolveLibrary(includeExcluded: false, CancellationToken.None).Seasons
-            .SelectMany(season => season.Episodes.Select(episode => (episode.EpisodeId, season.Key)))
-            .ToDictionary();
-
-        Assert.Equal(hostSeasonId, resolver.SeasonKey(regular));
-        Assert.Equal(hostSeasonId, resolver.SeasonKey(hosted));
-        Assert.Equal(specialsSeasonId, resolver.SeasonKey(unhosted));
-        Assert.Equal(movie.Id, resolver.SeasonKey(movie));
-        Assert.All(new BaseItem[] { regular, hosted, unhosted, movie }, item => Assert.Equal(keysByEpisode[item.Id], resolver.SeasonKey(item)));
-    }
-
-    [Fact]
-    public void SeasonKey_KeepsTheSeasonIdOfAnExcludedEpisode()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { PathExclusions = { "/media/series/season-1" } });
-        var seasonId = Guid.NewGuid();
-        var excluded = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: "/media/series/season-1/s01e03.mkv", episodeNumber: 3);
-        var resolver = CreateResolver(JellyfinItems.WithParents(excluded));
-
-        // The dashboard lists the episode under its Jellyfin season and toggles it there,
-        // so the disable flag it writes must land under that key.
-        Assert.Equal(seasonId, resolver.SeasonKey(excluded));
-    }
-
-    [Fact]
     public void ResolveDisplayed_ResolvesMoviesAndSeasons_AndAnswersNullForUnknownIds()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
@@ -273,17 +234,20 @@ public sealed class TestSeasonResolver
         var season = resolver.ResolveDisplayed(seasonId);
         Assert.NotNull(season);
         Assert.Equal(seriesId, season.SeriesId);
+        Assert.Equal([episode.Id], season.ItemIds);
         Assert.Equal(episode.Id, Assert.Single(season.Episodes).EpisodeId);
 
         var movieSeason = resolver.ResolveDisplayed(movie.Id);
         Assert.NotNull(movieSeason);
         Assert.Equal(movie.Id, movieSeason.SeriesId);
+        Assert.Equal([movie.Id], movieSeason.ItemIds);
         Assert.Equal(movie.Id, Assert.Single(movieSeason.Episodes).EpisodeId);
 
-        // A known season with nothing to analyze is an answer, not a missing season.
+        // A known season with nothing to show is an answer, not a missing season.
         var emptySeason = resolver.ResolveDisplayed(emptySeasonId);
         Assert.NotNull(emptySeason);
         Assert.Equal(seriesId, emptySeason.SeriesId);
+        Assert.Empty(emptySeason.ItemIds);
         Assert.Empty(emptySeason.Episodes);
         Assert.True(resolver.IsKnownKey(emptySeasonId));
 
@@ -327,69 +291,35 @@ public sealed class TestSeasonResolver
         Assert.Equal(shownInHost, resolver.ResolveDisplayed(hostSeasonId)!.Episodes.Select(episode => episode.EpisodeId));
     }
 
-    [Fact]
-    public void GetDisplayedItemIds_IncludesVirtualEpisodes_AndKeepsUnknownKeysEmpty()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var seriesId = Guid.NewGuid();
-        var seasonId = Guid.NewGuid();
-        var emptySeasonId = Guid.NewGuid();
-        var orphanSeasonId = Guid.NewGuid();
-        var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: string.Empty);
-        episode.IsVirtualItem = true;
-        var items = JellyfinItems.WithParents(
-            episode,
-            JellyfinItems.Season(emptySeasonId, seriesId, number: 2),
-            JellyfinItems.Season(orphanSeasonId, Guid.NewGuid()));
-        var resolver = CreateResolver(items);
-
-        Assert.Equal([episode.Id], resolver.GetDisplayedItemIds(seasonId));
-        foreach (var key in new[] { Guid.Empty, Guid.NewGuid(), episode.Id, emptySeasonId, orphanSeasonId })
-        {
-            Assert.Empty(resolver.GetDisplayedItemIds(key));
-        }
-
-        var optedOut = new LibraryOptions { DisabledMediaSegmentProviders = [Plugin.Instance!.Name] };
-        var optedOutResolver = EntrypointTestHelpers.CreateSeasonResolver(FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items, optedOut));
-        Assert.Empty(optedOutResolver.GetDisplayedItemIds(seasonId));
-    }
-
-    [Fact]
-    public void GetDisplayedItemIds_DoesNotTreatAFailedQueryAsAnEmptySeason()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var series = JellyfinItems.Series(Guid.NewGuid());
-        var season = JellyfinItems.Season(Guid.NewGuid(), series.Id);
-        var library = FakeLibraryManager.Create(
-            [JellyfinItems.Folder("Media")],
-            _ => null!,
-            id => id == series.Id ? series : id == season.Id ? season : null);
-        var resolver = EntrypointTestHelpers.CreateSeasonResolver(library);
-
-        Assert.Throws<InvalidOperationException>(() => resolver.GetDisplayedItemIds(season.Id));
-    }
-
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void GetDisplayedItemIds_UsesTheSpecialsDisplaySettingForIneligibleEpisodes(bool specialsWithinSeasons)
+    public void ResolveDisplayed_ListsIneligibleEpisodesAsShown_ButNotForAnalysis(bool specialsWithinSeasons)
     {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { SeriesExclusions = { "Series" } });
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { PathExclusions = { "/media/excluded" } });
         var seriesId = Guid.NewGuid();
         var hostSeasonId = Guid.NewGuid();
         var specialsSeasonId = Guid.NewGuid();
-        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, path: string.Empty, seasonNumber: 0);
-        hosted.AirsBeforeSeasonNumber = 1;
-        var library = FakeLibraryManager.Create(
-            [JellyfinItems.Folder("Media")],
-            JellyfinItems.WithParents(hosted, JellyfinItems.Season(hostSeasonId, seriesId)));
+        var regular = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId);
+        var excluded = JellyfinItems.Episode(Guid.NewGuid(), seriesId, hostSeasonId, path: "/media/excluded/s01e02.mkv", episodeNumber: 2);
+        var pathless = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, path: string.Empty, seasonNumber: 0);
+        pathless.AirsBeforeSeasonNumber = 1;
         var resolver = EntrypointTestHelpers.CreateSeasonResolver(
-            library, new ServerConfiguration { DisplaySpecialsWithinSeasons = specialsWithinSeasons });
+            FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(regular, excluded, pathless)),
+            new ServerConfiguration { DisplaySpecialsWithinSeasons = specialsWithinSeasons });
 
-        Assert.Equal([hosted.Id], resolver.GetDisplayedItemIds(specialsSeasonId));
-        Assert.Equal(specialsWithinSeasons ? [hosted.Id] : [], resolver.GetDisplayedItemIds(hostSeasonId));
-        Assert.Empty(resolver.ResolveDisplayed(specialsSeasonId)!.Episodes);
-        Assert.Empty(resolver.ResolveDisplayed(hostSeasonId)!.Episodes);
+        // The dashboard lists every episode Jellyfin shows and renders its disable flag,
+        // so the shown ids keep the excluded and pathless episodes the analysis drops.
+        var host = resolver.ResolveDisplayed(hostSeasonId);
+        Assert.NotNull(host);
+        IEnumerable<Guid> shownInHost = specialsWithinSeasons ? [regular.Id, excluded.Id, pathless.Id] : [regular.Id, excluded.Id];
+        Assert.Equal(shownInHost, host.ItemIds);
+        Assert.Equal([regular.Id], host.Episodes.Select(episode => episode.EpisodeId));
+
+        var specials = resolver.ResolveDisplayed(specialsSeasonId);
+        Assert.NotNull(specials);
+        Assert.Equal([pathless.Id], specials.ItemIds);
+        Assert.Empty(specials.Episodes);
     }
 
     [Fact]
@@ -413,16 +343,6 @@ public sealed class TestSeasonResolver
         Assert.Empty(optedOutResolver.OwnersOf([episode.Id, seasonId, movie.Id]));
         Assert.Null(optedOutResolver.ResolveDisplayed(seasonId));
         Assert.False(optedOutResolver.IsKnownKey(movie.Id));
-    }
-
-    [Fact]
-    public void OwnersOf_ReturnsEmpty_WhenTheLibraryReturnsNull()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Media")], _ => null!);
-        var resolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
-
-        Assert.Empty(resolver.OwnersOf([Guid.NewGuid()]));
     }
 
     [Fact]

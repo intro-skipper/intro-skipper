@@ -25,10 +25,12 @@ internal sealed record LibraryResolution(IReadOnlyList<ResolvedSeason> Seasons, 
 /// <summary>
 /// One season as the dashboard shows it: a movie, or the episodes Jellyfin shows under a
 /// season, which with specials shown within seasons lists an in-season special under its
-/// host season as well as under Season 0. Each episode carries the key of the season it is
-/// analyzed in, so an erase acts on what the dashboard shows and a scan runs the seasons
-/// those episodes are analyzed in.
+/// host season as well as under Season 0. The shown items include the ones analysis skips
+/// (excluded, without a path), so a flag on any of them can be listed. The episodes carry
+/// the key of the season each is analyzed in, so an erase acts on what the dashboard
+/// shows and a scan runs the seasons those episodes are analyzed in.
 /// </summary>
 /// <param name="SeriesId">The id of the series the season belongs to; a movie's own id for a movie.</param>
-/// <param name="Episodes">The episodes shown; empty for a known season with nothing to analyze.</param>
-internal sealed record DisplayedSeason(Guid SeriesId, IReadOnlyList<QueuedEpisode> Episodes);
+/// <param name="ItemIds">Every item shown, eligible for analysis or not.</param>
+/// <param name="Episodes">The shown episodes eligible for analysis; empty for a known season with nothing to analyze.</param>
+internal sealed record DisplayedSeason(Guid SeriesId, IReadOnlyList<Guid> ItemIds, IReadOnlyList<QueuedEpisode> Episodes);

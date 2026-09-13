@@ -175,7 +175,7 @@ public sealed class TestVisualizationController : IDisposable
 
         Assert.IsType<NoContentResult>(putResult);
         Assert.Equal(episodeIds[0], Assert.Single(_h.Store.ReplacedItems).ItemId);
-        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(episodeIds));
 
         var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
 
@@ -189,7 +189,7 @@ public sealed class TestVisualizationController : IDisposable
 
         // Both directions resync the item's mirror through the change coordinator.
         Assert.Equal(2, _h.Store.WriteCallCount);
-        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Empty(await database.GetDisabledItemIdsAsync(episodeIds));
     }
 
     [Fact]
@@ -212,7 +212,6 @@ public sealed class TestVisualizationController : IDisposable
             Assert.IsType<NoContentResult>(await controller.DisableItem(item.Id));
         }
 
-        Assert.Contains(hosted.Id, await _h.Database.GetDisabledItemIdsAsync(hostSeasonId));
         controller = CreateController(scope.CacheDbPath, library);
         var specialsResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(specialsSeasonId)).Result);
         var specialsIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(specialsResult.Value);
@@ -239,9 +238,8 @@ public sealed class TestVisualizationController : IDisposable
             [JellyfinItems.Folder("Media")],
             [movie, JellyfinItems.Series(seriesId), JellyfinItems.Season(emptySeasonId, seriesId)]);
         var controller = CreateController(scope.CacheDbPath, library);
-        await _h.Database.SetItemDisabledAsync(movie.Id, movie.Id, disabled: true);
-        await _h.Database.SetItemDisabledAsync(emptySeasonId, Guid.NewGuid(), disabled: true);
-        await _h.Database.SetItemDisabledAsync(unknownId, Guid.NewGuid(), disabled: true);
+        await _h.Database.SetItemDisabledAsync(movie.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(Guid.NewGuid(), disabled: true);
 
         var movieResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(movie.Id)).Result);
         Assert.Equal([movie.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(movieResult.Value));
@@ -272,8 +270,8 @@ public sealed class TestVisualizationController : IDisposable
         var library = EntrypointTestHelpers.FakeLibraryManager.Create(
             [JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(episode, enabled, other));
         var controller = CreateController(scope.CacheDbPath, library);
-        await _h.Database.SetItemDisabledAsync(seasonId, episode.Id, disabled: true);
-        await _h.Database.SetItemDisabledAsync(other.SeasonId, other.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(episode.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(other.Id, disabled: true);
 
         var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
 
@@ -282,7 +280,7 @@ public sealed class TestVisualizationController : IDisposable
             EntrypointTestHelpers.CreateSeasonResolver(library).ResolveDisplayed(seasonId)!.Episodes,
             queued => queued.EpisodeId == episode.Id);
 
-        await _h.Database.SetItemDisabledAsync(seasonId, episode.Id, disabled: false);
+        await _h.Database.SetItemDisabledAsync(episode.Id, disabled: false);
         var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
         Assert.Empty(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(enabledResult.Value));
     }
@@ -297,7 +295,7 @@ public sealed class TestVisualizationController : IDisposable
         var movie = JellyfinItems.Movie(Guid.NewGuid(), path: path!);
         var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], [movie]);
         var controller = CreateController(scope.CacheDbPath, library);
-        await _h.Database.SetItemDisabledAsync(movie.Id, movie.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(movie.Id, disabled: true);
 
         var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(movie.Id)).Result);
 
@@ -306,16 +304,14 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public async Task DisabledItems_EpisodeWithoutSeason_FallsBackToItsOwnKey()
+    public async Task DisabledItems_DisablesAnEpisodeJellyfinHasNotAttachedToASeason()
     {
         var seriesId = Guid.NewGuid();
-        var seasonId = Guid.NewGuid();
-        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var orphanId = Guid.NewGuid();
         using var pluginScope = CreateScope(updateMediaSegments: true);
 
-        // Jellyfin has not attached the episode to a season yet and none of its siblings
-        // has its number, so the season key falls back to the episode's own id.
+        // The flag is per item, so an episode Jellyfin has not attached to a season yet
+        // toggles like any other.
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
             [JellyfinItems.Folder("Shows")],
             JellyfinItems.WithParents(JellyfinItems.Episode(orphanId, seriesId, Guid.Empty)));
@@ -325,10 +321,8 @@ public sealed class TestVisualizationController : IDisposable
 
         var result = await controller.DisableItem(orphanId, CancellationToken.None);
 
-        // The toggle records the item's own id as its key (the movie convention)
-        // instead of rejecting the intent over an empty season key.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal([orphanId], await database.GetDisabledItemIdsAsync(orphanId));
+        Assert.Equal([orphanId], await database.GetDisabledItemIdsAsync([orphanId]));
     }
 
     [Fact]
@@ -348,7 +342,7 @@ public sealed class TestVisualizationController : IDisposable
 
         Assert.IsType<NotFoundResult>(unknown);
         Assert.Equal(0, _h.Store.WriteCallCount);
-        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Empty(await database.GetDisabledItemIdsAsync(episodeIds));
     }
 
     [Theory]
@@ -371,7 +365,7 @@ public sealed class TestVisualizationController : IDisposable
             episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
         if (!disable)
         {
-            await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
+            await database.SetItemDisabledAsync(episodeIds[0], disabled: true);
         }
 
         _h.Store = new FakeJellyfinSegmentStore
@@ -390,7 +384,7 @@ public sealed class TestVisualizationController : IDisposable
         // the stored flag disagree with recorded intent.
         var accepted = Assert.IsType<AcceptedResult>(result);
         Assert.Equal("Pending", Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value).Projection);
-        Assert.Equal(disable ? [episodeIds[0]] : [], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal(disable ? [episodeIds[0]] : [], await database.GetDisabledItemIdsAsync(episodeIds));
     }
 
     [Fact]
@@ -445,7 +439,7 @@ public sealed class TestVisualizationController : IDisposable
         // B's projection ran with the disable committed: the final push withholds the
         // automatic segment and carries only the new user segment (which keeps
         // syncing on disabled items), converging the mirror A's failure left behind.
-        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(episodeIds));
         Assert.Equal(2, _h.Store.WriteCallCount);
         var finalPush = _h.Store.ReplacedItems[^1];
         Assert.Equal(episodeIds[0], finalPush.ItemId);
@@ -454,7 +448,7 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
-    public async Task DisabledItems_MovieUsesItsOwnIdAsSeasonKey()
+    public async Task DisabledItems_TogglesAMovie()
     {
         var movieId = Guid.NewGuid();
         using var pluginScope = CreateScope(updateMediaSegments: true);
@@ -468,10 +462,7 @@ public sealed class TestVisualizationController : IDisposable
         var result = await controller.DisableItem(movieId, CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
-
-        // The server records the movie's own ID as its season key, which is what
-        // the dashboard's movie view lists by.
-        Assert.Equal([movieId], await database.GetDisabledItemIdsAsync(movieId));
+        Assert.Equal([movieId], await database.GetDisabledItemIdsAsync([movieId]));
     }
 
     [Fact]

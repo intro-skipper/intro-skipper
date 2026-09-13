@@ -97,10 +97,10 @@ public sealed class TestCleanCacheTask : IDisposable
         cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, "orphaned-hash");
         await SeedAsync(database, cacheDatabase, staleEpisodeId);
 
-        // Disabled flags follow the item: the live movie's flag carries a stale
-        // season key (drift) and must survive; the stale episode's flag must go.
-        await database.SetItemDisabledAsync(Guid.NewGuid(), movieId, disabled: true);
-        await database.SetItemDisabledAsync(staleEpisodeId, staleEpisodeId, disabled: true);
+        // Disabled flags follow the item: the live movie's flag must survive and the
+        // stale episode's flag must go.
+        await database.SetItemDisabledAsync(movieId, disabled: true);
+        await database.SetItemDisabledAsync(staleEpisodeId, disabled: true);
 
         var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], _ => [JellyfinItems.Movie(movieId)]);
 
@@ -144,7 +144,7 @@ public sealed class TestCleanCacheTask : IDisposable
         var cacheDatabase = _cache.CreateDatabase();
         await SeedAsync(database, cacheDatabase, disabledLibraryEpisodeId);
         await SeedAsync(database, cacheDatabase, goneEpisodeId);
-        await database.SetItemDisabledAsync(disabledLibraryEpisodeId, disabledLibraryEpisodeId, disabled: true);
+        await database.SetItemDisabledAsync(disabledLibraryEpisodeId, disabled: true);
 
         // Rows carrying the current config hash survive the final unreadable-hash
         // sweep, so their fate isolates the item-based cache cleanup under test.

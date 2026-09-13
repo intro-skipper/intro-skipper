@@ -43,34 +43,6 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     private static PluginConfiguration Config => Plugin.Instance!.Configuration;
 
     /// <summary>
-    /// Returns the season key an item is analyzed under: a movie's own id, an episode's
-    /// season id, or the key its series resolves it to for an in-season special or an
-    /// episode without a season id. Only those two resolve the series. An episode the
-    /// series does not resolve (excluded, without a path, waiting for its season) keeps
-    /// its season id, or its own id without one. The library's provider setting does not
-    /// apply: the key records user intent.
-    /// </summary>
-    /// <param name="item">An episode or movie.</param>
-    /// <returns>The season key.</returns>
-    /// <exception cref="InvalidOperationException">The library returned no result for the series' episodes.</exception>
-    internal Guid SeasonKey(BaseItem item)
-    {
-        if (item is not Episode episode)
-        {
-            return item.Id;
-        }
-
-        if ((IsInSeasonSpecial(episode) || episode.SeasonId == Guid.Empty)
-            && FindSeries(episode.SeriesId) is { } series
-            && Resolve(series).FirstOrDefault(season => season.Episodes.Any(queued => queued.EpisodeId == episode.Id)) is { } resolved)
-        {
-            return resolved.Key;
-        }
-
-        return episode.SeasonId != Guid.Empty ? episode.SeasonId : episode.Id;
-    }
-
-    /// <summary>
     /// Returns whether the id is a season key the server knows: a movie, or a season
     /// under a series the server knows. Agrees with <see cref="ResolveDisplayed"/> without
     /// resolving the series.
@@ -86,9 +58,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Resolves the season the dashboard shows under a key: a movie, or the episodes
-    /// Jellyfin shows under a season by its own season view rule, each with the key of the
-    /// season it is analyzed in. A known season with nothing to analyze resolves to a
-    /// season without episodes, not to <see langword="null"/>.
+    /// Jellyfin shows under a season by its own season view rule, with the ones eligible
+    /// for analysis placed in the season each is analyzed in. A known season with nothing
+    /// to show resolves to a season without items, not to <see langword="null"/>.
     /// </summary>
     /// <param name="key">A season key.</param>
     /// <returns>The displayed season, or <see langword="null"/> when the key is not a movie or a season under a series the server knows.</returns>
@@ -96,46 +68,22 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     internal DisplayedSeason? ResolveDisplayed(Guid key)
     {
         var policy = ExclusionPolicy.FromConfiguration(Config);
-        return FindItem(key) switch
+        switch (FindItem(key))
         {
-            Movie movie => new DisplayedSeason(key, ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? []),
-            Season season when FindSeries(season.SeriesId) is { } series
-                => new DisplayedSeason(series.Id, QueueEpisodes(series, PlaceEpisodes(series, policy, includeExcluded: false).Where(placed => IsShownIn(placed.Episode, season)))),
-            _ => null,
-        };
-    }
+            case Movie movie:
+                return new DisplayedSeason(key, [key], ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? []);
+            case Season season when FindSeries(season.SeriesId) is { } series:
+                {
+                    var (shown, placed) = PlaceEpisodes(series, policy, includeExcluded: false);
+                    return new DisplayedSeason(
+                        series.Id,
+                        [.. shown.Where(episode => IsShownIn(episode, season)).Select(episode => episode.Id)],
+                        QueueEpisodes(series, placed.Where(item => IsShownIn(item.Episode, season))));
+                }
 
-    /// <summary>
-    /// Lists the items Jellyfin shows under a displayed season, regardless of analysis
-    /// eligibility, so persisted visibility flags remain available for excluded or
-    /// pathless items. A movie lists its own id; unknown keys return an empty list.
-    /// </summary>
-    /// <param name="key">The displayed season or movie id.</param>
-    /// <returns>The displayed item ids.</returns>
-    /// <exception cref="InvalidOperationException">The library returned no result for the series' episodes.</exception>
-    internal IReadOnlyList<Guid> GetDisplayedItemIds(Guid key)
-    {
-        var item = FindItem(key);
-        if (item is Movie)
-        {
-            return [key];
+            default:
+                return null;
         }
-
-        if (item is not Season season || FindSeries(season.SeriesId) is not { } series)
-        {
-            return [];
-        }
-
-        var query = new InternalItemsQuery
-        {
-            IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = true,
-            AncestorIds = [series.Id],
-        };
-        var items = _libraryManager.GetItemList(query, false)
-            ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
-
-        return [.. items.OfType<Episode>().Where(episode => IsShownIn(episode, season)).Select(episode => episode.Id).Distinct()];
     }
 
     /// <summary>
@@ -224,7 +172,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
         List<BaseItem> owners = [];
         HashSet<Guid> ownerIds = [];
-        foreach (var item in _libraryManager.GetItemList(query, false) ?? [])
+        foreach (var item in _libraryManager.GetItemList(query, false))
         {
             var ownerId = item switch
             {
@@ -365,9 +313,10 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         IsVirtualItem = false,
     };
 
-    // The series' non-virtual episodes with a path, minus the excluded ones unless asked to
-    // keep them flagged, each placed in the season it is analyzed in.
-    private List<PlacedEpisode> PlaceEpisodes(Series series, ExclusionPolicy policy, bool includeExcluded)
+    // The series' non-virtual episodes as Jellyfin lists them, and the ones eligible for
+    // analysis (with a path, not excluded unless asked to keep them flagged) placed in the
+    // season each is analyzed in.
+    private (List<Episode> Shown, List<PlacedEpisode> Placed) PlaceEpisodes(Series series, ExclusionPolicy policy, bool includeExcluded)
     {
         var query = Query(BaseItemKind.Episode);
         query.AncestorIds = [series.Id];
@@ -375,14 +324,12 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         var items = _libraryManager.GetItemList(query, false)
             ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
 
-        List<(Episode Episode, ExclusionDecision Decision)> episodes = [];
-        foreach (var item in items.DistinctBy(item => item.Id))
-        {
-            if (item is not Episode episode)
-            {
-                continue;
-            }
+        // GetItemList has returned the same item twice.
+        var shown = items.DistinctBy(item => item.Id).OfType<Episode>().ToList();
 
+        List<(Episode Episode, ExclusionDecision Decision)> episodes = [];
+        foreach (var episode in shown)
+        {
             if (string.IsNullOrEmpty(episode.Path))
             {
                 LogNotQueuingEpisodeNoPath(_logger, episode.Name, series.Name, episode.Id);
@@ -426,12 +373,12 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             placed.Add(new PlacedEpisode(episode, decision, placement.Value.Key, placement.Value.SeasonNumber));
         }
 
-        return placed;
+        return (shown, placed);
     }
 
     // Seasons keep the order their first episode appeared in.
     private IReadOnlyList<ResolvedSeason> ResolveSeries(Series series, ExclusionPolicy policy, bool includeExcluded)
-        => PlaceEpisodes(series, policy, includeExcluded)
+        => PlaceEpisodes(series, policy, includeExcluded).Placed
             .GroupBy(placed => placed.Key)
             .Select(season => new ResolvedSeason(season.Key, series.Id, QueueEpisodes(series, season)))
             .ToList();

@@ -159,7 +159,6 @@ internal sealed partial class IntroSkipperDatabase
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             EditorDeleteSegmentIntent value when AnalysisHelpers.TryMapSegmentTypeToMode(value.ExpectedType) is null => new(SegmentChangeRejectedReason.InvalidExternalIdOrType, "Invalid segment type."),
-            SegmentVisibilityChangeIntent value when value.SeasonId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySeasonId, "Season ID must not be empty."),
             _ => null
         };
     }
@@ -367,7 +366,7 @@ internal sealed partial class IntroSkipperDatabase
 
             case SegmentVisibilityChangeIntent value:
                 {
-                    var (_, changed) = await SetItemDisabledCoreAsync(db, value.SeasonId, value.ItemId, !value.Visible, cancellationToken).ConfigureAwait(false);
+                    var changed = await SetItemDisabledCoreAsync(db, value.ItemId, !value.Visible, cancellationToken).ConfigureAwait(false);
                     if (!changed)
                     {
                         return value.Visible

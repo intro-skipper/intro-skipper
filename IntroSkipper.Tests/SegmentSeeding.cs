@@ -33,8 +33,8 @@ internal static class SegmentSeeding
         => CommitAsync(database, new ReplaceUserSegmentsForModeIntent(itemId, mode, [.. ranges.Select(r => new SegmentRange(r.StartTicks, r.EndTicks))]));
 
     /// <summary>Sets whether the item's automatic segments are withheld from Jellyfin; idempotent in both directions.</summary>
-    public static Task SetItemDisabledAsync(this IIntroSkipperDatabase database, Guid seasonId, Guid itemId, bool disabled)
-        => CommitAsync(database, new SegmentVisibilityChangeIntent(itemId, seasonId, Visible: !disabled));
+    public static Task SetItemDisabledAsync(this IIntroSkipperDatabase database, Guid itemId, bool disabled)
+        => CommitAsync(database, new SegmentVisibilityChangeIntent(itemId, Visible: !disabled));
 
     /// <summary>
     /// Deletes a segment (automatic rows tombstone, user rows go for good). Returns the

@@ -506,7 +506,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
         {
             await db.Database.MigrateAsync();
-            db.DisabledItems.Add(new DbDisabledItem(fixture.SeasonId, fixture.EpisodeId));
+            db.DisabledItems.Add(new DbDisabledItem(fixture.EpisodeId));
             await db.SaveChangesAsync();
         }
 
