@@ -328,6 +328,71 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void GetDisplayedItemIds_IncludesVirtualEpisodes_AndKeepsUnknownKeysEmpty()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var emptySeasonId = Guid.NewGuid();
+        var orphanSeasonId = Guid.NewGuid();
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: string.Empty);
+        episode.IsVirtualItem = true;
+        var items = JellyfinItems.WithParents(
+            episode,
+            JellyfinItems.Season(emptySeasonId, seriesId, number: 2),
+            JellyfinItems.Season(orphanSeasonId, Guid.NewGuid()));
+        var resolver = CreateResolver(items);
+
+        Assert.Equal([episode.Id], resolver.GetDisplayedItemIds(seasonId));
+        foreach (var key in new[] { Guid.Empty, Guid.NewGuid(), episode.Id, emptySeasonId, orphanSeasonId })
+        {
+            Assert.Empty(resolver.GetDisplayedItemIds(key));
+        }
+
+        var optedOut = new LibraryOptions { DisabledMediaSegmentProviders = [Plugin.Instance!.Name] };
+        var optedOutResolver = EntrypointTestHelpers.CreateSeasonResolver(FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items, optedOut));
+        Assert.Empty(optedOutResolver.GetDisplayedItemIds(seasonId));
+    }
+
+    [Fact]
+    public void GetDisplayedItemIds_DoesNotTreatAFailedQueryAsAnEmptySeason()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var series = JellyfinItems.Series(Guid.NewGuid());
+        var season = JellyfinItems.Season(Guid.NewGuid(), series.Id);
+        var library = FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Media")],
+            _ => null!,
+            id => id == series.Id ? series : id == season.Id ? season : null);
+        var resolver = EntrypointTestHelpers.CreateSeasonResolver(library);
+
+        Assert.Throws<InvalidOperationException>(() => resolver.GetDisplayedItemIds(season.Id));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GetDisplayedItemIds_UsesTheSpecialsDisplaySettingForIneligibleEpisodes(bool specialsWithinSeasons)
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { SeriesExclusions = { "Series" } });
+        var seriesId = Guid.NewGuid();
+        var hostSeasonId = Guid.NewGuid();
+        var specialsSeasonId = Guid.NewGuid();
+        var hosted = JellyfinItems.Episode(Guid.NewGuid(), seriesId, specialsSeasonId, path: string.Empty, seasonNumber: 0);
+        hosted.AirsBeforeSeasonNumber = 1;
+        var library = FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Media")],
+            JellyfinItems.WithParents(hosted, JellyfinItems.Season(hostSeasonId, seriesId)));
+        var resolver = EntrypointTestHelpers.CreateSeasonResolver(
+            library, new ServerConfiguration { DisplaySpecialsWithinSeasons = specialsWithinSeasons });
+
+        Assert.Equal([hosted.Id], resolver.GetDisplayedItemIds(specialsSeasonId));
+        Assert.Equal(specialsWithinSeasons ? [hosted.Id] : [], resolver.GetDisplayedItemIds(hostSeasonId));
+        Assert.Empty(resolver.ResolveDisplayed(specialsSeasonId)!.Episodes);
+        Assert.Empty(resolver.ResolveDisplayed(hostSeasonId)!.Episodes);
+    }
+
+    [Fact]
     public void OwnersOf_AnswersTheSeriesOrMovieOfEachId_AndDropsUnknownIdsAndOptedOutLibraries()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());

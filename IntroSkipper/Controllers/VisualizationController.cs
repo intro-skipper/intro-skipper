@@ -169,7 +169,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        var itemIds = _seasonResolver.ResolveDisplayed(seasonId)?.Episodes.Select(episode => episode.EpisodeId) ?? [];
+        var itemIds = _seasonResolver.GetDisplayedItemIds(seasonId);
         return Ok(await _database.GetDisabledItemIdsAsync(itemIds, cancellationToken).ConfigureAwait(false));
     }
 

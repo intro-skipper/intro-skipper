@@ -252,6 +252,59 @@ public sealed class TestVisualizationController : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("/media/excluded/episode.mkv", false)]
+    [InlineData("/media/episode.mkv", true)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public async Task DisabledItems_ListsEpisodesRegardlessOfAnalysisEligibility(string? path, bool excludeSeries)
+    {
+        using var scope = CreateScope(new PluginConfiguration
+        {
+            PathExclusions = { "/media/excluded" },
+            SeriesExclusions = { excludeSeries ? "Series" : "Other Series" },
+        });
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: path!);
+        var enabled = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, episodeNumber: 2);
+        var other = JellyfinItems.Episode(Guid.NewGuid(), seriesId, Guid.NewGuid(), seasonNumber: 2);
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(episode, enabled, other));
+        var controller = CreateController(scope.CacheDbPath, library);
+        await _h.Database.SetItemDisabledAsync(seasonId, episode.Id, disabled: true);
+        await _h.Database.SetItemDisabledAsync(other.SeasonId, other.Id, disabled: true);
+
+        var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
+
+        Assert.Equal([episode.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(result.Value));
+        Assert.DoesNotContain(
+            EntrypointTestHelpers.CreateSeasonResolver(library).ResolveDisplayed(seasonId)!.Episodes,
+            queued => queued.EpisodeId == episode.Id);
+
+        await _h.Database.SetItemDisabledAsync(seasonId, episode.Id, disabled: false);
+        var enabledResult = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(seasonId)).Result);
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlySet<Guid>>(enabledResult.Value));
+    }
+
+    [Theory]
+    [InlineData("/media/excluded/feature.mkv")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task DisabledItems_ListsMoviesRegardlessOfAnalysisEligibility(string? path)
+    {
+        using var scope = CreateScope(new PluginConfiguration { PathExclusions = { "/media/excluded" } });
+        var movie = JellyfinItems.Movie(Guid.NewGuid(), path: path!);
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], [movie]);
+        var controller = CreateController(scope.CacheDbPath, library);
+        await _h.Database.SetItemDisabledAsync(movie.Id, movie.Id, disabled: true);
+
+        var result = Assert.IsType<OkObjectResult>((await controller.GetDisabledItems(movie.Id)).Result);
+
+        Assert.Equal([movie.Id], Assert.IsAssignableFrom<IReadOnlySet<Guid>>(result.Value));
+        Assert.Empty(EntrypointTestHelpers.CreateSeasonResolver(library).ResolveDisplayed(movie.Id)!.Episodes);
+    }
+
     [Fact]
     public async Task DisabledItems_EpisodeWithoutSeason_FallsBackToItsOwnKey()
     {

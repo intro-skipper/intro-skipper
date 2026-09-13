@@ -106,6 +106,39 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     }
 
     /// <summary>
+    /// Lists the items Jellyfin shows under a displayed season, regardless of analysis
+    /// eligibility, so persisted visibility flags remain available for excluded or
+    /// pathless items. A movie lists its own id; unknown keys return an empty list.
+    /// </summary>
+    /// <param name="key">The displayed season or movie id.</param>
+    /// <returns>The displayed item ids.</returns>
+    /// <exception cref="InvalidOperationException">The library returned no result for the series' episodes.</exception>
+    internal IReadOnlyList<Guid> GetDisplayedItemIds(Guid key)
+    {
+        var item = FindItem(key);
+        if (item is Movie)
+        {
+            return [key];
+        }
+
+        if (item is not Season season || FindSeries(season.SeriesId) is not { } series)
+        {
+            return [];
+        }
+
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            AncestorIds = [series.Id],
+        };
+        var items = _libraryManager.GetItemList(query, false)
+            ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
+
+        return [.. items.OfType<Episode>().Where(episode => IsShownIn(episode, season)).Select(episode => episode.Id).Distinct()];
+    }
+
+    /// <summary>
     /// Lists the series and movies of every library the plugin is enabled for, in sort
     /// name order. A library that cannot be enumerated is logged, skipped and counted.
     /// </summary>
