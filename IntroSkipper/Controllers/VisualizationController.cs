@@ -272,9 +272,10 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Queues a manual scan of the episodes Jellyfin shows under the provided season: the
-    /// queue erases their timestamps and cache, then analyzes each in the season it is
-    /// analyzed in, as its own pass once any pass in flight has finished.
+    /// Queues a manual scan of the episodes Jellyfin shows under the provided season: as
+    /// its own pass once any pass in flight has finished, the queue resolves the season
+    /// again, erases its timestamps and cache, then analyzes each episode in the season it
+    /// is analyzed in, which for an in-season special is its host season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -284,9 +285,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        // The episodes Jellyfin shows under the season. The pass analyzes the seasons they
-        // are analyzed in, which for an in-season special is its host season, so a scan of
-        // Specials reaches every special.
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
@@ -297,9 +295,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         // The handle is dropped: the request has already returned, and the queue logs a
         // failed erase or pass itself.
         _ = _queue.ScanAsync(
+            seriesId,
             seasonId,
-            season.Episodes.Select(e => e.EpisodeId).ToHashSet(),
-            cancellationToken => EraseAsync(seriesId, seasonId, season, eraseCache: true, cancellationToken));
+            (resolved, cancellationToken) => EraseAsync(seriesId, seasonId, resolved, eraseCache: true, cancellationToken));
 
         return Accepted();
     }

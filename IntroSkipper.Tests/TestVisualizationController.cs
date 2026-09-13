@@ -634,16 +634,20 @@ public sealed class TestVisualizationController : IDisposable
     // An analysis queue over the harness database that is never started: nothing it is
     // handed runs, so its status shows exactly what the controller queued.
     private AnalysisScheduler CreateQueue(string cacheDbPath, ILibraryManager? libraryManager)
-        => new(
+    {
+        var seasonResolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
+        return new(
             new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                seasonResolver,
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
                 _h.Database),
+            seasonResolver,
             TimeProvider.System,
             NullLogger<AnalysisScheduler>.Instance);
+    }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool updateMediaSegments)
         => CreateScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });

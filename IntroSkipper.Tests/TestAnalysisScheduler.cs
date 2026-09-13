@@ -6,22 +6,26 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.Services;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 /// <summary>
 /// The analysis queue over the real analyzer, a fake library holding one season with one
-/// episode on disk, and a fake clock. Every pass goes through the ffmpeg stub's version
-/// check, which the harness can park on a gate to hold a pass in flight; a completed pass
-/// leaves an analysis record for the episode.
+/// episode on disk, and a fake clock. Every pass that analyzes something goes through the
+/// ffmpeg stub's version check, which the harness can park on a gate to hold a pass in
+/// flight; a completed pass leaves an analysis record for the episode.
 /// </summary>
 public sealed class TestAnalysisScheduler
 {
@@ -45,7 +49,7 @@ public sealed class TestAnalysisScheduler
         h.Time.Advance(TimeSpan.FromSeconds(21));
 
         await Task.WhenAll(first, second).WaitAsync(Timeout);
-        Assert.True(await h.IsAnalyzedAsync());
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
         Assert.Equal(1, h.Ffmpeg.VersionCheckCalls);
     }
 
@@ -53,7 +57,7 @@ public sealed class TestAnalysisScheduler
     public async Task ChangedItem_ThatWaitedBehindAPass_RunsAsSoonAsThePassEnds()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
@@ -70,7 +74,7 @@ public sealed class TestAnalysisScheduler
     public async Task ChangedItem_ArrivingDuringAPass_StillWaitsOutItsQuietPeriod()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
 
@@ -86,7 +90,7 @@ public sealed class TestAnalysisScheduler
     public async Task ManualScan_RunsAsItsOwnPassAheadOfALibraryPass_ErasingFirst()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var first = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ =>
+        var first = h.Scan((_, _) =>
         {
             h.Record("erase A");
             return Task.CompletedTask;
@@ -94,7 +98,7 @@ public sealed class TestAnalysisScheduler
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
         var library = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
-        var second = h.Queue.ScanAsync(Guid.NewGuid(), [h.EpisodeId], _ =>
+        var second = h.Scan((_, _) =>
         {
             // A failed erase is logged and the scan still analyzes.
             h.Record("erase B");
@@ -110,10 +114,42 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task ManualScan_ResolvesTheSeasonWhenItsPassStarts()
+    {
+        await using var h = QueueHarness.Create();
+        Assert.IsType<AcceptedResult>(h.Controller.ScanSeason(h.SeriesId, h.SeasonId));
+
+        // An episode added to the season after the scan was requested, with a segment of
+        // its own; a second request for the same season merges into the pending scan.
+        var added = JellyfinItems.Episode(Guid.NewGuid(), h.SeriesId, h.SeasonId, episodeNumber: 2, path: h.MediaPath);
+        h.Items.Add(added);
+        await h.Segments.Database.ReplaceAutoSegmentsAsync(added.Id, AnalysisMode.Introduction, [new Segment(added.Id, new TimeRange(10, 20))], SegmentSource.Chapter);
+        Assert.IsType<AcceptedResult>(h.Controller.ScanSeason(h.SeriesId, h.SeasonId));
+        Assert.Equal(1, h.Queue.Status.ManualScans);
+
+        var drained = h.Drain();
+        await h.Queue.StartAsync(CancellationToken.None);
+        await drained.WaitAsync(Timeout);
+
+        Assert.Empty(await h.Segments.Database.GetSegmentsAsync(added.Id));
+        Assert.True(await h.IsAnalyzedAsync(added.Id));
+    }
+
+    [Fact]
+    public async Task ManualScan_OfASeasonThatNoLongerResolves_CompletesWithoutRunning()
+    {
+        await using var h = await QueueHarness.StartAsync();
+
+        await h.Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid(), (_, _) => throw new InvalidOperationException("never erased")).WaitAsync(Timeout);
+
+        Assert.Equal(0, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
     public async Task LibraryPass_WaitsForThePassInFlight_AbsorbsChangedItems_AndReportsProgress()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
         var progress = new RecordingProgress();
@@ -136,7 +172,7 @@ public sealed class TestAnalysisScheduler
         using var cancellation = new CancellationTokenSource();
         var library = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
 
         await cancellation.CancelAsync();
 
@@ -147,10 +183,36 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
-    public async Task LibraryRequest_CancelledWhileWaiting_ReturnsAtOnceAndIsDropped()
+    public async Task LibraryPass_Cancellation_PutsTheAbsorbedChangesBack()
+    {
+        await using var h = QueueHarness.Create(gated: true);
+        var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
+        using var cancellation = new CancellationTokenSource();
+        var library = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
+        await h.Queue.StartAsync(CancellationToken.None);
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => library.WaitAsync(Timeout));
+
+        // The change is pending again and still owes its quiet period from the change.
+        await h.Drain().WaitAsync(Timeout);
+        Assert.False(changed.IsCompleted);
+        Assert.Equal(1, h.Queue.Status.ChangedItems);
+
+        h.Ffmpeg.Gate.SetResult();
+        h.Time.Advance(TimeSpan.FromMinutes(2));
+
+        await changed.WaitAsync(Timeout);
+        Assert.Equal(2, h.Ffmpeg.VersionCheckCalls);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
+    public async Task LibraryRequest_CancelledWhileWaiting_ReturnsAtOnceAndIsWithdrawn()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         using var cancellation = new CancellationTokenSource();
         var library = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
@@ -158,22 +220,46 @@ public sealed class TestAnalysisScheduler
         await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => library.WaitAsync(Timeout));
+        Assert.False(h.Queue.Status.LibraryPending);
         h.Ffmpeg.Gate.SetResult();
         await scan.WaitAsync(Timeout);
-        await WaitUntilAsync(() => !h.Queue.Status.LibraryPending);
         Assert.Equal(1, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
+    public async Task LibraryRequest_RestartedAfterACancelledOne_Runs()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holding = h.Scan(async (_, cancellationToken) =>
+        {
+            entered.SetResult();
+            await gate.Task.WaitAsync(cancellationToken);
+        });
+        await entered.Task.WaitAsync(Timeout);
+
+        // The scheduled task is cancelled while waiting behind the scan, then started again.
+        using var cancellation = new CancellationTokenSource();
+        var first = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first.WaitAsync(Timeout));
+        var restarted = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+
+        gate.SetResult();
+        await Task.WhenAll(holding, restarted).WaitAsync(Timeout);
+        Assert.Equal(2, h.Ffmpeg.VersionCheckCalls);
     }
 
     [Fact]
     public async Task RepeatedRequests_MergeAndCompleteTogether()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var holding = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var holding = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
-        var otherKey = Guid.NewGuid();
-        var firstScan = h.Queue.ScanAsync(otherKey, [h.EpisodeId], _ => Task.CompletedTask);
-        var secondScan = h.Queue.ScanAsync(otherKey, [h.EpisodeId], _ => Task.CompletedTask);
+        var firstScan = h.Scan();
+        var secondScan = h.Scan();
         var firstChange = h.Queue.ItemChangedAsync(h.EpisodeId);
         var secondChange = h.Queue.ItemChangedAsync(h.EpisodeId);
         Assert.Equal(new AnalysisSchedulerStatus(PassRunning: true, ChangedItems: 1, ManualScans: 1, LibraryPending: false), h.Queue.Status);
@@ -191,12 +277,12 @@ public sealed class TestAnalysisScheduler
         var calls = 0;
         await using var h = await QueueHarness.StartAsync(versionCheck: () => ++calls == 1 ? throw new InvalidOperationException("ffmpeg exploded") : false);
 
-        var failed = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var failed = h.Scan();
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => failed.WaitAsync(Timeout));
         Assert.Equal("ffmpeg exploded", exception.Message);
 
-        await h.Queue.ScanAsync(Guid.NewGuid(), [h.EpisodeId], _ => Task.CompletedTask).WaitAsync(Timeout);
-        Assert.True(await h.IsAnalyzedAsync());
+        await h.Scan().WaitAsync(Timeout);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
     }
 
     [Fact]
@@ -209,7 +295,7 @@ public sealed class TestAnalysisScheduler
         Assert.False(h.Queue.Status.IsRunning);
         Assert.Equal(1, h.Queue.Status.ChangedItems);
 
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         Assert.True(h.Queue.Status.IsRunning);
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         Assert.True(h.Queue.Status.PassRunning);
@@ -225,7 +311,7 @@ public sealed class TestAnalysisScheduler
     public async Task Stop_CancelsThePassInFlight_AndDropsPendingRequests()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var scan = h.Queue.ScanAsync(h.SeasonId, [h.EpisodeId], _ => Task.CompletedTask);
+        var scan = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
 
@@ -235,7 +321,35 @@ public sealed class TestAnalysisScheduler
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => changed.WaitAsync(Timeout));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => h.Queue.ItemChangedAsync(h.EpisodeId));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None));
-        Assert.False(await h.IsAnalyzedAsync());
+        Assert.False(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
+    public async Task Stop_WithAnExpiredHostDeadline_StillCancelsTheDroppedRequests()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // The erase ignores cancellation, so the pass outlives the host's shutdown budget.
+        var holding = h.Scan(async (_, _) =>
+        {
+            entered.SetResult();
+            await gate.Task;
+        });
+        await entered.Task.WaitAsync(Timeout);
+        var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
+        var pendingScan = h.Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid(), (_, _) => Task.CompletedTask);
+        var library = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => h.Queue.StopAsync(new CancellationToken(canceled: true)));
+
+        Assert.True(changed.IsCanceled);
+        Assert.True(pendingScan.IsCanceled);
+        Assert.True(library.IsCanceled);
+
+        gate.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => holding.WaitAsync(Timeout));
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
@@ -285,7 +399,6 @@ public sealed class TestAnalysisScheduler
     private sealed class QueueHarness : IAsyncDisposable
     {
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
-        private readonly string _mediaPath;
         private readonly List<string> _events = [];
 
         private QueueHarness(bool gated, Func<bool>? versionCheck)
@@ -299,10 +412,10 @@ public sealed class TestAnalysisScheduler
                 ScanCommercial = false,
             };
             _scope = EntrypointTestHelpers.CreatePluginScope(config, []);
-            _mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
-            File.WriteAllText(_mediaPath, string.Empty);
-            var episode = JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: _mediaPath);
-            var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], JellyfinItems.WithParents(episode));
+            MediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+            File.WriteAllText(MediaPath, string.Empty);
+            Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath))];
+            var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], Items);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
 
             Ffmpeg = new GatedFfmpeg(gated)
@@ -313,16 +426,17 @@ public sealed class TestAnalysisScheduler
                     return versionCheck is null ? false : versionCheck();
                 },
             };
-            Database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-            var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+            var resolver = EntrypointTestHelpers.CreateSeasonResolver(library);
+            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(_scope.CacheDbPath);
             var analyzer = new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                EntrypointTestHelpers.CreateSeasonResolver(library),
+                resolver,
                 Ffmpeg,
-                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-                DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-                Database);
-            Queue = new AnalysisScheduler(analyzer, Time, NullLogger<AnalysisScheduler>.Instance);
+                DatabaseTestHelpers.CreateCacheService(_scope.CacheDbPath),
+                cacheDatabase,
+                Segments.Database);
+            Queue = new AnalysisScheduler(analyzer, resolver, Time, NullLogger<AnalysisScheduler>.Instance);
+            Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database, cacheDatabase);
         }
 
         public Guid SeriesId { get; } = Guid.NewGuid();
@@ -331,13 +445,20 @@ public sealed class TestAnalysisScheduler
 
         public Guid EpisodeId { get; } = Guid.NewGuid();
 
+        public string MediaPath { get; }
+
+        /// <summary>Gets the library's items; the fake reads this list live, so tests can add to it.</summary>
+        public List<BaseItem> Items { get; }
+
         public FakeTimeProvider Time { get; } = new();
 
         public GatedFfmpeg Ffmpeg { get; }
 
+        public SegmentChangeHarness Segments { get; } = new();
+
         public AnalysisScheduler Queue { get; }
 
-        public IntroSkipperDatabase Database { get; }
+        public VisualizationController Controller { get; }
 
         /// <summary>Gets the erases and pass starts in the order they happened.</summary>
         public IReadOnlyList<string> Events
@@ -351,12 +472,21 @@ public sealed class TestAnalysisScheduler
             }
         }
 
+        public static QueueHarness Create(bool gated = false, Func<bool>? versionCheck = null) => new(gated, versionCheck);
+
         public static async Task<QueueHarness> StartAsync(bool gated = false, Func<bool>? versionCheck = null)
         {
-            var harness = new QueueHarness(gated, versionCheck);
+            var harness = Create(gated, versionCheck);
             await harness.Queue.StartAsync(CancellationToken.None);
             return harness;
         }
+
+        /// <summary>Queues a manual scan of the harness season.</summary>
+        public Task Scan(Func<DisplayedSeason, CancellationToken, Task>? erase = null)
+            => Queue.ScanAsync(SeriesId, SeasonId, erase ?? ((_, _) => Task.CompletedTask));
+
+        /// <summary>Queues a scan of a season that does not exist: it completes at its turn without running, marking that everything queued before it has run.</summary>
+        public Task Drain() => Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid(), (_, _) => Task.CompletedTask);
 
         public void Record(string @event)
         {
@@ -366,18 +496,19 @@ public sealed class TestAnalysisScheduler
             }
         }
 
-        public async Task<bool> IsAnalyzedAsync()
+        public async Task<bool> IsAnalyzedAsync(Guid episodeId)
         {
-            var snapshot = await Database.GetSeasonQueueSnapshotAsync(SeasonId, [EpisodeId]);
-            return snapshot.AnalysisRecords.ContainsKey((EpisodeId, AnalysisMode.Introduction));
+            var snapshot = await Segments.Database.GetSeasonQueueSnapshotAsync(SeasonId, [episodeId]);
+            return snapshot.AnalysisRecords.ContainsKey((episodeId, AnalysisMode.Introduction));
         }
 
         public async ValueTask DisposeAsync()
         {
             await Queue.StopAsync(CancellationToken.None);
             Queue.Dispose();
+            Segments.Dispose();
             _scope.Dispose();
-            File.Delete(_mediaPath);
+            File.Delete(MediaPath);
         }
     }
 }

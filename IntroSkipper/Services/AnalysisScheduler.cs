@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Threading.Channels;
+using IntroSkipper.Data;
+using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,9 +11,9 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Services;
 
 /// <summary>
-/// Runs every analysis pass, one at a time, on one worker. Feeders enqueue a request and
-/// get a handle that completes with the pass that covered it, is cancelled when shutdown
-/// drops it, and faults when the pass threw.
+/// The analysis queue: runs every analysis pass, one at a time, on one worker. Feeders
+/// enqueue a request and get a handle that completes with the pass that covered it, is
+/// cancelled when shutdown drops it, and faults when the pass threw.
 /// </summary>
 /// <remarks>
 /// Three kinds of request. Changed items (from the library watcher) run together once the
@@ -19,17 +21,23 @@ namespace IntroSkipper.Services;
 /// and is measured from the change, so an item that waited behind a running pass runs as
 /// soon as that pass ends. A manual scan (from the dashboard) runs as its own pass, erase
 /// then analyze, ahead of any pending library pass and as soon as the worker is free;
-/// nothing absorbs it, and a repeated key merges into the pending scan. A library pass
-/// (from the scheduled task) starts once the worker is free and every pending manual scan
-/// has run; it absorbs the pending changed items, which complete with it. A pass waits for
-/// the pass in flight; only the scheduled task's own token or shutdown cancels a running
-/// pass. Requests arriving during a pass wait for the next one. Pending requests are
-/// dropped on shutdown.
+/// nothing absorbs it, a repeated key merges into the pending scan, and the season is
+/// resolved when the pass starts, not when the scan was requested. A library pass (from the
+/// scheduled task) starts once the worker is free and every pending manual scan has run; it
+/// absorbs the pending changed items, which complete with it, and puts them back if it is
+/// cancelled. A pass waits for the pass in flight; only the scheduled task's own token or
+/// shutdown cancels a running pass. Requests arriving during a pass wait for the next one.
+/// Pending requests are dropped on shutdown.
 /// </remarks>
 /// <param name="analyzer">Analyzer run by every pass.</param>
+/// <param name="seasonResolver">Resolver of the season a manual scan erases and analyzes.</param>
 /// <param name="timeProvider">Clock for the quiet period.</param>
 /// <param name="logger">Logger.</param>
-public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, TimeProvider timeProvider, ILogger<AnalysisScheduler> logger) : IHostedService, IDisposable
+public sealed partial class AnalysisScheduler(
+    BaseItemAnalyzerTask analyzer,
+    SeasonResolver seasonResolver,
+    TimeProvider timeProvider,
+    ILogger<AnalysisScheduler> logger) : IHostedService, IDisposable
 {
     /// <summary>
     /// The time changed items wait after the most recent change before their pass starts.
@@ -39,16 +47,17 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
     private static readonly Progress<double> NoProgress = new();
 
     private readonly BaseItemAnalyzerTask _analyzer = analyzer;
+    private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly TimeProvider _timeProvider = timeProvider;
     private readonly ILogger<AnalysisScheduler> _logger = logger;
     private readonly Lock _lock = new();
     private readonly HashSet<Guid> _changedItems = [];
     private readonly List<TaskCompletionSource> _changedCompletions = [];
     private readonly List<ManualScan> _manualScans = [];
+    private readonly List<LibraryCaller> _libraryCallers = [];
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
     private readonly CancellationTokenSource _stopping = new();
     private DateTimeOffset _lastChange;
-    private LibraryPass? _libraryPass;
     private Task? _worker;
     private volatile bool _passRunning;
     private bool _stopped;
@@ -69,7 +78,7 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
         {
             lock (_lock)
             {
-                return new AnalysisSchedulerStatus(_passRunning, _changedItems.Count, _manualScans.Count, _libraryPass is not null);
+                return new AnalysisSchedulerStatus(_passRunning, _changedItems.Count, _manualScans.Count, _libraryCallers.Count > 0);
             }
         }
     }
@@ -100,15 +109,17 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
     }
 
     /// <summary>
-    /// Queues a manual scan: its own pass that erases first and then analyzes, ahead of any
-    /// pending library pass. An erase failure is logged and the analysis still runs. A scan
-    /// for a key that is already pending merges into it.
+    /// Queues a manual scan: its own pass that resolves the season the dashboard shows
+    /// under the key, erases it, then analyzes it, ahead of any pending library pass. An
+    /// erase failure is logged and the analysis still runs. A scan for a key that is
+    /// already pending merges into it. A key that no longer resolves to a season of the
+    /// series when the pass starts completes without running.
     /// </summary>
+    /// <param name="seriesId">The series the season is requested under.</param>
     /// <param name="key">The season key the scan is requested for.</param>
-    /// <param name="itemIds">The ids of the episodes or movie to erase and analyze.</param>
-    /// <param name="erase">Erases the items' timestamps and cache; runs on the worker before the analysis.</param>
+    /// <param name="erase">Erases the season's timestamps and cache; runs on the worker before the analysis.</param>
     /// <returns>A task that completes with the scan's pass.</returns>
-    public Task ScanAsync(Guid key, IReadOnlyCollection<Guid> itemIds, Func<CancellationToken, Task> erase)
+    internal Task ScanAsync(Guid seriesId, Guid key, Func<DisplayedSeason, CancellationToken, Task> erase)
     {
         var completion = NewCompletion();
         lock (_lock)
@@ -124,7 +135,7 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
             }
             else
             {
-                _manualScans.Add(new ManualScan(key, itemIds, erase, [completion]));
+                _manualScans.Add(new ManualScan(seriesId, key, erase, [completion]));
             }
         }
 
@@ -138,12 +149,12 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
     /// changed items. A second request while one is pending shares its pass.
     /// </summary>
     /// <param name="progress">Progress of the pass.</param>
-    /// <param name="cancellationToken">Cancels this pass only, pending or running; other requests stay queued.</param>
+    /// <param name="cancellationToken">Cancels this request only: withdraws it while it waits, or cancels the pass once it runs. Other requests stay queued.</param>
     /// <returns>A task that completes when the pass has run.</returns>
-    /// <exception cref="OperationCanceledException">The pass was cancelled, or the queue has stopped.</exception>
+    /// <exception cref="OperationCanceledException">The request was cancelled, or the queue has stopped.</exception>
     public async Task RunLibraryAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var completion = NewCompletion();
+        var caller = new LibraryCaller(progress, NewCompletion(), cancellationToken);
         lock (_lock)
         {
             if (_stopped)
@@ -151,21 +162,23 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
                 throw new OperationCanceledException("The analysis queue has stopped.");
             }
 
-            if (_libraryPass is { } pending)
-            {
-                pending.Completions.Add(completion);
-            }
-            else
-            {
-                _libraryPass = new LibraryPass(progress, [completion], cancellationToken);
-            }
+            _libraryCallers.Add(caller);
         }
 
         Wake();
 
-        // Returns as soon as the caller cancels, even while the pass waits behind another;
-        // the worker then drops the pending request or cancels the running pass.
-        await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // A caller that cancels while waiting withdraws its request before returning, so
+        // a later request never inherits a cancelled one; a pass already running sees the
+        // token through its linked source. Either way the caller returns at once.
+        try
+        {
+            await caller.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Withdraw(caller);
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -182,19 +195,17 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
         lock (_lock)
         {
             _stopped = true;
-            dropped = [.. _changedCompletions, .. _manualScans.SelectMany(scan => scan.Completions), .. _libraryPass?.Completions ?? []];
+            dropped = [.. _changedCompletions, .. _manualScans.SelectMany(scan => scan.Completions), .. _libraryCallers.Select(caller => caller.Completion)];
             _changedItems.Clear();
             _changedCompletions.Clear();
             _manualScans.Clear();
-            _libraryPass = null;
+            _libraryCallers.Clear();
         }
 
         await _stopping.CancelAsync().ConfigureAwait(false);
-        if (_worker is { } worker)
-        {
-            await worker.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
 
+        // Dropped requests are cancelled before the wait on the worker, so a host deadline
+        // that expires while a pass ignores cancellation still leaves no handle pending.
         foreach (var completion in dropped)
         {
             completion.TrySetCanceled(_stopping.Token);
@@ -204,6 +215,11 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
         {
             LogStoppedWithPendingRequests(_logger, dropped.Count);
         }
+
+        if (_worker is { } worker)
+        {
+            await worker.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -212,6 +228,16 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
     private static TaskCompletionSource NewCompletion() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private void Wake() => _wake.Writer.TryWrite(true);
+
+    private void Withdraw(LibraryCaller caller)
+    {
+        lock (_lock)
+        {
+            _libraryCallers.Remove(caller);
+        }
+
+        caller.Completion.TrySetCanceled(caller.CancellationToken);
+    }
 
     private async Task RunWorkerAsync(CancellationToken stoppingToken)
     {
@@ -245,27 +271,18 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
             {
                 var scan = _manualScans[0];
                 _manualScans.RemoveAt(0);
-                return (new Pass(PassKind.ManualScan, scan.ItemIds, scan.Erase, NoProgress, scan.Completions, CancellationToken.None), null);
+                return (new Pass(PassKind.ManualScan, scan, null, NoProgress, scan.Completions, null, []), null);
             }
 
-            if (_libraryPass is { } library)
+            if (_libraryCallers.Count > 0)
             {
-                _libraryPass = null;
-                if (library.CancellationToken.IsCancellationRequested)
-                {
-                    // The scheduled task was cancelled while waiting; its call has already returned.
-                    foreach (var completion in library.Completions)
-                    {
-                        completion.TrySetCanceled(library.CancellationToken);
-                    }
-                }
-                else
-                {
-                    library.Completions.AddRange(_changedCompletions);
-                    _changedItems.Clear();
-                    _changedCompletions.Clear();
-                    return (new Pass(PassKind.Library, null, null, library.Progress, library.Completions, library.CancellationToken), null);
-                }
+                var callers = _libraryCallers.ToArray();
+                _libraryCallers.Clear();
+                var absorbed = new Absorbed([.. _changedItems], [.. _changedCompletions]);
+                _changedItems.Clear();
+                _changedCompletions.Clear();
+                IProgress<double> progress = callers.Length == 1 ? callers[0].Progress : new ForwardingProgress([.. callers.Select(caller => caller.Progress)]);
+                return (new Pass(PassKind.Library, null, null, progress, [.. callers.Select(caller => caller.Completion)], absorbed, [.. callers.Select(caller => caller.CancellationToken)]), null);
             }
 
             if (_changedItems.Count == 0)
@@ -279,7 +296,7 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
                 return (null, due);
             }
 
-            var changed = new Pass(PassKind.ChangedItems, [.. _changedItems], null, NoProgress, [.. _changedCompletions], CancellationToken.None);
+            var changed = new Pass(PassKind.ChangedItems, null, [.. _changedItems], NoProgress, [.. _changedCompletions], null, []);
             _changedItems.Clear();
             _changedCompletions.Clear();
             return (changed, null);
@@ -314,49 +331,35 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
 
     private async Task RunPassAsync(Pass pass, CancellationToken stoppingToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, pass.CancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource([stoppingToken, .. pass.CancellationTokens]);
         var cancellationToken = linked.Token;
         _passRunning = true;
-        LogPassStarting(_logger, pass.Kind, pass.ItemIds?.Count ?? 0);
+        LogPassStarting(_logger, pass.Kind);
         try
         {
-            if (pass.Erase is { } erase)
+            if (pass.Scan is { } scan)
             {
-                try
-                {
-                    await erase(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LogEraseFailed(_logger, ex);
-                }
+                await RunScanAsync(scan, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await _analyzer.AnalyzeItemsAsync(pass.Progress, cancellationToken, pass.ItemIds).ConfigureAwait(false);
             }
 
-            await _analyzer.AnalyzeItemsAsync(pass.Progress, cancellationToken, pass.ItemIds).ConfigureAwait(false);
-            foreach (var completion in pass.Completions)
-            {
-                completion.TrySetResult();
-            }
+            Settle(pass.Completions, completion => completion.TrySetResult());
+            Settle(pass.Absorbed?.Completions, completion => completion.TrySetResult());
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             LogPassCancelled(_logger, pass.Kind);
-            foreach (var completion in pass.Completions)
-            {
-                completion.TrySetCanceled(cancellationToken);
-            }
+            Settle(pass.Completions, completion => completion.TrySetCanceled(cancellationToken));
+            Requeue(pass.Absorbed);
         }
         catch (Exception ex)
         {
             LogPassFailed(_logger, ex, pass.Kind);
-            foreach (var completion in pass.Completions)
-            {
-                completion.TrySetException(ex);
-            }
+            Settle(pass.Completions, completion => completion.TrySetException(ex));
+            Settle(pass.Absorbed?.Completions, completion => completion.TrySetException(ex));
         }
         finally
         {
@@ -364,8 +367,66 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Starting analysis pass: {Kind} ({Count} requested items)")]
-    private static partial void LogPassStarting(ILogger logger, PassKind kind, int count);
+    // The season is resolved now, not when the scan was requested, so a season that
+    // changed while the scan waited is erased and analyzed as it is.
+    private async Task RunScanAsync(ManualScan scan, CancellationToken cancellationToken)
+    {
+        if (_seasonResolver.ResolveDisplayed(scan.Key) is not { } season || season.SeriesId != scan.SeriesId)
+        {
+            LogScanSeasonGone(_logger, scan.Key);
+            return;
+        }
+
+        try
+        {
+            await scan.Erase(season, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogEraseFailed(_logger, ex, scan.Key);
+        }
+
+        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, season.Episodes.Select(episode => episode.EpisodeId).ToHashSet()).ConfigureAwait(false);
+    }
+
+    // Changed items a cancelled library pass absorbed go back to the changed set, so a
+    // cancelled scheduled task never loses them; their quiet period is still measured
+    // from the change, so they run next.
+    private void Requeue(Absorbed? absorbed)
+    {
+        if (absorbed is null || absorbed.Completions.Count == 0)
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            if (!_stopped)
+            {
+                _changedItems.UnionWith(absorbed.Items);
+                _changedCompletions.AddRange(absorbed.Completions);
+                Wake();
+                return;
+            }
+        }
+
+        Settle(absorbed.Completions, completion => completion.TrySetCanceled(_stopping.Token));
+    }
+
+    private static void Settle(List<TaskCompletionSource>? completions, Action<TaskCompletionSource> settle)
+    {
+        foreach (var completion in completions ?? [])
+        {
+            settle(completion);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting analysis pass: {Kind}")]
+    private static partial void LogPassStarting(ILogger logger, PassKind kind);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Analysis pass cancelled: {Kind}")]
     private static partial void LogPassCancelled(ILogger logger, PassKind kind);
@@ -373,17 +434,40 @@ public sealed partial class AnalysisScheduler(BaseItemAnalyzerTask analyzer, Tim
     [LoggerMessage(Level = LogLevel.Error, Message = "Analysis pass failed: {Kind}")]
     private static partial void LogPassFailed(ILogger logger, Exception exception, PassKind kind);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase the season before its manual scan; analyzing anyway")]
-    private static partial void LogEraseFailed(ILogger logger, Exception exception);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase season {Key} before its manual scan; analyzing anyway")]
+    private static partial void LogEraseFailed(ILogger logger, Exception exception, Guid key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping the manual scan of {Key}: it no longer resolves to a season of the requested series")]
+    private static partial void LogScanSeasonGone(ILogger logger, Guid key);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Analysis queue stopped; {Count} pending requests dropped")]
     private static partial void LogStoppedWithPendingRequests(ILogger logger, int count);
 
-    private sealed record ManualScan(Guid Key, IReadOnlyCollection<Guid> ItemIds, Func<CancellationToken, Task> Erase, List<TaskCompletionSource> Completions);
+    private sealed record ManualScan(Guid SeriesId, Guid Key, Func<DisplayedSeason, CancellationToken, Task> Erase, List<TaskCompletionSource> Completions);
 
-    private sealed record LibraryPass(IProgress<double> Progress, List<TaskCompletionSource> Completions, CancellationToken CancellationToken);
+    private sealed record LibraryCaller(IProgress<double> Progress, TaskCompletionSource Completion, CancellationToken CancellationToken);
 
-    private sealed record Pass(PassKind Kind, IReadOnlyCollection<Guid>? ItemIds, Func<CancellationToken, Task>? Erase, IProgress<double> Progress, List<TaskCompletionSource> Completions, CancellationToken CancellationToken);
+    private sealed record Absorbed(IReadOnlyCollection<Guid> Items, List<TaskCompletionSource> Completions);
+
+    private sealed record Pass(
+        PassKind Kind,
+        ManualScan? Scan,
+        IReadOnlyCollection<Guid>? ItemIds,
+        IProgress<double> Progress,
+        List<TaskCompletionSource> Completions,
+        Absorbed? Absorbed,
+        IReadOnlyList<CancellationToken> CancellationTokens);
+
+    private sealed class ForwardingProgress(IReadOnlyList<IProgress<double>> targets) : IProgress<double>
+    {
+        public void Report(double value)
+        {
+            foreach (var target in targets)
+            {
+                target.Report(value);
+            }
+        }
+    }
 }
 
 /// <summary>

@@ -48,14 +48,16 @@ internal static class EntrypointTestHelpers
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
         var ffmpeg = ffmpegService ?? new StubFFmpegService { VersionCheck = () => true };
         var library = FakeLibraryEvents.Create(out var libraryManager);
+        var seasonResolver = CreateSeasonResolver(null);
         var queue = new AnalysisScheduler(
             new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                CreateSeasonResolver(null),
+                seasonResolver,
                 ffmpeg,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
                 cacheDatabase,
                 database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
+            seasonResolver,
             TimeProvider.System,
             NullLogger<AnalysisScheduler>.Instance);
 
