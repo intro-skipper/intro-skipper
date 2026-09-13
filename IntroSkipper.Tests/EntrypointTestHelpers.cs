@@ -14,9 +14,11 @@ using System.Runtime.Serialization;
 using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -48,23 +50,37 @@ internal static class EntrypointTestHelpers
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
         var ffmpeg = ffmpegService ?? new StubFFmpegService { VersionCheck = () => true };
         var library = FakeLibraryEvents.Create(out var libraryManager);
-        var seasonResolver = CreateSeasonResolver(null);
-        var queue = new AnalysisScheduler(
-            new BaseItemAnalyzerTask(
-                NullLoggerFactory.Instance,
-                seasonResolver,
-                ffmpeg,
-                cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
-                cacheDatabase,
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
-            seasonResolver,
-            TimeProvider.System,
-            NullLogger<AnalysisScheduler>.Instance);
+        var queue = CreateQueue(CreateSeasonResolver(null), ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase(), resolvedCacheDbPath);
 
         return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, ffmpeg, NullLogger<Entrypoint>.Instance, queue), queue, library);
     }
 
     internal sealed record EntrypointHarness(Entrypoint Entrypoint, AnalysisScheduler Queue, FakeLibraryEvents Library);
+
+    /// <summary>
+    /// An analysis queue over the real analyzer, wired the way the plugin wires it, not
+    /// started. The resolver, ffmpeg, segment database and cache database path are the
+    /// seams tests vary; the eraser defaults to a no-op stub and the clock to the system.
+    /// </summary>
+    internal static AnalysisScheduler CreateQueue(
+        SeasonResolver seasonResolver,
+        IFFmpegService ffmpegService,
+        IIntroSkipperDatabase database,
+        string cacheDbPath,
+        ISegmentEraser? eraser = null,
+        TimeProvider? timeProvider = null)
+        => new(
+            new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                seasonResolver,
+                ffmpegService,
+                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+                DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+                database),
+            seasonResolver,
+            eraser ?? new StubSegmentEraser(),
+            timeProvider ?? TimeProvider.System,
+            NullLogger<AnalysisScheduler>.Instance);
 
     /// <summary>
     /// A season resolver over the given library manager and server configuration (the

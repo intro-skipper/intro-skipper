@@ -30,13 +30,6 @@ public sealed class TestSeasonReanalysisPlanner
 
     private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private sealed class RecordingProgress : IProgress<double>
-    {
-        public double? Value { get; private set; }
-
-        public void Report(double value) => Value = value;
-    }
-
     [Fact]
     public async Task AnalyzeItemsAsync_EmptySeasonSet_DoesNotEnumerateLibrary()
     {

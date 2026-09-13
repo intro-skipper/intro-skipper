@@ -38,19 +38,19 @@ namespace IntroSkipper.Controllers;
 /// <param name="queue">Analysis queue a manual scan is handed to, and whose status the scan status endpoint reports.</param>
 /// <param name="seasonResolver">Resolver of season keys into the episodes the dashboard shows, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
-/// <param name="cacheDatabase">Detection cache database facade.</param>
+/// <param name="eraser">Erases seasons' segments, analysis state and cache rows, and converges their mirrors.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IIntroSkipperDatabase database, ISegmentEraser eraser) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
     private readonly AnalysisScheduler _queue = queue;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -113,7 +113,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        await EraseAsync(seriesId, seasonId, season, eraseCache, cancellationToken).ConfigureAwait(false);
+        // A known season with nothing to erase is a no-op.
+        if (season.Episodes.Count > 0)
+        {
+            LogErasingTimestamps(_logger, seriesId, seasonId);
+            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+        }
+
         return NoContent();
     }
 
@@ -137,7 +143,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
         }
 
-        var (removedSegments, removedCacheEntries) = await EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
         return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }
 
@@ -224,41 +230,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
     }
 
-    // Erases the stored segments and analysis state of the episodes the season shows, and
-    // their cache rows when asked. A known season with nothing to erase is a no-op.
-    private async Task EraseAsync(Guid seriesId, Guid seasonId, DisplayedSeason season, bool eraseCache, CancellationToken cancellationToken)
-    {
-        if (season.Episodes.Count == 0)
-        {
-            return;
-        }
-
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-        await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Erases the items' stored segments and analysis state, optionally their detection
-    /// cache rows, and converges their Jellyfin mirrors.
-    /// </summary>
-    /// <returns>The number of removed segment rows and cache rows.</returns>
-    private async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken)
-    {
-        var removedSegments = await _database.EraseItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
-
-        // Best-effort cache cleanup (the facade logs and swallows database errors),
-        // not bound to request cancellation: the main database is already consistent.
-        var removedCacheEntries = eraseCache
-            ? await _cacheDatabase.DeleteForItemsAsync(itemIds, CancellationToken.None).ConfigureAwait(false)
-            : 0;
-
-        // The erase journaled every affected item's projection; converge exactly
-        // those items now, unrelated pending work keeps its backoff. Anything
-        // this pass cannot finish stays journaled and the worker completes it.
-        await _segmentChange.ProjectItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
-        return (removedSegments, removedCacheEntries);
-    }
-
     /// <summary>
     /// Returns whether a scan is running: a pass in flight, or a manual scan or library
     /// pass waiting for the worker. Library changes waiting out their quiet period do not count.
@@ -285,7 +256,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
+        if (!_seasonResolver.IsKnownKey(seriesId, seasonId))
         {
             return NotFound();
         }
@@ -294,10 +265,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         // The handle is dropped: the request has already returned, and the queue logs a
         // failed erase or pass itself.
-        _ = _queue.ScanAsync(
-            seriesId,
-            seasonId,
-            (resolved, cancellationToken) => EraseAsync(seriesId, seasonId, resolved, eraseCache: true, cancellationToken));
+        _ = _queue.ScanAsync(seriesId, seasonId);
 
         return Accepted();
     }

@@ -13,6 +13,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Library;
@@ -621,33 +622,19 @@ public sealed class TestVisualizationController : IDisposable
 
     private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null, AnalysisScheduler? queue = null)
     {
-        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
         return new(
             NullLogger<VisualizationController>.Instance,
             _h.Change,
             queue ?? CreateQueue(cacheDbPath, libraryManager),
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             _h.Database,
-            cacheDatabase);
+            new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change));
     }
 
     // An analysis queue over the harness database that is never started: nothing it is
     // handed runs, so its status shows exactly what the controller queued.
     private AnalysisScheduler CreateQueue(string cacheDbPath, ILibraryManager? libraryManager)
-    {
-        var seasonResolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
-        return new(
-            new BaseItemAnalyzerTask(
-                NullLoggerFactory.Instance,
-                seasonResolver,
-                ffmpegService: null!,
-                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-                DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-                _h.Database),
-            seasonResolver,
-            TimeProvider.System,
-            NullLogger<AnalysisScheduler>.Instance);
-    }
+        => EntrypointTestHelpers.CreateQueue(EntrypointTestHelpers.CreateSeasonResolver(libraryManager), new StubFFmpegService(), _h.Database, cacheDbPath);
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool updateMediaSegments)
         => CreateScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });

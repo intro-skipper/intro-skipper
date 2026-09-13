@@ -47,8 +47,9 @@ public partial class DetectSegmentsTask(
 
     /// <summary>
     /// Requests a library pass and waits for it. The pass starts once any pass in flight
-    /// and any pending manual scan have finished; cancelling this task cancels only the
-    /// library pass.
+    /// and any pending manual scan have finished. Cancelling this task withdraws the
+    /// request while it waits, or cancels only the library pass once it runs and returns
+    /// when the pass has stopped.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

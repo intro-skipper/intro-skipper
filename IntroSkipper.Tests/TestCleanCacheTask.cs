@@ -278,13 +278,6 @@ public sealed class TestCleanCacheTask : IDisposable
             db.SeasonStates, s => s.SeasonId == episodeId));
     }
 
-    private sealed class RecordingProgress : IProgress<double>
-    {
-        public double? Value { get; private set; }
-
-        public void Report(double value) => Value = value;
-    }
-
     public void Dispose()
     {
         _db.Dispose();
