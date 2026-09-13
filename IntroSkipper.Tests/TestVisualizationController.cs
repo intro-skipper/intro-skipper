@@ -13,6 +13,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Services;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -568,78 +569,39 @@ public sealed class TestVisualizationController : IDisposable
         Assert.Equal(eraseSpecials ? 0 : 1, (await database.GetSegmentsAsync(plain.Id)).Count);
     }
 
+    // The queue is not started in these tests, so a queued scan stays pending and the
+    // status reflects what the endpoints handed over.
     [Fact]
-    public void GetScanStatus_ReflectsHeldScanLease()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var controller = CreateController(scope.CacheDbPath);
-        Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
-
-        var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
-        try
-        {
-            Assert.True(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
-            Assert.Null(ScheduledTaskSemaphore.TryAcquire());
-        }
-        finally
-        {
-            lease.Dispose();
-        }
-
-        Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
-    }
-
-    // The semaphore half of ScanState is covered through the endpoint above; this pins the
-    // worker half, which keeps the endpoint and the support bundle in agreement while the
-    // detection task worker is active outside its semaphore lease.
-    [Fact]
-    public void ScanState_ReportsRunning_WhileDetectTaskWorkerIsActive()
-    {
-        Assert.False(ScanState.IsRunning(null));
-        Assert.False(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Idle)));
-        Assert.True(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Running)));
-        Assert.True(ScanState.IsRunning(ScheduledTaskWorkerStub.Create(TaskState.Cancelling)));
-    }
-
-    [Fact]
-    public void ScanSeason_ReturnsConflict_WhenScanLeaseIsHeld()
+    public void ScanSeason_QueuesAManualScan_AndScanStatusReportsItPending()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
-        var lease = Assert.IsAssignableFrom<IDisposable>(ScheduledTaskSemaphore.TryAcquire());
-        try
-        {
-            var result = controller.ScanSeason(seriesId, seasonId);
+        var otherSeasonId = Guid.NewGuid();
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            [
+                JellyfinItems.Series(seriesId),
+                JellyfinItems.Season(seasonId, seriesId),
+                JellyfinItems.Season(otherSeasonId, seriesId, number: 2),
+                JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId),
+                JellyfinItems.Episode(Guid.NewGuid(), seriesId, otherSeasonId, seasonNumber: 2),
+            ]);
+        var queue = CreateQueue(scope.CacheDbPath, library);
+        var controller = CreateController(scope.CacheDbPath, library, queue);
 
-            var conflict = Assert.IsType<ConflictObjectResult>(result);
-            Assert.Equal("A scan is already in progress.", conflict.Value!.GetType().GetProperty("message")!.GetValue(conflict.Value));
-            Assert.True(ScheduledTaskSemaphore.IsBusy);
-        }
-        finally
-        {
-            lease.Dispose();
-        }
-    }
+        // A library change waiting out its quiet period is not a running scan.
+        _ = queue.ItemChangedAsync(Guid.NewGuid());
+        Assert.False(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
 
-    [Fact]
-    public async Task ScanSeason_ReturnsAccepted_AndReleasesItsBackgroundLease()
-    {
-        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var seriesId = Guid.NewGuid();
-        var seasonId = Guid.NewGuid();
-        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
+        // A second scan of the same season merges into the pending one; another season
+        // is accepted too, never refused.
+        Assert.IsType<AcceptedResult>(controller.ScanSeason(seriesId, seasonId));
+        Assert.IsType<AcceptedResult>(controller.ScanSeason(seriesId, seasonId));
+        Assert.IsType<AcceptedResult>(controller.ScanSeason(seriesId, otherSeasonId));
 
-        var result = controller.ScanSeason(seriesId, seasonId, new CancellationToken(canceled: true));
-
-        Assert.IsType<AcceptedResult>(result);
-        for (var attempt = 0; ScheduledTaskSemaphore.IsBusy && attempt < 100; attempt++)
-        {
-            await Task.Delay(10);
-        }
-
-        Assert.False(ScheduledTaskSemaphore.IsBusy);
+        Assert.True(Assert.IsType<ScanStatusResponse>(controller.GetScanStatus().Value).IsRunning);
+        Assert.Equal(2, queue.Status.ManualScans);
     }
 
     [Fact]
@@ -648,32 +610,40 @@ public sealed class TestVisualizationController : IDisposable
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var controller = CreateController(scope.CacheDbPath, SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]));
+        var library = SeasonLibrary(seriesId, seasonId, [Guid.NewGuid()]);
+        var queue = CreateQueue(scope.CacheDbPath, library);
+        var controller = CreateController(scope.CacheDbPath, library, queue);
 
         Assert.IsType<NotFoundResult>(controller.ScanSeason(seriesId, Guid.NewGuid()));
         Assert.IsType<NotFoundResult>(controller.ScanSeason(Guid.NewGuid(), seasonId));
-        Assert.False(ScheduledTaskSemaphore.IsBusy);
+        Assert.Equal(0, queue.Status.ManualScans);
     }
 
-    private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null)
+    private VisualizationController CreateController(string cacheDbPath, ILibraryManager? libraryManager = null, AnalysisScheduler? queue = null)
     {
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
-        var seasonResolver = EntrypointTestHelpers.CreateSeasonResolver(libraryManager);
         return new(
             NullLogger<VisualizationController>.Instance,
             _h.Change,
+            queue ?? CreateQueue(cacheDbPath, libraryManager),
+            EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+            _h.Database,
+            cacheDatabase);
+    }
+
+    // An analysis queue over the harness database that is never started: nothing it is
+    // handed runs, so its status shows exactly what the controller queued.
+    private AnalysisScheduler CreateQueue(string cacheDbPath, ILibraryManager? libraryManager)
+        => new(
             new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                seasonResolver,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
                 ffmpegService: null!,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-                cacheDatabase,
+                DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
                 _h.Database),
-            seasonResolver,
-            _h.Database,
-            cacheDatabase,
-            EntrypointTestHelpers.CreateTaskManager());
-    }
+            TimeProvider.System,
+            NullLogger<AnalysisScheduler>.Instance);
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool updateMediaSegments)
         => CreateScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
@@ -728,25 +698,4 @@ public sealed class TestVisualizationController : IDisposable
         }
     }
 
-    private class ScheduledTaskWorkerStub : System.Reflection.DispatchProxy
-    {
-        private TaskState _state;
-
-        public static IScheduledTaskWorker Create(TaskState state)
-        {
-            var proxy = Create<IScheduledTaskWorker, ScheduledTaskWorkerStub>();
-            ((ScheduledTaskWorkerStub)(object)proxy)._state = state;
-            return proxy;
-        }
-
-        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == $"get_{nameof(IScheduledTaskWorker.State)}")
-            {
-                return _state;
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
-        }
-    }
 }

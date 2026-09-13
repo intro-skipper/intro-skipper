@@ -10,6 +10,7 @@ using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Services;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Model.Tasks;
@@ -33,6 +34,7 @@ public partial class TroubleshootingController : ControllerBase
     private readonly ILogger<TroubleshootingController> _logger;
     private readonly IFFmpegService _ffmpegService;
     private readonly ITaskManager _taskManager;
+    private readonly AnalysisScheduler _queue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
@@ -40,17 +42,20 @@ public partial class TroubleshootingController : ControllerBase
     /// <param name="applicationHost">Application host.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="ffmpegService">FFmpeg service.</param>
-    /// <param name="taskManager">Scheduled task manager, used to report the detection task's last run.</param>
+    /// <param name="taskManager">Scheduled task manager, used to report the detection task's last run and progress.</param>
+    /// <param name="queue">Analysis queue, used to report what is running and pending.</param>
     public TroubleshootingController(
         IApplicationHost applicationHost,
         ILogger<TroubleshootingController> logger,
         IFFmpegService ffmpegService,
-        ITaskManager taskManager)
+        ITaskManager taskManager,
+        AnalysisScheduler queue)
     {
         _applicationHost = applicationHost;
         _logger = logger;
         _ffmpegService = ffmpegService;
         _taskManager = taskManager;
+        _queue = queue;
     }
 
     /// <summary>
@@ -92,7 +97,8 @@ public partial class TroubleshootingController : ControllerBase
         var plugin = Plugin.Instance!;
         var ffmpeg = _ffmpegService.GetCheckResult();
         var settings = ConfigurationReport.Enumerate(plugin.Configuration);
-        var detectTask = ScanState.FindDetectTask(_taskManager);
+        var detectTask = _taskManager.ScheduledTasks.FirstOrDefault(t => t.ScheduledTask is DetectSegmentsTask);
+        var queue = _queue.Status;
 
         List<SupportBundleSection> sections =
         [
@@ -108,7 +114,8 @@ public partial class TroubleshootingController : ControllerBase
                     new("FFmpeg path", string.IsNullOrEmpty(plugin.FFmpegPath) ? "unknown" : plugin.FFmpegPath),
                     new("Debug logging", _logger.IsEnabled(LogLevel.Debug) ? "on" : "off"),
                     new("Last scan", detectTask is null ? "unknown" : DescribeLastRun(detectTask)),
-                    new("Scan running", DescribeScanState(detectTask)),
+                    new("Scan running", DescribeScanState(queue, detectTask)),
+                    new("Queue", DescribeQueue(queue)),
                     new("Warnings", WarningManager.GetWarnings()),
                     new(
                         "File Transformation plugin",
@@ -148,23 +155,41 @@ public partial class TroubleshootingController : ControllerBase
         return string.IsNullOrWhiteSpace(result.ErrorMessage) ? summary : summary + ": " + result.ErrorMessage.ReplaceLineEndings(" ").Trim();
     }
 
-    // ScanState owns the running definition (shared with the dashboard's ScanStatus endpoint);
-    // the worker only contributes its cancelling state and progress here.
-    private static string DescribeScanState(IScheduledTaskWorker? task)
+    // The queue owns the running definition (shared with the dashboard's ScanStatus
+    // endpoint); the scheduled task worker only contributes its progress while a library
+    // pass runs.
+    private static string DescribeScanState(AnalysisSchedulerStatus queue, IScheduledTaskWorker? task)
     {
-        if (task?.State == TaskState.Cancelling)
+        if (!queue.PassRunning)
         {
-            return "cancelling";
-        }
-
-        if (!ScanState.IsRunning(task))
-        {
-            return "no";
+            return queue.IsRunning ? "pending" : "no";
         }
 
         return task is { State: TaskState.Running, CurrentProgress: { } progress }
             ? FormattableString.Invariant($"yes ({progress:0}%)")
             : "yes";
+    }
+
+    // "2 changed items, 1 manual scan, library pass pending", or "empty".
+    private static string DescribeQueue(AnalysisSchedulerStatus queue)
+    {
+        List<string> parts = [];
+        if (queue.ChangedItems > 0)
+        {
+            parts.Add(FormattableString.Invariant($"{queue.ChangedItems} changed item{(queue.ChangedItems == 1 ? string.Empty : "s")}"));
+        }
+
+        if (queue.ManualScans > 0)
+        {
+            parts.Add(FormattableString.Invariant($"{queue.ManualScans} manual scan{(queue.ManualScans == 1 ? string.Empty : "s")}"));
+        }
+
+        if (queue.LibraryPending)
+        {
+            parts.Add("library pass pending");
+        }
+
+        return parts.Count == 0 ? "empty" : string.Join(", ", parts);
     }
 
     private static string FormatDuration(TimeSpan duration) => duration switch

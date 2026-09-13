@@ -284,11 +284,6 @@ export function actionBar(opts: ActionBarOptions): {
 
                 if (destroyed || scanToken !== scanVersion) return;
 
-                if (response.status === 409) {
-                    resetScanButton();
-                    statusMessage.show("A scan is already in progress.", "var(--is-warning)");
-                    return;
-                }
                 if (!response.ok) {
                     resetScanButton();
                     statusMessage.show("Unable to start the scan.", "var(--is-error)");

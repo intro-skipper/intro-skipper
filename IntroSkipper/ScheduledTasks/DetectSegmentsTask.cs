@@ -4,34 +4,26 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Db;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Services;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Analyze all television episodes for media segments.
+/// Analyzes every season of every enabled library through the analysis queue.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="analyzer">Analyzer run over the resolved seasons.</param>
-/// <param name="entrypoint">Owner of the automatic analysis, which this task cancels before it starts.</param>
+/// <param name="queue">Analysis queue that runs the library pass.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
-    BaseItemAnalyzerTask analyzer,
-    Entrypoint entrypoint) : IScheduledTask
+    AnalysisScheduler queue) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
-    private readonly BaseItemAnalyzerTask _analyzer = analyzer;
-    private readonly Entrypoint _entrypoint = entrypoint;
+    private readonly AnalysisScheduler _queue = queue;
 
     /// <summary>
     /// Gets the task name.
@@ -54,27 +46,17 @@ public partial class DetectSegmentsTask(
     public string Key => "IntroSkipperDetectSegmentsTask";
 
     /// <summary>
-    /// Analyzes every season of every enabled library. Only one instance of this task should be run at a time.
+    /// Requests a library pass and waits for it. The pass starts once any pass in flight
+    /// and any pending manual scan have finished; cancelling this task cancels only the
+    /// library pass.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
-    public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        // abort automatic analyzer if running
-        var automaticTaskState = _entrypoint.AutomaticTaskState;
-        if (automaticTaskState is TaskState.Running or TaskState.Cancelling)
-        {
-            LogAutomaticTaskWillBeCanceled(_logger, automaticTaskState);
-            await _entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
-        {
-            LogScheduledTaskStarting(_logger);
-
-            await _analyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
-        }
+        LogScheduledTaskStarting(_logger);
+        return _queue.RunLibraryAsync(progress, cancellationToken);
     }
 
     /// <summary>
@@ -92,9 +74,6 @@ public partial class DetectSegmentsTask(
             }
         ];
     }
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Automatic Task is {TaskState} and will be canceled.")]
-    private static partial void LogAutomaticTaskWillBeCanceled(ILogger logger, TaskState taskState);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Scheduled Task is starting")]
     private static partial void LogScheduledTaskStarting(ILogger logger);

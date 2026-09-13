@@ -36,34 +36,33 @@ internal static class EntrypointTestHelpers
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
 
     /// <summary>
-    /// Builds an entrypoint over a fresh segment database and the given (or a fresh)
-    /// cache database. The entrypoint reads its configuration from
-    /// <see cref="Plugin.Instance"/>, so tests scope one via <see cref="CreatePluginScope"/>.
+    /// Builds an entrypoint over a fake library that records its event subscriptions and
+    /// can raise events, with an analysis queue that is not started, so what the
+    /// entrypoint hands it stays pending and observable through the queue's status. The
+    /// entrypoint reads its configuration from <see cref="Plugin.Instance"/>, so tests
+    /// scope one via <see cref="CreatePluginScope"/>.
     /// </summary>
-    internal static Entrypoint CreateEntrypoint(
-        ILibraryManager? libraryManager = null,
-        IFFmpegService? ffmpegService = null,
-        string? cacheDbPath = null)
+    internal static EntrypointHarness CreateEntrypoint(IFFmpegService? ffmpegService = null, string? cacheDbPath = null)
     {
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
-
-        // The Entrypoint and its analyzer factory see the same cache database, as they
-        // do in production DI.
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
-
-        return new Entrypoint(
-            libraryManager!,
-            cacheDatabase,
-            ffmpegService!,
-            NullLogger<Entrypoint>.Instance,
+        var ffmpeg = ffmpegService ?? new StubFFmpegService { VersionCheck = () => true };
+        var library = FakeLibraryEvents.Create(out var libraryManager);
+        var queue = new AnalysisScheduler(
             new BaseItemAnalyzerTask(
                 NullLoggerFactory.Instance,
-                CreateSeasonResolver(libraryManager),
-                ffmpegService!,
+                CreateSeasonResolver(null),
+                ffmpeg,
                 cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
                 cacheDatabase,
-                database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
+                database: DatabaseTestHelpers.CreateTempSegmentDatabase()),
+            TimeProvider.System,
+            NullLogger<AnalysisScheduler>.Instance);
+
+        return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, ffmpeg, NullLogger<Entrypoint>.Instance, queue), queue, library);
     }
+
+    internal sealed record EntrypointHarness(Entrypoint Entrypoint, AnalysisScheduler Queue, FakeLibraryEvents Library);
 
     /// <summary>
     /// A season resolver over the given library manager and server configuration (the
@@ -77,11 +76,6 @@ internal static class EntrypointTestHelpers
     // and returns null for any other id. Shared by the controller test suites.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => FakeLibraryManager.Create([], _ => [], id => items.FirstOrDefault(item => item.Id == id));
-
-    // ITaskManager stub with no scheduled task workers, for controllers that look up the
-    // detection task's worker state.
-    internal static ITaskManager CreateTaskManager()
-        => TaskManagerProxy.Create();
 
     /// <summary>
     /// Scopes a plugin instance carrying the given configuration.
@@ -117,19 +111,70 @@ internal static class EntrypointTestHelpers
         return scope;
     }
 
-    private class TaskManagerProxy : DispatchProxy
+    /// <summary>
+    /// ILibraryManager stub that only carries the three item events: it counts the
+    /// subscribers of each and raises them into whoever subscribed, so the entrypoint is
+    /// driven the way Jellyfin drives it. Every other member throws.
+    /// </summary>
+    internal class FakeLibraryEvents : DispatchProxy
     {
-        public static ITaskManager Create()
-            => Create<ITaskManager, TaskManagerProxy>();
+        private EventHandler<ItemChangeEventArgs>? _itemAdded;
+        private EventHandler<ItemChangeEventArgs>? _itemUpdated;
+        private EventHandler<ItemChangeEventArgs>? _itemRemoved;
+
+        public int ItemAddedSubscriberCount { get; private set; }
+
+        public int ItemUpdatedSubscriberCount { get; private set; }
+
+        public int ItemRemovedSubscriberCount { get; private set; }
+
+        public static FakeLibraryEvents Create(out ILibraryManager libraryManager)
+        {
+            libraryManager = Create<ILibraryManager, FakeLibraryEvents>();
+            return (FakeLibraryEvents)(object)libraryManager;
+        }
+
+        public void RaiseItemAdded(BaseItem item, ItemUpdateType updateReason = ItemUpdateType.None)
+            => _itemAdded?.Invoke(this, CreateItemChangeEventArgs(item, updateReason));
+
+        public void RaiseItemUpdated(BaseItem item, ItemUpdateType updateReason = ItemUpdateType.None)
+            => _itemUpdated?.Invoke(this, CreateItemChangeEventArgs(item, updateReason));
+
+        public void RaiseItemRemoved(BaseItem item)
+            => _itemRemoved?.Invoke(this, CreateItemChangeEventArgs(item, ItemUpdateType.None));
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod?.Name == $"get_{nameof(ITaskManager.ScheduledTasks)}")
+            var handler = args is [EventHandler<ItemChangeEventArgs> subscriber] ? subscriber : null;
+            switch (targetMethod?.Name)
             {
-                return Array.Empty<IScheduledTaskWorker>();
+                case "add_ItemAdded":
+                    _itemAdded += handler;
+                    ItemAddedSubscriberCount++;
+                    return null;
+                case "remove_ItemAdded":
+                    _itemAdded -= handler;
+                    ItemAddedSubscriberCount--;
+                    return null;
+                case "add_ItemUpdated":
+                    _itemUpdated += handler;
+                    ItemUpdatedSubscriberCount++;
+                    return null;
+                case "remove_ItemUpdated":
+                    _itemUpdated -= handler;
+                    ItemUpdatedSubscriberCount--;
+                    return null;
+                case "add_ItemRemoved":
+                    _itemRemoved += handler;
+                    ItemRemovedSubscriberCount++;
+                    return null;
+                case "remove_ItemRemoved":
+                    _itemRemoved -= handler;
+                    ItemRemovedSubscriberCount--;
+                    return null;
+                default:
+                    throw new NotImplementedException(targetMethod?.Name);
             }
-
-            throw new NotImplementedException(targetMethod?.Name);
         }
     }
 
@@ -238,9 +283,6 @@ internal static class EntrypointTestHelpers
         };
     }
 
-    internal static HashSet<Guid> GetItemsToAnalyze(Entrypoint entrypoint)
-        => (HashSet<Guid>)GetPrivateField(entrypoint, "_itemsToAnalyze");
-
     internal static ItemChangeEventArgs CreateItemChangeEventArgs(object item, ItemUpdateType updateReason)
     {
 #pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
@@ -250,20 +292,6 @@ internal static class EntrypointTestHelpers
         SetPropertyOrField(args, "Item", item);
         SetPropertyOrField(args, "UpdateReason", updateReason);
         return args;
-    }
-
-    internal static void InvokePrivate(Entrypoint entrypoint, string methodName, object arg)
-    {
-        var method = typeof(Entrypoint).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        method!.Invoke(entrypoint, [null, arg]);
-    }
-
-    internal static object GetPrivateField(object instance, string fieldName)
-    {
-        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return field!.GetValue(instance)!;
     }
 
     internal static void SetPrivateField(object instance, string fieldName, object value)
