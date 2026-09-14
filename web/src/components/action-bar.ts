@@ -201,6 +201,16 @@ export function actionBar(opts: ActionBarOptions): {
     let destroyed = false;
     let loadVersion = 0;
     let scanVersion = 0;
+    let analysisOverridesLoaded = false;
+
+    function updateApplyAvailability(): void {
+        applyBtn.disabled = currentIsMovie || !analysisOverridesLoaded;
+        if (!analysisOverridesLoaded && !currentIsMovie) {
+            applyBtn.title = "Analysis-window settings are still loading.";
+        } else {
+            applyBtn.removeAttribute("title");
+        }
+    }
 
     function updateActionLabels(): void {
         scopeHint.textContent = fullSeriesCheckbox.checked
@@ -253,7 +263,7 @@ export function actionBar(opts: ActionBarOptions): {
     fullSeriesCheckbox.addEventListener("change", updateActionLabels);
 
     const handleApplyClick = async () => {
-        if (destroyed) return;
+        if (destroyed || !analysisOverridesLoaded) return;
 
         const operationLoadVersion = loadVersion;
         const seasonIds = targetSeasonIds();
@@ -487,8 +497,10 @@ export function actionBar(opts: ActionBarOptions): {
             currentIsMovie = false;
             currentSeriesSeasons = [];
             fullSeriesCheckbox.checked = false;
+            analysisOverridesLoaded = false;
             fullSeriesLabel.style.display = "";
             resetScanButton();
+            updateApplyAvailability();
             statusMessage.clear();
         },
 
@@ -509,11 +521,13 @@ export function actionBar(opts: ActionBarOptions): {
             currentShowId = showId;
             currentSeasonId = seasonId;
             currentIsMovie = isMovie;
+            analysisOverridesLoaded = false;
             if (seriesSeasons) {
                 currentSeriesSeasons = seriesSeasons;
             }
 
             resetScanButton();
+            updateApplyAvailability();
             statusMessage.clear();
 
             // Analyzer overrides only apply to seasons, not single movies.
@@ -535,13 +549,24 @@ export function actionBar(opts: ActionBarOptions): {
                 for (const [key, select] of actionSelects) {
                     select.value = actions[key] ?? "Default";
                 }
-                const overrides = overrideResult.ok && overrideResult.data ? overrideResult.data : null;
-                analysisPercentInput.value = overrides?.AnalysisPercent == null ? "" : String(overrides.AnalysisPercent);
-                analysisLengthInput.value = overrides?.AnalysisLengthLimit == null ? "" : String(overrides.AnalysisLengthLimit);
-                if (configStore.isLoaded()) {
-                    analysisPercentInput.placeholder = "Global: " + String(configStore.get("AnalysisPercent"));
-                    analysisLengthInput.placeholder = "Global: " + String(configStore.get("AnalysisLengthLimit"));
+                if (overrideResult.ok && overrideResult.data) {
+                    analysisOverridesLoaded = true;
+                    analysisPercentInput.value = overrideResult.data.AnalysisPercent == null
+                        ? ""
+                        : String(overrideResult.data.AnalysisPercent);
+                    analysisLengthInput.value = overrideResult.data.AnalysisLengthLimit == null
+                        ? ""
+                        : String(overrideResult.data.AnalysisLengthLimit);
+                    if (configStore.isLoaded()) {
+                        analysisPercentInput.placeholder = "Global: " + String(configStore.get("AnalysisPercent"));
+                        analysisLengthInput.placeholder = "Global: " + String(configStore.get("AnalysisLengthLimit"));
+                    }
+                } else {
+                    // Keep the last known values visible, but prevent Apply from
+                    // turning a transient read failure into a destructive reset.
+                    analysisOverridesLoaded = false;
                 }
+                updateApplyAvailability();
             }
 
             const status = await api.getScanStatus(seasonId);

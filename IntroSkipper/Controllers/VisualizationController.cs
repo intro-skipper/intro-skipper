@@ -161,6 +161,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The optional overrides for the season.</returns>
     [HttpGet("AnalysisOverrides/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -179,6 +180,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// </summary>
     /// <param name="request">Analysis override update request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content when the overrides are saved.</returns>
     [HttpPost("AnalysisOverrides/UpdateSeason")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

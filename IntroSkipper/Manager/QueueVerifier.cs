@@ -48,6 +48,8 @@ internal sealed partial class QueueVerifier
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="snapshot">The season's stored analysis state.</param>
     /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
+    /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
+    /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
     public QueueVerifier(
         PluginConfiguration config,
         IReadOnlyCollection<AnalysisMode> modes,

@@ -167,6 +167,7 @@ public interface IIntroSkipperDatabase
     /// <summary>Returns the optional analysis-window overrides for a season.</summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The saved overrides, with null values meaning inherit.</returns>
     Task<AnalysisOverrides> GetAnalysisOverridesAsync(Guid seasonId, CancellationToken cancellationToken = default);
 
     /// <summary>Stores or clears the optional analysis-window overrides for a season.</summary>
@@ -174,6 +175,7 @@ public interface IIntroSkipperDatabase
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
     Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, CancellationToken cancellationToken = default);
 
     /// <summary>
