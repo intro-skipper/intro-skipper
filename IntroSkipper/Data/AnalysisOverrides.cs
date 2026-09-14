@@ -8,4 +8,5 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="AnalysisPercent">Percentage override, or null to inherit the global setting.</param>
 /// <param name="AnalysisLengthLimit">Maximum runtime override in minutes, or null to inherit the global setting.</param>
-public sealed record AnalysisOverrides(int? AnalysisPercent, int? AnalysisLengthLimit);
+/// <param name="PreviewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit the global setting.</param>
+public sealed record AnalysisOverrides(int? AnalysisPercent, int? AnalysisLengthLimit, bool? PreviewFromCreditsEnd);

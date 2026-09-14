@@ -22,4 +22,9 @@ public sealed record UpdateAnalysisOverridesRequest
     /// Gets the optional maximum runtime override in minutes.
     /// </summary>
     public int? AnalysisLengthLimit { get; init; }
+
+    /// <summary>
+    /// Gets the optional setting that derives a preview from the end of credits.
+    /// </summary>
+    public bool? PreviewFromCreditsEnd { get; init; }
 }

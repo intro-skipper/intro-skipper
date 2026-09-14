@@ -75,24 +75,23 @@ export const detectionTab: Tab = {
                     "If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.",
             }),
             inputField({
-                kind: "checkbox",
-                id: "SkipFirstEpisode",
-                label: "Ignore intros for first episode of a season",
-            }),
-            inputField({
-                kind: "checkbox",
-                id: "SkipFirstEpisodeAnime",
-                label: "Only ignore first episode of an anime season",
+                kind: "select",
+                id: "FirstEpisodeIntroMode",
+                label: "First episode intro handling (per season)",
+                options: [
+                    { value: "Analyze", label: "Analyze first episode intros" },
+                    { value: "Ignore", label: "Ignore first episode intros" },
+                    { value: "IgnoreAnime", label: "Ignore anime first episode intros" },
+                ],
                 description:
-                    "If checked, the previous ignore option will only be applied to anime seasons.",
-                visible: () => configStore.get("SkipFirstEpisode") === true,
+                    "For each season, choose whether the first episode intro is analyzed, ignored, or ignored only when the show is anime.",
             }),
             inputField({
                 kind: "checkbox",
                 id: "AnimePreviewFromCreditsEnd",
                 label: "Set after credits scene as preview for anime",
                 description:
-                    "When enabled, a preview segment is created for anime without a detected preview, from the end of the credits to the next credits block or the end of the episode.",
+                    "When enabled, a preview segment is created for anime without a detected preview, from the end of the credits to the next credits block or the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
             }),
             fieldGroup(
                 "Segment Offset Adjustment",

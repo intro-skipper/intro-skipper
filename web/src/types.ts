@@ -56,8 +56,7 @@ export interface PluginConfig {
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
     EnableSponsorBlockChapterDetection: boolean;
-    SkipFirstEpisode: boolean;
-    SkipFirstEpisodeAnime: boolean;
+    FirstEpisodeIntroMode: string;
     AnimePreviewFromCreditsEnd: boolean;
     ScanIntroduction: boolean;
     ScanCredits: boolean;
@@ -102,6 +101,7 @@ export type AnalyzerActions = {
 export type AnalysisOverrides = {
     AnalysisPercent: number | null;
     AnalysisLengthLimit: number | null;
+    PreviewFromCreditsEnd: boolean | null;
 };
 
 // One stored segment as returned by the plural segments API. The Id is shared with

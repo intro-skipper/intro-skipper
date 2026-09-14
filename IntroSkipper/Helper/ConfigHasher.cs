@@ -36,6 +36,7 @@ internal static class ConfigHasher
     /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
     /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
+    /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
     /// <returns>A compact hex hash.</returns>
     public static string Analysis(
         PluginConfiguration config,
@@ -43,10 +44,12 @@ internal static class ConfigHasher
         AnalyzerAction action,
         bool ffmpegValid,
         int? analysisPercentOverride = null,
-        int? analysisLengthLimitOverride = null)
+        int? analysisLengthLimitOverride = null,
+        bool? previewFromCreditsEndOverride = null)
     {
         var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
         var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
+        var previewFromCreditsEnd = previewFromCreditsEndOverride ?? config.AnimePreviewFromCreditsEnd;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -67,7 +70,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -79,7 +82,7 @@ internal static class ConfigHasher
 
             AnalysisMode.Preview => Invariant(
                 $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
+                $"|animePreview={previewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(

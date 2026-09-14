@@ -23,4 +23,9 @@ public sealed class DbSeasonAnalysisOverride
     /// Gets or sets the optional maximum runtime to analyze, in minutes.
     /// </summary>
     public int? AnalysisLengthLimit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional setting that derives a preview from the end of credits.
+    /// </summary>
+    public bool? PreviewFromCreditsEnd { get; set; }
 }

@@ -131,6 +131,27 @@ export function actionBar(opts: ActionBarOptions): {
         "Upper limit for each item.",
         "1",
     );
+    const previewOverrideField = el("div", { className: "ts-preview-override" });
+    const previewOverrideLabel = el(
+        "label",
+        { className: "ts-override-label", for: "ts-preview-from-credits-override" },
+        "Set after credits scene as preview",
+    );
+    const previewOverrideSelect = el("select", {
+        id: "ts-preview-from-credits-override",
+        name: "preview-from-credits-override",
+    });
+    previewOverrideSelect.append(
+        el("option", { value: "default" }, "Global default"),
+        el("option", { value: "enabled" }, "Enabled"),
+        el("option", { value: "disabled" }, "Disabled"),
+    );
+    const previewOverrideDescription = el(
+        "span",
+        { className: "ts-override-description" },
+        "Creates a preview from the end of credits to the next credits block or episode end.",
+    );
+    previewOverrideField.append(previewOverrideLabel, previewOverrideSelect, previewOverrideDescription);
     const resetWindowBtn = el(
         "button",
         { className: "ts-reset-overrides", type: "button" },
@@ -139,9 +160,16 @@ export function actionBar(opts: ActionBarOptions): {
     const handleResetWindowClick = () => {
         analysisPercentInput.value = "";
         analysisLengthInput.value = "";
+        previewOverrideSelect.value = "default";
     };
     resetWindowBtn.addEventListener("click", handleResetWindowClick);
-    analysisWindow.append(analysisWindowLegend, analysisWindowDescription, analysisWindowGrid, resetWindowBtn);
+    analysisWindow.append(
+        analysisWindowLegend,
+        analysisWindowDescription,
+        analysisWindowGrid,
+        previewOverrideField,
+        resetWindowBtn,
+    );
 
     const applyBtn = el(
         "button",
@@ -280,6 +308,10 @@ export function actionBar(opts: ActionBarOptions): {
             overrides = {
                 AnalysisPercent: readOverride(analysisPercentInput, "Percent", 1, 50),
                 AnalysisLengthLimit: readOverride(analysisLengthInput, "Maximum runtime", 1),
+                PreviewFromCreditsEnd:
+                    previewOverrideSelect.value === "default"
+                        ? null
+                        : previewOverrideSelect.value === "enabled",
             };
         } catch (err) {
             statusMessage.show(err instanceof Error ? err.message : "Invalid analysis overrides.", "var(--is-error)");
@@ -561,6 +593,11 @@ export function actionBar(opts: ActionBarOptions): {
                     analysisLengthInput.value = overrideResult.data.AnalysisLengthLimit == null
                         ? ""
                         : String(overrideResult.data.AnalysisLengthLimit);
+                    previewOverrideSelect.value = overrideResult.data.PreviewFromCreditsEnd == null
+                        ? "default"
+                        : overrideResult.data.PreviewFromCreditsEnd
+                          ? "enabled"
+                          : "disabled";
                     if (configStore.isLoaded()) {
                         analysisPercentInput.placeholder = "Global: " + String(configStore.get("AnalysisPercent"));
                         analysisLengthInput.placeholder = "Global: " + String(configStore.get("AnalysisLengthLimit"));
