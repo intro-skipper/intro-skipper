@@ -169,15 +169,47 @@ public sealed class TestAnalysisScheduler
         Assert.Equal("erase failed", exception.Message);
 
         // Nothing was erased, so nothing was analyzed over the records still in place,
-        // and the failure is remembered for the dashboard until the key is queued again.
+        // and the failure is remembered for the dashboard until a scan of the key completes.
         Assert.Equal(0, h.Ffmpeg.VersionCheckCalls);
         Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
 
-        var again = h.Scan();
-        Assert.Equal(new ManualScanStatus(Queued: true, Failed: false), h.Queue.ScanStatus(h.SeasonId));
-        await again.WaitAsync(Timeout);
+        await h.Scan().WaitAsync(Timeout);
         Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
         Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
+    public async Task ManualScan_FollowUpQueuedBehindAFailingScan_ReportsItsOwnResult()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var eraseEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var eraseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var erases = 0;
+        h.Eraser.OnErase = async _ =>
+        {
+            if (++erases > 1)
+            {
+                return;
+            }
+
+            eraseEntered.SetResult();
+            await eraseGate.Task;
+            throw new InvalidOperationException("erase failed");
+        };
+        var failing = h.Scan();
+        await eraseEntered.Task.WaitAsync(Timeout);
+        var followUp = h.Scan();
+
+        eraseGate.SetResult();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failing.WaitAsync(Timeout));
+
+        // The follow-up is parked at its analysis; the failure stands until it completes.
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+        Assert.Equal(new ManualScanStatus(Queued: true, Failed: true), h.Queue.ScanStatus(h.SeasonId));
+
+        h.Ffmpeg.Gate.SetResult();
+        await followUp.WaitAsync(Timeout);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
     }
 
     [Fact]

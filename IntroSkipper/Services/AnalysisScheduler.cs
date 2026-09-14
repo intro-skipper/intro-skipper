@@ -58,8 +58,10 @@ public sealed partial class AnalysisScheduler(
     private readonly HashSet<Guid> _changedItems = [];
     private readonly List<ManualScan> _manualScans = [];
 
-    // Keys whose most recent manual scan failed, until a scan of the key is queued again,
-    // so the dashboard can tell a failed scan from a finished one after the fact.
+    // Keys whose most recent completed manual scan failed, so the dashboard can tell a
+    // failed scan from a finished one after the fact. Updated when a manual pass
+    // completes, never when one is queued: a follow-up queued while a scan runs must
+    // report its own result, not the outcome of the scan it waited behind.
     private readonly HashSet<Guid> _failedScans = [];
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
     private readonly CancellationTokenSource _stopping = new();
@@ -79,6 +81,13 @@ public sealed partial class AnalysisScheduler(
         Library,
     }
 
+    private enum PassOutcome
+    {
+        Completed,
+        Cancelled,
+        Failed,
+    }
+
     /// <summary>
     /// Gets what the queue holds and does right now.
     /// </summary>
@@ -95,7 +104,7 @@ public sealed partial class AnalysisScheduler(
 
     /// <summary>
     /// Returns the state of the key's manual scan: whether one is pending or running, and
-    /// whether the most recent one failed with none queued since.
+    /// whether the most recent completed one failed.
     /// </summary>
     /// <param name="key">A season key.</param>
     /// <returns>The scan state.</returns>
@@ -171,7 +180,6 @@ public sealed partial class AnalysisScheduler(
             {
                 pending = new ManualScan(key, []);
                 _manualScans.Add(pending);
-                _failedScans.Remove(key);
             }
 
             pending.Completions.Add(completion);
@@ -398,47 +406,62 @@ public sealed partial class AnalysisScheduler(
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, pass.CancellationToken);
         var cancellationToken = linked.Token;
         LogPassStarting(_logger, pass.Kind);
-        Action<TaskCompletionSource> settle;
-        var failed = false;
+        var outcome = PassOutcome.Completed;
+        Exception? failure = null;
         try
         {
             await pass.Run(cancellationToken).ConfigureAwait(false);
-            settle = completion => completion.TrySetResult();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             LogPassCancelled(_logger, pass.Kind);
-            settle = completion => completion.TrySetCanceled(cancellationToken);
+            outcome = PassOutcome.Cancelled;
         }
         catch (Exception ex)
         {
             LogPassFailed(_logger, ex, pass.Kind);
-            failed = true;
-
-            // The failure is logged here, so a feeder may drop its handle. Reading the
-            // exception marks it observed and keeps a dropped handle out of
-            // TaskScheduler.UnobservedTaskException; an awaited one still throws.
-            settle = completion =>
-            {
-                completion.TrySetException(ex);
-                _ = completion.Task.Exception;
-            };
+            outcome = PassOutcome.Failed;
+            failure = ex;
         }
 
         // The pass is over before its handles complete, so whoever awaits one sees the
-        // queue idle, and a failed scan is remembered before its handle faults.
+        // queue idle, and a manual scan's result is recorded first, so a poll that finds
+        // the scan gone reads this pass's outcome. A cancelled pass leaves the record
+        // of the last completed one.
         lock (_lock)
         {
             _running = null;
-            if (failed && pass.ScanKey is { } key)
+            if (pass.ScanKey is { } key && outcome is not PassOutcome.Cancelled)
             {
-                _failedScans.Add(key);
+                if (outcome is PassOutcome.Failed)
+                {
+                    _failedScans.Add(key);
+                }
+                else
+                {
+                    _failedScans.Remove(key);
+                }
             }
         }
 
         foreach (var completion in pass.Completions)
         {
-            settle(completion);
+            switch (outcome)
+            {
+                case PassOutcome.Completed:
+                    completion.TrySetResult();
+                    break;
+                case PassOutcome.Cancelled:
+                    completion.TrySetCanceled(cancellationToken);
+                    break;
+                default:
+                    // The failure is logged above, so a feeder may drop its handle. Reading
+                    // the exception marks it observed and keeps a dropped handle out of
+                    // TaskScheduler.UnobservedTaskException; an awaited one still throws.
+                    completion.TrySetException(failure!);
+                    _ = completion.Task.Exception;
+                    break;
+            }
         }
     }
 
@@ -510,5 +533,5 @@ public sealed record AnalysisSchedulerStatus(bool PassRunning, int ChangedItems,
 /// The state of one key's manual scan, which the dashboard polls until its scan has run.
 /// </summary>
 /// <param name="Queued">Whether a scan of the key is pending or running.</param>
-/// <param name="Failed">Whether the key's most recent scan failed, with no scan of it queued since.</param>
+/// <param name="Failed">Whether the key's most recent completed scan failed.</param>
 public sealed record ManualScanStatus(bool Queued, bool Failed);
