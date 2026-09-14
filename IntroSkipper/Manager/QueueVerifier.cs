@@ -214,6 +214,12 @@ internal sealed partial class QueueVerifier
             {
                 if (logger.IsEnabled(LogLevel.Information))
                 {
+                    var reason = ConfigHasher.ExplainAnalysisHashChange(
+                        _config,
+                        mode,
+                        _actionByMode[mode],
+                        _ffmpegValid,
+                        stored.Stored);
                     LogSeasonConfigHashChanged(
                         logger,
                         mode,
@@ -224,12 +230,7 @@ internal sealed partial class QueueVerifier
                         stored.Stored,
                         _expectedHashByMode[mode],
                         ChromaprintAffectsMode(mode) ? _ffmpegValid.ToString() : "n/a",
-                        ConfigHasher.ExplainAnalysisHashChange(
-                            _config,
-                            mode,
-                            _actionByMode[mode],
-                            _ffmpegValid,
-                            stored.Stored));
+                        reason);
                 }
             }
             else
