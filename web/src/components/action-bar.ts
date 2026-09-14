@@ -215,49 +215,61 @@ export function actionBar(opts: ActionBarOptions): {
         }
     };
 
+    // Polls the season's own scan until the queue no longer holds it. The scan may wait
+    // behind a running pass for as long as that pass takes, so only repeated status
+    // failures end the poll early.
     const pollForScanCompletion = async (
         scanToken: number,
-    ): Promise<"completed" | "cancelled" | "timed-out"> => {
-        const MAX_POLL_ATTEMPTS = 300; // ~10 minutes with base interval
+        seasonId: string,
+    ): Promise<"completed" | "cancelled" | "unavailable"> => {
+        const MAX_FAILURES = 30;
         const BASE_INTERVAL = 1000;
         const MAX_INTERVAL = 10_000;
 
-        let attempts = 0;
+        let failures = 0;
         let interval = BASE_INTERVAL;
 
-        while (!destroyed && scanToken === scanVersion && attempts < MAX_POLL_ATTEMPTS) {
+        while (!destroyed && scanToken === scanVersion) {
             await delay(interval);
-            if (destroyed || scanToken !== scanVersion) {
-                return "cancelled";
-            }
+            if (destroyed || scanToken !== scanVersion) return "cancelled";
 
-            attempts++;
-            const status = await api.getScanStatus();
+            const status = await api.getScanStatus(seasonId);
+            if (destroyed || scanToken !== scanVersion) return "cancelled";
 
-            if (destroyed || scanToken !== scanVersion) {
-                return "cancelled";
-            }
-
-            if (status.ok && !status.data?.isRunning) {
-                return "completed";
-            }
-
-            if (!status.ok) {
-                interval = Math.min(interval * 2, MAX_INTERVAL);
-            } else {
+            if (status.ok) {
+                if (!status.data?.isQueued) return "completed";
+                failures = 0;
                 interval = BASE_INTERVAL;
+                continue;
             }
+
+            failures++;
+            if (failures >= MAX_FAILURES) {
+                statusMessage.show(
+                    "Scan status unavailable. Refresh to check results.",
+                    "var(--is-warning)",
+                );
+                return "unavailable";
+            }
+            interval = Math.min(interval * 2, MAX_INTERVAL);
         }
 
-        if (destroyed || scanToken !== scanVersion) {
-            return "cancelled";
-        }
+        return "cancelled";
+    };
 
-        statusMessage.show(
-            "Scan status polling timed out. Refresh to check results.",
-            "var(--is-warning)",
-        );
-        return "timed-out";
+    // Waits for the season's queued scan; false when the wait was cut short.
+    const awaitScan = async (scanToken: number, seasonId: string): Promise<boolean> => {
+        const result = await pollForScanCompletion(scanToken, seasonId);
+        if (result === "unavailable") resetScanButton();
+        return result === "completed";
+    };
+
+    // The onScanComplete callback owns the refresh (and may withhold it over
+    // unsaved edits), so this message must not claim one.
+    const finishScan = async () => {
+        resetScanButton();
+        statusMessage.show("Scan finished.", "var(--is-success)");
+        await Promise.resolve(opts.onScanComplete());
     };
 
     const handleScanClick = async () => {
@@ -292,23 +304,15 @@ export function actionBar(opts: ActionBarOptions): {
 
                 scanBtn.textContent = "Scan in progress\u2026";
                 statusMessage.show(
-                    (isSeriesScan ? "Scanning series" + progress : "Scan in progress") +
+                    (isSeriesScan ? "Scanning series" + progress : "Scan queued") +
                         "\u2026 This can take several minutes.",
                     "var(--is-text-muted)",
                 );
 
-                const pollResult = await pollForScanCompletion(scanToken);
-                if (pollResult !== "completed") {
-                    if (pollResult === "timed-out") resetScanButton();
-                    return;
-                }
+                if (!(await awaitScan(scanToken, seasonIds[index]))) return;
             }
 
-            resetScanButton();
-            // The onScanComplete callback owns the refresh (and may withhold
-            // it over unsaved edits), so this message must not claim one.
-            statusMessage.show("Scan finished.", "var(--is-success)");
-            await Promise.resolve(opts.onScanComplete());
+            await finishScan();
         } catch {
             resetScanButton();
             statusMessage.show("Unable to start the scan.", "var(--is-error)");
@@ -436,14 +440,29 @@ export function actionBar(opts: ActionBarOptions): {
                 }
             }
 
-            // A pass running server-side does not block a scan of this season: the
-            // queue runs it once the pass ends, so the button stays enabled.
-            const status = await api.getScanStatus();
-            if (destroyed || loadToken !== loadVersion) {
+            const status = await api.getScanStatus(seasonId);
+            if (destroyed || loadToken !== loadVersion || !status.ok || !status.data) {
                 return;
             }
 
-            if (status.ok && status.data?.isRunning) {
+            if (status.data.isQueued) {
+                // This season's own scan is pending or running: wait for it the way a
+                // click does, so the button comes back and the view refreshes when it
+                // is done. Not awaited: the caller must not wait out the scan.
+                scanBtn.disabled = true;
+                fullSeriesCheckbox.disabled = true;
+                scanBtn.textContent = "Scan in progress\u2026";
+                statusMessage.show(
+                    "Scan in progress\u2026 This can take several minutes.",
+                    "var(--is-text-muted)",
+                );
+                const scanToken = scanVersion;
+                void awaitScan(scanToken, seasonId)
+                    .then((completed) => (completed ? finishScan() : undefined))
+                    .catch(console.error);
+            } else if (status.data.isRunning) {
+                // Another pass is running. It does not block a scan of this season: the
+                // queue runs it once the pass ends, so the button stays enabled.
                 statusMessage.show(
                     "Scan in progress\u2026 A new scan queues behind it.",
                     "var(--is-text-muted)",

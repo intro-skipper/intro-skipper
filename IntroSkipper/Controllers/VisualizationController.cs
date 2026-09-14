@@ -9,20 +9,14 @@ using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
-using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -231,22 +225,26 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns whether a scan is running: a pass in flight, or a manual scan or library
-    /// pass waiting for the worker. Library changes waiting out their quiet period do not count.
+    /// Returns whether a scan is running (a pass in flight, or a manual scan or library
+    /// pass waiting for the worker; library changes waiting out their quiet period do not
+    /// count) and whether the season's own scan is pending or running, which the dashboard
+    /// polls until its scan has run.
     /// </summary>
-    /// <returns>A JSON object indicating whether a scan is currently in progress.</returns>
-    [HttpGet("ScanStatus")]
+    /// <param name="seasonId">Season ID (a movie's own ID for movies).</param>
+    /// <returns>The scan status.</returns>
+    [HttpGet("ScanStatus/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<ScanStatusResponse> GetScanStatus()
+    public ActionResult<ScanStatusResponse> GetScanStatus([FromRoute] Guid seasonId)
     {
-        return new ScanStatusResponse(_queue.Status.IsRunning);
+        return new ScanStatusResponse(_queue.Status.IsRunning, _queue.IsScanQueued(seasonId));
     }
 
     /// <summary>
     /// Queues a manual scan of the episodes Jellyfin shows under the provided season: as
     /// its own pass once any pass in flight has finished, the queue resolves the season
     /// again, erases its timestamps and cache, then analyzes each episode in the season it
-    /// is analyzed in, which for an in-season special is its host season.
+    /// is analyzed in, which for an in-season special is its host season. A repeat
+    /// request joins the season's pending or running scan.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -256,7 +254,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (!_seasonResolver.IsKnownKey(seriesId, seasonId))
+        if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
@@ -264,8 +262,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         LogStartRescan(_logger, seasonId);
 
         // The handle is dropped: the request has already returned, and the queue logs a
-        // failed erase or pass itself.
-        _ = _queue.ScanAsync(seriesId, seasonId);
+        // failed pass itself.
+        _ = _queue.ScanAsync(seasonId);
 
         return Accepted();
     }

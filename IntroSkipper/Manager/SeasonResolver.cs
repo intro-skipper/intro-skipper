@@ -57,21 +57,6 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     };
 
     /// <summary>
-    /// Returns whether the key is a season key of the series: the movie itself, or a
-    /// season under the series. Agrees with the series id <see cref="ResolveDisplayed"/>
-    /// derives, without resolving the series.
-    /// </summary>
-    /// <param name="seriesId">The series the key is requested under; a movie's own id for movies.</param>
-    /// <param name="key">A season key.</param>
-    /// <returns><see langword="true"/> if the key resolves under the series; otherwise, <see langword="false"/>.</returns>
-    internal bool IsKnownKey(Guid seriesId, Guid key) => FindItem(key) switch
-    {
-        Movie movie => movie.Id == seriesId,
-        Season season => season.SeriesId == seriesId && FindSeries(seriesId) is not null,
-        _ => false,
-    };
-
-    /// <summary>
     /// Resolves the season the dashboard shows under a key: a movie, or the episodes
     /// Jellyfin shows under a season by its own season view rule, with the ones eligible
     /// for analysis placed in the season each is analyzed in. A known season with nothing

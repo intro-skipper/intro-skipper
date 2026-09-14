@@ -89,26 +89,37 @@ public sealed class TestAnalysisScheduler
     public async Task ManualScan_RunsAsItsOwnPassAheadOfALibraryPass_ErasingFirst()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var erases = 0;
-        h.Eraser.OnErase = _ =>
-        {
-            h.Record($"erase {++erases}");
-
-            // A failed erase is logged and the scan still analyzes.
-            return erases == 2 ? throw new InvalidOperationException("erase failed") : Task.CompletedTask;
-        };
-        var first = h.Scan();
+        var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
+        h.Time.Advance(AnalysisScheduler.QuietPeriod);
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
         var library = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
-        var second = h.Scan();
+        var scan = h.Scan();
         Assert.Equal(new AnalysisSchedulerStatus(PassRunning: true, ChangedItems: 0, ManualScans: 1, LibraryPending: true), h.Queue.Status);
 
         h.Ffmpeg.Gate.SetResult();
 
-        await Task.WhenAll(first, second, library).WaitAsync(Timeout);
-        Assert.True(second.IsCompletedSuccessfully);
-        Assert.Equal(["erase 1", "analyze", "erase 2", "analyze", "analyze"], h.Events);
+        await Task.WhenAll(changed, scan, library).WaitAsync(Timeout);
+        Assert.Equal(["analyze", "erase", "analyze", "analyze"], h.Events);
+    }
+
+    [Fact]
+    public async Task ManualScan_RepeatedWhileItsPassRuns_JoinsThatPass()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var first = h.Scan();
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+
+        var repeat = h.Scan();
+        Assert.Equal(0, h.Queue.Status.ManualScans);
+        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
+
+        h.Ffmpeg.Gate.SetResult();
+
+        await Task.WhenAll(first, repeat).WaitAsync(Timeout);
+        Assert.Equal(1, h.Eraser.Erases);
+        Assert.Equal(1, h.Ffmpeg.VersionCheckCalls);
+        Assert.False(h.Queue.IsScanQueued(h.SeasonId));
     }
 
     [Fact]
@@ -118,7 +129,7 @@ public sealed class TestAnalysisScheduler
         Assert.IsType<AcceptedResult>(h.Controller.ScanSeason(h.SeriesId, h.SeasonId));
 
         // An episode added to the season after the scan was requested, with a segment of
-        // its own; a second request for the same season merges into the pending scan.
+        // its own; a second request for the same season joins the pending scan.
         var added = JellyfinItems.Episode(Guid.NewGuid(), h.SeriesId, h.SeasonId, episodeNumber: 2, path: h.MediaPath);
         h.Items.Add(added);
         await h.Segments.Database.ReplaceAutoSegmentsAsync(added.Id, AnalysisMode.Introduction, [new Segment(added.Id, new TimeRange(10, 20))], SegmentSource.Chapter);
@@ -138,10 +149,28 @@ public sealed class TestAnalysisScheduler
     {
         await using var h = await QueueHarness.StartAsync();
 
-        await h.Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid()).WaitAsync(Timeout);
+        await h.Queue.ScanAsync(Guid.NewGuid()).WaitAsync(Timeout);
 
         Assert.Equal(0, h.Eraser.Erases);
         Assert.Equal(0, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
+    public async Task ManualScan_WhoseEraseFails_Faults_AndTheWorkerKeepsServing()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var erases = 0;
+        h.Eraser.OnErase = _ => ++erases == 1 ? throw new InvalidOperationException("erase failed") : Task.CompletedTask;
+
+        var failed = h.Scan();
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => failed.WaitAsync(Timeout));
+        Assert.Equal("erase failed", exception.Message);
+
+        // Nothing was erased, so nothing was analyzed over the records still in place.
+        Assert.Equal(0, h.Ffmpeg.VersionCheckCalls);
+
+        await h.Scan().WaitAsync(Timeout);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
     }
 
     [Fact]
@@ -242,7 +271,7 @@ public sealed class TestAnalysisScheduler
     public async Task RepeatedRequests_MergeAndCompleteTogether()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
-        var holding = h.Scan();
+        var holding = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
         var firstScan = h.Scan();
@@ -284,11 +313,14 @@ public sealed class TestAnalysisScheduler
 
         var scan = h.Scan();
         Assert.True(h.Queue.Status.IsRunning);
+        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         Assert.True(h.Queue.Status.PassRunning);
+        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
 
         h.Ffmpeg.Gate.SetResult();
         await scan.WaitAsync(Timeout);
+        Assert.False(h.Queue.IsScanQueued(h.SeasonId));
         h.Time.Advance(AnalysisScheduler.QuietPeriod);
         await changed.WaitAsync(Timeout);
         Assert.False(h.Queue.Status.IsRunning);
@@ -327,7 +359,7 @@ public sealed class TestAnalysisScheduler
         var holding = h.Scan();
         await entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
-        var pendingScan = h.Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid());
+        var pendingScan = h.Queue.ScanAsync(Guid.NewGuid());
         var library = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => h.Queue.StopAsync(new CancellationToken(canceled: true)));
@@ -393,7 +425,14 @@ public sealed class TestAnalysisScheduler
                 },
             };
             var resolver = EntrypointTestHelpers.CreateSeasonResolver(library);
-            Eraser = new StubSegmentEraser(new SegmentEraser(Segments.Database, DatabaseTestHelpers.CreateCacheDatabase(_scope.CacheDbPath), Segments.Change));
+            Eraser = new StubSegmentEraser(new SegmentEraser(Segments.Database, DatabaseTestHelpers.CreateCacheDatabase(_scope.CacheDbPath), Segments.Change))
+            {
+                OnErase = _ =>
+                {
+                    Record("erase");
+                    return Task.CompletedTask;
+                },
+            };
             Queue = EntrypointTestHelpers.CreateQueue(resolver, Ffmpeg, Segments.Database, _scope.CacheDbPath, Eraser, Time);
             Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database, Eraser);
         }
@@ -413,7 +452,7 @@ public sealed class TestAnalysisScheduler
 
         public GatedFfmpeg Ffmpeg { get; }
 
-        /// <summary>Gets the manual scan's eraser: counts erases and runs its hook before erasing for real.</summary>
+        /// <summary>Gets the manual scan's eraser: counts erases and runs its hook, which records "erase" unless a test replaces it, before erasing for real.</summary>
         public StubSegmentEraser Eraser { get; }
 
         public SegmentChangeHarness Segments { get; } = new();
@@ -444,10 +483,10 @@ public sealed class TestAnalysisScheduler
         }
 
         /// <summary>Queues a manual scan of the harness season.</summary>
-        public Task Scan() => Queue.ScanAsync(SeriesId, SeasonId);
+        public Task Scan() => Queue.ScanAsync(SeasonId);
 
         /// <summary>Queues a scan of a season that does not exist: it completes at its turn without running, marking that everything queued before it has run.</summary>
-        public Task Drain() => Queue.ScanAsync(Guid.NewGuid(), Guid.NewGuid());
+        public Task Drain() => Queue.ScanAsync(Guid.NewGuid());
 
         public void Record(string @event)
         {

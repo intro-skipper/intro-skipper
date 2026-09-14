@@ -134,6 +134,7 @@ export type SegmentUpdateRequest = {
 
 export type ScanStatus = {
     isRunning: boolean;
+    isQueued: boolean;
 };
 
 export type PluginInfo = {
