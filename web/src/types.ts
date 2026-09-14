@@ -99,6 +99,11 @@ export type AnalyzerActions = {
     Commercial?: string;
 };
 
+export type AnalysisOverrides = {
+    AnalysisPercent: number | null;
+    AnalysisLengthLimit: number | null;
+};
+
 // One stored segment as returned by the plural segments API. The Id is shared with
 // the Jellyfin media segment row; boundaries are seconds.
 export type SegmentType = "Introduction" | "Credits" | "Recap" | "Preview" | "Commercial";

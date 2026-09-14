@@ -173,6 +173,9 @@ internal sealed partial class IntroSkipperDatabase
         return await db.SeasonStates
             .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
             .Select(s => s.SeasonId)
+            .Union(db.SeasonAnalysisOverrides
+                .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+                .Select(s => s.SeasonId))
             .Distinct()
             .ToArrayAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -208,6 +211,10 @@ internal sealed partial class IntroSkipperDatabase
         // Single NOT-IN delete; EF.Parameter binds the retained set as one JSON
         // parameter, so this is safe for arbitrarily large libraries.
         await db.SeasonStates
+            .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.SeasonAnalysisOverrides
             .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);

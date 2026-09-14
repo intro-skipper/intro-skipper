@@ -6,6 +6,7 @@ import type {
     SegmentCreateRequest,
     SegmentUpdateRequest,
     AnalyzerActions,
+    AnalysisOverrides,
     ScanStatus,
     PluginInfo,
     LibraryStorage,
@@ -177,6 +178,21 @@ export function updateAnalyzerActions(id: string, actions: AnalyzerActions): Pro
         "Intros/AnalyzerActions/UpdateSeason",
         "POST",
         JSON.stringify({ id, analyzerActions: actions }),
+    );
+}
+
+export function getAnalysisOverrides(seasonId: string): Promise<ApiResult<AnalysisOverrides>> {
+    return getJson<AnalysisOverrides>(`Intros/AnalysisOverrides/${encodeURIComponent(seasonId)}`);
+}
+
+export function updateAnalysisOverrides(
+    id: string,
+    overrides: AnalysisOverrides,
+): Promise<Response> {
+    return fetchWithAuth(
+        "Intros/AnalysisOverrides/UpdateSeason",
+        "POST",
+        JSON.stringify({ id, ...overrides }),
     );
 }
 
