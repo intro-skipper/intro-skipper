@@ -217,6 +217,11 @@ public partial class BaseItemAnalyzerTask(
         var utcNow = DateTime.UtcNow;
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
 
+        if (!previewFromCreditsEnd)
+        {
+            await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+        }
+
         // One season-state read serves both the settle decision and every mode's
         // analyzer action below.
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
@@ -231,10 +236,6 @@ public partial class BaseItemAnalyzerTask(
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
                 await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
-                if (!previewFromCreditsEnd && settledResetModes.Contains(AnalysisMode.Credits))
-                {
-                    await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-                }
 
                 foreach (var episode in episodes)
                 {
