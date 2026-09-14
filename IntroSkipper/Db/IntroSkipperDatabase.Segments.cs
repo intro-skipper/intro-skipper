@@ -578,7 +578,7 @@ internal sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        var ids = [.. itemIds.Distinct()];
+        Guid[] ids = [.. itemIds.Distinct()];
         if (ids.Length == 0)
         {
             return 0;
