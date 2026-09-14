@@ -2,7 +2,7 @@ import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
 import * as api from "../store/api.ts";
-import type { AnalysisOverrides, AnalyzerActions, SeasonItem } from "../types.ts";
+import type { AnalysisOverrides, AnalyzerActions, PluginConfig, SeasonItem } from "../types.ts";
 import { delay } from "../utils.ts";
 import { configStore } from "../store/config-store.ts";
 
@@ -141,11 +141,26 @@ export function actionBar(opts: ActionBarOptions): {
         id: "ts-preview-from-credits-override",
         name: "preview-from-credits-override",
     });
+    const previewDefaultOption = el("option", { value: "default" }, "Global default");
     previewOverrideSelect.append(
-        el("option", { value: "default" }, "Global default"),
+        previewDefaultOption,
         el("option", { value: "enabled" }, "Enabled"),
         el("option", { value: "disabled" }, "Disabled"),
     );
+    function updatePreviewDefaultLabel(): void {
+        previewDefaultOption.textContent = configStore.isLoaded()
+            ? configStore.get("AnimePreviewFromCreditsEnd")
+                ? "Global: Anime only"
+                : "Global: Disabled"
+            : "Global default";
+    }
+    const handleConfigLoaded = () => updatePreviewDefaultLabel();
+    const handleConfigChanged = ({ field }: { field: keyof PluginConfig }) => {
+        if (field === "AnimePreviewFromCreditsEnd") updatePreviewDefaultLabel();
+    };
+    configStore.subscribe("loaded", handleConfigLoaded);
+    configStore.subscribe("changed", handleConfigChanged);
+    updatePreviewDefaultLabel();
     const previewOverrideDescription = el(
         "span",
         { className: "ts-override-description" },
@@ -649,6 +664,8 @@ export function actionBar(opts: ActionBarOptions): {
             eraseBtn.removeEventListener("click", handleEraseClick);
             fullSeriesCheckbox.removeEventListener("change", updateActionLabels);
             resetWindowBtn.removeEventListener("click", handleResetWindowClick);
+            configStore.unsubscribe("loaded", handleConfigLoaded);
+            configStore.unsubscribe("changed", handleConfigChanged);
         },
     };
 }
