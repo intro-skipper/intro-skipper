@@ -83,6 +83,64 @@ internal static class ConfigHasher
     }
 
     /// <summary>
+    /// Identifies the known category of an analysis hash mismatch.
+    /// </summary>
+    /// <remarks>
+    /// The stored value is only a compact hash, so individual setting names and old
+    /// values cannot be recovered. Analyzer actions and Chromaprint availability can
+    /// be identified by checking the alternate inputs; all other mismatches are
+    /// reported as a configuration or analyzer-version change.
+    /// </remarks>
+    /// <param name="config">Current plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Current analyzer action.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint.</param>
+    /// <param name="storedHash">Hash stored with the previous analysis.</param>
+    /// <returns>A human-readable reason for the mismatch.</returns>
+    public static string ExplainAnalysisHashChange(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        string storedHash)
+    {
+        var chromaprintMode = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+        var previousAction = Enum.GetValues<AnalyzerAction>()
+            .Where(candidate => candidate != action && Analysis(config, mode, candidate, ffmpegValid) == storedHash)
+            .Select(candidate => (AnalyzerAction?)candidate)
+            .FirstOrDefault();
+        var availabilityChanged = chromaprintMode && Analysis(config, mode, action, !ffmpegValid) == storedHash;
+        var previousActionWithAvailability = chromaprintMode
+            ? Enum.GetValues<AnalyzerAction>()
+                .Where(candidate => candidate != action && Analysis(config, mode, candidate, !ffmpegValid) == storedHash)
+                .Select(candidate => (AnalyzerAction?)candidate)
+                .FirstOrDefault()
+            : null;
+
+        if (previousActionWithAvailability is { } actionBeforeBothChanges)
+        {
+            return $"analyzer action changed from {actionBeforeBothChanges} to {action} and Chromaprint availability changed from {(!ffmpegValid).ToString().ToLowerInvariant()} to {ffmpegValid.ToString().ToLowerInvariant()}";
+        }
+
+        if (previousAction is { } actionBeforeChange && availabilityChanged)
+        {
+            return $"analyzer action changed from {actionBeforeChange} to {action} and Chromaprint availability changed from {(!ffmpegValid).ToString().ToLowerInvariant()} to {ffmpegValid.ToString().ToLowerInvariant()}";
+        }
+
+        if (previousAction is { } previousActionOnly)
+        {
+            return $"analyzer action changed from {previousActionOnly} to {action}";
+        }
+
+        if (availabilityChanged)
+        {
+            return $"Chromaprint availability changed from {(!ffmpegValid).ToString().ToLowerInvariant()} to {ffmpegValid.ToString().ToLowerInvariant()}";
+        }
+
+        return "analysis configuration or analyzer version changed";
+    }
+
+    /// <summary>
     /// Computes a hash for FFmpeg detection cache rows.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
