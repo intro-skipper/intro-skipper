@@ -455,13 +455,24 @@
         flex-wrap: nowrap;
     }
 
-    .ts-action-row {
+    .ts-action-top-row,
+    .ts-action-bottom-row {
         flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ts-action-editor-link {
+        align-self: flex-end;
+    }
+
+    .ts-action-bottom-row {
         align-items: stretch;
     }
 
     .ts-action-buttons {
         margin-left: 0;
+        align-self: flex-end;
+        justify-content: flex-end;
     }
 
     .ts-analysis-window-grid {

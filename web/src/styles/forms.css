@@ -464,13 +464,23 @@ a {
     display: block;
 }
 
-.ts-action-row {
+.ts-action-top-row,
+.ts-action-bottom-row {
     display: flex;
-    align-items: flex-end;
     gap: 16px;
+}
+
+.ts-action-top-row {
+    align-items: flex-end;
     flex-wrap: wrap;
     padding-bottom: 14px;
     border-bottom: 1px solid var(--is-border);
+}
+
+.ts-action-bottom-row {
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
 }
 
 .ts-action-scope {
@@ -540,20 +550,16 @@ a {
     cursor: not-allowed;
 }
 
-.ts-action-meta {
-    margin-top: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.8em;
-}
-
-.ts-action-meta a {
+.ts-action-editor-link {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    margin-left: auto;
     color: var(--is-accent);
+    font-size: 0.8em;
     text-decoration: underline;
 }
 
-.ts-action-meta a:focus-visible {
+.ts-action-editor-link:focus-visible {
     border-radius: 2px;
 }
 

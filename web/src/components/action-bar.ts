@@ -174,25 +174,28 @@ export function actionBar(opts: ActionBarOptions): {
     const buttonsDiv = el("div", { className: "ts-action-buttons" });
     buttonsDiv.append(applyBtn, scanBtn, eraseBtn);
 
-    const row = el("div", { className: "ts-action-row" });
-    const scopeRow = el("div", { className: "ts-action-scope" });
-    const scopeHint = el("span", { className: "ts-action-scope-hint" });
-    scopeRow.append(fullSeriesLabel, scopeHint);
-    row.append(scopeRow, analyzerGroup, buttonsDiv);
-
-    const metaRow = el("div", { className: "ts-action-meta" });
-    const statusEl = el("div", { className: "ts-action-status" });
-    const statusMessage = bindStatusMessage(statusEl, { display: "block" });
     const editorLink = el(
         "a",
         {
+            className: "ts-action-editor-link",
             href: "#/dashboard/plugins/" + SEGMENT_EDITOR_PLUGIN_ID + "?name=Segment Editor",
         },
         "Segment Editor \u2192",
     );
-    metaRow.append(editorLink);
 
-    container.append(row, analysisWindow, metaRow, statusEl);
+    const topRow = el("div", { className: "ts-action-top-row" });
+    topRow.append(analyzerGroup, editorLink);
+
+    const scopeRow = el("div", { className: "ts-action-scope" });
+    const scopeHint = el("span", { className: "ts-action-scope-hint" });
+    scopeRow.append(fullSeriesLabel, scopeHint);
+    const bottomRow = el("div", { className: "ts-action-bottom-row" });
+    bottomRow.append(scopeRow, buttonsDiv);
+
+    const statusEl = el("div", { className: "ts-action-status" });
+    const statusMessage = bindStatusMessage(statusEl, { display: "block" });
+
+    container.append(topRow, analysisWindow, bottomRow, statusEl);
 
     let currentShowId = "";
     let currentSeasonId = "";
@@ -534,6 +537,7 @@ export function actionBar(opts: ActionBarOptions): {
             analyzerGroup.style.display = isMovie ? "none" : "";
             applyBtn.style.display = isMovie ? "none" : "";
             fullSeriesLabel.style.display = isMovie ? "none" : "";
+            scopeRow.style.display = isMovie ? "none" : "";
             analysisWindow.style.display = isMovie ? "none" : "";
 
             if (!isMovie) {
