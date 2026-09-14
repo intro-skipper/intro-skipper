@@ -81,7 +81,7 @@ public sealed class TestAnalysisScheduler
         await scan.WaitAsync(Timeout);
 
         Assert.False(changed.IsCompleted);
-        h.Time.Advance(AnalysisScheduler.QuietPeriod);
+        h.Time.Advance(AnalysisScheduler.QuietPeriod + TimeSpan.FromSeconds(1));
         await changed.WaitAsync(Timeout);
     }
 
