@@ -231,6 +231,10 @@ public partial class BaseItemAnalyzerTask(
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
                 await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
+                if (!previewFromCreditsEnd && settledResetModes.Contains(AnalysisMode.Credits))
+                {
+                    await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+                }
                 foreach (var episode in episodes)
                 {
                     foreach (var resetMode in resetModes)

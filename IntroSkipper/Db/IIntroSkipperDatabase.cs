@@ -239,6 +239,15 @@ public interface IIntroSkipperDatabase
     Task ResetItemsForReanalysisAsync(IEnumerable<Guid> itemIds, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Removes active Preview segments derived from Credits for the supplied items, preserving
+    /// user segments and previews produced by the regular Preview pass.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to inspect.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of credits-derived preview rows removed.</returns>
+    Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns the analyzer action for every analysis mode of a season, filling in
     /// <see cref="AnalyzerAction.Default"/> for modes without a stored row.
     /// </summary>

@@ -30,9 +30,6 @@ namespace IntroSkipper.Migrations
                     b.Property<int?>("AnalysisPercent")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool?>("PreviewFromCreditsEnd")
-                        .HasColumnType("INTEGER");
-
                     b.HasKey("SeasonId");
 
                     b.ToTable("SeasonAnalysisOverrides", (string)null);

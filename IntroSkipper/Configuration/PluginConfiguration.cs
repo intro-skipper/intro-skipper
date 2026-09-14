@@ -240,12 +240,12 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    /// Gets or sets the legacy setting used to deserialize older configurations.
+    /// Gets or sets a value indicating whether the legacy setting used to deserialize older configurations is enabled.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets the legacy anime-only setting used to deserialize older configurations.
+    /// Gets or sets a value indicating whether the legacy anime-only setting used to deserialize older configurations is enabled.
     /// </summary>
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 

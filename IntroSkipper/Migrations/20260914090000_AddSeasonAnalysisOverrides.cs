@@ -19,8 +19,7 @@ namespace IntroSkipper.Migrations
                 {
                     SeasonId = table.Column<Guid>(type: "TEXT", nullable: false),
                     AnalysisPercent = table.Column<int>(type: "INTEGER", nullable: true),
-                    AnalysisLengthLimit = table.Column<int>(type: "INTEGER", nullable: true),
-                    PreviewFromCreditsEnd = table.Column<bool>(type: "INTEGER", nullable: true)
+                    AnalysisLengthLimit = table.Column<int>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {

@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
