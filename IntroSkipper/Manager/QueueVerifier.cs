@@ -50,13 +50,15 @@ internal sealed partial class QueueVerifier
     /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
     /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
+    /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
     public QueueVerifier(
         PluginConfiguration config,
         IReadOnlyCollection<AnalysisMode> modes,
         SeasonQueueSnapshot snapshot,
         bool ffmpegValid,
         int? analysisPercentOverride = null,
-        int? analysisLengthLimitOverride = null)
+        int? analysisLengthLimitOverride = null,
+        bool? previewFromCreditsEndOverride = null)
     {
         _config = config;
         _modes = modes;
@@ -69,14 +71,15 @@ internal sealed partial class QueueVerifier
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
-            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid, analysisPercentOverride, analysisLengthLimitOverride);
+            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid, analysisPercentOverride, analysisLengthLimitOverride, previewFromCreditsEndOverride);
             _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
                 config,
                 mode,
                 action,
                 ffmpegValid: true,
                 analysisPercentOverride: analysisPercentOverride,
-                analysisLengthLimitOverride: analysisLengthLimitOverride));
+                analysisLengthLimitOverride: analysisLengthLimitOverride,
+                previewFromCreditsEndOverride: previewFromCreditsEndOverride));
         }
     }
 

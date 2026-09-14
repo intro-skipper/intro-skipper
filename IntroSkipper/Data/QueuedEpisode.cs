@@ -81,6 +81,12 @@ public sealed class QueuedEpisode
     public int? AnalysisLengthLimitOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting that derives a Preview segment from the
+    /// end of Credits.
+    /// </summary>
+    public bool? PreviewFromCreditsEndOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }

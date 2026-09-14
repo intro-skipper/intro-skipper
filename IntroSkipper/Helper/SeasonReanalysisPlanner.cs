@@ -85,17 +85,17 @@ internal static class SeasonReanalysisPlanner
     }
 
     /// <summary>
-    /// Adds Preview to a reset that includes Credits when anime previews are derived from the
+    /// Adds Preview to a reset that includes Credits when previews are derived from the
     /// credits end, so the derived segments are regenerated with their source.
     /// </summary>
     /// <param name="modes">The modes selected for reset.</param>
-    /// <param name="animePreviewFromCreditsEnd">The <see cref="PluginConfiguration.AnimePreviewFromCreditsEnd"/> setting.</param>
+    /// <param name="previewFromCreditsEnd">Whether a Preview is derived from the end of Credits.</param>
     /// <returns>The modes to reset, with Preview appended when it is derived from Credits.</returns>
     internal static IReadOnlyCollection<AnalysisMode> ExpandSettledResetModesForDerivedSegments(
         IReadOnlyList<AnalysisMode> modes,
-        bool animePreviewFromCreditsEnd)
+        bool previewFromCreditsEnd)
     {
-        if (!animePreviewFromCreditsEnd ||
+        if (!previewFromCreditsEnd ||
             !modes.Contains(AnalysisMode.Credits) ||
             modes.Contains(AnalysisMode.Preview))
         {

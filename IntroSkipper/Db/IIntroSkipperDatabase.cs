@@ -174,9 +174,10 @@ public interface IIntroSkipperDatabase
     /// <param name="seasonId">Season ID.</param>
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
+    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, CancellationToken cancellationToken = default);
+    Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, bool? previewFromCreditsEnd, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records the items as analyzed for the mode under the given configuration hash and
@@ -236,6 +237,15 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task ResetItemsForReanalysisAsync(IEnumerable<Guid> itemIds, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes active Preview segments derived from Credits for the supplied items, preserving
+    /// user segments and previews produced by the regular Preview pass.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to inspect.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of credits-derived preview rows removed.</returns>
+    Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the analyzer action for every analysis mode of a season, filling in

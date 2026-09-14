@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -38,7 +39,7 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
     {
         // Runs on every MediaSegments request: bail on the configuration flag before any
         // library lookup.
-        if (Plugin.Instance?.Configuration.SkipFirstEpisode != true)
+        if (Plugin.Instance?.Configuration.FirstEpisodeIntroMode == PluginConfiguration.FirstEpisodeIntroModeAnalyze)
         {
             await next().ConfigureAwait(false);
             return;
@@ -112,14 +113,15 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
 
     private bool IsFilteredEpisode(Episode episode)
     {
-        // When anime restriction is disabled or not explicitly enabled, filter all series
-        if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
+        var mode = Plugin.Instance?.Configuration.FirstEpisodeIntroMode;
+        if (mode == PluginConfiguration.FirstEpisodeIntroModeIgnore)
         {
             return true;
         }
 
-        // When anime restriction is enabled, only filter anime series
-        return episode.Series is Series series &&
+        // When anime restriction is enabled, only filter anime series.
+        return mode == PluginConfiguration.FirstEpisodeIntroModeIgnoreAnime
+            && episode.Series is Series series &&
             SeriesHelper.IsAnime(series);
     }
 

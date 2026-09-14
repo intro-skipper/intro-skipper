@@ -57,6 +57,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public const int MaximumAnalysisPercent = 50;
 
+    internal const string FirstEpisodeIntroModeAnalyze = "Analyze";
+    internal const string FirstEpisodeIntroModeIgnore = "Ignore";
+    internal const string FirstEpisodeIntroModeIgnoreAnime = "IgnoreAnime";
+
+    private string? _firstEpisodeIntroMode;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -210,19 +216,43 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableSponsorBlockChapterDetection { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
+    /// Gets or sets how introductions in the first episode of a season are handled.
+    /// </summary>
+    /// <remarks>
+    /// The getter maps the two legacy boolean settings for configurations saved before this
+    /// option existed.
+    /// </remarks>
+    public string FirstEpisodeIntroMode
+    {
+        get => _firstEpisodeIntroMode is null
+            ? SkipFirstEpisode && SkipFirstEpisodeAnime
+                ? FirstEpisodeIntroModeIgnoreAnime
+                : SkipFirstEpisode
+                    ? FirstEpisodeIntroModeIgnore
+                    : FirstEpisodeIntroModeAnalyze
+            : _firstEpisodeIntroMode switch
+        {
+            FirstEpisodeIntroModeIgnore => FirstEpisodeIntroModeIgnore,
+            FirstEpisodeIntroModeIgnoreAnime => FirstEpisodeIntroModeIgnoreAnime,
+            _ => FirstEpisodeIntroModeAnalyze
+        };
+        set => _firstEpisodeIntroMode = value;
+    }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the legacy setting used to deserialize older configurations is enabled.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether skipping first episode should only apply to anime.
+    /// Gets or sets a value indicating whether the legacy anime-only setting used to deserialize older configurations is enabled.
     /// </summary>
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the content after the credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment is created for anime from the end of the credits to the next credits block
-    /// (a trailing dubbing or sponsor card) or the end of the episode.
+    /// Gets or sets a value indicating whether content after credits should be set as a preview for anime episodes.
+    /// When enabled, a Preview segment is created for anime from the end of credits to the next credits block
+    /// (a trailing dubbing or sponsor card) or the end of the episode. Individual seasons can override this setting.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 

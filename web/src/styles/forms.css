@@ -602,6 +602,17 @@ a {
     gap: 12px;
 }
 
+.ts-preview-override {
+    display: grid;
+    gap: 4px;
+    margin-top: 12px;
+    max-width: 520px;
+}
+
+.ts-preview-override select {
+    max-width: 260px;
+}
+
 .ts-override-field {
     display: grid;
     gap: 4px;

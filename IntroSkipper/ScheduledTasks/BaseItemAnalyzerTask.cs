@@ -166,6 +166,7 @@ public partial class BaseItemAnalyzerTask(
         {
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
+            episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
 
             var config = Config;
             var duration = episode.Duration;
@@ -183,6 +184,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var first = episodes[0];
+        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
         // mode, not only the ones this run covers. The fingerprints go first: the records
@@ -215,6 +217,11 @@ public partial class BaseItemAnalyzerTask(
         var utcNow = DateTime.UtcNow;
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
 
+        if (!previewFromCreditsEnd)
+        {
+            await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+        }
+
         // One season-state read serves both the settle decision and every mode's
         // analyzer action below.
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
@@ -223,12 +230,13 @@ public partial class BaseItemAnalyzerTask(
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
             {
-                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, Config.AnimePreviewFromCreditsEnd);
+                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, previewFromCreditsEnd);
                 LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
 
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
                 await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
+
                 foreach (var episode in episodes)
                 {
                     foreach (var resetMode in resetModes)
@@ -311,18 +319,21 @@ public partial class BaseItemAnalyzerTask(
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         if (candidates[0].AnalysisPercentOverride is null
             && candidates[0].AnalysisLengthLimitOverride is null
+            && candidates[0].PreviewFromCreditsEndOverride is null
             && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         }
 
+        var previewFromCreditsEnd = ShouldDerivePreview(candidates[0], config);
         var verifier = new QueueVerifier(
             config,
             modes,
             snapshot,
             ffmpegValid,
             candidates[0].AnalysisPercentOverride,
-            candidates[0].AnalysisLengthLimitOverride);
+            candidates[0].AnalysisLengthLimitOverride,
+            previewFromCreditsEnd);
 
         foreach (var candidate in candidates)
         {
@@ -395,7 +406,6 @@ public partial class BaseItemAnalyzerTask(
 
         var first = items[0];
         var isMovie = first.Category == QueuedMediaCategory.Movie;
-        var isAnime = first.Category == QueuedMediaCategory.AnimeEpisode;
 
         if (AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
         {
@@ -408,7 +418,8 @@ public partial class BaseItemAnalyzerTask(
             action,
             ffmpegValid,
             first.AnalysisPercentOverride,
-            first.AnalysisLengthLimitOverride);
+            first.AnalysisLengthLimitOverride,
+            ShouldDerivePreview(first, Config));
 
         if (action == AnalyzerAction.None)
         {
@@ -452,11 +463,12 @@ public partial class BaseItemAnalyzerTask(
             await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
         }
 
-        // Anime previews derive from the credits: right after a credits result lands, and again
+        // Credits-derived previews are generated right after a credits result lands, and again
         // in the Preview mode for episodes no preview analyzer settled, since a season whose
         // credits are all user-provided never enters the credits pass but its derived previews
         // still go stale when the preview settings change.
-        if (isAnime && Config.AnimePreviewFromCreditsEnd)
+        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        if (previewFromCreditsEnd)
         {
             if (mode == AnalysisMode.Credits)
             {
@@ -477,6 +489,10 @@ public partial class BaseItemAnalyzerTask(
             configHash,
             cancellationToken).ConfigureAwait(false);
     }
+
+    private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
+        => episode.PreviewFromCreditsEndOverride
+            ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
