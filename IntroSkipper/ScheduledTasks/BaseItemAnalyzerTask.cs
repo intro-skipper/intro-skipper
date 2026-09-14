@@ -235,6 +235,7 @@ public partial class BaseItemAnalyzerTask(
                 {
                     await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
                 }
+
                 foreach (var episode in episodes)
                 {
                     foreach (var resetMode in resetModes)
