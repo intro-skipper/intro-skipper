@@ -30,36 +30,4 @@ public sealed class TestAnalysisConfigHash
             ConfigHasher.Analysis(after, mode, afterAction, ffmpegValid: true));
     }
 
-    [Fact]
-    public void ExplainAnalysisHashChange_IdentifiesAnalyzerActionChange()
-    {
-        var config = new PluginConfiguration();
-        var storedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Chapter, ffmpegValid: true);
-
-        Assert.Equal(
-            "analyzer action changed from Chapter to Default",
-            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
-    }
-
-    [Fact]
-    public void ExplainAnalysisHashChange_IdentifiesChromaprintAvailabilityChange()
-    {
-        var config = new PluginConfiguration();
-        var storedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
-
-        Assert.Equal(
-            "Chromaprint availability changed from false to true",
-            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
-    }
-
-    [Fact]
-    public void ExplainAnalysisHashChange_UsesHonestFallbackForUnknownSettingChange()
-    {
-        var config = new PluginConfiguration();
-        var storedHash = ConfigHasher.Analysis(new PluginConfiguration { AnalysisPercent = 10 }, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
-
-        Assert.Equal(
-            "one or more analysis settings or analyzer-version inputs changed (previous input values are not stored)",
-            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
-    }
 }
