@@ -436,18 +436,16 @@ export function actionBar(opts: ActionBarOptions): {
                 }
             }
 
-            // Disable the button if another scan is already running server-side.
+            // A pass running server-side does not block a scan of this season: the
+            // queue runs it once the pass ends, so the button stays enabled.
             const status = await api.getScanStatus();
             if (destroyed || loadToken !== loadVersion) {
                 return;
             }
 
             if (status.ok && status.data?.isRunning) {
-                scanBtn.disabled = true;
-                fullSeriesCheckbox.disabled = true;
-                scanBtn.textContent = "Scan in progress\u2026";
                 statusMessage.show(
-                    "Scan in progress\u2026 This can take several minutes.",
+                    "Scan in progress\u2026 A new scan queues behind it.",
                     "var(--is-text-muted)",
                 );
             }
