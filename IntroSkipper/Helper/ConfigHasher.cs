@@ -83,6 +83,53 @@ internal static class ConfigHasher
     }
 
     /// <summary>
+    /// Explains the most specific known cause of an analysis hash mismatch.
+    /// </summary>
+    /// <remarks>
+    /// Analysis records intentionally store only the compact hash, so an arbitrary
+    /// setting's previous value cannot be recovered from an older record. Action and
+    /// Chromaprint changes can still be identified by recalculating the small set of
+    /// alternate hashes that are part of the current analysis state.
+    /// </remarks>
+    /// <param name="config">Current plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Current analyzer action.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint.</param>
+    /// <param name="storedHash">Hash stored with the previous analysis.</param>
+    /// <returns>A human-readable reason for the mismatch.</returns>
+    public static string ExplainAnalysisHashChange(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        string storedHash)
+    {
+        var reasons = new List<string>();
+        foreach (var previousAction in Enum.GetValues<AnalyzerAction>())
+        {
+            if (previousAction == action)
+            {
+                continue;
+            }
+
+            if (Analysis(config, mode, previousAction, ffmpegValid) == storedHash)
+            {
+                reasons.Add($"analyzer action changed from {previousAction} to {action}");
+            }
+        }
+
+        if (mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap
+            && Analysis(config, mode, action, !ffmpegValid) == storedHash)
+        {
+            reasons.Add($"Chromaprint availability changed from {(!ffmpegValid).ToString().ToLowerInvariant()} to {ffmpegValid.ToString().ToLowerInvariant()}");
+        }
+
+        return reasons.Count > 0
+            ? string.Join("; ", reasons)
+            : "one or more analysis settings or analyzer-version inputs changed (previous input values are not stored)";
+    }
+
+    /// <summary>
     /// Computes a hash for FFmpeg detection cache rows.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
