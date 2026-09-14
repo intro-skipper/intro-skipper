@@ -227,8 +227,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <summary>
     /// Returns whether a scan is running (a pass in flight, or a manual scan or library
     /// pass waiting for the worker; library changes waiting out their quiet period do not
-    /// count) and whether the season's own scan is pending or running, which the dashboard
-    /// polls until its scan has run.
+    /// count), whether the season's own scan is pending or running, which the dashboard
+    /// polls until its scan has run, and whether its most recent scan failed.
     /// </summary>
     /// <param name="seasonId">Season ID (a movie's own ID for movies).</param>
     /// <returns>The scan status.</returns>
@@ -236,7 +236,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<ScanStatusResponse> GetScanStatus([FromRoute] Guid seasonId)
     {
-        return new ScanStatusResponse(_queue.Status.IsRunning, _queue.IsScanQueued(seasonId));
+        var scan = _queue.ScanStatus(seasonId);
+        return new ScanStatusResponse(_queue.Status.IsRunning, scan.Queued, scan.Failed);
     }
 
     /// <summary>
@@ -244,7 +245,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// its own pass once any pass in flight has finished, the queue resolves the season
     /// again, erases its timestamps and cache, then analyzes each episode in the season it
     /// is analyzed in, which for an in-season special is its host season. A repeat
-    /// request joins the season's pending or running scan.
+    /// request joins the season's pending scan; one made while its scan runs queues a
+    /// follow-up.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>

@@ -11,6 +11,8 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="IsRunning">Whether any scan is running: a pass in flight, or a manual scan or library pass pending.</param>
 /// <param name="IsQueued">Whether the season's own manual scan is pending or running.</param>
+/// <param name="Failed">Whether the season's most recent manual scan failed, with no scan of it queued since.</param>
 public sealed record ScanStatusResponse(
     [property: JsonPropertyName("isRunning")] bool IsRunning,
-    [property: JsonPropertyName("isQueued")] bool IsQueued);
+    [property: JsonPropertyName("isQueued")] bool IsQueued,
+    [property: JsonPropertyName("failed")] bool Failed);

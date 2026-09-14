@@ -104,22 +104,24 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
-    public async Task ManualScan_RepeatedWhileItsPassRuns_JoinsThatPass()
+    public async Task ManualScan_RepeatedWhileItsPassRuns_RunsAgainAfterIt()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);
         var first = h.Scan();
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
 
+        // The running pass may already have taken its inventory, so the repeat is a
+        // follow-up pass of its own; a third request joins that pending one.
         var repeat = h.Scan();
-        Assert.Equal(0, h.Queue.Status.ManualScans);
-        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
+        var third = h.Scan();
+        Assert.Equal(1, h.Queue.Status.ManualScans);
+        Assert.Equal(new ManualScanStatus(Queued: true, Failed: false), h.Queue.ScanStatus(h.SeasonId));
 
         h.Ffmpeg.Gate.SetResult();
 
-        await Task.WhenAll(first, repeat).WaitAsync(Timeout);
-        Assert.Equal(1, h.Eraser.Erases);
-        Assert.Equal(1, h.Ffmpeg.VersionCheckCalls);
-        Assert.False(h.Queue.IsScanQueued(h.SeasonId));
+        await Task.WhenAll(first, repeat, third).WaitAsync(Timeout);
+        Assert.Equal(["erase", "analyze", "erase", "analyze"], h.Events);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
     }
 
     [Fact]
@@ -166,10 +168,15 @@ public sealed class TestAnalysisScheduler
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => failed.WaitAsync(Timeout));
         Assert.Equal("erase failed", exception.Message);
 
-        // Nothing was erased, so nothing was analyzed over the records still in place.
+        // Nothing was erased, so nothing was analyzed over the records still in place,
+        // and the failure is remembered for the dashboard until the key is queued again.
         Assert.Equal(0, h.Ffmpeg.VersionCheckCalls);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
 
-        await h.Scan().WaitAsync(Timeout);
+        var again = h.Scan();
+        Assert.Equal(new ManualScanStatus(Queued: true, Failed: false), h.Queue.ScanStatus(h.SeasonId));
+        await again.WaitAsync(Timeout);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
         Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
     }
 
@@ -313,14 +320,14 @@ public sealed class TestAnalysisScheduler
 
         var scan = h.Scan();
         Assert.True(h.Queue.Status.IsRunning);
-        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
+        Assert.True(h.Queue.ScanStatus(h.SeasonId).Queued);
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         Assert.True(h.Queue.Status.PassRunning);
-        Assert.True(h.Queue.IsScanQueued(h.SeasonId));
+        Assert.True(h.Queue.ScanStatus(h.SeasonId).Queued);
 
         h.Ffmpeg.Gate.SetResult();
         await scan.WaitAsync(Timeout);
-        Assert.False(h.Queue.IsScanQueued(h.SeasonId));
+        Assert.False(h.Queue.ScanStatus(h.SeasonId).Queued);
         h.Time.Advance(AnalysisScheduler.QuietPeriod);
         await changed.WaitAsync(Timeout);
         Assert.False(h.Queue.Status.IsRunning);

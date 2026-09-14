@@ -593,7 +593,7 @@ public sealed class TestVisualizationController : IDisposable
 
         // A library change waiting out its quiet period is not a running scan.
         _ = queue.ItemChangedAsync(Guid.NewGuid());
-        Assert.Equal(new ScanStatusResponse(IsRunning: false, IsQueued: false), controller.GetScanStatus(seasonId).Value);
+        Assert.Equal(new ScanStatusResponse(IsRunning: false, IsQueued: false, Failed: false), controller.GetScanStatus(seasonId).Value);
 
         // A second scan of the same season merges into the pending one; another season
         // is accepted too, never refused.
@@ -601,9 +601,9 @@ public sealed class TestVisualizationController : IDisposable
         Assert.IsType<AcceptedResult>(controller.ScanSeason(seriesId, seasonId));
         Assert.IsType<AcceptedResult>(controller.ScanSeason(seriesId, otherSeasonId));
 
-        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: true), controller.GetScanStatus(seasonId).Value);
-        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: true), controller.GetScanStatus(otherSeasonId).Value);
-        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: false), controller.GetScanStatus(Guid.NewGuid()).Value);
+        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: true, Failed: false), controller.GetScanStatus(seasonId).Value);
+        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: true, Failed: false), controller.GetScanStatus(otherSeasonId).Value);
+        Assert.Equal(new ScanStatusResponse(IsRunning: true, IsQueued: false, Failed: false), controller.GetScanStatus(Guid.NewGuid()).Value);
         Assert.Equal(2, queue.Status.ManualScans);
     }
 

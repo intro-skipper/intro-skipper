@@ -21,14 +21,14 @@ namespace IntroSkipper.Services;
 /// and is measured from the change, so an item that waited behind a running pass runs as
 /// soon as that pass ends. A manual scan (from the dashboard) runs as its own pass, erase
 /// then analyze, ahead of any pending library pass and as soon as the worker is free;
-/// nothing absorbs it, a repeated key joins the pending or running scan of that key, and
-/// the season is resolved when the pass starts, not when the scan was requested. A library
-/// pass (from the scheduled task) starts once the worker is free and every pending manual
-/// scan has run. It covers no pending request: changed items still run in their own pass
-/// once due, a cheap one when the library pass already analyzed them. A pass waits for
-/// the pass in flight; only the scheduled task's own token or shutdown cancels a running
-/// pass. Requests arriving during a pass wait for the next one. Pending requests are
-/// dropped on shutdown.
+/// nothing absorbs it, a repeated key joins the pending scan of that key, one requested
+/// while its scan runs queues a follow-up pass, and the season is resolved when the pass
+/// starts, not when the scan was requested. A library pass (from the scheduled task)
+/// starts once the worker is free and every pending manual scan has run. It covers no
+/// pending request: changed items still run in their own pass once due, a cheap one when
+/// the library pass already analyzed them. A pass waits for the pass in flight; only the
+/// scheduled task's own token or shutdown cancels a running pass. Requests arriving during
+/// a pass wait for the next one. Pending requests are dropped on shutdown.
 /// </remarks>
 /// <param name="analyzer">Analyzer run by every pass.</param>
 /// <param name="seasonResolver">Resolver of the season a manual scan erases and analyzes.</param>
@@ -57,6 +57,10 @@ public sealed partial class AnalysisScheduler(
     private readonly Lock _lock = new();
     private readonly HashSet<Guid> _changedItems = [];
     private readonly List<ManualScan> _manualScans = [];
+
+    // Keys whose most recent manual scan failed, until a scan of the key is queued again,
+    // so the dashboard can tell a failed scan from a finished one after the fact.
+    private readonly HashSet<Guid> _failedScans = [];
     private readonly Channel<bool> _wake = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
     private readonly CancellationTokenSource _stopping = new();
 
@@ -90,15 +94,18 @@ public sealed partial class AnalysisScheduler(
     }
 
     /// <summary>
-    /// Returns whether a manual scan of the key is pending or running.
+    /// Returns the state of the key's manual scan: whether one is pending or running, and
+    /// whether the most recent one failed with none queued since.
     /// </summary>
     /// <param name="key">A season key.</param>
-    /// <returns><see langword="true"/> while the queue holds a scan of the key.</returns>
-    public bool IsScanQueued(Guid key)
+    /// <returns>The scan state.</returns>
+    public ManualScanStatus ScanStatus(Guid key)
     {
         lock (_lock)
         {
-            return _running?.ScanKey == key || _manualScans.Exists(scan => scan.Key == key);
+            return new ManualScanStatus(
+                Queued: _running?.ScanKey == key || _manualScans.Exists(scan => scan.Key == key),
+                Failed: _failedScans.Contains(key));
         }
     }
 
@@ -139,10 +146,11 @@ public sealed partial class AnalysisScheduler(
     /// <summary>
     /// Queues a manual scan: its own pass that resolves the season the dashboard shows
     /// under the key, erases it, then analyzes it, ahead of any pending library pass. An
-    /// erase failure faults the scan. A scan for a key that is already pending joins it;
-    /// one for the key whose scan is running joins that pass, since its erase has
-    /// happened and its analysis covers the season as it is. A key that no longer
-    /// resolves to a season when the pass starts completes without running.
+    /// erase failure faults the scan. A scan for a key that is already pending joins it.
+    /// One requested while the key's scan runs queues a follow-up pass: the running pass
+    /// may already have taken its inventory, so it cannot cover work requested after
+    /// that. A key that no longer resolves to a season when the pass starts completes
+    /// without running.
     /// </summary>
     /// <param name="key">The season key the scan is requested for.</param>
     /// <returns>A task that completes with the scan's pass.</returns>
@@ -157,17 +165,16 @@ public sealed partial class AnalysisScheduler(
                 return Task.FromCanceled(new CancellationToken(canceled: true));
             }
 
-            var completions = _running is { ScanKey: { } runningKey } running && runningKey == key
-                ? running.Completions
-                : _manualScans.Find(scan => scan.Key == key)?.Completions;
-            queued = completions is null;
-            if (completions is null)
+            var pending = _manualScans.Find(scan => scan.Key == key);
+            queued = pending is null;
+            if (pending is null)
             {
-                completions = [];
-                _manualScans.Add(new ManualScan(key, completions));
+                pending = new ManualScan(key, []);
+                _manualScans.Add(pending);
+                _failedScans.Remove(key);
             }
 
-            completions.Add(completion);
+            pending.Completions.Add(completion);
         }
 
         if (queued)
@@ -392,6 +399,7 @@ public sealed partial class AnalysisScheduler(
         var cancellationToken = linked.Token;
         LogPassStarting(_logger, pass.Kind);
         Action<TaskCompletionSource> settle;
+        var failed = false;
         try
         {
             await pass.Run(cancellationToken).ConfigureAwait(false);
@@ -405,6 +413,7 @@ public sealed partial class AnalysisScheduler(
         catch (Exception ex)
         {
             LogPassFailed(_logger, ex, pass.Kind);
+            failed = true;
 
             // The failure is logged here, so a feeder may drop its handle. Reading the
             // exception marks it observed and keeps a dropped handle out of
@@ -417,17 +426,17 @@ public sealed partial class AnalysisScheduler(
         }
 
         // The pass is over before its handles complete, so whoever awaits one sees the
-        // queue idle. A repeat scan request joins the running scan's handles under the
-        // lock, so the snapshot taken once the pass is no longer the running one is
-        // exactly the set this pass covered.
-        List<TaskCompletionSource> completions;
+        // queue idle, and a failed scan is remembered before its handle faults.
         lock (_lock)
         {
             _running = null;
-            completions = [.. pass.Completions];
+            if (failed && pass.ScanKey is { } key)
+            {
+                _failedScans.Add(key);
+            }
         }
 
-        foreach (var completion in completions)
+        foreach (var completion in pass.Completions)
         {
             settle(completion);
         }
@@ -470,7 +479,7 @@ public sealed partial class AnalysisScheduler(
     private sealed record LibraryRequest(IProgress<double> Progress, TaskCompletionSource Completion, CancellationToken CancellationToken);
 
     // What the worker runs. Kind names it in the log; ScanKey is set for a manual scan so
-    // a repeat request for the key can join Completions while the pass runs.
+    // the status can report the key running and a failure is remembered against it.
     private sealed record Pass(
         PassKind Kind,
         Guid? ScanKey,
@@ -496,3 +505,10 @@ public sealed record AnalysisSchedulerStatus(bool PassRunning, int ChangedItems,
     /// </summary>
     public bool IsRunning => PassRunning || ManualScans > 0 || LibraryPending;
 }
+
+/// <summary>
+/// The state of one key's manual scan, which the dashboard polls until its scan has run.
+/// </summary>
+/// <param name="Queued">Whether a scan of the key is pending or running.</param>
+/// <param name="Failed">Whether the key's most recent scan failed, with no scan of it queued since.</param>
+public sealed record ManualScanStatus(bool Queued, bool Failed);
