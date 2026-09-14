@@ -34,14 +34,24 @@ internal static class ConfigHasher
     /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint. Folded into the
     /// hash for Chromaprint-capable modes so a settled <see cref="EpisodeState.NoSegments"/> season is
     /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
+    /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
+    /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
     /// <returns>A compact hex hash.</returns>
-    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    public static string Analysis(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        int? analysisPercentOverride = null,
+        int? analysisLengthLimitOverride = null)
     {
+        var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
+        var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
+                $"|pct={analysisPercent}|limit={analysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
@@ -64,7 +74,7 @@ internal static class ConfigHasher
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
+                $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(

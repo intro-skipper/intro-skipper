@@ -164,6 +164,18 @@ public interface IIntroSkipperDatabase
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default);
 
+    /// <summary>Returns the optional analysis-window overrides for a season.</summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task<AnalysisOverrides> GetAnalysisOverridesAsync(Guid seasonId, CancellationToken cancellationToken = default);
+
+    /// <summary>Stores or clears the optional analysis-window overrides for a season.</summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
+    /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Records the items as analyzed for the mode under the given configuration hash and
     /// each item's file version, whether or not segments were found, replacing any earlier

@@ -161,6 +161,21 @@ public partial class BaseItemAnalyzerTask(
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
+        var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
+        foreach (var episode in season.Episodes)
+        {
+            episode.AnalysisPercentOverride = overrides.AnalysisPercent;
+            episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
+
+            var config = Config;
+            var duration = episode.Duration;
+            var analysisPercent = (overrides.AnalysisPercent ?? config.AnalysisPercent) / 100.0;
+            var analysisLengthLimit = overrides.AnalysisLengthLimit ?? config.AnalysisLengthLimit;
+            episode.IntroFingerprintEnd = Math.Min(
+                duration >= 5 * 60 ? duration * analysisPercent : duration,
+                60 * analysisLengthLimit);
+        }
+
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
         if (episodes.Count == 0)
         {
@@ -294,12 +309,20 @@ public partial class BaseItemAnalyzerTask(
         // saved between resolution and this verification must apply.
         var policy = ExclusionPolicy.FromConfiguration(config);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
-        if (await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
+        if (candidates[0].AnalysisPercentOverride is null
+            && candidates[0].AnalysisLengthLimitOverride is null
+            && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         }
 
-        var verifier = new QueueVerifier(config, modes, snapshot, ffmpegValid);
+        var verifier = new QueueVerifier(
+            config,
+            modes,
+            snapshot,
+            ffmpegValid,
+            candidates[0].AnalysisPercentOverride,
+            candidates[0].AnalysisLengthLimitOverride);
 
         foreach (var candidate in candidates)
         {
@@ -379,7 +402,13 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        var configHash = ConfigHasher.Analysis(Config, mode, action, ffmpegValid);
+        var configHash = ConfigHasher.Analysis(
+            Config,
+            mode,
+            action,
+            ffmpegValid,
+            first.AnalysisPercentOverride,
+            first.AnalysisLengthLimitOverride);
 
         if (action == AnalyzerAction.None)
         {

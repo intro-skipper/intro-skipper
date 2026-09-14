@@ -157,6 +157,50 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
+    /// Returns the optional analysis-window overrides for the provided season.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpGet("AnalysisOverrides/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AnalysisOverrides>> GetAnalysisOverrides([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        if (!_seasonResolver.IsKnownKey(seasonId))
+        {
+            return NotFound();
+        }
+
+        return Ok(await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Updates the optional analysis-window overrides for the provided season.
+    /// </summary>
+    /// <param name="request">Analysis override update request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    [HttpPost("AnalysisOverrides/UpdateSeason")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> UpdateAnalysisOverrides([FromBody] UpdateAnalysisOverridesRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!_seasonResolver.IsKnownKey(request.Id))
+        {
+            return NotFound();
+        }
+
+        if (request.AnalysisPercent is < PluginConfiguration.MinimumAnalysisPercent or > PluginConfiguration.MaximumAnalysisPercent
+            || request.AnalysisLengthLimit is < 1)
+        {
+            return BadRequest("Analysis overrides are outside the supported range.");
+        }
+
+        await _database.SetAnalysisOverridesAsync(request.Id, request.AnalysisPercent, request.AnalysisLengthLimit, cancellationToken).ConfigureAwait(false);
+        return NoContent();
+    }
+
+    /// <summary>
     /// Returns the IDs of the items Jellyfin shows under the season whose automatic
     /// segments are withheld from Jellyfin. Unknown or empty seasons yield an empty set
     /// rather than an error.

@@ -48,7 +48,13 @@ internal sealed partial class QueueVerifier
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="snapshot">The season's stored analysis state.</param>
     /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
-    public QueueVerifier(PluginConfiguration config, IReadOnlyCollection<AnalysisMode> modes, SeasonQueueSnapshot snapshot, bool ffmpegValid)
+    public QueueVerifier(
+        PluginConfiguration config,
+        IReadOnlyCollection<AnalysisMode> modes,
+        SeasonQueueSnapshot snapshot,
+        bool ffmpegValid,
+        int? analysisPercentOverride = null,
+        int? analysisLengthLimitOverride = null)
     {
         _config = config;
         _modes = modes;
@@ -61,8 +67,14 @@ internal sealed partial class QueueVerifier
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
-            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid);
-            _availableHashByMode?.Add(mode, ConfigHasher.Analysis(config, mode, action, ffmpegValid: true));
+            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid, analysisPercentOverride, analysisLengthLimitOverride);
+            _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
+                config,
+                mode,
+                action,
+                ffmpegValid: true,
+                analysisPercentOverride: analysisPercentOverride,
+                analysisLengthLimitOverride: analysisLengthLimitOverride));
         }
     }
 

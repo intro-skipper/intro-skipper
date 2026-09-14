@@ -2,8 +2,9 @@ import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
 import * as api from "../store/api.ts";
-import type { AnalyzerActions, SeasonItem } from "../types.ts";
+import type { AnalysisOverrides, AnalyzerActions, SeasonItem } from "../types.ts";
 import { delay } from "../utils.ts";
+import { configStore } from "../store/config-store.ts";
 
 // Analyzer override choices per mode, in display order. Every mode accepts
 // Default, Chapter and None; the middle entries are the extra analyzers.
@@ -85,6 +86,63 @@ export function actionBar(opts: ActionBarOptions): {
         analyzerGroup.append(item);
     }
 
+    const analysisWindow = el("fieldset", { className: "ts-analysis-window" });
+    const analysisWindowLegend = el("legend", {}, "Analysis window");
+    const analysisWindowDescription = el(
+        "p",
+        { className: "ts-action-description" },
+        "Optional per-season limits. Leave a field blank to inherit the global Analysis settings.",
+    );
+    const analysisWindowGrid = el("div", { className: "ts-analysis-window-grid" });
+
+    function overrideField(
+        id: string,
+        label: string,
+        description: string,
+        min: string,
+        max?: string,
+    ): HTMLInputElement {
+        const field = el("div", { className: "ts-override-field" });
+        const labelEl = el("label", { className: "ts-override-label", for: id }, label);
+        const input = el("input", {
+            type: "number",
+            id,
+            min,
+            ...(max ? { max } : {}),
+            placeholder: "Global default",
+            inputmode: "numeric",
+        });
+        const descriptionEl = el("span", { className: "ts-override-description" }, description);
+        field.append(labelEl, input, descriptionEl);
+        analysisWindowGrid.append(field);
+        return input;
+    }
+
+    const analysisPercentInput = overrideField(
+        "ts-analysis-percent-override",
+        "Percent of media to analyze",
+        "Percentage of each item's runtime.",
+        "1",
+        "50",
+    );
+    const analysisLengthInput = overrideField(
+        "ts-analysis-length-override",
+        "Maximum runtime to analyze (minutes)",
+        "Upper limit for each item.",
+        "1",
+    );
+    const resetWindowBtn = el(
+        "button",
+        { className: "ts-reset-overrides", type: "button" },
+        "Use global defaults",
+    );
+    const handleResetWindowClick = () => {
+        analysisPercentInput.value = "";
+        analysisLengthInput.value = "";
+    };
+    resetWindowBtn.addEventListener("click", handleResetWindowClick);
+    analysisWindow.append(analysisWindowLegend, analysisWindowDescription, analysisWindowGrid, resetWindowBtn);
+
     const applyBtn = el(
         "button",
         { className: "ts-action-btn apply", type: "button" },
@@ -117,7 +175,10 @@ export function actionBar(opts: ActionBarOptions): {
     buttonsDiv.append(applyBtn, scanBtn, eraseBtn);
 
     const row = el("div", { className: "ts-action-row" });
-    row.append(fullSeriesLabel, analyzerGroup, buttonsDiv);
+    const scopeRow = el("div", { className: "ts-action-scope" });
+    const scopeHint = el("span", { className: "ts-action-scope-hint" });
+    scopeRow.append(fullSeriesLabel, scopeHint);
+    row.append(scopeRow, analyzerGroup, buttonsDiv);
 
     const metaRow = el("div", { className: "ts-action-meta" });
     const statusEl = el("div", { className: "ts-action-status" });
@@ -131,7 +192,7 @@ export function actionBar(opts: ActionBarOptions): {
     );
     metaRow.append(editorLink);
 
-    container.append(row, metaRow, statusEl);
+    container.append(row, analysisWindow, metaRow, statusEl);
 
     let currentShowId = "";
     let currentSeasonId = "";
@@ -142,6 +203,9 @@ export function actionBar(opts: ActionBarOptions): {
     let scanVersion = 0;
 
     function updateActionLabels(): void {
+        scopeHint.textContent = fullSeriesCheckbox.checked
+            ? "Every season in this series"
+            : "Current season only";
         scanBtn.textContent = currentIsMovie
             ? "Scan Movie"
             : fullSeriesCheckbox.checked
@@ -177,6 +241,15 @@ export function actionBar(opts: ActionBarOptions): {
         );
     }
 
+    function readOverride(input: HTMLInputElement, label: string, min: number, max?: number): number | null {
+        if (input.value.trim() === "") return null;
+        const value = Number(input.value);
+        if (!Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
+            throw new Error(label + " is outside the supported range.");
+        }
+        return value;
+    }
+
     fullSeriesCheckbox.addEventListener("change", updateActionLabels);
 
     const handleApplyClick = async () => {
@@ -189,7 +262,18 @@ export function actionBar(opts: ActionBarOptions): {
             actions[key] = select.value;
         }
 
-        statusMessage.show("Saving analyzer overrides\u2026", "var(--is-text-muted)");
+        let overrides: AnalysisOverrides;
+        try {
+            overrides = {
+                AnalysisPercent: readOverride(analysisPercentInput, "Percent", 1, 50),
+                AnalysisLengthLimit: readOverride(analysisLengthInput, "Maximum runtime", 1),
+            };
+        } catch (err) {
+            statusMessage.show(err instanceof Error ? err.message : "Invalid analysis overrides.", "var(--is-error)");
+            return;
+        }
+
+        statusMessage.show("Saving overrides\u2026", "var(--is-text-muted)");
 
         try {
             const completed = await withDashboardLoading(async () => {
@@ -205,13 +289,17 @@ export function actionBar(opts: ActionBarOptions): {
                     if (!response.ok) {
                         throw new Error("Failed to update analyzer overrides");
                     }
+                    const windowResponse = await api.updateAnalysisOverrides(seasonId, overrides);
+                    if (!windowResponse.ok) {
+                        throw new Error("Failed to update analysis window");
+                    }
                 }
                 return true;
             });
             if (!completed || destroyed || loadVersion !== operationLoadVersion) return;
-            statusMessage.show("Analyzer overrides updated.", "var(--is-success)");
+            statusMessage.show("Overrides updated.", "var(--is-success)");
         } catch {
-            statusMessage.show("Failed to update analyzer overrides.", "var(--is-error)");
+            statusMessage.show("Failed to update overrides.", "var(--is-error)");
         }
     };
 
@@ -432,9 +520,13 @@ export function actionBar(opts: ActionBarOptions): {
             analyzerGroup.style.display = isMovie ? "none" : "";
             applyBtn.style.display = isMovie ? "none" : "";
             fullSeriesLabel.style.display = isMovie ? "none" : "";
+            analysisWindow.style.display = isMovie ? "none" : "";
 
             if (!isMovie) {
-                const result = await api.getAnalyzerActions(seasonId);
+                const [result, overrideResult] = await Promise.all([
+                    api.getAnalyzerActions(seasonId),
+                    api.getAnalysisOverrides(seasonId),
+                ]);
                 if (destroyed || loadToken !== loadVersion) {
                     return;
                 }
@@ -442,6 +534,13 @@ export function actionBar(opts: ActionBarOptions): {
                 const actions: AnalyzerActions = result.ok && result.data ? result.data : {};
                 for (const [key, select] of actionSelects) {
                     select.value = actions[key] ?? "Default";
+                }
+                const overrides = overrideResult.ok && overrideResult.data ? overrideResult.data : null;
+                analysisPercentInput.value = overrides?.AnalysisPercent == null ? "" : String(overrides.AnalysisPercent);
+                analysisLengthInput.value = overrides?.AnalysisLengthLimit == null ? "" : String(overrides.AnalysisLengthLimit);
+                if (configStore.isLoaded()) {
+                    analysisPercentInput.placeholder = "Global: " + String(configStore.get("AnalysisPercent"));
+                    analysisLengthInput.placeholder = "Global: " + String(configStore.get("AnalysisLengthLimit"));
                 }
             }
 
@@ -483,6 +582,7 @@ export function actionBar(opts: ActionBarOptions): {
             scanBtn.removeEventListener("click", handleScanClick);
             eraseBtn.removeEventListener("click", handleEraseClick);
             fullSeriesCheckbox.removeEventListener("change", updateActionLabels);
+            resetWindowBtn.removeEventListener("click", handleResetWindowClick);
         },
     };
 }

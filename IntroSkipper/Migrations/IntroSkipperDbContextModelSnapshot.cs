@@ -129,6 +129,22 @@ namespace IntroSkipper.Migrations
                     b.ToTable("ProjectionQueue", (string)null);
                 });
 
+            modelBuilder.Entity("IntroSkipper.Db.DbSeasonAnalysisOverride", b =>
+                {
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AnalysisLengthLimit")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AnalysisPercent")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("SeasonId");
+
+                    b.ToTable("SeasonAnalysisOverrides", (string)null);
+                });
+
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonState", b =>
                 {
                     b.Property<Guid>("SeasonId")

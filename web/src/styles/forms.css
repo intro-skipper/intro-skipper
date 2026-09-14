@@ -451,12 +451,13 @@ a {
 /* Timestamp tab action bar. */
 
 .ts-action-bar {
-    background: rgba(0, 0, 0, 0.2);
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--is-border);
+    background: var(--is-surface);
+    padding: 16px;
+    border: 1px solid var(--is-border);
     margin-bottom: 12px;
-    border-radius: 4px;
+    border-radius: 8px;
     display: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
 }
 
 .ts-action-bar.open {
@@ -465,9 +466,18 @@ a {
 
 .ts-action-row {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    align-items: flex-end;
+    gap: 16px;
     flex-wrap: wrap;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--is-border);
+}
+
+.ts-action-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 132px;
 }
 
 .ts-full-series {
@@ -475,16 +485,17 @@ a {
     align-items: center;
     gap: 6px;
     white-space: nowrap;
-    font-size: 0.85em;
+    font-size: 0.9em;
     color: var(--is-text);
     cursor: pointer;
 }
 
 .ts-analyzer-group {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: flex-end;
+    gap: 10px;
     flex-wrap: wrap;
+    flex: 1 1 480px;
 }
 
 .ts-analyzer-item {
@@ -502,13 +513,14 @@ a {
 .ts-action-buttons {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
     margin-left: auto;
 }
 
 .ts-action-btn {
-    padding: 5px 12px;
-    border-radius: 4px;
-    font-size: 0.8em;
+    padding: 7px 12px;
+    border-radius: 5px;
+    font-size: 0.82em;
     cursor: pointer;
     border: none;
     font-family: inherit;
@@ -529,7 +541,7 @@ a {
 }
 
 .ts-action-meta {
-    margin-top: 8px;
+    margin-top: 12px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -548,6 +560,76 @@ a {
 .ts-action-status {
     margin-top: 8px;
     font-size: 0.85em;
+}
+
+.ts-action-scope-hint,
+.ts-action-description,
+.ts-override-description {
+    color: var(--is-text-muted);
+    font-size: 0.8em;
+}
+
+.ts-action-scope-hint {
+    padding-left: 24px;
+}
+
+.ts-analysis-window {
+    margin: 14px 0 0;
+    padding: 12px 14px 10px;
+    border-color: var(--is-border);
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.ts-analysis-window legend {
+    font-size: 0.85em;
+    color: var(--is-text);
+}
+
+.ts-action-description {
+    margin: 0 0 12px;
+    line-height: 1.4;
+}
+
+.ts-analysis-window-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.ts-override-field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.ts-override-label {
+    font-size: 0.82em;
+    color: var(--is-text);
+}
+
+.ts-override-field input {
+    max-width: 260px;
+}
+
+.ts-override-description {
+    line-height: 1.35;
+}
+
+.ts-reset-overrides {
+    margin-top: 10px;
+    padding: 5px 9px;
+    color: var(--is-text-muted);
+    background: transparent;
+    border: 1px solid var(--is-border);
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78em;
+}
+
+.ts-reset-overrides:hover {
+    color: var(--is-text);
+    background: var(--is-hover);
 }
 
 /* Timestamp tab episode list. */

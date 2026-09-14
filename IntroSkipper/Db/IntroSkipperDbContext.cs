@@ -51,6 +51,11 @@ public class IntroSkipperDbContext : DbContext
     public DbSet<DbSeasonState> SeasonStates => Set<DbSeasonState>();
 
     /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing per-season analysis-window overrides.
+    /// </summary>
+    public DbSet<DbSeasonAnalysisOverride> SeasonAnalysisOverrides => Set<DbSeasonAnalysisOverride>();
+
+    /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the per-item analysis records.
     /// </summary>
     public DbSet<DbAnalyzedItem> AnalyzedItems => Set<DbAnalyzedItem>();
@@ -117,6 +122,12 @@ public class IntroSkipperDbContext : DbContext
         {
             entity.ToTable("SeasonStates");
             entity.HasKey(s => new { s.SeasonId, s.Type });
+        });
+
+        modelBuilder.Entity<DbSeasonAnalysisOverride>(entity =>
+        {
+            entity.ToTable("SeasonAnalysisOverrides");
+            entity.HasKey(s => s.SeasonId);
         });
 
         modelBuilder.Entity<DbAnalyzedItem>(entity =>
@@ -217,6 +228,7 @@ public class IntroSkipperDbContext : DbContext
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
+        var seasonAnalysisOverrides = new List<DbSeasonAnalysisOverride>();
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
         var disabledItems = new List<DbDisabledItem>();
@@ -242,6 +254,7 @@ public class IntroSkipperDbContext : DbContext
                 // record durable obligations toward Jellyfin.
                 segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                seasonAnalysisOverrides = await db.SeasonAnalysisOverrides.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -288,6 +301,7 @@ public class IntroSkipperDbContext : DbContext
             .DistinctBy(s => s.Id)
             .DistinctBy(s => (s.ItemId, s.Type, s.StartTicks, s.EndTicks))];
         seasonStates = [.. seasonStates.DistinctBy(s => (s.SeasonId, s.Type))];
+        seasonAnalysisOverrides = [.. seasonAnalysisOverrides.DistinctBy(s => s.SeasonId)];
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
@@ -326,6 +340,7 @@ public class IntroSkipperDbContext : DbContext
             {
                 await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
