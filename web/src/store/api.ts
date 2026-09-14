@@ -203,8 +203,8 @@ export function scanSeason(showId: string, seasonId: string): Promise<Response> 
     );
 }
 
-export function getScanStatus(): Promise<ApiResult<ScanStatus>> {
-    return getJson<ScanStatus>("Intros/ScanStatus");
+export function getScanStatus(seasonId: string): Promise<ApiResult<ScanStatus>> {
+    return getJson<ScanStatus>(`Intros/ScanStatus/${encodeURIComponent(seasonId)}`);
 }
 
 // Timestamp deletion.

@@ -9,19 +9,14 @@ using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
-using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
+using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -34,24 +29,22 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation and converges journaled projections.</param>
-/// <param name="analyzer">Analyzer run over the seasons holding the episodes a scan erased.</param>
+/// <param name="queue">Analysis queue a manual scan is handed to, and whose status the scan status endpoint reports.</param>
 /// <param name="seasonResolver">Resolver of season keys into the episodes the dashboard shows, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
-/// <param name="cacheDatabase">Detection cache database facade.</param>
-/// <param name="taskManager">Scheduled task manager, used to report the detection task's state.</param>
+/// <param name="eraser">Erases seasons' segments, analysis state and cache rows, and converges their mirrors.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, BaseItemAnalyzerTask analyzer, SeasonResolver seasonResolver, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, ITaskManager taskManager) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IIntroSkipperDatabase database, ISegmentEraser eraser) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
-    private readonly BaseItemAnalyzerTask _analyzer = analyzer;
+    private readonly AnalysisScheduler _queue = queue;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
-    private readonly ITaskManager _taskManager = taskManager;
+    private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -114,7 +107,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        await EraseAsync(seriesId, seasonId, season, eraseCache, cancellationToken).ConfigureAwait(false);
+        // A known season with nothing to erase is a no-op.
+        if (season.Episodes.Count > 0)
+        {
+            LogErasingTimestamps(_logger, seriesId, seasonId);
+            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+        }
+
         return NoContent();
     }
 
@@ -138,7 +137,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
         }
 
-        var (removedSegments, removedCacheEntries) = await EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
         return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }
 
@@ -225,134 +224,55 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         return SegmentChangeHttp.Map(outcome, onApplied: _ => NoContent());
     }
 
-    // Erases the stored segments and analysis state of the episodes the season shows, and
-    // their cache rows when asked. A known season with nothing to erase is a no-op.
-    private async Task EraseAsync(Guid seriesId, Guid seasonId, DisplayedSeason season, bool eraseCache, CancellationToken cancellationToken)
-    {
-        if (season.Episodes.Count == 0)
-        {
-            return;
-        }
-
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-        await EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>
-    /// Erases the items' stored segments and analysis state, optionally their detection
-    /// cache rows, and converges their Jellyfin mirrors.
+    /// Returns whether a scan is running (a pass in flight, or a manual scan or library
+    /// pass waiting for the worker; library changes waiting out their quiet period do not
+    /// count), whether the season's own scan is pending or running, which the dashboard
+    /// polls until its scan has run, and whether its most recent scan failed.
     /// </summary>
-    /// <returns>The number of removed segment rows and cache rows.</returns>
-    private async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken)
-    {
-        var removedSegments = await _database.EraseItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
-
-        // Best-effort cache cleanup (the facade logs and swallows database errors),
-        // not bound to request cancellation: the main database is already consistent.
-        var removedCacheEntries = eraseCache
-            ? await _cacheDatabase.DeleteForItemsAsync(itemIds, CancellationToken.None).ConfigureAwait(false)
-            : 0;
-
-        // The erase journaled every affected item's projection; converge exactly
-        // those items now, unrelated pending work keeps its backoff. Anything
-        // this pass cannot finish stays journaled and the worker completes it.
-        await _segmentChange.ProjectItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
-        return (removedSegments, removedCacheEntries);
-    }
-
-    /// <summary>
-    /// Returns whether a scan is currently running.
-    /// </summary>
-    /// <returns>A JSON object indicating whether a scan is currently in progress.</returns>
-    [HttpGet("ScanStatus")]
+    /// <param name="seasonId">Season ID (a movie's own ID for movies).</param>
+    /// <returns>The scan status.</returns>
+    [HttpGet("ScanStatus/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<ScanStatusResponse> GetScanStatus()
+    public ActionResult<ScanStatusResponse> GetScanStatus([FromRoute] Guid seasonId)
     {
-        return new ScanStatusResponse(ScanState.IsRunning(ScanState.FindDetectTask(_taskManager)));
+        var scan = _queue.ScanStatus(seasonId);
+        return new ScanStatusResponse(_queue.Status.IsRunning, scan.Queued, scan.Failed);
     }
 
     /// <summary>
-    /// Erases and re-analyzes the episodes Jellyfin shows under the provided season, each in the season it is analyzed in.
+    /// Queues a manual scan of the episodes Jellyfin shows under the provided season: as
+    /// its own pass once any pass in flight has finished, the queue resolves the season
+    /// again, erases its timestamps and cache, then analyzes each episode in the season it
+    /// is analyzed in, which for an in-season special is its host season. A repeat
+    /// request joins the season's pending scan; one made while its scan runs queues a
+    /// follow-up.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
-    /// <param name="cancellationToken">cancellationToken.</param>
-    /// <returns>Accepted if the scan was started; Conflict if a scan is already running; Not Found if the id is not a season or movie of the series the server knows.</returns>
+    /// <returns>Accepted once the scan is queued; Not Found if the id is not a season or movie of the series the server knows.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        // The episodes Jellyfin shows under the season. The run analyzes the seasons they
-        // are analyzed in, which for an in-season special is its host season, so a scan of
-        // Specials reaches every special.
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
             return NotFound();
         }
 
-        var scanLease = ScheduledTaskSemaphore.TryAcquire();
-        if (scanLease is null)
-        {
-            return Conflict(new { message = "A scan is already in progress." });
-        }
+        LogStartRescan(_logger, seasonId);
 
-        var episodeIds = season.Episodes.Select(e => e.EpisodeId).ToHashSet();
+        // The handle is dropped: the request has already returned, and the queue logs a
+        // failed pass itself.
+        _ = _queue.ScanAsync(seasonId);
 
-        // Run erase + analyze in background so it doesn't get canceled when the HTTP request ends/timeouts
-        _ = Task.Run(
-            async () =>
-            {
-                using (scanLease)
-                {
-                    try
-                    {
-                        // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
-                        LogStartRescan(_logger, seasonId);
-
-                        // Erase the season's timestamps and cache first. An erase failure is
-                        // logged and the analysis still runs: its writes replace what the
-                        // erase would have removed.
-                        try
-                        {
-                            await EraseAsync(seriesId, seasonId, season, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
-                        }
-
-                        await _analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, episodeIds).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        LogRescanCanceled(_logger, seasonId);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogRescanError(_logger, ex, seasonId);
-                    }
-                }
-            },
-            CancellationToken.None);
-
-        // Immediately return to the client; background task continues
         return Accepted();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Erasing timestamps for series {SeriesId} season {SeasonId} at user request")]
     private static partial void LogErasingTimestamps(ILogger logger, Guid seriesId, Guid seasonId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId} before the rescan; analyzing anyway")]
-    private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Queued a manual scan of season/movie {SeasonId}")]
     private static partial void LogStartRescan(ILogger logger, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Manual season rescan for {SeasonId} was canceled.")]
-    private static partial void LogRescanCanceled(ILogger logger, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
-    private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
 }

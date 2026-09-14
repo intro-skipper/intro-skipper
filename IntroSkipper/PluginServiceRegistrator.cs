@@ -49,15 +49,19 @@ namespace IntroSkipper
             // request that arrives earlier.
             serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
 
-            // One instance serves both roles: the hosted library-event listener and the
-            // automatic-analysis owner that DetectSegmentsTask cancels before it starts.
+            // The only thing that runs the analyzer: the scheduled task, the watcher and
+            // the dashboard scan enqueue requests here. Registered ahead of the watcher so
+            // hosted services stop in reverse order: the watcher unsubscribes first, then
+            // the queue cancels the pass in flight.
+            serviceCollection.AddSingleton<AnalysisScheduler>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<AnalysisScheduler>());
+            // The hosted library-event listener that feeds the queue.
             serviceCollection.AddSingleton<Entrypoint>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
             // Stateless resolution of library items into seasons, shared by every pass,
             // the watcher and the dashboard.
             serviceCollection.AddSingleton<SeasonResolver>();
-            // Holds no per-run state, so one instance serves the scheduled task, the
-            // watcher and the dashboard scan.
+            // Holds no per-run state, so one instance serves every pass.
             serviceCollection.AddSingleton<BaseItemAnalyzerTask>();
             serviceCollection.AddSingleton<DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
@@ -95,6 +99,7 @@ namespace IntroSkipper
                 serviceProvider.GetRequiredService<TimeProvider>(),
                 serviceProvider.GetRequiredService<ILogger<SegmentChange>>()));
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());
+            serviceCollection.AddSingleton<ISegmentEraser, SegmentEraser>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {

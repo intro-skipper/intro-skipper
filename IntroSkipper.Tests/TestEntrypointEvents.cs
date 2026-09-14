@@ -5,83 +5,79 @@
 
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Xunit;
 
 namespace IntroSkipper.Tests;
 
+/// <summary>
+/// The library watcher, driven through the library events it subscribes to. Its queue is
+/// not started, so every item it hands over stays pending in the queue's status.
+/// </summary>
 public sealed class TestEntrypointEvents
 {
     [Fact]
-    public void OnItemChanged_IgnoresImageUpdates()
+    public async Task ItemAdded_QueuesTheItemAsChanged()
     {
         using var scope = CreateScope(autoDetectIntros: true);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
+        var (entrypoint, queue, library) = EntrypointTestHelpers.CreateEntrypoint();
+        await entrypoint.StartAsync(CancellationToken.None);
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.ImageUpdate);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+        library.RaiseItemAdded(JellyfinItems.Movie(Guid.NewGuid()));
 
-        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
+        Assert.Equal(1, queue.Status.ChangedItems);
     }
 
     [Fact]
-    public void OnItemChanged_QueuesMovieId_WhenAutoDetectEnabled()
+    public async Task ItemUpdated_QueuesAnEpisodeByItsOwnId_AndIgnoresImageUpdates()
     {
         using var scope = CreateScope(autoDetectIntros: true);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
-        var movieId = Guid.NewGuid();
-
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(movieId), ItemUpdateType.None);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
-
-        Assert.Contains(movieId, EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
-    }
-
-    [Fact]
-    public void OnItemChanged_QueuesTheEpisodeId_NotItsSeason()
-    {
-        using var scope = CreateScope(autoDetectIntros: true);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
+        var (entrypoint, queue, library) = EntrypointTestHelpers.CreateEntrypoint();
+        await entrypoint.StartAsync(CancellationToken.None);
         var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(episode, ItemUpdateType.None);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+        library.RaiseItemUpdated(episode, ItemUpdateType.ImageUpdate);
+        Assert.Equal(0, queue.Status.ChangedItems);
 
-        // The run resolves the episode's season, the host season for an in-season
-        // special, when it starts rather than on the library event thread.
-        Assert.Equal(episode.Id, Assert.Single(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint)));
+        // The pass resolves the episode's season, the host season for an in-season
+        // special, when it starts rather than on the library event thread; the same
+        // episode reported twice is one pending item.
+        library.RaiseItemUpdated(episode);
+        library.RaiseItemUpdated(episode);
+        Assert.Equal(1, queue.Status.ChangedItems);
     }
 
     [Fact]
-    public void OnItemChanged_DoesNothing_WhenAutoDetectDisabled()
+    public async Task ItemAdded_DoesNothing_WhenAutoDetectIsDisabled()
     {
         using var scope = CreateScope(autoDetectIntros: false);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint();
+        var (entrypoint, queue, library) = EntrypointTestHelpers.CreateEntrypoint();
+        await entrypoint.StartAsync(CancellationToken.None);
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(Guid.NewGuid()), ItemUpdateType.None);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemChanged", args);
+        library.RaiseItemAdded(JellyfinItems.Movie(Guid.NewGuid()));
 
-        Assert.Empty(EntrypointTestHelpers.GetItemsToAnalyze(entrypoint));
+        Assert.Equal(0, queue.Status.ChangedItems);
     }
 
     [Theory]
     [InlineData(true, false, true)]
     [InlineData(false, false, false)]
     [InlineData(true, true, false)]
-    public void OnItemRemoved_DeletesCacheRows_OnlyWithAutoDetectAndARealId(bool autoDetectIntros, bool emptyId, bool expectDeleted)
+    public async Task ItemRemoved_DeletesCacheRows_OnlyWithAutoDetectAndARealId(bool autoDetectIntros, bool emptyId, bool expectDeleted)
     {
         var removedId = emptyId ? Guid.Empty : Guid.NewGuid();
         var otherId = Guid.NewGuid();
         var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
         using var scope = CreateScope(autoDetectIntros, cacheDbPath);
-        using var entrypoint = EntrypointTestHelpers.CreateEntrypoint(cacheDbPath: cacheDbPath);
+        var (entrypoint, _, library) = EntrypointTestHelpers.CreateEntrypoint(cacheDbPath: cacheDbPath);
+        await entrypoint.StartAsync(CancellationToken.None);
         SeedCacheRows(cacheDbPath, removedId, otherId);
 
-        var args = EntrypointTestHelpers.CreateItemChangeEventArgs(JellyfinItems.Movie(removedId), ItemUpdateType.None);
-        EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+        library.RaiseItemRemoved(JellyfinItems.Movie(removedId));
 
         using var db = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
         Assert.Equal(!expectDeleted, db.DetectionCache.Any(e => e.ItemId == removedId));

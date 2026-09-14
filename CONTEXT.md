@@ -47,3 +47,19 @@ _Avoid_: Queue key, season-state key, group id
 **In-season special**:
 An episode stored in Season 0 whose aired season number names another season. Its host season is the season the series' episodes with that number resolved to, and the special is analyzed with it.
 _Avoid_: Interleaved special, cross-season special
+
+**Analysis request**:
+One unit of work handed to the analysis queue. Three kinds: a changed item from the library watcher, a manual scan of a season from the dashboard, and a library pass from the scheduled task.
+_Avoid_: Job, task (Jellyfin owns that word), ticket
+
+**Pass**:
+One run of the analyzer over a set of seasons. Passes never overlap; a pass waits for the pass in flight.
+_Avoid_: Run (for the noun), scan (the dashboard's word for a manual pass), batch
+
+**Quiet period**:
+The time the analysis queue waits after the most recent changed item before starting their pass. Sixty seconds, measured from the change, so an item that waited behind a running pass runs as soon as it ends.
+_Avoid_: Debounce, delay, cooldown
+
+**Feeder**:
+Anything that hands an analysis request to the queue: the library watcher, the scheduled task, and the manual scan endpoint.
+_Avoid_: Producer, trigger, source
