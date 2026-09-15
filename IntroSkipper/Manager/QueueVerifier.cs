@@ -229,16 +229,26 @@ internal sealed partial class QueueVerifier
 
             if (_storedHashByMode.TryGetValue(mode, out var stored) && stored.Mismatch)
             {
-                LogSeasonConfigHashChanged(
-                    logger,
-                    mode,
-                    pending,
-                    verified.Count,
-                    first.SeriesName,
-                    first.SeasonNumber,
-                    stored.Stored,
-                    _expectedHashByMode[mode],
-                    ChromaprintAffectsMode(mode) ? _ffmpegValid.ToString() : "n/a");
+                if (logger.IsEnabled(LogLevel.Information))
+                {
+                    var reason = ConfigHasher.ExplainAnalysisHashChange(
+                        _config,
+                        mode,
+                        _actionByMode[mode],
+                        _ffmpegValid,
+                        stored.Stored);
+                    LogSeasonConfigHashChanged(
+                        logger,
+                        mode,
+                        pending,
+                        verified.Count,
+                        first.SeriesName,
+                        first.SeasonNumber,
+                        stored.Stored,
+                        _expectedHashByMode[mode],
+                        ChromaprintAffectsMode(mode) ? _ffmpegValid.ToString() : "n/a",
+                        reason);
+                }
             }
             else
             {
@@ -260,8 +270,8 @@ internal sealed partial class QueueVerifier
     [LoggerMessage(Level = LogLevel.Debug, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: {Reason}")]
     private static partial void LogSeasonQueuedForAnalysis(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, AnalysisReason reason);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (chromaprint available: {ChromaprintAvailable})")]
-    private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable);
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (reason: {Reason}; chromaprint available: {ChromaprintAvailable})")]
+    private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing {Count} of {Total} items in {Name} season {Season}: media file changed since analysis")]
     private static partial void LogSeasonFilesChanged(ILogger logger, int count, int total, string name, int season);
