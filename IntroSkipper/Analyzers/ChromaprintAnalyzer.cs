@@ -186,6 +186,21 @@ internal sealed partial class ChromaprintAnalyzer(
                     !remainingIntro.Valid ||
                     remainingIntro.Duration > maxDuration)
                 {
+                    // A shared region that is real but longer than the configured maximum is the
+                    // one rejection the "no shared sequence" trace above cannot explain: the pair
+                    // correlated perfectly and the result is still dropped. Say so, or a season
+                    // whose opening simply runs past the maximum looks indistinguishable from a
+                    // season whose audio never matched.
+                    if (remainingIntro.Valid)
+                    {
+                        LogSharedRegionTooLong(
+                            currentEpisode.EpisodeId,
+                            remainingEpisode.EpisodeId,
+                            _analysisMode,
+                            remainingIntro.Duration,
+                            maxDuration);
+                    }
+
                     continue;
                 }
 
@@ -578,6 +593,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the configured maximum of {Maximum}s")]
+    private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
 }
 
 /// <summary>
