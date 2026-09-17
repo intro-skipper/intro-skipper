@@ -164,8 +164,16 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(database, snapshot, config));
             Assert.Equal(legacyBytes, await File.ReadAllBytesAsync(legacyPath));
 
+            // The legacy importer copies DbSegment rows directly and never journals
+            // projection work for them; startup reconciliation (IntroSkipperDatabase.
+            // ReconcileProjectionBacklogAsync) is what gets a legacy-imported item's
+            // segments (ids[0], automatic; ids[2], user-provided) in front of Jellyfin
+            // at all. Both database instantiations above ran it, so the queue holds
+            // exactly those two items -- not empty, and not every id (ids[1] settled
+            // with no segments, so it never enqueues).
             await using var db = DatabaseTestHelpers.CreateSegmentContext(databasePath);
-            Assert.Empty(await db.ProjectionQueue.ToListAsync());
+            var queued = await db.ProjectionQueue.Select(q => q.ItemId).ToListAsync();
+            Assert.Equal(new[] { ids[0], ids[2] }.OrderBy(id => id), queued.OrderBy(id => id));
         }
         finally
         {

@@ -153,6 +153,48 @@ public sealed class TestLegacyImporter
     }
 
     [Fact]
+    public async Task Import_EnqueuesImportedSegmentsForProjection()
+    {
+        // The importer (ImportSegmentsAsync) writes DbSegment rows straight into the
+        // new database and never journals projection work for them — the legacy file
+        // predates the projection queue entirely, so there is nothing in it to carry
+        // that decision forward. Without IntroSkipperDatabase.
+        // ReconcileProjectionBacklogAsync running after the import, an item imported
+        // from a pre-Jellyfin-12 install would hold a real, active segment that Jellyfin
+        // never learns about: exactly the bug reported against the v2 rewrite, where a
+        // library migrated from 10.x showed working detection internally but no skip
+        // button ever appeared.
+        using var scope = new FixtureScope();
+        var itemId = Guid.NewGuid();
+        LegacySchemaFixtures.CreateV5(
+            scope.LegacyPath,
+            [new(itemId, 10, 60, (int)AnalysisMode.Introduction)],
+            []);
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
+        Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
+        var queued = Assert.Single(await db.ProjectionQueue.AsNoTracking().ToListAsync());
+        Assert.Equal(itemId, queued.ItemId);
+    }
+
+    [Fact]
+    public async Task Import_NoLegacyFile_ReconciliationEnqueuesNothing()
+    {
+        // The presence companion to Import_EnqueuesImportedSegmentsForProjection: a
+        // fresh install with no legacy database and no pre-existing segments must not
+        // have reconciliation invent queue work out of an empty table.
+        using var scope = new FixtureScope();
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
+        Assert.Empty(await db.Segments.AsNoTracking().ToListAsync());
+        Assert.Empty(await db.ProjectionQueue.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
     public async Task Import_MalformedValues_SkipsBadRowsAndDegradesBadJsonWithoutAbortingImport()
     {
         using var scope = new FixtureScope();

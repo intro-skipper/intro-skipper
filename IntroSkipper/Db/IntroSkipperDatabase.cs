@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -81,6 +82,57 @@ internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         await db.Database.MigrateAsync().ConfigureAwait(false);
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
+        await ReconcileProjectionBacklogAsync(db).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Startup self-heal: every item holding at least one active (non-suppressed)
+    /// segment is (re-)enqueued for projection, so Jellyfin's mirror converges even for
+    /// rows that reached <see cref="IntroSkipperDbContext.Segments"/> without ever
+    /// journaling projection work. The legacy pre-v2 importer is the known offender —
+    /// <see cref="LegacyDatabaseImporter.ImportAsync"/> copies <see cref="DbSegment"/>
+    /// rows directly and, being a one-time, marker-gated import, never runs again to
+    /// pick up a fix — but this reconciliation does not depend on how a row arrived, so
+    /// it also heals any other write path that turns out to share the same gap.
+    /// Re-enqueuing an already-converged item is a harmless no-op: the projection
+    /// worker's <c>SyncItemAsync</c> reads Jellyfin's current rows before writing and
+    /// skips the write when they already match, and completed queue rows carry no
+    /// state a redundant enqueue could corrupt. Runs on every start, not only the first,
+    /// since unlike the legacy import there is no durable marker distinguishing "already
+    /// reconciled" from "never reconciled" — and a repeat pass over a healthy library is
+    /// cheap reads, not writes.
+    /// </summary>
+    private async Task ReconcileProjectionBacklogAsync(IntroSkipperDbContext db)
+    {
+        var itemIds = await db.Segments
+            .Where(s => s.State == SegmentState.Active)
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        if (itemIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var transaction = await db.Database.BeginTransactionAsync().ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
+            {
+                await EnqueueProjectionsAsync(db, itemIds, CancellationToken.None).ConfigureAwait(false);
+                await transaction.CommitAsync().ConfigureAwait(false);
+            }
+
+            LogProjectionBacklogReconciled(_logger, itemIds.Count);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: a failed reconciliation must not block startup or the
+            // legacy-import gate above it. The next start tries again.
+            LogProjectionBacklogReconciliationFailed(_logger, ex);
+        }
     }
 
     /// <summary>
@@ -151,4 +203,10 @@ internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a user-provided segment")]
     private static partial void LogAutoSegmentSkippedForUserOverlap(ILogger logger, Data.AnalysisMode mode, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Projection backlog reconciliation enqueued {Items} item(s) for sync")]
+    private static partial void LogProjectionBacklogReconciled(ILogger logger, int items);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Projection backlog reconciliation failed; will retry at the next server start")]
+    private static partial void LogProjectionBacklogReconciliationFailed(ILogger logger, Exception exception);
 }

@@ -217,9 +217,15 @@ public sealed class TestSegmentChange : IDisposable
     public async Task DeleteAndRestoreOfUnknownId_JournalNothing()
     {
         var itemId = Guid.NewGuid();
-        await SeedAsync(new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User));
         var adapter = new RecordingProjectionAdapter();
         var service = CreateService(adapter);
+
+        // Startup reconciliation (IntroSkipperDatabase.ReconcileProjectionBacklogAsync)
+        // runs on the facade's first use and would otherwise enqueue the segment seeded
+        // below, muddying what this test actually checks. Forcing it here, against a
+        // still-empty table, isolates the assertion to the two actions under test.
+        await adapter.Database!.InitializeAsync();
+        await SeedAsync(new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User));
 
         // Ids that exist in no state have nothing to heal: the 404-style probes
         // must not pay a journal write and a mirror sync.
@@ -253,8 +259,14 @@ public sealed class TestSegmentChange : IDisposable
     {
         var itemId = Guid.NewGuid();
         var credits = new DbSegment(itemId, AnalysisMode.Credits, 30, 40, SegmentSource.Chapter);
+        var adapter = new RecordingProjectionAdapter();
+        var service = CreateService(adapter);
+
+        // See DeleteAndRestoreOfUnknownId_JournalNothing: reconcile the (still-empty)
+        // backlog before seeding, so the credits row below isn't picked up by startup
+        // reconciliation and mistaken for something the rejected delete journaled.
+        await adapter.Database!.InitializeAsync();
         await SeedAsync(credits);
-        var service = CreateService(new RecordingProjectionAdapter());
 
         var rejected = Assert.IsType<Rejected>(await service.ApplyAsync(
             new EditorDeleteSegmentIntent(itemId, credits.Id, MediaSegmentType.Intro)));
