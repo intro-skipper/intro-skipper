@@ -682,12 +682,12 @@ public partial class BaseItemAnalyzerTask(
 
         if (mode == AnalysisMode.Credits)
         {
-            await SetCreditsWindowsAsync(episodes, isMovie, cancellationToken).ConfigureAwait(false);
+            await SetCreditsWindowsAsync(items, isMovie, cancellationToken).ConfigureAwait(false);
 
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
-            await pass.RunAsync(episodes, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
         else
         {
