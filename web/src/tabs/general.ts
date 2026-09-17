@@ -1,5 +1,8 @@
 import type { Tab } from "../types.ts";
-import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
+import {
+    MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE,
+    MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+} from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
 import {
     clearExcludedTimestamps,
@@ -242,7 +245,18 @@ export const generalTab: Tab = {
                 id: "ProcessShortcutVideos",
                 label: "Process Shortcut Videos (.strm files)",
                 description:
-                    "If enabled, shortcut videos such as .strm files will be processed during analysis. Disabled by default because remote sources may impose rate limits.",
+                    "If enabled, shortcut videos such as .strm files are processed by the separate throttled shortcut task. Disabled by default because remote sources may impose rate limits.",
+            }),
+            inputField({
+                kind: "number",
+                id: "ShortcutAnalysisBatchSize",
+                label: "Shortcut videos per throttled pass",
+                min: 1,
+                max: MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE,
+                step: 1,
+                description:
+                    "The shortcut analysis task processes this many remote videos per run. The default of 1 minimizes requests to rate-limited sources.",
+                visible: () => configStore.get("ProcessShortcutVideos") === true,
             }),
             inputField({
                 kind: "checkbox",

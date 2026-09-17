@@ -63,11 +63,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
+    /// <param name="shortcutsOnly">Whether to analyze only shortcut media.</param>
+    /// <param name="shortcutBatchSize">Maximum number of shortcut media items to include in this pass.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? itemIds = null)
+        IReadOnlyCollection<Guid>? itemIds = null,
+        bool shortcutsOnly = false,
+        int shortcutBatchSize = 0)
     {
         if (itemIds?.Count == 0)
         {
@@ -89,7 +93,9 @@ public partial class BaseItemAnalyzerTask(
 
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Max(1, Config.MaxParallelism),
+            // Shortcut analysis is deliberately serialized: remote .strm targets may be
+            // backed by a rate-limited service, and parallel seasons would defeat batching.
+            MaxDegreeOfParallelism = shortcutsOnly ? 1 : Math.Max(1, Config.MaxParallelism),
             CancellationToken = cancellationToken
         };
 
@@ -97,17 +103,25 @@ public partial class BaseItemAnalyzerTask(
         // free up. A series' episodes are in memory only while its seasons run, and the
         // slots share the seasons of one large series.
         await Parallel.ForEachAsync(
-            SeasonsInScope(owners, scope, progress),
+            SeasonsInScope(owners, scope, progress, shortcutsOnly, shortcutBatchSize),
             options,
-            (season, ct) => new ValueTask(AnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(AnalyzeSeasonAsync(season, modes, ffmpegValid, shortcutsOnly, ct))).ConfigureAwait(false);
         progress.Report(100);
     }
 
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
     // keyed by or holding a requested item. Progress counts the owners reached.
-    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, IProgress<double> progress)
+    private IEnumerable<ResolvedSeason> SeasonsInScope(
+        IReadOnlyList<BaseItem> owners,
+        HashSet<Guid>? scope,
+        IProgress<double> progress,
+        bool shortcutsOnly,
+        int shortcutBatchSize)
     {
         var yielded = 0;
+        var remainingShortcuts = shortcutsOnly
+            ? Math.Clamp(shortcutBatchSize, 1, PluginConfiguration.MaximumShortcutAnalysisBatchSize)
+            : 0;
         for (var i = 0; i < owners.Count; i++)
         {
             progress.Report(100.0 * i / owners.Count);
@@ -120,6 +134,25 @@ public partial class BaseItemAnalyzerTask(
             {
                 if (scope is null || scope.Contains(season.Key) || season.Episodes.Any(episode => scope.Contains(episode.EpisodeId)))
                 {
+                    if (shortcutsOnly)
+                    {
+                        var batch = season.Episodes.Where(episode => episode.IsShortcut).Take(remainingShortcuts).ToArray();
+                        if (batch.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        remainingShortcuts -= batch.Length;
+                        yielded++;
+                        yield return season with { Episodes = batch };
+                        if (remainingShortcuts == 0)
+                        {
+                            yield break;
+                        }
+
+                        continue;
+                    }
+
                     yielded++;
                     yield return season;
                 }
@@ -157,7 +190,7 @@ public partial class BaseItemAnalyzerTask(
     /// Verifies one season against the stored analysis state, reopens what a replaced file
     /// or a settled-season reanalysis invalidates, and runs every mode over it.
     /// </summary>
-    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool shortcutsOnly, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
@@ -177,7 +210,7 @@ public partial class BaseItemAnalyzerTask(
                 60 * analysisLengthLimit);
         }
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, shortcutsOnly, cancellationToken).ConfigureAwait(false);
         if (episodes.Count == 0)
         {
             return;
@@ -301,9 +334,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="candidates">One season's resolved episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
+    /// <param name="shortcutsOnly">Whether to verify only shortcut media.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(
+        IReadOnlyList<QueuedEpisode> candidates,
+        IReadOnlyCollection<AnalysisMode> modes,
+        bool ffmpegValid,
+        bool shortcutsOnly = false,
+        CancellationToken cancellationToken = default)
     {
         if (candidates.Count == 0)
         {
@@ -353,6 +392,11 @@ public partial class BaseItemAnalyzerTask(
                 candidate.IsShortcut = item.IsShortcut;
                 candidate.ShortcutPath = item.ShortcutPath ?? string.Empty;
 
+                if (candidate.IsShortcut != shortcutsOnly)
+                {
+                    continue;
+                }
+
                 if (candidate.IsShortcut && !config.ProcessShortcutVideos)
                 {
                     LogSkippingShortcutVideo(_logger, candidate.Name, candidate.EpisodeId);
@@ -379,7 +423,8 @@ public partial class BaseItemAnalyzerTask(
 
                 if (candidate.IsShortcut && candidate.Duration <= 0)
                 {
-                    var duration = await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
+                    var duration = CachedShortcutDuration(snapshot, candidate)
+                        ?? await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
                     if (duration is not > 0)
                     {
                         LogSkippingShortcutWithoutDuration(_logger, candidate.Name, candidate.EpisodeId);
@@ -422,6 +467,21 @@ public partial class BaseItemAnalyzerTask(
 
         episode.IntroFingerprintEnd = fingerprintDuration;
         episode.CreditsFingerprintStart = Math.Max(0, episode.Duration - maxCreditsDuration);
+    }
+
+    private static double? CachedShortcutDuration(SeasonQueueSnapshot snapshot, QueuedEpisode candidate)
+    {
+        foreach (var entry in snapshot.AnalysisRecords)
+        {
+            if (entry.Key.ItemId == candidate.EpisodeId
+                && string.Equals(entry.Value.ShortcutPath, candidate.ShortcutPath, StringComparison.Ordinal)
+                && entry.Value.Duration is > 0)
+            {
+                return entry.Value.Duration;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -475,7 +535,7 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                items.Select(i => (i.EpisodeId, i.FileVersion)),
+                items.Select(AnalysisIdentity),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
             return;
@@ -532,7 +592,7 @@ public partial class BaseItemAnalyzerTask(
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(item => (item.EpisodeId, item.FileVersion)),
+            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(AnalysisIdentity),
             configHash,
             cancellationToken).ConfigureAwait(false);
     }
@@ -540,6 +600,13 @@ public partial class BaseItemAnalyzerTask(
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
+
+    private static (Guid ItemId, long? FileVersion, string? ShortcutPath, double? Duration) AnalysisIdentity(QueuedEpisode item)
+        => (
+            item.EpisodeId,
+            item.FileVersion,
+            item.IsShortcut ? item.ShortcutPath : null,
+            item.IsShortcut && item.Duration > 0 ? item.Duration : null);
 
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer

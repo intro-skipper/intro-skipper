@@ -1,6 +1,7 @@
 import type { PluginConfig } from "../types.ts";
 import {
     MAXIMUM_ANALYSIS_PERCENT,
+    MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE,
     MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
     MINIMUM_ANALYSIS_PERCENT,
 } from "../config-limits.ts";
@@ -47,6 +48,7 @@ export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<
     BlackFrameThreshold: [range(16, 255)],
     MaxParallelism: [minValue(1)],
     ProcessThreads: [range(0, 16)],
+    ShortcutAnalysisBatchSize: [range(1, MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE)],
     ScanTimeoutSeconds: [minValue(0)],
     SkipbuttonHideDelay: [range(0, 1000)],
     SkipButtonVisibleSeconds: [range(0, 600)],

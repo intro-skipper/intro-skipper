@@ -200,12 +200,18 @@ public sealed partial class AnalysisScheduler(
     /// </summary>
     /// <param name="progress">Progress of the pass.</param>
     /// <param name="cancellationToken">Cancels this request only. While it waits it is withdrawn and the call returns at once; once its pass runs, the pass is cancelled and the call returns when it has stopped. Other requests stay queued.</param>
+    /// <param name="shortcutsOnly">Whether the pass should analyze only shortcut media.</param>
+    /// <param name="shortcutBatchSize">Maximum number of shortcut media items in the pass.</param>
     /// <returns>A task that completes when the pass has run.</returns>
     /// <exception cref="OperationCanceledException">The request was cancelled, or the queue has stopped.</exception>
     /// <exception cref="InvalidOperationException">A library pass is already requested and has not started.</exception>
-    public async Task RunLibraryAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public async Task RunLibraryAsync(
+        IProgress<double> progress,
+        CancellationToken cancellationToken,
+        bool shortcutsOnly = false,
+        int shortcutBatchSize = 0)
     {
-        var request = new LibraryRequest(progress, NewCompletion(), cancellationToken);
+        var request = new LibraryRequest(progress, NewCompletion(), cancellationToken, shortcutsOnly, shortcutBatchSize);
         lock (_lock)
         {
             if (_stopped)
@@ -355,7 +361,16 @@ public sealed partial class AnalysisScheduler(
         if (_libraryRequest is { } library)
         {
             _libraryRequest = null;
-            return (new Pass(PassKind.Library, null, cancellationToken => _analyzer.AnalyzeItemsAsync(library.Progress, cancellationToken), [library.Completion], library.CancellationToken), null);
+            return (new Pass(
+                PassKind.Library,
+                null,
+                cancellationToken => _analyzer.AnalyzeItemsAsync(
+                    library.Progress,
+                    cancellationToken,
+                    shortcutsOnly: library.ShortcutsOnly,
+                    shortcutBatchSize: library.ShortcutBatchSize),
+                [library.Completion],
+                library.CancellationToken), null);
         }
 
         if (_changedCompletion is not { } changed)
@@ -499,7 +514,12 @@ public sealed partial class AnalysisScheduler(
 
     private sealed record ManualScan(Guid Key, List<TaskCompletionSource> Completions);
 
-    private sealed record LibraryRequest(IProgress<double> Progress, TaskCompletionSource Completion, CancellationToken CancellationToken);
+    private sealed record LibraryRequest(
+        IProgress<double> Progress,
+        TaskCompletionSource Completion,
+        CancellationToken CancellationToken,
+        bool ShortcutsOnly,
+        int ShortcutBatchSize);
 
     // What the worker runs. Kind names it in the log; ScanKey is set for a manual scan so
     // the status can report the key running and a failure is remembered against it.
