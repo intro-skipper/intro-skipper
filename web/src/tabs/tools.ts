@@ -1,5 +1,6 @@
 import type { Tab } from "../types.ts";
 import * as api from "../store/api.ts";
+import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
 import { tabWarning } from "../components/tab-warning.ts";
@@ -111,6 +112,31 @@ export const toolsTab: Tab = {
             }
         });
 
+        const resetBtn = el(
+            "button",
+            { className: "action-button raised block", type: "button" },
+            "Reset Settings to Defaults",
+        );
+        resetBtn.addEventListener("click", async () => {
+            const result = await confirmDialog({
+                title: "Confirm Settings Reset",
+                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection and the injected skip button CSS are kept.",
+                confirmLabel: "Reset",
+            });
+            if (!result) return;
+            try {
+                const response = await api.resetConfiguration();
+                if (!response.ok) {
+                    window.Dashboard.alert("Failed to reset settings");
+                    return;
+                }
+                await configStore.load();
+                window.Dashboard.alert("Settings reset to defaults");
+            } catch {
+                window.Dashboard.alert("Failed to reset settings");
+            }
+        });
+
         container.append(
             globalSelectGroup,
             globalEraseBtn,
@@ -118,6 +144,7 @@ export const toolsTab: Tab = {
             tabWarning(
                 "Rebuilding the database requires a full Jellyfin restart to complete, not just a dashboard restart.",
             ),
+            resetBtn,
         );
     },
 };

@@ -271,6 +271,10 @@ export function rebuildDatabase(options?: { forceCleanOnBackupFailure: boolean }
     return fetchWithAuth("Intros/RebuildDatabase" + query, "POST");
 }
 
+export function resetConfiguration(): Promise<Response> {
+    return fetchWithAuth("IntroSkipper/Configuration/Reset", "POST");
+}
+
 // Skip button web patch helpers.
 export function injectSkipButtonCss(): Promise<Response> {
     return fetchWithAuth("SkipButtonCss/InjectCss", "POST");

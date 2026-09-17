@@ -6,6 +6,7 @@
 
 using System.Net.Mime;
 using System.Runtime.InteropServices;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
@@ -91,6 +92,32 @@ public partial class TroubleshootingController : ControllerBase
     [HttpGet("SupportBundle/Json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<SupportBundle> GetSupportBundleJson() => BuildSupportBundle();
+
+    /// <summary>
+    /// Resets every plugin setting to its default and saves the configuration. The series, movie and
+    /// path exclusion lists are user data rather than tuning and are kept. Jellyfin's per-library
+    /// provider selection and the injected skip button CSS are stored outside the plugin configuration
+    /// and are left as they are.
+    /// </summary>
+    /// <response code="204">Configuration reset.</response>
+    /// <returns>No content.</returns>
+    [HttpPost("Configuration/Reset")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult ResetConfiguration()
+    {
+        var plugin = Plugin.Instance!;
+        var current = plugin.Configuration;
+        plugin.UpdateConfiguration(new PluginConfiguration
+        {
+            SeriesExclusions = [.. current.SeriesExclusions],
+            MovieExclusions = [.. current.MovieExclusions],
+            PathExclusions = [.. current.PathExclusions],
+
+            // Runtime state the plugin detects at startup, not a setting.
+            FileTransformationPluginEnabled = current.FileTransformationPluginEnabled,
+        });
+        return NoContent();
+    }
 
     private SupportBundle BuildSupportBundle()
     {
