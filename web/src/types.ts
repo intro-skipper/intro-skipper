@@ -49,6 +49,8 @@ export interface PluginConfig {
     AutoDetectIntros: boolean;
     ReanalyzeSettledSeasons: boolean;
     AnalyzeSeasonZero: boolean;
+    ProcessShortcutVideos: boolean;
+    ShortcutAnalysisBatchSize: number;
     UpdateMediaSegments: boolean;
     UseLegacyBlackFrameAnalyzer: boolean;
     RefineCreditsBoundary: boolean;

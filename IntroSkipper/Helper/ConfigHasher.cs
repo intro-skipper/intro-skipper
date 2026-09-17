@@ -150,6 +150,8 @@ internal static class ConfigHasher
 
             CacheEntryType.KeyframeVisual => $"cache|v1|{type}|{mode}",
 
+            CacheEntryType.ShortcutDuration => $"cache|v1|{type}",
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
 

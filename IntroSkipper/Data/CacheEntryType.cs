@@ -39,4 +39,9 @@ public enum CacheEntryType
     /// Per-keyframe visual statistics (entropy and saturation) for non-black credit detection.
     /// </summary>
     KeyframeVisual,
+
+    /// <summary>
+    /// Successfully probed duration for a shortcut target, keyed by its file identity.
+    /// </summary>
+    ShortcutDuration,
 }

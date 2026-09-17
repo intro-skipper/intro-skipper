@@ -131,6 +131,13 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
+    public virtual Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _probeCalls);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(AudioDuration)(filePath));
+    }
+
     public virtual FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;
 
     private static T Hook<T>(T? hook)

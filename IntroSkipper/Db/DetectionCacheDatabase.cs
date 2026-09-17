@@ -69,6 +69,22 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<DbDetectionCache> FindEntries(Guid itemId, AnalysisMode mode, CacheEntryType type)
+    {
+        if (!TryInitialize())
+        {
+            return [];
+        }
+
+        using var db = _contextFactory.CreateDbContext();
+        return db.DetectionCache
+            .AsNoTracking()
+            .Where(e => e.ItemId == itemId && e.Mode == mode && e.Type == type)
+            .OrderByDescending(e => e.Id)
+            .ToList();
+    }
+
+    /// <inheritdoc/>
     public void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash)
     {
         if (!TryInitialize())

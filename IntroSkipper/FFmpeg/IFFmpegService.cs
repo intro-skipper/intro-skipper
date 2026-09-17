@@ -117,6 +117,14 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Probes the media container's duration with ffprobe.
+    /// </summary>
+    /// <param name="filePath">Media path.</param>
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
+    /// <returns>A task that returns the duration in seconds, or null when unavailable.</returns>
+    Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the outcome of the most recent <see cref="CheckFFmpegVersionAsync"/> run for the support bundle.
     /// </summary>
     /// <returns>The status token and the raw output of each probe in check order; <see cref="FFmpegCheckResult.NotRun"/> before the first check.</returns>

@@ -194,6 +194,17 @@ public interface IIntroSkipperDatabase
     Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, string configHash, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records that items were analyzed, including the resolved shortcut identity and duration
+    /// used by the analysis. Null shortcut fields describe regular media or unknown legacy data.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="items">Items with their file version, resolved shortcut target and duration.</param>
+    /// <param name="configHash">Configuration hash used for the analysis.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion, string? ShortcutPath, double? Duration)> items, string configHash, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Stamps the given file version on every analysis record of each item that has none
     /// yet. Records written before versioning match any file; stamping them with the
     /// version seen at verification lets a later replacement of the file be noticed.
