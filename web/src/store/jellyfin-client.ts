@@ -109,9 +109,10 @@ export async function getAllShows(): Promise<ShowItem[]> {
     return groups.flat();
 }
 
-export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {
+export async function getSeasons(seriesId: string, signal?: AbortSignal): Promise<SeasonItem[]> {
     const result = await getJson<JellyfinItemsResponse<JellyfinSeasonItem>>(
         `Shows/${encodeURIComponent(seriesId)}/Seasons`,
+        signal,
     );
     if (!result.ok) {
         console.error("Failed to load seasons for series", seriesId, result.error);
@@ -126,13 +127,18 @@ export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {
         }));
 }
 
-export async function getEpisodes(seriesId: string, seasonId: string): Promise<EpisodeItem[]> {
+export async function getEpisodes(
+    seriesId: string,
+    seasonId: string,
+    signal?: AbortSignal,
+): Promise<EpisodeItem[]> {
     const params = new URLSearchParams({
         seasonId,
         enableImages: "true",
     });
     const result = await getJson<JellyfinItemsResponse<JellyfinEpisodeItem>>(
         `Shows/${encodeURIComponent(seriesId)}/Episodes?${params.toString()}`,
+        signal,
     );
     if (!result.ok) {
         console.error("Failed to load episodes for series", seriesId, result.error);

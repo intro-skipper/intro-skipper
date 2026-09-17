@@ -1,5 +1,6 @@
 import { el } from "./dom.ts";
 import { formatTime, pluralize } from "../utils.ts";
+import { childScope, ignoreAbort } from "../lifecycle.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
 import { MODE_OPTIONS, segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
@@ -8,17 +9,26 @@ import type { EpisodeItem, SegmentDto, ApiResult } from "../types.ts";
 /** Delay before filtering the episode list (ms). */
 const FILTER_DEBOUNCE_MS = 120;
 
-export function episodeList(): {
+/** One season's worth of episodes. `signal` is the season panel's lifetime. */
+type EpisodeListView = {
+    episodes: EpisodeItem[];
+    segments: Array<ApiResult<SegmentDto[]> | null>;
+    isMovie?: boolean;
+    disable?: {
+        ids: string[];
+        onChange: (itemId: string, disabled: boolean) => Promise<void>;
+    };
+    signal: AbortSignal;
+};
+
+/**
+ * The filterable episode cards of the Timestamps browser. `signal` is the
+ * tab's lifetime; each render() gets the panel's, and the inline editors it
+ * creates end with the next render() or clear().
+ */
+export function episodeList(signal: AbortSignal): {
     container: HTMLElement;
-    render: (
-        episodes: EpisodeItem[],
-        segments: Array<ApiResult<SegmentDto[]> | null>,
-        isMovie?: boolean,
-        disable?: {
-            ids: string[];
-            onChange: (itemId: string, disabled: boolean) => Promise<void>;
-        },
-    ) => void;
+    render: (view: EpisodeListView) => void;
     clear: () => void;
     setStatus: (
         msg: string,
@@ -26,7 +36,6 @@ export function episodeList(): {
         action?: { label: string; onClick: () => void },
     ) => void;
     hasUnsavedEdits: () => boolean;
-    destroy: () => void;
 } {
     const container = el("div");
 
@@ -54,13 +63,17 @@ export function episodeList(): {
     let currentEpisodes: EpisodeItem[] = [];
     let currentCards: HTMLElement[] = [];
     let filterTimer: ReturnType<typeof setTimeout> | null = null;
-    let editors: Array<{ isDirty: () => boolean; destroy: () => void }> = [];
+    // The rendered season's editors share one lifetime, ended by the next
+    // render() or clear() and by the panel itself.
+    let editorsScope: AbortController | null = null;
+    let editorsSignal: AbortSignal = signal;
+    let editors: Array<{ isDirty: () => boolean }> = [];
     let editorCounter = 0;
 
     function ticksToMinutes(ticks: number | null): string {
         if (!ticks) return "";
         const minutes = Math.round(ticks / 10_000_000 / 60);
-        return minutes + " min";
+        return minutes + " min";
     }
 
     let isMovieView = false;
@@ -111,26 +124,27 @@ export function episodeList(): {
 
             const retryBtn = el("button", { className: "ts-retry-link", type: "button" }, "Retry");
             retryBtn.setAttribute("aria-label", "Retry loading segments for " + ep.Name);
-            retryBtn.addEventListener("click", async () => {
-                // Retry only this episode so one failed request does not force a full reload.
+            // Retry only this episode so one failed request does not force a full reload.
+            const retry = async () => {
                 retryBtn.textContent = "Loading…";
                 // disabled (not pointer-events) so keyboard activation cannot
                 // start a second concurrent retry.
                 retryBtn.disabled = true;
-                const retryResult = await api.getEpisodeSegments(ep.Id);
-                if (retryResult && retryResult.ok) {
+                const retryResult = await api.getEpisodeSegments(ep.Id, editorsSignal);
+                if (retryResult.ok) {
                     card.classList.remove("error");
                     info.removeChild(errorDiv);
-                    attachSegmentUi(ep, header, info, retryResult.data ?? []);
+                    attachSegmentUi(ep, header, info, retryResult.data);
                 } else {
                     retryBtn.textContent = "Retry";
                     retryBtn.disabled = false;
                 }
-            });
+            };
+            retryBtn.addEventListener("click", () => void retry().catch(ignoreAbort));
             errorDiv.append(retryBtn);
             info.append(errorDiv);
         } else {
-            attachSegmentUi(ep, header, info, result.data ?? []);
+            attachSegmentUi(ep, header, info, result.data);
         }
 
         card.append(info);
@@ -139,7 +153,7 @@ export function episodeList(): {
 
     /**
      * Renders the segment pill row plus a lazily-created inline editor toggled by
-     * an Edit button in the header. Mutations refresh the pills in place — no
+     * an Edit button in the header. Mutations refresh the pills in place, with no
      * full-season reload.
      */
     function attachSegmentUi(
@@ -169,6 +183,7 @@ export function episodeList(): {
                         pillsRow.replaceWith(fresh);
                         pillsRow = fresh;
                     },
+                    signal: editorsSignal,
                 });
                 editor.container.id = editorId;
                 editBtn.setAttribute("aria-controls", editorId);
@@ -261,60 +276,66 @@ export function episodeList(): {
         countEl.textContent = pluralize(visibleCount, "episode");
     }
 
-    const handleFilterInput = () => {
-        if (filterTimer) clearTimeout(filterTimer);
-        filterTimer = setTimeout(() => {
-            applyFilter();
-        }, FILTER_DEBOUNCE_MS);
-    };
+    filterInput.addEventListener(
+        "input",
+        () => {
+            if (filterTimer) clearTimeout(filterTimer);
+            filterTimer = setTimeout(() => {
+                applyFilter();
+            }, FILTER_DEBOUNCE_MS);
+        },
+        { signal },
+    );
 
-    filterInput.addEventListener("input", handleFilterInput);
+    signal.addEventListener(
+        "abort",
+        () => {
+            if (filterTimer) clearTimeout(filterTimer);
+        },
+        { once: true },
+    );
 
-    function destroyEditors(): void {
-        for (const editor of editors) {
-            editor.destroy();
-        }
+    function dropEditors(): void {
+        editorsScope?.abort();
+        editorsScope = null;
         editors = [];
     }
 
     return {
         container,
 
-        render(
-            episodes: EpisodeItem[],
-            segments: Array<ApiResult<SegmentDto[]> | null>,
-            isMovie = false,
-            disable?: { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> },
-        ) {
-            isMovieView = isMovie;
-            currentDisabledIds = new Set(disable?.ids);
-            onDisabledChange = disable?.onChange ?? null;
-            currentEpisodes = episodes;
+        render(view) {
+            dropEditors();
+            editorsScope = childScope(view.signal);
+            editorsSignal = editorsScope.signal;
+            isMovieView = view.isMovie ?? false;
+            currentDisabledIds = new Set(view.disable?.ids);
+            onDisabledChange = view.disable?.onChange ?? null;
+            currentEpisodes = view.episodes;
             listEl.replaceChildren();
-            destroyEditors();
             currentCards = [];
             if (filterTimer) clearTimeout(filterTimer);
             filterInput.value = "";
 
-            if (episodes.length === 0) {
+            if (view.episodes.length === 0) {
                 listEl.append(el("div", { className: "ts-status-msg" }, "No episodes found."));
                 countEl.textContent = "";
                 return;
             }
 
-            for (let i = 0; i < episodes.length; i++) {
-                const card = buildCard(episodes[i], segments[i] ?? null, i);
+            for (let i = 0; i < view.episodes.length; i++) {
+                const card = buildCard(view.episodes[i], view.segments[i] ?? null, i);
                 currentCards.push(card);
                 listEl.append(card);
             }
 
-            countEl.textContent = pluralize(episodes.length, "episode");
+            countEl.textContent = pluralize(view.episodes.length, "episode");
             statusEl.style.display = "none";
         },
 
         clear() {
+            dropEditors();
             listEl.replaceChildren();
-            destroyEditors();
             currentCards = [];
             currentEpisodes = [];
             currentDisabledIds = new Set();
@@ -352,15 +373,6 @@ export function episodeList(): {
         // unsaved typed input.
         hasUnsavedEdits() {
             return editors.some((editor) => editor.isDirty());
-        },
-
-        destroy() {
-            if (filterTimer) {
-                clearTimeout(filterTimer);
-                filterTimer = null;
-            }
-            destroyEditors();
-            filterInput.removeEventListener("input", handleFilterInput);
         },
     };
 }

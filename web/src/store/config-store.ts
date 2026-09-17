@@ -72,24 +72,15 @@ function takeSnapshot(source: PluginConfig): void {
 }
 
 export const configStore = {
-    /**
-     * Listens until `options.signal` aborts. A subscription without a signal
-     * lives for the whole document; only a subscriber that outlives every view
-     * should leave it out.
-     */
+    /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
     subscribe<K extends keyof StoreEvents>(
         event: K,
         callback: Listener<K>,
-        options: { signal?: AbortSignal } = {},
+        { signal }: { signal: AbortSignal },
     ): void {
-        const { signal } = options;
-        if (signal?.aborted) return;
+        if (signal.aborted) return;
         listeners[event].add(callback);
-        signal?.addEventListener("abort", () => listeners[event].delete(callback), { once: true });
-    },
-
-    unsubscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
-        listeners[event].delete(callback);
+        signal.addEventListener("abort", () => listeners[event].delete(callback), { once: true });
     },
 
     async load(): Promise<void> {

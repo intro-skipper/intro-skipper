@@ -183,7 +183,6 @@ export interface Tab {
     id: string;
     label: string;
     render: (container: HTMLElement, signal: AbortSignal) => void;
-    destroy?: () => void;
 }
 
 // Jellyfin injects these globals into the dashboard page.

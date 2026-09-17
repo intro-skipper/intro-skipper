@@ -8,7 +8,6 @@ import { childScope } from "../lifecycle.ts";
  */
 export class Router {
     private tabs: Tab[] = [];
-    private activeTab: Tab | null = null;
     private tabScope: AbortController | null = null;
     private readonly navEl: HTMLElement;
     private readonly contentEl: HTMLElement;
@@ -18,7 +17,6 @@ export class Router {
         this.navEl = navEl;
         this.contentEl = contentEl;
         this.signal = signal;
-        signal.addEventListener("abort", () => this.leaveActiveTab(), { once: true });
     }
 
     register(tab: Tab): void {
@@ -29,7 +27,8 @@ export class Router {
     }
 
     switchTo(tabId: string): void {
-        this.leaveActiveTab();
+        this.tabScope?.abort();
+        this.tabScope = null;
         this.contentEl.replaceChildren();
 
         const tab = this.tabs.find((t) => t.id === tabId);
@@ -37,18 +36,10 @@ export class Router {
 
         this.tabScope = childScope(this.signal);
         tab.render(this.contentEl, this.tabScope.signal);
-        this.activeTab = tab;
 
         const buttons = this.navEl.querySelectorAll<HTMLButtonElement>(".tab-button");
         for (const btn of buttons) {
             btn.classList.toggle("tab-active", btn.getAttribute("data-tab-id") === tabId);
         }
-    }
-
-    private leaveActiveTab(): void {
-        this.tabScope?.abort();
-        this.tabScope = null;
-        this.activeTab?.destroy?.();
-        this.activeTab = null;
     }
 }
