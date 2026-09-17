@@ -32,7 +32,7 @@ jobs:
   build:
     if: >-
       ! startsWith(github.event.head_commit.message, 'release v') &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+      (github.event_name == 'push' || github.event.pull_request.head.repo.fork)
 
     runs-on: ubuntu-latest
 
