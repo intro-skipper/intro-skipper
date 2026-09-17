@@ -14,7 +14,7 @@ import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
 import { exclusionListField } from "../components/exclusion-list-field.ts";
 import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
-import { errorText, pluralize } from "../utils.ts";
+import { pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
     let normalized = value.trim().replace(/\\/g, "/");
@@ -53,9 +53,10 @@ async function loadMediaNameSuggestions(type: "Series" | "Movie"): Promise<strin
 }
 
 async function loadStoragePathSuggestions(): Promise<string[]> {
-    const libraries = await getStorageUsage();
+    const result = await getStorageUsage();
+    if (!result.ok) throw new Error(result.error);
     const paths: string[] = [];
-    for (const library of libraries) {
+    for (const library of result.data) {
         for (const folder of library.Folders) {
             const path = folder.Path.trim();
             if (path.length > 0) {
@@ -88,21 +89,11 @@ export const generalTab: Tab = {
         injectSection.append(
             actionButton("Inject CSS", async () => {
                 statusMessage.show("Injecting CSS…", "var(--is-accent)");
-                try {
-                    const response = await injectSkipButtonCss();
-                    if (response.ok) {
-                        statusMessage.show(
-                            "Skip button CSS injected successfully!",
-                            "var(--is-success)",
-                        );
-                    } else {
-                        statusMessage.show(
-                            `Failed to inject CSS: Server returned ${String(response.status)}`,
-                            "var(--is-error)",
-                        );
-                    }
-                } catch (error: unknown) {
-                    statusMessage.show(`Failed to inject CSS: ${errorText(error)}`, "var(--is-error)");
+                const response = await injectSkipButtonCss();
+                if (response.ok) {
+                    statusMessage.show("Skip button CSS injected successfully!", "var(--is-success)");
+                } else {
+                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "var(--is-error)");
                 }
             }),
         );
@@ -147,11 +138,8 @@ export const generalTab: Tab = {
 
                 clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
                 const response = await clearExcludedTimestamps();
-                if (!response.ok || !response.data) {
-                    clearStatus.show(
-                        response.error ?? "Failed to clear excluded timestamp data.",
-                        "var(--is-error)",
-                    );
+                if (!response.ok) {
+                    clearStatus.show(response.error, "var(--is-error)");
                     return;
                 }
 

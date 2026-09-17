@@ -33,13 +33,13 @@ let segmentEditorActive: Promise<boolean> | null = null;
 
 function isSegmentEditorActive(): Promise<boolean> {
     if (segmentEditorActive) return segmentEditorActive;
-    const lookup = api.checkPlugins().then(
-        (plugins) => plugins.some((p) => p.Id === SEGMENT_EDITOR_PLUGIN_ID && p.Status === "Active"),
-        (err: unknown) => {
+    const lookup = api.checkPlugins().then((result) => {
+        if (!result.ok) {
             segmentEditorActive = null;
-            throw err;
-        },
-    );
+            return false;
+        }
+        return result.data.some((p) => p.Id === SEGMENT_EDITOR_PLUGIN_ID && p.Status === "Active");
+    });
     segmentEditorActive = lookup;
     return lookup;
 }

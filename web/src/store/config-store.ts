@@ -151,7 +151,9 @@ export const configStore = {
             const result = await savePluginConfig(serverConfig);
 
             // Keep the skip-button patch in sync, but do not block saving on it.
-            updateSkipDuration().catch(console.error);
+            void updateSkipDuration().then((result) => {
+                if (!result.ok) console.error("Failed to update skip duration", result.error);
+            });
 
             config = serverConfig;
             takeSnapshot(serverConfig);

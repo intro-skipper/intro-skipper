@@ -138,21 +138,22 @@ export const informationTab: Tab = {
 
         async function loadSupportBundle(): Promise<void> {
             supportStatus.show("Loading support log…");
-            try {
-                const bundle = await api.getSupportBundle();
-                markdown = bundle.Markdown;
-                supportSections.replaceChildren(...renderSections(bundle.Sections));
-                copyButtonEl.disabled = !markdown;
-                if (bundle.Sections.length === 0) {
-                    supportStatus.show("Support log is empty.");
-                } else {
-                    supportStatus.clear();
-                }
-            } catch {
+            const result = await api.getSupportBundle();
+            if (!result.ok) {
                 markdown = "";
                 supportSections.replaceChildren();
                 copyButtonEl.disabled = true;
                 supportStatus.show("Failed to load support log.", "var(--is-error)");
+                return;
+            }
+            const bundle = result.data;
+            markdown = bundle.Markdown;
+            supportSections.replaceChildren(...renderSections(bundle.Sections));
+            copyButtonEl.disabled = !markdown;
+            if (bundle.Sections.length === 0) {
+                supportStatus.show("Support log is empty.");
+            } else {
+                supportStatus.clear();
             }
         }
 
@@ -227,32 +228,32 @@ export const informationTab: Tab = {
 
         async function loadStorageUsage(): Promise<void> {
             storageStatus.show("Loading storage usage…");
-            try {
-                const libraries = await api.getStorageUsage();
-                storageList.replaceChildren();
-                if (libraries.length === 0) {
-                    storageStatus.show("Storage usage is empty.");
-                    return;
-                }
-                const list = el("ul", { className: "storage-list" });
-                for (const lib of libraries) {
-                    for (const folder of lib.Folders) {
-                        list.append(
-                            buildListItem(
-                                lib.Name,
-                                folder.Path,
-                                folder.UsedSpace,
-                                folder.FreeSpace,
-                            ),
-                        );
-                    }
-                }
-                storageList.append(list);
-                storageStatus.show("Storage usage loaded.");
-            } catch {
-                storageList.replaceChildren();
+            const result = await api.getStorageUsage();
+            storageList.replaceChildren();
+            if (!result.ok) {
                 storageStatus.show("Failed to load storage usage.", "var(--is-error)");
+                return;
             }
+            const libraries = result.data;
+            if (libraries.length === 0) {
+                storageStatus.show("Storage usage is empty.");
+                return;
+            }
+            const list = el("ul", { className: "storage-list" });
+            for (const lib of libraries) {
+                for (const folder of lib.Folders) {
+                    list.append(
+                        buildListItem(
+                            lib.Name,
+                            folder.Path,
+                            folder.UsedSpace,
+                            folder.FreeSpace,
+                        ),
+                    );
+                }
+            }
+            storageList.append(list);
+            storageStatus.show("Storage usage loaded.");
         }
 
         loadStorageUsage().catch(console.error);
