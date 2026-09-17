@@ -130,11 +130,14 @@ export const toolsTab: Tab = {
                     window.Dashboard.alert("Failed to reset settings");
                     return;
                 }
-                await configStore.load();
-                window.Dashboard.alert("Settings reset to defaults");
             } catch {
                 window.Dashboard.alert("Failed to reset settings");
+                return;
             }
+            // The store reports its own load failure, so the reset is
+            // confirmed only once the fields show the defaults.
+            await configStore.load();
+            window.Dashboard.alert("Settings reset to defaults");
         });
 
         container.append(
