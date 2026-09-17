@@ -246,7 +246,7 @@ public partial class BaseItemAnalyzerTask(
                 60 * analysisLengthLimit);
         }
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, shortcutsOnly, cancellationToken, season.AnalysisItemIds).ConfigureAwait(false);
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, shortcutsOnly, season.AnalysisItemIds, cancellationToken).ConfigureAwait(false);
         var analysisTargets = episodes.Where(episode => episode.IsAnalysisTarget).ToArray();
         if (analysisTargets.Length == 0)
         {
@@ -265,7 +265,6 @@ public partial class BaseItemAnalyzerTask(
             {
                 return;
             }
-
         }
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
@@ -401,16 +400,16 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
     /// <param name="shortcutsOnly">Whether to verify only shortcut media.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="analysisItemIds">Optional shortcut ids selected as analysis targets while the rest of the season remains comparison context.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
     internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(
         IReadOnlyList<QueuedEpisode> candidates,
         IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
         bool shortcutsOnly = false,
-        CancellationToken cancellationToken = default,
-        IReadOnlySet<Guid>? analysisItemIds = null)
+        IReadOnlySet<Guid>? analysisItemIds = null,
+        CancellationToken cancellationToken = default)
     {
         if (candidates.Count == 0)
         {

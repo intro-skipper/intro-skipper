@@ -113,8 +113,10 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                var chromaprintResult = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                chromaprintCandidates = chromaprintResult.Candidates;
+                fingerprintFailures = chromaprintResult.FingerprintFailures;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
