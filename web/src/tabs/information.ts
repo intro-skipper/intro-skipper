@@ -2,6 +2,7 @@ import type { SupportBundleEntry, SupportBundleSection, Tab } from "../types.ts"
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
 import { bindStatusMessage } from "../components/async-feedback.ts";
+import { ignoreAbort } from "../lifecycle.ts";
 
 // Copies text to the clipboard. Dashboards served over plain HTTP have no
 // navigator.clipboard, so fall back to selecting an offscreen textarea.
@@ -89,7 +90,7 @@ function renderSections(sections: SupportBundleSection[]): HTMLElement[] {
 export const informationTab: Tab = {
     id: "information",
     label: "Information",
-    render(container) {
+    render(container, signal) {
         const supportContainer = el("section", { className: "tab-readonly-section" });
         const supportTitle = el(
             "h3",
@@ -138,7 +139,7 @@ export const informationTab: Tab = {
 
         async function loadSupportBundle(): Promise<void> {
             supportStatus.show("Loading support log…");
-            const result = await api.getSupportBundle();
+            const result = await api.getSupportBundle(signal);
             if (!result.ok) {
                 markdown = "";
                 supportSections.replaceChildren();
@@ -157,7 +158,7 @@ export const informationTab: Tab = {
             }
         }
 
-        loadSupportBundle().catch(console.error);
+        loadSupportBundle().catch(ignoreAbort);
 
         // Storage usage — structured list with progress bars.
         const storageContainer = el("section", { className: "tab-readonly-section" });
@@ -228,7 +229,7 @@ export const informationTab: Tab = {
 
         async function loadStorageUsage(): Promise<void> {
             storageStatus.show("Loading storage usage…");
-            const result = await api.getStorageUsage();
+            const result = await api.getStorageUsage(signal);
             storageList.replaceChildren();
             if (!result.ok) {
                 storageStatus.show("Failed to load storage usage.", "var(--is-error)");
@@ -256,7 +257,7 @@ export const informationTab: Tab = {
             storageStatus.show("Storage usage loaded.");
         }
 
-        loadStorageUsage().catch(console.error);
+        loadStorageUsage().catch(ignoreAbort);
 
         container.append(supportContainer, storageContainer);
     },

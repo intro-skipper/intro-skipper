@@ -5,6 +5,7 @@ import "./styles/forms.css";
 import { createAppShell } from "./components/app-shell.ts";
 import { Router } from "./router/router.ts";
 import { configStore } from "./store/config-store.ts";
+import { abortable } from "./lifecycle.ts";
 
 import type { Tab } from "./types.ts";
 import { generalTab } from "./tabs/general.ts";
@@ -32,14 +33,14 @@ const tabs: readonly Tab[] = [
 const ROOT_SELECTOR = "#intro-skipper-dashboard-root";
 const DEFAULT_TAB_ID = "general";
 
-let cleanupPage: (() => void) | null = null;
-let mountVersion = 0;
+// The mounted page's lifetime. Aborting it tears down the shell, the router and
+// whatever tab is showing.
+let mount: AbortController | null = null;
 let boundRoot: HTMLElement | null = null;
 
 function destroyMountedPage(): void {
-    mountVersion += 1;
-    cleanupPage?.();
-    cleanupPage = null;
+    mount?.abort();
+    mount = null;
 }
 
 function getPageElement(root: HTMLElement): HTMLElement {
@@ -57,30 +58,22 @@ function mountPage(rootEl: HTMLElement): void {
 
     rootEl.replaceChildren();
 
-    const currentMountVersion = mountVersion;
-    const { navEl, contentEl, destroy: destroyShell } = createAppShell(rootEl);
-    const router = new Router(navEl, contentEl);
-
-    cleanupPage = () => {
-        router.destroy();
-        destroyShell();
-    };
+    mount = new AbortController();
+    const { signal } = mount;
+    const { navEl, contentEl } = createAppShell(rootEl, signal);
+    const router = new Router(navEl, contentEl, signal);
 
     for (const tab of tabs) {
         router.register(tab);
     }
 
-    void configStore
-        .load()
+    void abortable(configStore.load(), signal)
         .then(() => {
-            if (currentMountVersion !== mountVersion) {
-                return;
-            }
-
             router.switchTo(DEFAULT_TAB_ID);
         })
         .catch(() => {
-            /* already logged & alerted in configStore.load() */
+            // A load failure is already logged and alerted by the store; an
+            // abort means this mount is gone.
         });
 }
 

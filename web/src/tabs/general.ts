@@ -7,12 +7,9 @@ import {
 } from "../store/api.ts";
 import { getAllShows } from "../store/jellyfin-client.ts";
 import { el, htmlEl } from "../components/dom.ts";
-import { bindVisibility } from "../components/field-bind.ts";
-import { configField } from "../components/input-field.ts";
-import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
+import { configForm } from "../components/config-form.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { exclusionListField } from "../components/exclusion-list-field.ts";
 import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
 import { pluralize } from "../utils.ts";
 
@@ -71,7 +68,9 @@ async function loadStoragePathSuggestions(): Promise<string[]> {
 export const generalTab: Tab = {
     id: "general",
     label: "General",
-    render(container) {
+    render(container, signal) {
+        const form = configForm(signal);
+
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(
             el("h3", { className: "checkbox-list-label" }, "Inject Skip Button CSS"),
@@ -106,7 +105,7 @@ export const generalTab: Tab = {
                 "This feature requires the File Transformation plugin to work. " +
                 '<a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank">Install it here</a>',
         );
-        bindVisibility(ftWarning, () => !configStore.get("FileTransformationPluginEnabled"));
+        form.visibleWhen(ftWarning, () => !configStore.get("FileTransformationPluginEnabled"));
 
         const clearExcludedSection = el("div", { className: "input-container" });
         clearExcludedSection.append(
@@ -155,41 +154,41 @@ export const generalTab: Tab = {
             configStore.get("UseFileTransformationPlugin") === true;
 
         container.append(
-            configField("AutoDetectIntros"),
-            configField("ReanalyzeSettledSeasons"),
-            configField("SettledSeasonDelayHours", {
+            form.field("AutoDetectIntros"),
+            form.field("ReanalyzeSettledSeasons"),
+            form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
-            configField("UpdateMediaSegments"),
-            exclusionListField("SeriesExclusions", {
+            form.field("UpdateMediaSegments"),
+            form.list("SeriesExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Series"),
             }),
-            exclusionListField("MovieExclusions", {
+            form.list("MovieExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Movie"),
             }),
-            exclusionListField("PathExclusions", {
+            form.list("PathExclusions", {
                 suggestions: loadStoragePathSuggestions,
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            inlineCheckboxGroup("Analyze for:", [
+            form.checkboxGroup("Analyze for:", [
                 "ScanIntroduction",
                 "ScanCredits",
                 "ScanRecap",
                 "ScanPreview",
                 "ScanCommercial",
             ]),
-            configField("AnalyzeSeasonZero"),
-            configField("UseFileTransformationPlugin", {
+            form.field("AnalyzeSeasonZero"),
+            form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),
             ftWarning,
-            configField("SkipbuttonHideDelay", { visible: fileTransformationOn }),
-            configField("AutoSkipIntro", { visible: fileTransformationOn }),
-            configField("AutoSkipCredits", { visible: fileTransformationOn }),
-            configField("SkipButtonVisibleSeconds", { visible: fileTransformationOn }),
+            form.field("SkipbuttonHideDelay", { visible: fileTransformationOn }),
+            form.field("AutoSkipIntro", { visible: fileTransformationOn }),
+            form.field("AutoSkipCredits", { visible: fileTransformationOn }),
+            form.field("SkipButtonVisibleSeconds", { visible: fileTransformationOn }),
             injectSection,
-            configField("EnableMainMenu"),
+            form.field("EnableMainMenu"),
         );
     },
 };

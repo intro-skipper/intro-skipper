@@ -1,19 +1,21 @@
 import type { Tab } from "../types.ts";
-import { configField } from "../components/input-field.ts";
+import { configForm } from "../components/config-form.ts";
 
 export const ffmpegTab: Tab = {
     id: "ffmpeg",
     label: "FFmpeg",
-    render(container) {
+    render(container, signal) {
+        const form = configForm(signal);
+
         container.append(
-            configField("MaxParallelism"),
-            configField("ProcessPriority"),
-            configField("ProcessThreads"),
-            configField("ScanTimeoutSeconds"),
-            configField("ProbeAudioDuration"),
-            configField("PreferredAudioLanguage"),
-            configField("PreferAudioStreamWithMostChannels"),
-            configField("CacheCompressionLevel"),
+            form.field("MaxParallelism"),
+            form.field("ProcessPriority"),
+            form.field("ProcessThreads"),
+            form.field("ScanTimeoutSeconds"),
+            form.field("ProbeAudioDuration"),
+            form.field("PreferredAudioLanguage"),
+            form.field("PreferAudioStreamWithMostChannels"),
+            form.field("CacheCompressionLevel"),
         );
     },
 };

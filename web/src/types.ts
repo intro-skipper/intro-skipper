@@ -177,11 +177,12 @@ export type EpisodeItem = {
     SeriesName: string | null;
 };
 
-// Routing contract used across tabs.
+// Routing contract used across tabs. `signal` aborts when the tab is left, so
+// everything the render starts (fetches, listeners, store subscriptions) ends there.
 export interface Tab {
     id: string;
     label: string;
-    render: (container: HTMLElement) => void;
+    render: (container: HTMLElement, signal: AbortSignal) => void;
     destroy?: () => void;
 }
 

@@ -7,6 +7,7 @@ import { bindField } from "./field-bind.ts";
 export function inlineCheckboxGroup(
     title: string,
     ids: readonly KeyOfKind<"checkbox">[],
+    signal: AbortSignal,
 ): HTMLElement {
     const container = el("fieldset", {
         className: "checkbox-container analyze-for analyze-for-group",
@@ -26,7 +27,8 @@ export function inlineCheckboxGroup(
         bindField({
             container: label,
             input,
-            fieldOpts: { id },
+            id,
+            signal,
             onLoaded: () => {
                 input.checked = configStore.get(id);
             },

@@ -25,11 +25,6 @@ const listeners: { [K in keyof StoreEvents]: Set<Listener<K>> } = {
     validation: new Set(),
 };
 
-// Track subscriptions created while a tab renders so they can be removed
-// together when the tab is torn down.
-let scopedUnsubscribes: Array<() => void> = [];
-let trackingScope = false;
-
 function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): void {
     for (const cb of listeners[event]) {
         cb(...args);
@@ -77,30 +72,24 @@ function takeSnapshot(source: PluginConfig): void {
 }
 
 export const configStore = {
-    subscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
+    /**
+     * Listens until `options.signal` aborts. A subscription without a signal
+     * lives for the whole document; only a subscriber that outlives every view
+     * should leave it out.
+     */
+    subscribe<K extends keyof StoreEvents>(
+        event: K,
+        callback: Listener<K>,
+        options: { signal?: AbortSignal } = {},
+    ): void {
+        const { signal } = options;
+        if (signal?.aborted) return;
         listeners[event].add(callback);
-        if (trackingScope) {
-            scopedUnsubscribes.push(() => listeners[event].delete(callback));
-        }
+        signal?.addEventListener("abort", () => listeners[event].delete(callback), { once: true });
     },
 
     unsubscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
         listeners[event].delete(callback);
-    },
-
-    /** Start tracking subscriptions. Call before rendering a tab. */
-    beginScope(): void {
-        trackingScope = true;
-        scopedUnsubscribes = [];
-    },
-
-    /** Remove all subscriptions added since beginScope(). Call on tab destroy. */
-    endScope(): void {
-        for (const unsubscribe of scopedUnsubscribes) {
-            unsubscribe();
-        }
-        scopedUnsubscribes = [];
-        trackingScope = false;
     },
 
     async load(): Promise<void> {
