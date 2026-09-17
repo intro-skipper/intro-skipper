@@ -3,11 +3,6 @@
 // children for its own nested views. Fetches, delays, listeners and store
 // subscriptions all take the signal, so tearing a view down is one abort().
 
-/** The error an aborted signal produces, the same shape fetch rejects with. */
-export function abortError(): DOMException {
-    return new DOMException("The operation was aborted.", "AbortError");
-}
-
 export function isAbortError(err: unknown): boolean {
     return err instanceof DOMException && err.name === "AbortError";
 }
@@ -28,16 +23,16 @@ export function childScope(parent: AbortSignal): AbortController {
     return child;
 }
 
-/** Resolves after `ms`, or rejects with an AbortError as soon as `signal` aborts. */
+/** Resolves after `ms`, or rejects with the signal's reason (an AbortError by default) as soon as `signal` aborts. */
 export function delay(ms: number, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal.aborted) {
-            reject(abortError());
+            reject(signal.reason);
             return;
         }
         const onAbort = () => {
             clearTimeout(timer);
-            reject(abortError());
+            reject(signal.reason);
         };
         const timer = setTimeout(() => {
             signal.removeEventListener("abort", onAbort);
@@ -48,14 +43,14 @@ export function delay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Settles like `promise`, unless `signal` aborts first; then it rejects with an
- * AbortError. For awaits on things that cannot take the signal themselves:
+ * Settles like `promise`, unless `signal` aborts first; then it rejects with the
+ * signal's reason (an AbortError by default). For awaits on things that cannot take the signal themselves:
  * shared caches, Jellyfin's own client, dialogs.
  */
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-    if (signal.aborted) return Promise.reject(abortError());
+    if (signal.aborted) return Promise.reject(signal.reason);
     return new Promise<T>((resolve, reject) => {
-        const onAbort = () => reject(abortError());
+        const onAbort = () => reject(signal.reason);
         signal.addEventListener("abort", onAbort, { once: true });
         promise.then(resolve, reject).finally(() => {
             signal.removeEventListener("abort", onAbort);

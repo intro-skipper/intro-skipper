@@ -1,4 +1,5 @@
 import type { PluginConfig } from "../config/schema.ts";
+import { isAbortError } from "../lifecycle.ts";
 import type {
     ApiResult,
     SegmentDto,
@@ -90,7 +91,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<Ap
         }
         return { ok: false, status: response.status, error: await readErrorMessage(response) };
     } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        if (isAbortError(err)) throw err;
         return {
             ok: false,
             status: null,
@@ -131,7 +132,9 @@ async function requestSegmentMutation(
         signal,
     });
     if (!result.ok) return result;
-    const data = "Segments" in result.data ? result.data.Segments[0] : result.data;
+    // An empty 2xx body reads as null; only the 202 envelope carries Segments.
+    const data =
+        result.data !== null && "Segments" in result.data ? result.data.Segments[0] : result.data;
     return { ok: true, status: result.status, data };
 }
 

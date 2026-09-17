@@ -65,15 +65,15 @@ export function episodeList(signal: AbortSignal): {
     let filterTimer: ReturnType<typeof setTimeout> | null = null;
     // The rendered season's editors share one lifetime, ended by the next
     // render() or clear() and by the panel itself.
-    let editorsScope: AbortController | null = null;
-    let editorsSignal: AbortSignal = signal;
+    let editorsScope = childScope(signal);
     let editors: Array<{ isDirty: () => boolean }> = [];
     let editorCounter = 0;
 
     function ticksToMinutes(ticks: number | null): string {
         if (!ticks) return "";
         const minutes = Math.round(ticks / 10_000_000 / 60);
-        return minutes + " min";
+        // A no-break space keeps the number and its unit on one line.
+        return minutes + "\u00a0min";
     }
 
     let isMovieView = false;
@@ -130,7 +130,7 @@ export function episodeList(signal: AbortSignal): {
                 // disabled (not pointer-events) so keyboard activation cannot
                 // start a second concurrent retry.
                 retryBtn.disabled = true;
-                const retryResult = await api.getEpisodeSegments(ep.Id, editorsSignal);
+                const retryResult = await api.getEpisodeSegments(ep.Id, editorsScope.signal);
                 if (retryResult.ok) {
                     card.classList.remove("error");
                     info.removeChild(errorDiv);
@@ -183,7 +183,7 @@ export function episodeList(signal: AbortSignal): {
                         pillsRow.replaceWith(fresh);
                         pillsRow = fresh;
                     },
-                    signal: editorsSignal,
+                    signal: editorsScope.signal,
                 });
                 editor.container.id = editorId;
                 editBtn.setAttribute("aria-controls", editorId);
@@ -296,8 +296,7 @@ export function episodeList(signal: AbortSignal): {
     );
 
     function dropEditors(): void {
-        editorsScope?.abort();
-        editorsScope = null;
+        editorsScope.abort();
         editors = [];
     }
 
@@ -307,7 +306,6 @@ export function episodeList(signal: AbortSignal): {
         render(view) {
             dropEditors();
             editorsScope = childScope(view.signal);
-            editorsSignal = editorsScope.signal;
             isMovieView = view.isMovie ?? false;
             currentDisabledIds = new Set(view.disable?.ids);
             onDisabledChange = view.disable?.onChange ?? null;

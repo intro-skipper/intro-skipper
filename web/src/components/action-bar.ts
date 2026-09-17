@@ -562,7 +562,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             fullSeriesCheckbox.checked = false;
             analysisOverridesLoaded = false;
             fullSeriesLabel.style.display = "";
-            resetScanButton();
+            // No season yet, so `panel` is stale: Scan stays off until loadForSeason.
+            scanBtn.disabled = true;
+            fullSeriesCheckbox.disabled = false;
+            updateActionLabels();
             updateApplyAvailability();
             statusMessage.clear();
         },
