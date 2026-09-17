@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -269,12 +273,29 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Returns the file version Jellyfin holds for an item: its modification time in
-    /// ticks, or <see langword="null"/> when Jellyfin has none.
+    /// ticks for ordinary media, or a stable identity of the resolved target and
+    /// modification time for shortcut media. Returns <see langword="null"/> only when
+    /// ordinary media has no modification time.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The file version.</returns>
     internal static long? FileVersion(BaseItem item)
-        => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+    {
+        if (!item.IsShortcut)
+        {
+            return item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+        }
+
+        var modified = item.DateModified == DateTime.MinValue
+            ? "none"
+            : item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture);
+        var target = item.ShortcutPath ?? string.Empty;
+        var identity = target.Length.ToString(CultureInfo.InvariantCulture) + ":" + target + "|" + modified;
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+        // Keep the identity within the exact integer range of an IEEE-754 double: the
+        // detection-cache key stores it in SQLite's REAL columns.
+        return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
+    }
 
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;

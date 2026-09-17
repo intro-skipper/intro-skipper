@@ -69,7 +69,8 @@ public sealed partial class AnalysisScheduler(
     // One handle for the pending changed items; present exactly while the set is non-empty.
     private TaskCompletionSource? _changedCompletion;
     private DateTimeOffset _lastChange;
-    private LibraryRequest? _libraryRequest;
+    private LibraryRequest? _regularLibraryRequest;
+    private LibraryRequest? _shortcutLibraryRequest;
     private Pass? _running;
     private Task? _worker;
     private bool _stopped;
@@ -97,7 +98,11 @@ public sealed partial class AnalysisScheduler(
         {
             lock (_lock)
             {
-                return new AnalysisSchedulerStatus(_running is not null, _changedItems.Count, _manualScans.Count, _libraryRequest is not null);
+                return new AnalysisSchedulerStatus(
+                    _running is not null,
+                    _changedItems.Count,
+                    _manualScans.Count,
+                    _regularLibraryRequest is not null || _shortcutLibraryRequest is not null);
             }
         }
     }
@@ -196,7 +201,9 @@ public sealed partial class AnalysisScheduler(
     /// <summary>
     /// Runs a pass over every enabled library and waits for it. The pass starts once the
     /// worker is free and every pending manual scan has run. One request at a time:
-    /// Jellyfin's task worker never starts a task that is still running.
+    /// Jellyfin's task worker never starts a task that is still running. One regular
+    /// request and one throttled shortcut request may wait at the same time; the regular
+    /// request runs first when both are pending.
     /// </summary>
     /// <param name="progress">Progress of the pass.</param>
     /// <param name="cancellationToken">Cancels this request only. While it waits it is withdrawn and the call returns at once; once its pass runs, the pass is cancelled and the call returns when it has stopped. Other requests stay queued.</param>
@@ -204,7 +211,7 @@ public sealed partial class AnalysisScheduler(
     /// <param name="shortcutBatchSize">Maximum number of shortcut media items in the pass.</param>
     /// <returns>A task that completes when the pass has run.</returns>
     /// <exception cref="OperationCanceledException">The request was cancelled, or the queue has stopped.</exception>
-    /// <exception cref="InvalidOperationException">A library pass is already requested and has not started.</exception>
+    /// <exception cref="InvalidOperationException">A pass of the same library kind is already requested and has not started.</exception>
     public async Task RunLibraryAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
@@ -219,12 +226,20 @@ public sealed partial class AnalysisScheduler(
                 throw new OperationCanceledException("The analysis queue has stopped.");
             }
 
-            if (_libraryRequest is not null)
+            var pending = shortcutsOnly ? _shortcutLibraryRequest : _regularLibraryRequest;
+            if (pending is not null)
             {
-                throw new InvalidOperationException("A library pass is already requested.");
+                throw new InvalidOperationException("A library pass of this kind is already requested.");
             }
 
-            _libraryRequest = request;
+            if (shortcutsOnly)
+            {
+                _shortcutLibraryRequest = request;
+            }
+            else
+            {
+                _regularLibraryRequest = request;
+            }
         }
 
         Wake();
@@ -257,15 +272,21 @@ public sealed partial class AnalysisScheduler(
                 dropped.Add(changed);
             }
 
-            if (_libraryRequest is { } library)
+            if (_regularLibraryRequest is { } regularLibrary)
             {
-                dropped.Add(library.Completion);
+                dropped.Add(regularLibrary.Completion);
+            }
+
+            if (_shortcutLibraryRequest is { } shortcutLibrary)
+            {
+                dropped.Add(shortcutLibrary.Completion);
             }
 
             _changedItems.Clear();
             _changedCompletion = null;
             _manualScans.Clear();
-            _libraryRequest = null;
+            _regularLibraryRequest = null;
+            _shortcutLibraryRequest = null;
         }
 
         await _stopping.CancelAsync().ConfigureAwait(false);
@@ -301,12 +322,18 @@ public sealed partial class AnalysisScheduler(
     {
         lock (_lock)
         {
-            if (!ReferenceEquals(_libraryRequest, request))
+            if (ReferenceEquals(_regularLibraryRequest, request))
+            {
+                _regularLibraryRequest = null;
+            }
+            else if (ReferenceEquals(_shortcutLibraryRequest, request))
+            {
+                _shortcutLibraryRequest = null;
+            }
+            else
             {
                 return;
             }
-
-            _libraryRequest = null;
         }
 
         request.Completion.TrySetCanceled(request.CancellationToken);
@@ -358,19 +385,33 @@ public sealed partial class AnalysisScheduler(
             return (new Pass(PassKind.ManualScan, scan.Key, cancellationToken => RunScanAsync(scan.Key, cancellationToken), scan.Completions, CancellationToken.None), null);
         }
 
-        if (_libraryRequest is { } library)
+        if (_regularLibraryRequest is { } regularLibrary)
         {
-            _libraryRequest = null;
+            _regularLibraryRequest = null;
             return (new Pass(
                 PassKind.Library,
                 null,
                 cancellationToken => _analyzer.AnalyzeItemsAsync(
-                    library.Progress,
+                    regularLibrary.Progress,
                     cancellationToken,
-                    shortcutsOnly: library.ShortcutsOnly,
-                    shortcutBatchSize: library.ShortcutBatchSize),
-                [library.Completion],
-                library.CancellationToken), null);
+                    shortcutsOnly: false),
+                [regularLibrary.Completion],
+                regularLibrary.CancellationToken), null);
+        }
+
+        if (_shortcutLibraryRequest is { } shortcutLibrary)
+        {
+            _shortcutLibraryRequest = null;
+            return (new Pass(
+                PassKind.Library,
+                null,
+                cancellationToken => _analyzer.AnalyzeItemsAsync(
+                    shortcutLibrary.Progress,
+                    cancellationToken,
+                    shortcutsOnly: true,
+                    shortcutBatchSize: shortcutLibrary.ShortcutBatchSize),
+                [shortcutLibrary.Completion],
+                shortcutLibrary.CancellationToken), null);
         }
 
         if (_changedCompletion is not { } changed)

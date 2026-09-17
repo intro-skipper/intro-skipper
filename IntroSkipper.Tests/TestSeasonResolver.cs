@@ -103,6 +103,27 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void FileVersion_ShortcutIdentityChangesWhenTargetChanges()
+    {
+        var episode = JellyfinItems.Episode(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            path: "/media/episode.strm",
+            isShortcut: true,
+            shortcutPath: "/remote/old.mkv");
+        episode.DateModified = new DateTime(2, DateTimeKind.Utc);
+
+        var oldVersion = SeasonResolver.FileVersion(episode);
+        var unchangedVersion = SeasonResolver.FileVersion(episode);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "ShortcutPath", "/remote/new.mkv");
+        var newVersion = SeasonResolver.FileVersion(episode);
+
+        Assert.Equal(oldVersion, unchangedVersion);
+        Assert.NotEqual(oldVersion, newVersion);
+    }
+
+    [Fact]
     public void Resolve_QueuesAnItemReturnedTwiceOnce()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());

@@ -78,6 +78,27 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void ShortcutDurationCache_IsScopedToTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+        };
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+
+        Assert.True(scope.CacheService.TryReadShortcutDuration(episode, out var duration));
+        Assert.Equal(321, duration);
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.TryReadShortcutDuration(episode, out _));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode

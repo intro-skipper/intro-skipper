@@ -89,7 +89,7 @@ internal sealed partial class ChapterAnalyzer(
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
 
-        var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
+        var episodesWithoutIntros = analysisQueue.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {

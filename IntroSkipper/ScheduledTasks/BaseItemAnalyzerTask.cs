@@ -48,6 +48,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
+    private Guid? _shortcutBatchCursor;
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
@@ -110,7 +111,9 @@ public partial class BaseItemAnalyzerTask(
     }
 
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
-    // keyed by or holding a requested item. Progress counts the owners reached.
+    // keyed by or holding a requested item. Shortcut passes retain whole seasons as
+    // comparison context, but rotate the selected shortcut ids so a settled or failed
+    // item cannot monopolize every batch.
     private IEnumerable<ResolvedSeason> SeasonsInScope(
         IReadOnlyList<BaseItem> owners,
         HashSet<Guid>? scope,
@@ -119,9 +122,7 @@ public partial class BaseItemAnalyzerTask(
         int shortcutBatchSize)
     {
         var yielded = 0;
-        var remainingShortcuts = shortcutsOnly
-            ? Math.Clamp(shortcutBatchSize, 1, PluginConfiguration.MaximumShortcutAnalysisBatchSize)
-            : 0;
+        List<ResolvedSeason> resolvedSeasons = [];
         for (var i = 0; i < owners.Count; i++)
         {
             progress.Report(100.0 * i / owners.Count);
@@ -134,27 +135,62 @@ public partial class BaseItemAnalyzerTask(
             {
                 if (scope is null || scope.Contains(season.Key) || season.Episodes.Any(episode => scope.Contains(episode.EpisodeId)))
                 {
-                    if (shortcutsOnly)
+                    resolvedSeasons.Add(season);
+                }
+            }
+        }
+
+        if (!shortcutsOnly)
+        {
+            foreach (var season in resolvedSeasons)
+            {
+                yielded++;
+                yield return season;
+            }
+        }
+        else
+        {
+            var shortcuts = resolvedSeasons
+                .SelectMany(season => season.Episodes.Where(episode => episode.IsShortcut))
+                .ToArray();
+            if (shortcuts.Length > 0)
+            {
+                var batchSize = Math.Clamp(shortcutBatchSize, 1, PluginConfiguration.MaximumShortcutAnalysisBatchSize);
+                var cursorIndex = _shortcutBatchCursor is { } cursor
+                    ? Array.FindIndex(shortcuts, episode => episode.EpisodeId == cursor)
+                    : -1;
+                var start = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+                if (start >= shortcuts.Length)
+                {
+                    start = 0;
+                }
+
+                var selected = shortcuts
+                    .Skip(start)
+                    .Concat(shortcuts.Take(start))
+                    .Take(batchSize)
+                    .Select(episode => episode.EpisodeId)
+                    .ToHashSet();
+                _shortcutBatchCursor = shortcuts
+                    .Skip(start)
+                    .Concat(shortcuts.Take(start))
+                    .Take(batchSize)
+                    .Last()
+                    .EpisodeId;
+
+                foreach (var season in resolvedSeasons)
+                {
+                    var selectedIds = season.Episodes
+                        .Where(episode => selected.Contains(episode.EpisodeId))
+                        .Select(episode => episode.EpisodeId)
+                        .ToHashSet();
+                    if (selectedIds.Count == 0)
                     {
-                        var batch = season.Episodes.Where(episode => episode.IsShortcut).Take(remainingShortcuts).ToArray();
-                        if (batch.Length == 0)
-                        {
-                            continue;
-                        }
-
-                        remainingShortcuts -= batch.Length;
-                        yielded++;
-                        yield return season with { Episodes = batch };
-                        if (remainingShortcuts == 0)
-                        {
-                            yield break;
-                        }
-
                         continue;
                     }
 
                     yielded++;
-                    yield return season;
+                    yield return season with { AnalysisItemIds = selectedIds };
                 }
             }
         }
@@ -210,14 +246,27 @@ public partial class BaseItemAnalyzerTask(
                 60 * analysisLengthLimit);
         }
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, shortcutsOnly, cancellationToken).ConfigureAwait(false);
-        if (episodes.Count == 0)
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, shortcutsOnly, cancellationToken, season.AnalysisItemIds).ConfigureAwait(false);
+        var analysisTargets = episodes.Where(episode => episode.IsAnalysisTarget).ToArray();
+        if (analysisTargets.Length == 0)
         {
             return;
         }
 
-        var first = episodes[0];
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        if (shortcutsOnly)
+        {
+            // Classification is deliberately completed before any remote probe. A settled
+            // shortcut may still be selected by the rotating cursor, but it must not spend
+            // a rate-limited request or consume analysis work.
+            analysisTargets = analysisTargets
+                .Where(episode => modes.Any(mode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+                .ToArray();
+            if (analysisTargets.Length == 0)
+            {
+                return;
+            }
+
+        }
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
         // mode, not only the ones this run covers. The fingerprints go first: the records
@@ -226,12 +275,12 @@ public partial class BaseItemAnalyzerTask(
         // deletions' projections. Every mode of the episode then reopens in memory too,
         // or a mode whose record matched would keep its settled state after its segments
         // were deleted and be recorded again with nothing behind it.
-        var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
+        var changedFiles = analysisTargets.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
             await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken).ConfigureAwait(false);
-            foreach (var episode in episodes.Where(e => e.FileChanged))
+            foreach (var episode in analysisTargets.Where(e => e.FileChanged))
             {
                 foreach (var mode in modes)
                 {
@@ -243,12 +292,28 @@ public partial class BaseItemAnalyzerTask(
             }
         }
 
+        if (shortcutsOnly)
+        {
+            await PrepareShortcutDurationsAsync(
+                analysisTargets,
+                changedFiles.ToHashSet(),
+                cancellationToken).ConfigureAwait(false);
+            analysisTargets = analysisTargets.Where(episode => episode.IsAnalysisTarget).ToArray();
+            if (analysisTargets.Length == 0)
+            {
+                return;
+            }
+        }
+
+        var first = analysisTargets[0];
+        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+
         // Run settled-season reanalysis from scratch after no new episodes have been added
         // for the configured delay so segments first derived from a partial season are
         // recomputed against the full season.
         // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
         var utcNow = DateTime.UtcNow;
-        var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
+        var episodeIds = analysisTargets.Select(e => e.EpisodeId).ToArray();
 
         if (!previewFromCreditsEnd)
         {
@@ -264,13 +329,13 @@ public partial class BaseItemAnalyzerTask(
             if (settledResetModes.Count > 0)
             {
                 var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, previewFromCreditsEnd);
-                LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+                LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, analysisTargets.Length);
 
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
                 await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
 
-                foreach (var episode in episodes)
+                foreach (var episode in analysisTargets)
                 {
                     foreach (var resetMode in resetModes)
                     {
@@ -295,7 +360,8 @@ public partial class BaseItemAnalyzerTask(
                     mode,
                     seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
                     ffmpegValid,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    analysisTargets.Select(episode => episode.EpisodeId).ToHashSet()).ConfigureAwait(false);
 
                 // Record only the modes we independently selected for reanalysis. A derived mode added
                 // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
@@ -336,13 +402,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
     /// <param name="shortcutsOnly">Whether to verify only shortcut media.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="analysisItemIds">Optional shortcut ids selected as analysis targets while the rest of the season remains comparison context.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
     internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(
         IReadOnlyList<QueuedEpisode> candidates,
         IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
         bool shortcutsOnly = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlySet<Guid>? analysisItemIds = null)
     {
         if (candidates.Count == 0)
         {
@@ -391,8 +459,11 @@ public partial class BaseItemAnalyzerTask(
                 // selects AnalysisPath when it runs the actual media scan.
                 candidate.IsShortcut = item.IsShortcut;
                 candidate.ShortcutPath = item.ShortcutPath ?? string.Empty;
+                candidate.IsAnalysisTarget = !shortcutsOnly
+                    || analysisItemIds is null
+                    || analysisItemIds.Contains(candidate.EpisodeId);
 
-                if (candidate.IsShortcut != shortcutsOnly)
+                if (!shortcutsOnly && candidate.IsShortcut)
                 {
                     continue;
                 }
@@ -421,18 +492,19 @@ public partial class BaseItemAnalyzerTask(
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
 
-                if (candidate.IsShortcut && candidate.Duration <= 0)
+                // Shortcut-only passes retain the rest of the season as comparison context.
+                // Hydrate that context from the duration cache without probing it; selected
+                // targets are hydrated and, when necessary, probed below.
+                if (shortcutsOnly && !candidate.IsAnalysisTarget && candidate.IsShortcut)
                 {
-                    var duration = CachedShortcutDuration(snapshot, candidate)
-                        ?? await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
-                    if (duration is not > 0)
+                    var cachedDuration = _cacheService.TryReadShortcutDuration(candidate, out var duration)
+                        ? duration
+                        : CachedShortcutDuration(snapshot, candidate);
+                    if (cachedDuration is > 0)
                     {
-                        LogSkippingShortcutWithoutDuration(_logger, candidate.Name, candidate.EpisodeId);
-                        continue;
+                        candidate.Duration = cachedDuration.Value;
+                        RecalculateFingerprintWindows(candidate, config);
                     }
-
-                    candidate.Duration = duration.Value;
-                    RecalculateFingerprintWindows(candidate, config);
                 }
 
                 verified.Add(candidate);
@@ -461,12 +533,52 @@ public partial class BaseItemAnalyzerTask(
         var fingerprintDuration = Math.Min(
             episode.Duration >= 5 * 60 ? episode.Duration * analysisPercent : episode.Duration,
             60 * analysisLengthLimit);
-        var maxCreditsDuration = Math.Min(
-            episode.Duration >= 5 * 60 ? episode.Duration * analysisPercent : episode.Duration,
-            60 * config.MaximumCreditsDuration);
 
         episode.IntroFingerprintEnd = fingerprintDuration;
-        episode.CreditsFingerprintStart = Math.Max(0, episode.Duration - maxCreditsDuration);
+    }
+
+    private async Task PrepareShortcutDurationsAsync(
+        IReadOnlyList<QueuedEpisode> targets,
+        IReadOnlySet<Guid> forceProbeIds,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await _database.GetSeasonQueueSnapshotAsync(
+            targets[0].SeasonId,
+            [.. targets.Select(target => target.EpisodeId)],
+            cancellationToken).ConfigureAwait(false);
+
+        foreach (var candidate in targets.Where(target => target.IsShortcut))
+        {
+            double? duration = null;
+            if (!forceProbeIds.Contains(candidate.EpisodeId)
+                && _cacheService.TryReadShortcutDuration(candidate, out var cachedDuration))
+            {
+                duration = cachedDuration;
+            }
+
+            duration ??= CachedShortcutDuration(snapshot, candidate);
+            if (duration is null
+                && !forceProbeIds.Contains(candidate.EpisodeId)
+                && !HasPreviousShortcutIdentity(snapshot, candidate)
+                && candidate.Duration > 0)
+            {
+                duration = candidate.Duration;
+            }
+
+            duration ??= await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
+            if (duration is not > 0)
+            {
+                LogSkippingShortcutWithoutDuration(_logger, candidate.Name, candidate.EpisodeId);
+                candidate.IsAnalysisTarget = false;
+                candidate.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.AnalysisFailed);
+                candidate.SetAnalyzed(AnalysisMode.Recap, EpisodeState.AnalysisFailed);
+                continue;
+            }
+
+            candidate.Duration = duration.Value;
+            RecalculateFingerprintWindows(candidate, Config);
+            _cacheService.WriteShortcutDuration(candidate, duration.Value);
+        }
     }
 
     private static double? CachedShortcutDuration(SeasonQueueSnapshot snapshot, QueuedEpisode candidate)
@@ -475,6 +587,7 @@ public partial class BaseItemAnalyzerTask(
         {
             if (entry.Key.ItemId == candidate.EpisodeId
                 && string.Equals(entry.Value.ShortcutPath, candidate.ShortcutPath, StringComparison.Ordinal)
+                && entry.Value.FileVersion == candidate.FileVersion
                 && entry.Value.Duration is > 0)
             {
                 return entry.Value.Duration;
@@ -483,6 +596,12 @@ public partial class BaseItemAnalyzerTask(
 
         return null;
     }
+
+    private static bool HasPreviousShortcutIdentity(SeasonQueueSnapshot snapshot, QueuedEpisode candidate)
+        => snapshot.AnalysisRecords.Any(entry =>
+            entry.Key.ItemId == candidate.EpisodeId
+            && (!string.Equals(entry.Value.ShortcutPath, candidate.ShortcutPath, StringComparison.Ordinal)
+                || entry.Value.FileVersion != candidate.FileVersion));
 
     /// <summary>
     /// Analyze a group of media items for skippable segments. Every write into the
@@ -494,24 +613,30 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="action">The season's analyzer action for the mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="analysisItemIds">Optional item ids to analyze while other items remain comparison context.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
         bool ffmpegValid,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<Guid>? analysisItemIds = null)
     {
+        var analysisTargets = analysisItemIds is null
+            ? items.Where(item => item.IsAnalysisTarget).ToArray()
+            : items.Where(item => analysisItemIds.Contains(item.EpisodeId)).ToArray();
+
         // NoSegments is a negative-cache result for the current configuration; only an episode
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
         // settled-season reanalysis) reopens the season, and then NeedsAnalysis() gives the
         // settled episodes another chance too.
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (!analysisTargets.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
             return;
         }
 
-        var first = items[0];
+        var first = analysisTargets[0];
         var isMovie = first.Category == QueuedMediaCategory.Movie;
 
         if (AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
@@ -535,13 +660,13 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                items.Select(AnalysisIdentity),
+                analysisTargets.Select(AnalysisIdentity),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        foreach (var item in items)
+        foreach (var item in analysisTargets)
         {
             item.AnalysisConfigHash = configHash;
         }
@@ -549,21 +674,21 @@ public partial class BaseItemAnalyzerTask(
         // The cleanup journals the removed rows' projections, so they reach the
         // mirror even if the analyzers below detect nothing new.
         await _database.CleanStaleAutomaticSegmentsAsync(
-            items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
+            analysisTargets.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
             cancellationToken).ConfigureAwait(false);
 
-        LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
+        LogAnalyzingFiles(_logger, mode, analysisTargets.Length, first.SeriesName, first.SeasonNumber);
 
         if (mode == AnalysisMode.Credits)
         {
-            await SetCreditsWindowsAsync(items, isMovie, cancellationToken).ConfigureAwait(false);
+            await SetCreditsWindowsAsync(analysisTargets, isMovie, cancellationToken).ConfigureAwait(false);
 
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
-            await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await pass.RunAsync(analysisTargets, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -579,11 +704,11 @@ public partial class BaseItemAnalyzerTask(
         {
             if (mode == AnalysisMode.Credits)
             {
-                await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+                await AnimePreviewDeriver.DeriveAsync(_database, analysisTargets, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
             else if (mode == AnalysisMode.Preview)
             {
-                List<QueuedEpisode> unsettled = [.. items.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
+                List<QueuedEpisode> unsettled = [.. analysisTargets.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
                 await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -592,7 +717,9 @@ public partial class BaseItemAnalyzerTask(
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(AnalysisIdentity),
+            analysisTargets
+                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed && !item.IsComparisonPending(mode))
+                .Select(AnalysisIdentity),
             configHash,
             cancellationToken).ConfigureAwait(false);
     }

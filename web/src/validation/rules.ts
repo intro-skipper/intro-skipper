@@ -18,6 +18,10 @@ function minValue(min: number): ValidationRule<number> {
     return (value) => (value < min ? `Must be at least ${min}` : null);
 }
 
+function wholeNumber(): ValidationRule<number> {
+    return (value) => (Number.isInteger(value) ? null : "Must be a whole number");
+}
+
 function validRegex(): ValidationRule<string> {
     return (value) => {
         if (!value || value.trim().length === 0) return null; // empty is OK — falls back to default
@@ -48,7 +52,7 @@ export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<
     BlackFrameThreshold: [range(16, 255)],
     MaxParallelism: [minValue(1)],
     ProcessThreads: [range(0, 16)],
-    ShortcutAnalysisBatchSize: [range(1, MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE)],
+    ShortcutAnalysisBatchSize: [wholeNumber(), range(1, MAXIMUM_SHORTCUT_ANALYSIS_BATCH_SIZE)],
     ScanTimeoutSeconds: [minValue(0)],
     SkipbuttonHideDelay: [range(0, 1000)],
     SkipButtonVisibleSeconds: [range(0, 600)],

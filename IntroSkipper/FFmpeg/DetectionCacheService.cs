@@ -149,6 +149,60 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             || (cacheMode != mode && HasReadableFingerprintRow(episode.EpisodeId, mode, start, end));
     }
 
+    /// <summary>
+    /// Reads a previously successful shortcut duration probe for the episode's current
+    /// resolved target and file identity.
+    /// </summary>
+    /// <param name="episode">The shortcut episode.</param>
+    /// <param name="duration">The cached duration, when present and positive.</param>
+    /// <returns><see langword="true"/> when a cached duration was found.</returns>
+    public bool TryReadShortcutDuration(QueuedEpisode episode, out double duration)
+    {
+        duration = 0;
+        if (!episode.IsShortcut || episode.FileVersion is not { } fileVersion)
+        {
+            return false;
+        }
+
+        if (!TryRead(
+                episode.EpisodeId,
+                AnalysisMode.Introduction,
+                CacheEntryType.ShortcutDuration,
+                fileVersion,
+                0,
+                out double[] values)
+            || values.Length != 1
+            || values[0] <= 0)
+        {
+            return false;
+        }
+
+        duration = values[0];
+        return true;
+    }
+
+    /// <summary>
+    /// Stores a successful shortcut duration probe. The cache key is the resolved target's
+    /// stable file identity, so a target or modification change naturally misses it.
+    /// </summary>
+    /// <param name="episode">The shortcut episode.</param>
+    /// <param name="duration">The positive duration in seconds.</param>
+    public void WriteShortcutDuration(QueuedEpisode episode, double duration)
+    {
+        if (!episode.IsShortcut || episode.FileVersion is not { } fileVersion || duration <= 0)
+        {
+            return;
+        }
+
+        Write(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.ShortcutDuration,
+            fileVersion,
+            0,
+            [duration]);
+    }
+
     private bool HasReadableFingerprintRow(Guid itemId, AnalysisMode rowMode, double start, double end)
     {
         try
