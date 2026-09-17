@@ -131,10 +131,27 @@ public partial class TroubleshootingController : ControllerBase
             {
                 Text = string.Join('\n', settings.Select(s => $"{s.Name}: {s.Value}")),
             },
+            new("Fingerprint failures since the last full scan", Collapsed: true)
+            {
+                Text = DescribeFingerprintFailures(),
+            },
             .. ffmpeg.Outputs.Select(o => new SupportBundleSection($"FFmpeg {o.Name}", Collapsed: true) { Text = o.Output }),
         ];
 
         return new SupportBundle(sections);
+    }
+
+    // One failure per line, or null so the section renders as "None".
+    private static string? DescribeFingerprintFailures()
+    {
+        var (failures, dropped) = WarningManager.GetFingerprintFailures();
+        if (failures.Count == 0)
+        {
+            return null;
+        }
+
+        var text = string.Join('\n', failures);
+        return dropped > 0 ? text + FormattableString.Invariant($"\nand {dropped} more") : text;
     }
 
     // "2026-08-22 03:00 UTC, Completed in 14 min", with the error message appended for failed runs.
