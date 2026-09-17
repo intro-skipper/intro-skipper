@@ -63,7 +63,7 @@ jobs:
 
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
-        uses: signpath/github-action-submit-signing-request@v2.3
+        uses: signpath/github-action-submit-signing-request@v3.0
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
           organization-id: '2533cbeb-14b8-4d23-905e-37196de94787'
@@ -79,7 +79,7 @@ jobs:
 
       - name: Generate SBOM
         if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
           path: .
           format: spdx-json

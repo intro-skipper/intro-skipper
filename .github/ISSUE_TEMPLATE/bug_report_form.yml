@@ -53,11 +53,6 @@ body:
       placeholder: Debian 11, Windows 11, etc.
     validations:
       required: true
-
-  - type: input
-    attributes:
-      label: IMDb ID of that TV Series
-      placeholder: tt0903747
   
   - type: textarea
     attributes:
