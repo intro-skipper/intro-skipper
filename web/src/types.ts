@@ -1,6 +1,6 @@
 // Shared types for Jellyfin API payloads and UI wiring. The plugin configuration
 // itself is declared in config/schema.ts.
-import type { ConfigKey, ConfigKeysOfType, PluginConfig } from "./config/schema.ts";
+import type { PluginConfig } from "./config/schema.ts";
 
 // API responses and timestamp domain models.
 export type ApiResult<T> = {
@@ -175,31 +175,6 @@ export type EpisodeItem = {
     RunTimeTicks: number | null;
     SeriesName: string | null;
 };
-
-
-// Options for generated form controls; `kind` picks the control and the key type.
-type FieldBase<K extends ConfigKey> = {
-    id: K;
-    label: string;
-    description?: string;
-    warning?: string;
-    disabled?: () => boolean;
-    visible?: () => boolean;
-};
-
-export type InputFieldOptions =
-    | (FieldBase<ConfigKeysOfType<boolean>> & { kind: "checkbox" })
-    | (FieldBase<ConfigKeysOfType<number>> & {
-          kind: "number";
-          min?: number;
-          max?: number;
-          step?: number;
-      })
-    | (FieldBase<ConfigKeysOfType<string>> & { kind: "text"; placeholder?: string })
-    | (FieldBase<ConfigKeysOfType<string>> & {
-          kind: "select";
-          options: Array<{ value: string; label: string }>;
-      });
 
 // Routing contract used across tabs.
 export interface Tab {

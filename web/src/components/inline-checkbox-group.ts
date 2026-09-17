@@ -1,11 +1,12 @@
-import type { ConfigKeysOfType } from "../config/schema.ts";
+import { configSchema, type KeyOfKind } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { bindField } from "./field-bind.ts";
 
+/** A row of checkbox fields under one legend; labels come from the schema. */
 export function inlineCheckboxGroup(
     title: string,
-    items: Array<{ id: ConfigKeysOfType<boolean>; label: string }>,
+    ids: readonly KeyOfKind<"checkbox">[],
 ): HTMLElement {
     const container = el("fieldset", {
         className: "checkbox-container analyze-for analyze-for-group",
@@ -14,25 +15,25 @@ export function inlineCheckboxGroup(
     const titleLegend = el("legend", { className: "title analyze-for-legend" }, title);
     container.append(titleLegend);
 
-    for (const item of items) {
-        const inputId = "field-" + item.id;
+    for (const id of ids) {
+        const inputId = "field-" + id;
         const label = el("label", { className: "checkbox-label", for: inputId });
-        const input = el("input", { type: "checkbox", id: inputId, name: item.id });
-        const span = el("span", {}, item.label);
+        const input = el("input", { type: "checkbox", id: inputId, name: id });
+        const span = el("span", {}, configSchema[id].label);
         label.append(input, span);
         container.append(label);
 
         bindField({
             container: label,
             input,
-            fieldOpts: item,
+            fieldOpts: { id },
             onLoaded: () => {
-                input.checked = configStore.get(item.id);
+                input.checked = configStore.get(id);
             },
         });
 
         input.addEventListener("change", () => {
-            configStore.set(item.id, input.checked);
+            configStore.set(id, input.checked);
         });
     }
 

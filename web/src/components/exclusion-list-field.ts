@@ -1,16 +1,16 @@
+import { configSchema, type FieldSpec, type KeyOfKind } from "../config/schema.ts";
 import { configStore, trimmedEntries } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { setDescribedBy } from "./field-bind.ts";
 import { appendFieldMeta } from "./field-meta.ts";
 
-type ExclusionListFieldId = "SeriesExclusions" | "MovieExclusions" | "PathExclusions";
+type ListKey = KeyOfKind<"list">;
 
-type ExclusionListFieldOptions = {
-    id: ExclusionListFieldId;
-    label: string;
-    description?: string;
-    placeholder?: string;
+/** Behaviour a tab adds to a list field; the label and copy come from the schema. */
+type ExclusionListBehaviour = {
+    /** Fetched on first focus and offered as a datalist. */
     suggestions?: () => Promise<string[]>;
+    /** Runs before an entry is added; returning false drops it. */
     confirmAdd?: (value: string) => Promise<boolean>;
 };
 
@@ -18,23 +18,24 @@ function hasEntry(entries: string[], value: string): boolean {
     return entries.some((entry) => entry.toLocaleLowerCase() === value.toLocaleLowerCase());
 }
 
-function readValues(field: ExclusionListFieldId): string[] {
+function readValues(field: ListKey): string[] {
     return trimmedEntries(configStore.get(field));
 }
 
-export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement {
+export function exclusionListField(id: ListKey, behaviour: ExclusionListBehaviour = {}): HTMLElement {
+    const spec: Extract<FieldSpec, { kind: "list" }> = configSchema[id];
     const container = el("div", { className: "input-container exclusion-list-field" });
-    const inputId = "field-" + opts.id;
+    const inputId = "field-" + id;
     const suggestionsId = inputId + "-suggestions";
 
-    const label = el("label", { className: "input-label", for: inputId }, opts.label);
+    const label = el("label", { className: "input-label", for: inputId }, spec.label);
     const input = document.createElement("input");
     input.type = "text";
     input.id = inputId;
-    input.name = opts.id;
+    input.name = id;
     input.autocomplete = "off";
-    if (opts.placeholder) {
-        input.placeholder = opts.placeholder;
+    if (spec.placeholder) {
+        input.placeholder = spec.placeholder;
     }
 
     const addButton = el(
@@ -59,7 +60,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
     const describedByIds = [errorDiv.id];
 
     container.append(label, inputRow, errorDiv);
-    describedByIds.push(...appendFieldMeta(container, { ...opts, idBase: inputId }));
+    describedByIds.push(...appendFieldMeta(container, { ...spec, idBase: inputId }));
     container.append(list, empty);
     setDescribedBy(input, describedByIds);
 
@@ -75,7 +76,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
     }
 
     function render(): void {
-        const values = readValues(opts.id);
+        const values = readValues(id);
         list.replaceChildren();
         empty.style.display = values.length === 0 ? "" : "none";
 
@@ -93,8 +94,8 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
             );
             removeButton.addEventListener("click", () => {
                 configStore.set(
-                    opts.id,
-                    readValues(opts.id).filter((entry) => entry !== value),
+                    id,
+                    readValues(id).filter((entry) => entry !== value),
                 );
                 showError(null);
             });
@@ -110,17 +111,17 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
             return;
         }
 
-        const values = readValues(opts.id);
+        const values = readValues(id);
         if (hasEntry(values, value)) {
             showError("This entry is already listed.");
             return;
         }
 
-        if (opts.confirmAdd && !(await opts.confirmAdd(value))) {
+        if (behaviour.confirmAdd && !(await behaviour.confirmAdd(value))) {
             return;
         }
 
-        configStore.set(opts.id, [...values, value]);
+        configStore.set(id, [...values, value]);
         input.value = "";
         showError(null);
         input.focus();
@@ -143,7 +144,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
 
     configStore.subscribe("loaded", render);
     configStore.subscribe("changed", ({ field }) => {
-        if (field === opts.id) {
+        if (field === id) {
             render();
         }
     });
@@ -153,7 +154,7 @@ export function exclusionListField(opts: ExclusionListFieldOptions): HTMLElement
     }
 
     // Suggestions are fetched on first focus so rendering the tab costs no requests.
-    const suggestions = opts.suggestions;
+    const suggestions = behaviour.suggestions;
     if (suggestions) {
         const datalist = el("datalist", { id: suggestionsId });
         input.setAttribute("list", suggestionsId);
