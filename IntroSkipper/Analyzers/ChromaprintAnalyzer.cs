@@ -149,7 +149,7 @@ internal sealed partial class ChromaprintAnalyzer(
             catch (FingerprintException ex)
             {
                 LogCaughtFingerprintError(ex);
-                WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
+                WarningManager.RecordFingerprintFailure(ex.Message);
 
                 // Keep a transient fingerprint failure retriable. A completed neighbor may be
                 // included only to provide a comparison fingerprint; do not discard its valid result.
