@@ -1,4 +1,4 @@
-import { validator } from "../validation/validator.ts";
+import { validateAll } from "../config/validate.ts";
 import { configStore } from "../store/config-store.ts";
 import { confirmDashboard } from "./confirm-dialog.ts";
 import { el } from "./dom.ts";
@@ -103,7 +103,7 @@ export function createAppShell(rootEl: HTMLElement): {
     };
 
     const handleSave = async () => {
-        const errors = validator.validateAll(configStore.getAll());
+        const errors = validateAll(configStore.getAll());
         // Let the user save through warnings after an explicit confirmation.
         if (
             errors.size === 0 ||

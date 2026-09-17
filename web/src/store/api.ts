@@ -1,5 +1,5 @@
+import type { PluginConfig } from "../config/schema.ts";
 import type {
-    PluginConfig,
     ApiResult,
     SegmentDto,
     SegmentChangeAcceptedResponse,

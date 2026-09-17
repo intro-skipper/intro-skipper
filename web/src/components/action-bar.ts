@@ -2,7 +2,8 @@ import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
 import * as api from "../store/api.ts";
-import type { AnalysisOverrides, AnalyzerActions, PluginConfig, SeasonItem } from "../types.ts";
+import type { AnalysisOverrides, AnalyzerActions, SeasonItem } from "../types.ts";
+import { configSchema, type ConfigKey } from "../config/schema.ts";
 import { delay } from "../utils.ts";
 import { configStore } from "../store/config-store.ts";
 
@@ -118,18 +119,22 @@ export function actionBar(opts: ActionBarOptions): {
         return input;
     }
 
+    // Same limits as the global fields, so an override can never be a value the
+    // global setting would reject.
+    const percentLimits = configSchema.AnalysisPercent;
+    const lengthLimits = configSchema.AnalysisLengthLimit;
     const analysisPercentInput = overrideField(
         "ts-analysis-percent-override",
         "Percent of media to analyze",
         "Percentage of each item's runtime.",
-        "1",
-        "50",
+        String(percentLimits.min),
+        String(percentLimits.max),
     );
     const analysisLengthInput = overrideField(
         "ts-analysis-length-override",
         "Maximum runtime to analyze (minutes)",
         "Upper limit for each item.",
-        "1",
+        String(lengthLimits.min),
     );
     const previewOverrideField = el("div", { className: "ts-preview-override" });
     const previewOverrideLabel = el(
@@ -155,7 +160,7 @@ export function actionBar(opts: ActionBarOptions): {
             : "Global default";
     }
     const handleConfigLoaded = () => updatePreviewDefaultLabel();
-    const handleConfigChanged = ({ field }: { field: keyof PluginConfig }) => {
+    const handleConfigChanged = ({ field }: { field: ConfigKey }) => {
         if (field === "AnimePreviewFromCreditsEnd") updatePreviewDefaultLabel();
     };
     configStore.subscribe("loaded", handleConfigLoaded);
@@ -321,8 +326,17 @@ export function actionBar(opts: ActionBarOptions): {
         let overrides: AnalysisOverrides;
         try {
             overrides = {
-                AnalysisPercent: readOverride(analysisPercentInput, "Percent", 1, 50),
-                AnalysisLengthLimit: readOverride(analysisLengthInput, "Maximum runtime", 1),
+                AnalysisPercent: readOverride(
+                    analysisPercentInput,
+                    "Percent",
+                    percentLimits.min,
+                    percentLimits.max,
+                ),
+                AnalysisLengthLimit: readOverride(
+                    analysisLengthInput,
+                    "Maximum runtime",
+                    lengthLimits.min,
+                ),
                 PreviewFromCreditsEnd:
                     previewOverrideSelect.value === "default"
                         ? null

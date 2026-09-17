@@ -1,20 +1,19 @@
-import type { PluginConfig } from "../types.ts";
+import { configKeys, isKind, type ConfigKey, type PluginConfig } from "../config/schema.ts";
+import { linkedField, validateField, validatePair } from "../config/validate.ts";
 import { withDashboardLoading } from "../components/async-feedback.ts";
 import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts";
-import { validator } from "../validation/validator.ts";
 
 // Central config store for the dashboard. Keeps the loaded config, tracks
 // dirty state, and emits validation updates for bound fields.
 let config: PluginConfig | null = null;
 let snapshot: PluginConfig | null = null;
 
-
 // Event name to listener argument tuple.
 type StoreEvents = {
     loaded: [];
     saved: [];
-    changed: [{ field: keyof PluginConfig }];
-    validation: [{ field: keyof PluginConfig; error: string | null }];
+    changed: [{ field: ConfigKey }];
+    validation: [{ field: ConfigKey; error: string | null }];
 };
 
 type Listener<K extends keyof StoreEvents> = (...args: StoreEvents[K]) => void;
@@ -51,10 +50,17 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
-    loadedConfig.SeriesExclusions = normalizeStringList(loadedConfig.SeriesExclusions);
-    loadedConfig.MovieExclusions = normalizeStringList(loadedConfig.MovieExclusions);
-    loadedConfig.PathExclusions = normalizeStringList(loadedConfig.PathExclusions);
+    for (const key of configKeys) {
+        if (isKind(key, "list")) {
+            loadedConfig[key] = normalizeStringList(loadedConfig[key]);
+        }
+    }
     return loadedConfig;
+}
+
+// Direct rules first; the pair check only once the field passes on its own.
+function fieldError(field: ConfigKey, current: PluginConfig): string | null {
+    return validateField(field, current[field]) ?? validatePair(field, current);
 }
 
 // Config values are primitives or string arrays, so a shallow element compare
@@ -123,33 +129,19 @@ export const configStore = {
         return config !== null;
     },
 
-    set<K extends keyof PluginConfig>(field: K, value: PluginConfig[K]): void {
+    set<K extends ConfigKey>(field: K, value: PluginConfig[K]): void {
         if (!config || !snapshot) throw new Error("Config not loaded");
 
-        // The store owns updates, so it can write through the readonly type here.
-        (config as unknown as Record<string, PluginConfig[keyof PluginConfig]>)[field as string] =
-            value;
+        config[field] = value;
 
-        // Run direct validation first.
-        let error = validator.validate(field, value);
-
-        // Only run paired min/max checks if the field passed its own rules.
-        if (!error) {
-            error = validator.validateCrossFieldFor(field, config);
-        }
-
-        // Re-check the matching field in each min/max pair so both inputs stay in sync.
-        const linkedFields = validator.getLinkedFields(field);
-        for (const linked of linkedFields) {
-            let linkedError = validator.validate(linked, config[linked]);
-            if (!linkedError) {
-                linkedError = validator.validateCrossFieldFor(linked, config);
-            }
-            emit("validation", { field: linked, error: linkedError });
+        // Re-check the other half of a min/max pair so both inputs stay in sync.
+        const linked = linkedField(field);
+        if (linked) {
+            emit("validation", { field: linked, error: fieldError(linked, config) });
         }
 
         emit("changed", { field });
-        emit("validation", { field, error });
+        emit("validation", { field, error: fieldError(field, config) });
     },
 
     async save(): Promise<void> {
