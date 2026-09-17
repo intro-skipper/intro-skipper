@@ -259,7 +259,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 [AnalysisMode.Introduction],
                 ffmpegValid: false,
                 shortcutsOnly: true,
-                analysisItemIds: [itemId],
+                analysisItemIds: new HashSet<Guid> { itemId },
                 CancellationToken.None);
 
             var result = Assert.Single(verified);
