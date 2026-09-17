@@ -74,7 +74,7 @@ internal sealed partial class CreditsPass(
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
-        var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        var pendingItems = items.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(Mode)).ToList();
         // Episodes the chapter pre-pass decided, whatever the outcome. Offset-consumed and
         // failed ones still need analysis by state, so the main loop skips them by id rather
         // than falling back to combined detection.
@@ -124,11 +124,11 @@ internal sealed partial class CreditsPass(
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
                 LogChromaprintComparisonFailed(ex);
-                fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
+                fingerprintFailures = [.. pendingItems.Select(e => e.EpisodeId)];
             }
         }
 
-        foreach (var episode in items)
+        foreach (var episode in items.Where(e => e.IsAnalysisTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

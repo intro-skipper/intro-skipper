@@ -126,7 +126,8 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The raw candidate per episode id, in file seconds, and the episodes whose fingerprint failed; both empty when the season has nothing to compare.</returns>
+    /// <returns>The raw candidate per episode id, in file seconds, the episodes whose fingerprint failed,
+    /// and target episodes without a usable comparison pair; all empty when the season has nothing to compare.</returns>
     internal async Task<ChromaprintCandidates> FindCandidatesAsync(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
@@ -142,7 +143,7 @@ internal sealed partial class ChromaprintAnalyzer(
         var targets = analysisQueue.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(mode)).ToList();
         var episodeAnalysisQueue = analysisQueue.Where(e =>
             (e.IsAnalysisTarget && e.NeedsAnalysis(mode))
-            || (!e.IsAnalysisTarget && _cacheService.HasCachedFingerprint(e, mode))
+            || (!e.IsAnalysisTarget && !e.FileChanged && _cacheService.HasCachedFingerprint(e, mode))
             || (e.IsAnalysisTarget
                 && e.GetAnalyzed(mode) == EpisodeState.Analyzed
                 && _cacheService.HasCachedFingerprint(e, mode))).ToList();

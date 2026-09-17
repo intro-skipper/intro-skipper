@@ -40,6 +40,15 @@ public interface IDetectionCacheDatabase
     DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end);
 
     /// <summary>
+    /// Returns all cache entries for an item, mode and type, regardless of analyzed range.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="type">Cache entry type.</param>
+    /// <returns>The matching entries, or an empty collection when the cache is unavailable.</returns>
+    IReadOnlyList<DbDetectionCache> FindEntries(Guid itemId, AnalysisMode mode, CacheEntryType type);
+
+    /// <summary>
     /// Inserts or updates the cache entry for the given key in one statement.
     /// </summary>
     /// <param name="itemId">Item ID.</param>

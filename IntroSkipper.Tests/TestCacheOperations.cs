@@ -119,6 +119,24 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void CachedCreditsRange_CanHydrateAContextSibling()
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            CacheEntryType.Chromaprint,
+            DetectionCacheService.CompressBrotli<uint[]>([111u]),
+            1560,
+            1800);
+
+        Assert.True(scope.CacheService.TryReadCachedCreditsRange(episode, out var start, out var end));
+        Assert.Equal(1560, start);
+        Assert.Equal(1800, end);
+    }
+
+    [Fact]
     public async Task CachedFingerprint_StoresRealStartEnd()
     {
         var episode = new QueuedEpisode

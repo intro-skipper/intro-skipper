@@ -150,6 +150,39 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <summary>
+    /// Applies the range used by an existing credits fingerprint row. This lets a shortcut
+    /// comparison context reuse a row whose end was shortened by an earlier audio-duration
+    /// probe, without probing the remote target again.
+    /// </summary>
+    /// <param name="episode">The queued episode whose credits range should be hydrated.</param>
+    /// <param name="start">The cached fingerprint start, when present.</param>
+    /// <param name="end">The cached fingerprint end, when present.</param>
+    /// <returns><see langword="true"/> when a cached credits range was found.</returns>
+    public bool TryReadCachedCreditsRange(QueuedEpisode episode, out double start, out double end)
+    {
+        start = 0;
+        end = 0;
+        try
+        {
+            foreach (var entry in _cacheDatabase.FindEntries(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint))
+            {
+                if (entry.End > entry.Start)
+                {
+                    start = entry.Start;
+                    end = entry.End;
+                    return true;
+                }
+            }
+        }
+        catch (DbException ex)
+        {
+            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint);
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Reads a previously successful shortcut duration probe for the episode's current
     /// resolved target and file identity.
     /// </summary>

@@ -491,10 +491,13 @@ public partial class BaseItemAnalyzerTask(
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
 
+                verified.Add(candidate);
+                verifier.Classify(candidate);
+
                 // Shortcut-only passes retain the rest of the season as comparison context.
-                // Hydrate that context from the duration cache without probing it; selected
-                // targets are hydrated and, when necessary, probed below.
-                if (shortcutsOnly && !candidate.IsAnalysisTarget && candidate.IsShortcut)
+                // Hydrate unchanged context from cached metadata without probing it; a changed
+                // sibling must wait for its own target batch before its old cache is reused.
+                if (shortcutsOnly && !candidate.IsAnalysisTarget && !candidate.FileChanged && candidate.IsShortcut)
                 {
                     var cachedDuration = _cacheService.TryReadShortcutDuration(candidate, out var duration)
                         ? duration
@@ -505,9 +508,6 @@ public partial class BaseItemAnalyzerTask(
                         RecalculateFingerprintWindows(candidate, config);
                     }
                 }
-
-                verified.Add(candidate);
-                verifier.Classify(candidate);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -682,12 +682,12 @@ public partial class BaseItemAnalyzerTask(
 
         if (mode == AnalysisMode.Credits)
         {
-            await SetCreditsWindowsAsync(analysisTargets, isMovie, cancellationToken).ConfigureAwait(false);
+            await SetCreditsWindowsAsync(episodes, isMovie, cancellationToken).ConfigureAwait(false);
 
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
-            await pass.RunAsync(analysisTargets, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await pass.RunAsync(episodes, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -781,8 +781,8 @@ public partial class BaseItemAnalyzerTask(
     /// <summary>
     /// Sets each episode's credits fingerprint window. Every episode of the season gets
     /// one, settled siblings included, because the chromaprint comparison reads their
-    /// cached fingerprints under the same window. The audio duration is probed only here,
-    /// so a run that settles a season without entering the credits pass spawns no ffprobe.
+    /// cached fingerprints under the same window. Cached sibling ranges are reused without
+    /// probing; only current analysis targets can request an audio-duration probe.
     /// </summary>
     private async Task SetCreditsWindowsAsync(IReadOnlyList<QueuedEpisode> items, bool isMovie, CancellationToken cancellationToken)
     {
@@ -793,8 +793,17 @@ public partial class BaseItemAnalyzerTask(
         var maxCreditsDuration = isMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
         foreach (var item in items)
         {
+            if (!item.IsAnalysisTarget
+                && !item.FileChanged
+                && _cacheService.TryReadCachedCreditsRange(item, out var cachedStart, out var cachedEnd))
+            {
+                item.CreditsFingerprintStart = cachedStart;
+                item.CreditsFingerprintEnd = cachedEnd;
+                continue;
+            }
+
             var creditsEnd = item.Duration;
-            if (config.ProbeAudioDuration)
+            if (item.IsAnalysisTarget && config.ProbeAudioDuration)
             {
                 var audioPath = item.IsShortcut && !string.IsNullOrEmpty(item.ShortcutPath)
                     ? item.ShortcutPath
