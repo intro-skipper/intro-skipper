@@ -239,6 +239,13 @@ export const generalTab: Tab = {
             }),
             inputField({
                 kind: "checkbox",
+                id: "ProcessShortcutVideos",
+                label: "Process Shortcut Videos (.strm files)",
+                description:
+                    "If enabled, shortcut videos such as .strm files will be processed during analysis. Disabled by default because remote sources may impose rate limits.",
+            }),
+            inputField({
+                kind: "checkbox",
                 id: "UseFileTransformationPlugin",
                 label: "Use File Transformation Plugin to patch the web interface",
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),

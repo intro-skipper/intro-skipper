@@ -49,6 +49,22 @@ public sealed class QueuedEpisode
     public string Path { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the path Jellyfin resolved for a shortcut media item.
+    /// </summary>
+    public string ShortcutPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this media item is a shortcut.
+    /// </summary>
+    public bool IsShortcut { get; set; }
+
+    /// <summary>
+    /// Gets the path analysis should read. Jellyfin keeps the library path as the shortcut
+    /// file while exposing the resolved target separately.
+    /// </summary>
+    internal string AnalysisPath => IsShortcut && !string.IsNullOrEmpty(ShortcutPath) ? ShortcutPath : Path;
+
+    /// <summary>
     /// Gets or sets the name of the episode.
     /// </summary>
     public string Name { get; set; } = string.Empty;

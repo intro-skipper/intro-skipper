@@ -347,6 +347,24 @@ public partial class BaseItemAnalyzerTask(
                     continue;
                 }
 
+                // Refresh shortcut metadata because the item may have been re-resolved while
+                // waiting in the queue. Keep Path as Jellyfin's library path; FFmpegService
+                // selects AnalysisPath when it runs the actual media scan.
+                candidate.IsShortcut = item.IsShortcut;
+                candidate.ShortcutPath = item.ShortcutPath ?? string.Empty;
+
+                if (candidate.IsShortcut && !config.ProcessShortcutVideos)
+                {
+                    LogSkippingShortcutVideo(_logger, candidate.Name, candidate.EpisodeId);
+                    continue;
+                }
+
+                if (candidate.IsShortcut && string.IsNullOrEmpty(candidate.ShortcutPath))
+                {
+                    LogSkippingShortcutWithoutPath(_logger, candidate.Name, candidate.EpisodeId);
+                    continue;
+                }
+
                 var decision = candidate.Category == QueuedMediaCategory.Movie
                     ? policy.EvaluateMovie(candidate.Name, path)
                     : policy.EvaluateSeries(candidate.SeriesName, path);
@@ -358,6 +376,20 @@ public partial class BaseItemAnalyzerTask(
 
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
+
+                if (candidate.IsShortcut && candidate.Duration <= 0)
+                {
+                    var duration = await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
+                    if (duration is not > 0)
+                    {
+                        LogSkippingShortcutWithoutDuration(_logger, candidate.Name, candidate.EpisodeId);
+                        continue;
+                    }
+
+                    candidate.Duration = duration.Value;
+                    RecalculateFingerprintWindows(candidate, config);
+                }
+
                 verified.Add(candidate);
                 verifier.Classify(candidate);
             }
@@ -375,6 +407,21 @@ public partial class BaseItemAnalyzerTask(
         await _database.BackfillFileVersionsAsync(verifier.FileVersionBackfill, cancellationToken).ConfigureAwait(false);
 
         return verified;
+    }
+
+    private static void RecalculateFingerprintWindows(QueuedEpisode episode, PluginConfiguration config)
+    {
+        var analysisPercent = (episode.AnalysisPercentOverride ?? config.AnalysisPercent) / 100.0;
+        var analysisLengthLimit = episode.AnalysisLengthLimitOverride ?? config.AnalysisLengthLimit;
+        var fingerprintDuration = Math.Min(
+            episode.Duration >= 5 * 60 ? episode.Duration * analysisPercent : episode.Duration,
+            60 * analysisLengthLimit);
+        var maxCreditsDuration = Math.Min(
+            episode.Duration >= 5 * 60 ? episode.Duration * analysisPercent : episode.Duration,
+            60 * config.MaximumCreditsDuration);
+
+        episode.IntroFingerprintEnd = fingerprintDuration;
+        episode.CreditsFingerprintStart = Math.Max(0, episode.Duration - maxCreditsDuration);
     }
 
     /// <summary>
@@ -556,7 +603,10 @@ public partial class BaseItemAnalyzerTask(
             var creditsEnd = item.Duration;
             if (config.ProbeAudioDuration)
             {
-                var audioDuration = await _ffmpegService.ProbeAudioDurationAsync(item.Path, cancellationToken).ConfigureAwait(false);
+                var audioPath = item.IsShortcut && !string.IsNullOrEmpty(item.ShortcutPath)
+                    ? item.ShortcutPath
+                    : item.Path;
+                var audioDuration = await _ffmpegService.ProbeAudioDurationAsync(audioPath, cancellationToken).ConfigureAwait(false);
                 if (audioDuration is > 0 && audioDuration.Value < item.Duration)
                 {
                     creditsEnd = audioDuration.Value;
@@ -582,6 +632,15 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): shortcut video processing is disabled")]
+    private static partial void LogSkippingShortcutVideo(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): shortcut path is missing")]
+    private static partial void LogSkippingShortcutWithoutPath(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): shortcut duration could not be probed")]
+    private static partial void LogSkippingShortcutWithoutDuration(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.")]
     private static partial void LogSkippingChromaprint(ILogger logger);

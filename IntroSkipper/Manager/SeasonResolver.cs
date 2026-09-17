@@ -410,6 +410,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 Category = category,
                 IsExcluded = decision.IsExcluded,
                 Path = episode.Path,
+                IsShortcut = episode.IsShortcut,
+                ShortcutPath = episode.ShortcutPath ?? string.Empty,
                 Duration = duration,
                 DateAdded = EpisodeAvailabilityDate(episode),
                 IntroFingerprintEnd = Math.Min(duration >= 5 * 60 ? duration * analysisPercent : duration, 60 * config.AnalysisLengthLimit),
@@ -445,6 +447,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             Category = QueuedMediaCategory.Movie,
             IsExcluded = decision.IsExcluded,
             Path = movie.Path,
+            IsShortcut = movie.IsShortcut,
+            ShortcutPath = movie.ShortcutPath ?? string.Empty,
             Duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds,
             FileVersion = FileVersion(movie),
         };

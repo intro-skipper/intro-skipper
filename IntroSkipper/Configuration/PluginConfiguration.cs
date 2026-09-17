@@ -118,6 +118,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether to process shortcut videos.
+    /// </summary>
+    public bool ProcessShortcutVideos { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer
     /// for intros and recaps. Credits ignore this setting.
     /// </summary>
