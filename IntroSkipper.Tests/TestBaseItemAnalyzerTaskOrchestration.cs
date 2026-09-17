@@ -208,6 +208,70 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(0, settled.CreditsFingerprintEnd);
     }
 
+    [Theory]
+    [InlineData(EpisodeState.Analyzed)]
+    [InlineData(EpisodeState.NoSegments)]
+    [InlineData(EpisodeState.UserProvided)]
+    public void DefinitiveAnalysisResult_ClearsComparisonPending(EpisodeState state)
+    {
+        var episode = new QueuedEpisode();
+        episode.SetComparisonPending(AnalysisMode.Introduction, true);
+
+        episode.SetAnalyzed(AnalysisMode.Introduction, state);
+
+        Assert.False(episode.IsComparisonPending(AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public async Task ShortcutVerification_DoesNotTargetAnItemReclassifiedAsOrdinary()
+    {
+        var config = new PluginConfiguration { ProcessShortcutVideos = true };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var itemId = Guid.NewGuid();
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(itemId + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var item = JellyfinItems.Episode(itemId, Guid.NewGuid(), Guid.NewGuid(), path: mediaPath, isShortcut: false);
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(item));
+            var candidate = new QueuedEpisode
+            {
+                EpisodeId = itemId,
+                SeasonId = item.SeasonId,
+                SeriesId = item.SeriesId,
+                Name = item.Name,
+                Path = mediaPath,
+                IsShortcut = true,
+                ShortcutPath = "/remote/old.mkv",
+                Duration = 240,
+            };
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            var task = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                seasonResolver: null!,
+                new StubFFmpegService(),
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            var verified = await task.VerifyQueueAsync(
+                [candidate],
+                [AnalysisMode.Introduction],
+                ffmpegValid: false,
+                shortcutsOnly: true,
+                analysisItemIds: [itemId],
+                CancellationToken.None);
+
+            var result = Assert.Single(verified);
+            Assert.False(result.IsShortcut);
+            Assert.False(result.IsAnalysisTarget);
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
     private static readonly Guid CreditsSeasonId = Guid.NewGuid();
 
     private static QueuedEpisode CreditsEpisode(int episodeNumber) => new()

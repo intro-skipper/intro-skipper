@@ -161,6 +161,12 @@ public sealed class QueuedEpisode
     public void SetAnalyzed(AnalysisMode mode, EpisodeState value)
     {
         _isAnalyzed[(int)mode] = value;
+        if (value is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)
+        {
+            // A later analyzer may produce a definitive result after Chromaprint could not
+            // compare this item. That result must be allowed to persist its analysis record.
+            SetComparisonPending(mode, false);
+        }
     }
 
     /// <summary>

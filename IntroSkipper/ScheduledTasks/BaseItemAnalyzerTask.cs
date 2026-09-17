@@ -459,8 +459,8 @@ public partial class BaseItemAnalyzerTask(
                 candidate.IsShortcut = item.IsShortcut;
                 candidate.ShortcutPath = item.ShortcutPath ?? string.Empty;
                 candidate.IsAnalysisTarget = !shortcutsOnly
-                    || analysisItemIds is null
-                    || analysisItemIds.Contains(candidate.EpisodeId);
+                    || (candidate.IsShortcut
+                        && (analysisItemIds is null || analysisItemIds.Contains(candidate.EpisodeId)));
 
                 if (!shortcutsOnly && candidate.IsShortcut)
                 {
