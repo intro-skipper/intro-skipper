@@ -211,7 +211,7 @@ public sealed partial class AnalysisScheduler(
         bool shortcutsOnly = false,
         int shortcutBatchSize = 0)
     {
-        var request = new LibraryRequest(progress, NewCompletion(), cancellationToken, shortcutsOnly, shortcutBatchSize);
+        var request = new LibraryRequest(progress, NewCompletion(), shortcutsOnly, shortcutBatchSize, cancellationToken);
         lock (_lock)
         {
             if (_stopped)
@@ -517,9 +517,9 @@ public sealed partial class AnalysisScheduler(
     private sealed record LibraryRequest(
         IProgress<double> Progress,
         TaskCompletionSource Completion,
-        CancellationToken CancellationToken,
         bool ShortcutsOnly,
-        int ShortcutBatchSize);
+        int ShortcutBatchSize,
+        CancellationToken CancellationToken);
 
     // What the worker runs. Kind names it in the log; ScanKey is set for a manual scan so
     // the status can report the key running and a failure is remembered against it.
