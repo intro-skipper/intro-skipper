@@ -1,4 +1,4 @@
-import type { PluginConfig } from "../types.ts";
+import type { ConfigKey } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 
 /** Adds ids to the control's aria-describedby without dropping existing ones. */
@@ -48,7 +48,7 @@ export function bindVisibility(container: HTMLElement, visible?: () => boolean):
 export function bindField(opts: {
     container: HTMLElement;
     input: HTMLInputElement | HTMLSelectElement;
-    fieldOpts: { id: keyof PluginConfig; disabled?: () => boolean; visible?: () => boolean };
+    fieldOpts: { id: ConfigKey; disabled?: () => boolean; visible?: () => boolean };
     errorDiv?: HTMLElement;
     describedByIds?: string[];
     onLoaded: () => void;

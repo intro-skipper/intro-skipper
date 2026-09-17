@@ -1,4 +1,4 @@
-import type { ConfigKeysOfType } from "../types.ts";
+import type { ConfigKeysOfType } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { bindField } from "./field-bind.ts";

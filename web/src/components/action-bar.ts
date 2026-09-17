@@ -2,7 +2,8 @@ import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
 import * as api from "../store/api.ts";
-import type { AnalysisOverrides, AnalyzerActions, PluginConfig, SeasonItem } from "../types.ts";
+import type { AnalysisOverrides, AnalyzerActions, SeasonItem } from "../types.ts";
+import type { ConfigKey } from "../config/schema.ts";
 import { delay } from "../utils.ts";
 import { configStore } from "../store/config-store.ts";
 
@@ -155,7 +156,7 @@ export function actionBar(opts: ActionBarOptions): {
             : "Global default";
     }
     const handleConfigLoaded = () => updatePreviewDefaultLabel();
-    const handleConfigChanged = ({ field }: { field: keyof PluginConfig }) => {
+    const handleConfigChanged = ({ field }: { field: ConfigKey }) => {
         if (field === "AnimePreviewFromCreditsEnd") updatePreviewDefaultLabel();
     };
     configStore.subscribe("loaded", handleConfigLoaded);

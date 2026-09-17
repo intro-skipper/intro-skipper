@@ -1,5 +1,5 @@
 import type { Tab } from "../types.ts";
-import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
+import { configSchema } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 import {
     clearExcludedTimestamps,
@@ -184,7 +184,7 @@ export const generalTab: Tab = {
                 id: "SettledSeasonDelayHours",
                 label: "Settled season delay (hours)",
                 min: 0,
-                max: MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+                max: configSchema.SettledSeasonDelayHours.max,
                 step: 1,
                 description:
                     "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",

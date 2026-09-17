@@ -1,10 +1,10 @@
-import type { ConfigKeysOfType, Tab } from "../types.ts";
+import type { Tab } from "../types.ts";
+import { configSchema, type ConfigKeysOfType } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 import { htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
 import { fieldRow } from "../components/tab-layout.ts";
 import { inputField } from "../components/input-field.ts";
-import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
 
 function durationPair(
     minId: ConfigKeysOfType<number>,
@@ -63,8 +63,8 @@ export const analysisTab: Tab = {
                 kind: "number",
                 id: "AnalysisPercent",
                 label: "Percent of media to analyze",
-                min: MINIMUM_ANALYSIS_PERCENT,
-                max: MAXIMUM_ANALYSIS_PERCENT,
+                min: configSchema.AnalysisPercent.min,
+                max: configSchema.AnalysisPercent.max,
                 description:
                     "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
             }),
