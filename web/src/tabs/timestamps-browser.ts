@@ -116,14 +116,16 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         }
     }
 
+    // The listing feeds the tab-wide search index even after the libraries view
+    // is gone; only the card's count belongs to the view.
     async function loadLibraryCount(lib: LibraryInfo, view: AbortSignal): Promise<void> {
         try {
-            const shows = await nav$.ensureLibraryShows(lib.Id, lib.Name, view);
-            setLibraryCount(lib.Id, pluralize(shows.length, "item"));
+            const shows = await nav$.ensureLibraryShows(lib.Id, lib.Name);
             syncSearchIndex();
+            if (!view.aborted) setLibraryCount(lib.Id, pluralize(shows.length, "item"));
         } catch (err) {
             if (isAbortError(err)) return;
-            setLibraryCount(lib.Id, "Unavailable");
+            if (!view.aborted) setLibraryCount(lib.Id, "Unavailable");
         }
     }
 
@@ -182,7 +184,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
             contentEl.append(statusLine("Loading shows…"));
             nav$.showDashboardLoading();
             try {
-                libShows = await nav$.ensureLibraryShows(libraryId, libraryName, view);
+                libShows = await abortable(nav$.ensureLibraryShows(libraryId, libraryName), view);
                 setLibraryCount(libraryId, pluralize(libShows.length, "item"));
                 syncSearchIndex();
                 contentEl.replaceChildren();

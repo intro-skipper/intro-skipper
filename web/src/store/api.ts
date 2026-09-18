@@ -27,7 +27,9 @@ export function savePluginConfig(config: PluginConfig): Promise<unknown> {
     return window.ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
 }
 
-// Extracts the most useful error text from an ASP.NET error payload.
+// Extracts the most useful error text from an ASP.NET error payload. An abort
+// while the body is still arriving is a cancellation, not an error message, and
+// stays one.
 async function readErrorMessage(response: Response): Promise<string> {
     try {
         const data: unknown = await response.json();
@@ -42,8 +44,9 @@ async function readErrorMessage(response: Response): Promise<string> {
                 }
             }
         }
-    } catch {
-        // Fall through to the generic message.
+    } catch (err) {
+        if (isAbortError(err)) throw err;
+        // Unparseable body: fall through to the generic message.
     }
     return "Server returned " + response.status;
 }

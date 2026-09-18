@@ -47,15 +47,13 @@ export function createNavState(signal: AbortSignal) {
     );
 
     /**
-     * Loads a library's shows and records them for synchronous access. Rejects
-     * with an AbortError if `view` aborts before the listing arrives.
+     * Loads a library's shows and records them for synchronous access. The
+     * record feeds the tab-wide search index, so it lives for the tab, not the
+     * view that asked: a caller rendering a view wraps the call in abortable()
+     * with its own signal.
      */
-    async function ensureLibraryShows(
-        libraryId: string,
-        libraryName: string,
-        view: AbortSignal,
-    ): Promise<ShowItem[]> {
-        const shows = await abortable(getShowsInLibrary(libraryId, libraryName), view);
+    async function ensureLibraryShows(libraryId: string, libraryName: string): Promise<ShowItem[]> {
+        const shows = await abortable(getShowsInLibrary(libraryId, libraryName), signal);
         libraryShows.set(libraryId, shows);
         return shows;
     }
