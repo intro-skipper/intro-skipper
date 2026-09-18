@@ -74,18 +74,26 @@ public sealed class TestLegacyAnalysisCompatibility
 
     [Theory]
     [InlineData(AnalysisMode.Introduction, false)]
+    [InlineData(AnalysisMode.Credits, false, 24, false)]
+    [InlineData(AnalysisMode.Credits, true)]
+    [InlineData(AnalysisMode.Credits, false, 24, true, false)]
+    [InlineData(AnalysisMode.Credits, true, 24, true, false)]
     [InlineData(AnalysisMode.Recap, false)]
     [InlineData(AnalysisMode.Introduction, false, 22)]
+    [InlineData(AnalysisMode.Credits, false, 22, false)]
+    [InlineData(AnalysisMode.Credits, true, 22, false)]
     [InlineData(AnalysisMode.Recap, false, 22)]
     [InlineData(AnalysisMode.Preview, false, 22, false)]
     [InlineData(AnalysisMode.Commercial, false, 22)]
     [InlineData(AnalysisMode.Introduction, false, 23)]
+    [InlineData(AnalysisMode.Credits, false, 23, false)]
+    [InlineData(AnalysisMode.Credits, true, 23, false)]
     [InlineData(AnalysisMode.Recap, false, 23)]
     [InlineData(AnalysisMode.Preview, false, 23, false)]
     [InlineData(AnalysisMode.Commercial, false, 23)]
-    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24, bool compatible = true)
+    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24, bool compatible = true, bool detectNonBlackCredits = true)
     {
-        var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
+        var config = new PluginConfiguration { ReanalyzeSettledSeasons = true, DetectNonBlackCredits = detectNonBlackCredits };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -170,33 +178,41 @@ public sealed class TestLegacyAnalysisCompatibility
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task LegacyCreditsCompletions_AreReanalyzedByModernAnalyzer(bool alternative)
+    [InlineData(false, false, false, true)]
+    [InlineData(false, false, true, true)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, true)]
+    public async Task LegacyCreditsCompletions_AdoptOnlyCompatibleAnalyzerResults(bool alternative, bool detectNonBlackCredits, bool available, bool compatible)
     {
         using var temp = new TempSegmentDb();
-        var config = new PluginConfiguration { DetectNonBlackCredits = true };
+        var config = new PluginConfiguration { DetectNonBlackCredits = detectNonBlackCredits };
         var id = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(
             config,
             AnalysisMode.Credits,
             AnalyzerAction.Default,
-            ffmpegValid: true,
+            ffmpegValid: available,
             alternativeBlackFrameAnalyzer: alternative,
             release: 24);
         await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [id], legacyHash);
 
         var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
 
-        Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+        Assert.Equal(compatible, await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
-        Assert.Equal(legacyHash, snapshot.AnalysisRecords[(id, AnalysisMode.Credits)].ConfigHash);
+        var currentHash = ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, available);
+        Assert.Equal(compatible ? currentHash : legacyHash, snapshot.AnalysisRecords[(id, AnalysisMode.Credits)].ConfigHash);
+        Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
 
         var candidate = new QueuedEpisode { EpisodeId = id };
-        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, ffmpegValid: true).Classify(candidate);
-        Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
+        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, ffmpegValid: available).Classify(candidate);
+        Assert.Equal(compatible ? EpisodeState.NoSegments : EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
     }
 
     [Theory]
@@ -206,14 +222,20 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Introduction, "action")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
+    [InlineData(AnalysisMode.Credits, "chapter-enhancement", true)]
+    [InlineData(AnalysisMode.Credits, "threshold", true)]
+    [InlineData(AnalysisMode.Credits, "language", true)]
+    [InlineData(AnalysisMode.Credits, "channels", true)]
+    [InlineData(AnalysisMode.Credits, "action", true)]
+    [InlineData(AnalysisMode.Credits, "non-black", true)]
     [InlineData(AnalysisMode.Recap, "cold-open")]
-    public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
+    public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change, bool alternative = false)
     {
         using var temp = new TempSegmentDb();
         var config = new PluginConfiguration();
         var id = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
-        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, AnalyzerAction.Default, true, false);
+        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, AnalyzerAction.Default, true, alternative);
         await temp.Database.MarkItemsAnalyzedAsync(mode, [id], legacyHash);
         switch (change)
         {
@@ -223,6 +245,7 @@ public sealed class TestLegacyAnalysisCompatibility
             case "action": await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = AnalyzerAction.Chapter }); break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
+            case "non-black": config.DetectNonBlackCredits = false; break;
             case "cold-open": config.AnchorRecapToColdOpen = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }

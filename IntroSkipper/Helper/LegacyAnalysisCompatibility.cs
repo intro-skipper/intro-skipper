@@ -13,8 +13,6 @@ namespace IntroSkipper.Helper;
 /// Adopts completed 10.11.22–24 analysis under the 12.0 baseline without running detection.
 /// The legacy hash inputs are frozen to those releases. Only hashes matching the retained
 /// settings are eligible; settings introduced in 12.0 must still have their defaults.
-/// Credits are deliberately excluded because their black-frame analyzer changed and old
-/// completions must be reanalyzed by the current implementation.
 /// Rewriting the completion record makes adoption one-time and preserves ordinary
 /// hash invalidation afterwards. Missing records and unknown hashes are never adopted.
 /// </summary>
@@ -31,10 +29,10 @@ internal static class LegacyAnalysisCompatibility
         {
             var mode = modeGroup.Key;
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
-            if (mode == AnalysisMode.Credits
-                || !AnalysisHelpers.IsSupported(mode)
+            if (!AnalysisHelpers.IsSupported(mode)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
+                || (mode == AnalysisMode.Credits && config.EnhanceChapterCredits)
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
@@ -48,12 +46,20 @@ internal static class LegacyAnalysisCompatibility
                 foreach (var release in new[] { 22, 23, 24 })
                 {
                     if (release < 24 && (config.IncludeIntroStartOffsetWhenSnapping
-                        || mode is AnalysisMode.Preview))
+                        || mode is AnalysisMode.Credits or AnalysisMode.Preview))
                     {
                         continue;
                     }
 
-                    upgrades[AnalysisHash(config, mode, action, available, false, release)] = currentHash;
+                    if (mode != AnalysisMode.Credits || !config.DetectNonBlackCredits)
+                    {
+                        upgrades[AnalysisHash(config, mode, action, available, false, release)] = currentHash;
+                    }
+
+                    if (mode == AnalysisMode.Credits)
+                    {
+                        upgrades[AnalysisHash(config, mode, action, available, true, release)] = currentHash;
+                    }
                 }
             }
 
