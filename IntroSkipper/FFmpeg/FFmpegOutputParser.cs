@@ -4,7 +4,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
 
@@ -47,33 +46,6 @@ internal static partial class FFmpegOutputParser
         }
 
         return [.. silenceRanges];
-    }
-
-    internal static double[] ParseKeyFrames(string raw, double rangeStart, ILogger? logger = null)
-    {
-        var keyframes = new List<double>();
-
-        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
-            if (ptsIndex == -1)
-            {
-                continue;
-            }
-
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
-
-            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out var timestamp))
-            {
-                keyframes.Add(timestamp + rangeStart);
-            }
-            else if (logger is not null)
-            {
-                LogFailedToParseTimestamp(logger, ptsTimeStr, line);
-            }
-        }
-
-        return [.. keyframes];
     }
 
     internal static BlackFrame[] ParseBlackFrames(string raw)
@@ -207,7 +179,4 @@ internal static partial class FFmpegOutputParser
 
     [GeneratedRegex(@"lavfi\.signalstats\.SATAVG=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSaturationRegex();
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
-    private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
 }
