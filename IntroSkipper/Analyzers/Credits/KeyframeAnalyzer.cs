@@ -2,65 +2,86 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
-namespace IntroSkipper.Analyzers;
+namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Detects end credits from keyframe black-frame evidence.
+/// Detects credits from the keyframe scan: a black roll from black-frame evidence and card credits
+/// from keyframe visuals, each as its own candidate for the credits pass.
 /// </summary>
 /// <remarks>
-/// Uses adaptive density gating, targeted blackdetect interval recovery, and optional boundary
-/// refinement to handle dark scenes and sparse keyframe samples.
+/// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
+/// through density gating, blackdetect interval recovery for sparse candidates and optional boundary
+/// refinement. The card run is found against the black scenes those rules accepted: once they accept
+/// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
-internal sealed partial class CreditsBlackFrameAnalyzer(
-    ILogger<CreditsBlackFrameAnalyzer> logger,
+internal sealed partial class KeyframeAnalyzer(
+    ILogger<KeyframeAnalyzer> logger,
     IFFmpegService ffmpegService,
     PluginConfiguration? configuration = null)
 {
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger;
+    private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
 
     /// <summary>
-    /// Detects one episode's credits with the configured thresholds, without adjusting times
-    /// or writing. The credits pass combines the result with the other analyzers' candidates
-    /// for the episodes no credits chapter settled.
+    /// Detects one episode's credits with the configured thresholds, without adjusting times or
+    /// writing. The credits pass combines the result with the other analyzers' candidates.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>The credits candidate and every accepted black scene. Probe failures propagate to the caller, which marks the episode failed.</returns>
-    internal Task<CreditsBlackFrameResult> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, cancellationToken);
+    /// <returns>Zero, one or two candidates: the black-frame candidate under <see cref="SegmentSource.BlackFrame"/> and the card run under <see cref="SegmentSource.KeyframeVisuals"/>. Probe failures propagate to the caller, which marks the episode failed.</returns>
+    internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
     /// <summary>
-    /// Detects the start of credits from FFmpeg keyframe evidence.
+    /// Detects the credits from FFmpeg keyframe evidence with explicit thresholds.
     /// </summary>
-    /// <remarks>
-    /// Runs the keyframe black-frame scan over the credits window (frame-accurate for credits on
-    /// black) with density gating, blackdetect interval recovery for sparse candidates and optional
-    /// boundary refinement.
-    /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>A task that returns the credits candidate and every accepted black scene.</returns>
-    internal async Task<CreditsBlackFrameResult> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
+    /// <returns>Zero, one or two candidates: the black-frame candidate under <see cref="SegmentSource.BlackFrame"/> and the card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
+    internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
+        var (blackMinimum, sceneChange) = blackFrames.Count > 0
+            ? BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, minimumPercentage)
+            : (minimumPercentage, minimumPercentage);
+        var (credits, scenes) = blackFrames.Count > 0
+            ? await DetectBlackFrameCreditsAsync(episode, blackFrames, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
+            : (null, []);
 
-        return blackFrames.Count > 0
-            ? await DetectBlackFrameCreditsAsync(episode, blackFrames, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
-            : CreditsBlackFrameResult.None;
+        var candidates = new List<AttributedSegment>(2);
+        if (credits is not null)
+        {
+            candidates.Add(new AttributedSegment(credits, SegmentSource.BlackFrame));
+        }
+
+        if (detectCardCredits)
+        {
+            // The keyframe scan that produced the black-frame row wrote the visuals row too, so this
+            // is normally a cache read.
+            var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+            var range = CardRunFinder.FindCreditRange(visuals, blackFrames, blackMinimum, minimumDuration, scenes);
+            if (range is not null)
+            {
+                candidates.Add(new AttributedSegment(
+                    new Segment(episode.EpisodeId, new TimeRange(range.Start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart)),
+                    SegmentSource.KeyframeVisuals));
+            }
+        }
+
+        return candidates;
     }
 
     /// <summary>
@@ -68,14 +89,14 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="blackFrames">The keyframe black-frame scan results.</param>
-    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="minimum">The black percentage at or above which a keyframe is black, normalized against the scan.</param>
+    /// <param name="sceneChange">The black percentage that marks the transition into credits, normalized against the scan.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>A task that returns the credits candidate and every accepted scene, or <see cref="CreditsBlackFrameResult.None" /> when no accepted scene met the minimum duration.</returns>
-    private async Task<CreditsBlackFrameResult> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    /// <returns>The credits candidate in file time and every black scene the rules accepted, relative to the credits fingerprint start, the picked one with its refined start; <see langword="null"/> and an empty list when no accepted scene met the minimum duration.</returns>
+    private async Task<(Segment? Credits, List<TimeRange> Scenes)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
-        var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, minimumPercentage);
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
         var blackIntervals = Array.Empty<BlackInterval>();
 
@@ -84,14 +105,14 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
             var candidates = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
             if (candidates.Count == 0)
             {
-                return CreditsBlackFrameResult.None;
+                return (null, []);
             }
 
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
             if (scenes.Count == 0)
             {
-                return CreditsBlackFrameResult.None;
+                return (null, []);
             }
         }
         else if (scenes.Count == 1 && CreditSceneMetricsCalculator.Calculate(blackFrames, scenes[0], minimum).IsSparse(scenes[0], minimumDuration))
@@ -119,13 +140,13 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
 
                 // The picked scene carries its refined start, so the transition the boundary probe
-                // confirmed counts as part of the roll for the card analyzer.
+                // confirmed counts as part of the roll for the card run.
                 List<TimeRange> accepted = [.. scenes.Select(accepted => new TimeRange(accepted == scene ? refinedStartTime : accepted.StartTime, accepted.EndTime))];
-                return new CreditsBlackFrameResult(segment, accepted);
+                return (segment, accepted);
             }
         }
 
-        return CreditsBlackFrameResult.None;
+        return (null, []);
     }
 
     /// <summary>

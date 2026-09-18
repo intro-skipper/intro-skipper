@@ -6,15 +6,16 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Detects credits on a near-uniform low-saturation card from keyframe visuals. Text on black,
-/// white, grey or a muted colour card shows a near-uniform background with text on it, which busy
-/// content and flat backgrounds with a subject in front never produce. Inside a black scene the
-/// black-frame analyzer accepted, a black keyframe whatever it shows and a card-like keyframe are
-/// both black cards: they extend a run and count toward its duration but never toward its density
-/// or cadence, so a black roll cannot carry stray flat shots before it into the credits or trim
-/// sparse white cards next to it. A black card-like keyframe outside every accepted scene is content.
+/// Finds the card run in the keyframe visuals of one episode: credits on a near-uniform
+/// low-saturation card. Text on black, white, grey or a muted colour card shows a near-uniform
+/// background with text on it, which busy content and flat backgrounds with a subject in front
+/// never produce. Inside a black scene the black-frame rules accepted, a black keyframe whatever it
+/// shows and a card-like keyframe are both black cards: they extend a run and count toward its
+/// duration but never toward its density or cadence, so a black roll cannot carry stray flat shots
+/// before it into the credits or trim sparse white cards next to it. A black card-like keyframe
+/// outside every accepted scene is content.
 /// </summary>
-internal static class CreditsCardAnalyzer
+internal static class CardRunFinder
 {
     private const double IsolatedCardTrimGapMultiplier = 2.5;
 
@@ -27,7 +28,7 @@ internal static class CreditsCardAnalyzer
 
     // Vivid/saturated uniform frames are excluded on purpose: a solid-colour content frame (a fade,
     // stylised transition, or saturated sky) is indistinguishable from a saturated colour card by
-    // spread and saturation alone, so admitting them would cost the card analyzer's zero-false-positive
+    // spread and saturation alone, so admitting them would cost the card run finder's zero-false-positive
     // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
     private const double SaturationCreditMaximum = 96.0;
     private const double MinimumCardFraction = 0.5;
@@ -47,40 +48,34 @@ internal static class CreditsCardAnalyzer
     /// Finds the latest sustained run of card keyframes that satisfies the minimum duration.
     /// </summary>
     /// <remarks>
-    /// The black scenes the black-frame analyzer accepted, which carry its interval and boundary
-    /// evidence, are the only black evidence used here. It returns one of them as its candidate; the
-    /// others still count, since a card run next to a scene it did not pick is its own credits. A
-    /// black keyframe inside an accepted scene is a black card whatever it shows, so a blank page
+    /// The black scenes the black-frame rules accepted, which carry their interval and boundary
+    /// evidence, are the only black evidence used here. One of them is the black-frame candidate; the
+    /// others still count, since a card run next to a scene the rules did not pick is its own credits.
+    /// A black keyframe inside an accepted scene is a black card whatever it shows, so a blank page
     /// between two roll pages does not break the roll, and so is a card-like keyframe inside one, so a
     /// vanity card between two roll parts cannot give the roll a card density of its own: both extend
     /// the run and count toward its duration, so short white cards and a short roll qualify together,
     /// but they are left out of the density ratio and the trim cadence. Counted, a black roll's density carried scattered
     /// flat shots before it into the run: measured on an anime epilogue, that admitted 67 seconds of
     /// story. A black card-like keyframe outside every accepted scene is content, since the black-frame
-    /// analyzer rejected it, as it does a dark lead-in before the roll's transition or a black flash
+    /// rules rejected it, as it does a dark lead-in before the roll's transition or a black flash
     /// before an interval-confirmed roll. With no candidate the visuals alone decide, as the old
-    /// fallback did, so black cards the black-frame analyzer could not confirm still count.
+    /// fallback did, so black cards the black-frame rules could not confirm still count.
     /// </remarks>
     /// <param name="visuals">The per-keyframe visual statistics, ordered by time.</param>
     /// <param name="blackFrames">The black-frame scan over the same keyframes, ordered by time.</param>
-    /// <param name="minimumPercentage">The configured minimum black percentage.</param>
+    /// <param name="blackMinimum">The black percentage at or above which a keyframe is black, normalized against the scan by the black-frame rules.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
-    /// <param name="blackFrameScenes">The black scenes the black-frame analyzer accepted, relative to the credits fingerprint start; empty when it found no credits.</param>
+    /// <param name="blackFrameScenes">The black scenes the black-frame rules accepted, relative to the credits fingerprint start; empty when they found no credits.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int minimumPercentage, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes)
+    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes)
     {
         if (blackFrameScenes.Count == 0)
         {
             return FindCreditRange(visuals, minimumDuration);
         }
 
-        List<double> blackTimes = [];
-        if (blackFrames.Count > 0)
-        {
-            var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, minimumPercentage);
-            blackTimes = [.. blackFrames.Where(frame => frame.Percentage >= minimum).Select(frame => frame.Time)];
-        }
-
+        List<double> blackTimes = [.. blackFrames.Where(frame => frame.Percentage >= blackMinimum).Select(frame => frame.Time)];
         return FindCreditRange(Classify(visuals, blackTimes, blackFrameScenes), minimumDuration);
     }
 
@@ -203,7 +198,7 @@ internal static class CreditsCardAnalyzer
     // Fraction of non-black keyframes inside the run's span that look like credit cards. This is the
     // only place intervening busy content (skipped during grouping) re-enters the qualification
     // decision. Black cards are neither cards nor content here, so a run that is a roll and nothing
-    // else has no density and is left to the black-frame analyzer.
+    // else has no density and is left to the black-frame candidate.
     private static bool HasSufficientCardDensity(List<CardKeyframe> keyframes, double startTime, double endTime)
     {
         var total = 0;

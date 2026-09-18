@@ -70,7 +70,7 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(2, ffmpeg.FingerprintCalls);
-        Assert.Equal(4, ffmpeg.CreditsScanCalls);
+        Assert.Equal(2, ffmpeg.CreditsScanCalls);
         Assert.Equal(2, ffmpeg.VisualScanCalls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
     }
@@ -130,7 +130,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, cache, new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(2, ffmpeg.CreditsScanCalls);
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
         var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chapter, chapter.Source);
@@ -448,8 +448,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        // The new episode's keyframe scan and the card analyzer's read of the same row.
-        Assert.Equal(scansBefore + 2, ffmpeg.CreditsScanCalls);
+        Assert.Equal(scansBefore + 1, ffmpeg.CreditsScanCalls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).Source);
         for (var i = 0; i < 2; i++)
         {
@@ -584,7 +583,7 @@ public sealed class TestCreditsPass
     public async Task MixedCardRunBeforeASeparateBlackRoll_IsStoredBesideIt()
     {
         // White cards 560 to 570, black cards 572 to 590, content, then the default roll. The
-        // black-frame analyzer accepts both black scenes and returns the roll; the earlier scene still
+        // black-frame rules accept both black scenes and the roll is the candidate; the earlier scene still
         // lets the mixed run qualify as its own segment.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
@@ -728,7 +727,7 @@ public sealed class TestCreditsPass
 
         Assert.NotEmpty(chapterReads);
         Assert.All(chapterReads, id => Assert.Equal(episodes[1].EpisodeId, id));
-        Assert.Equal(2, ffmpeg.CreditsScanCalls);
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
         Assert.Equal(storedId, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Id);
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
@@ -759,7 +758,7 @@ public sealed class TestCreditsPass
         Assert.Equal(chapterLookupFails ? EpisodeState.AnalysisFailed : EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
-        Assert.Equal(2, ffmpeg.CreditsScanCalls);
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
