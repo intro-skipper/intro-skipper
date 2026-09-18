@@ -31,11 +31,11 @@ The per-keyframe black percentage a keyframe scan reports. The basis for detecti
 _Avoid_: Black frames (for the data), pblack
 
 **Keyframe visuals**:
-The per-keyframe entropy and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
+The per-keyframe luma percentiles and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
 _Avoid_: Entropy data, visual stats, card evidence
 
 **Card credits**:
-Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. A card-like keyframe inside a black scene the black-frame analyzer accepted is a black card: it extends a card run but never counts toward its density, so a black roll on its own is black-frame evidence, not card credits.
+Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame analyzer accepted, a black keyframe whatever it shows and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
 
 ### Analysis

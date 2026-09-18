@@ -106,7 +106,8 @@ public class TestBlackFrames
         Assert.NotEmpty(visuals);
         Assert.All(visuals, v => Assert.InRange(v.Time, 0, 30)); // clipped to range.Duration, no leak
         Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, v => v.Time));
-        Assert.All(visuals, v => Assert.InRange(v.Entropy, 0, 1)); // real normalized entropy parsed
+        Assert.All(visuals, v => Assert.True(v.LumaLow <= v.LumaHigh)); // real percentiles parsed
+        Assert.All(visuals, v => Assert.All([v.LumaMin, v.LumaLow, v.LumaHigh, v.LumaMax], luma => Assert.InRange(luma, 0, 255)));
         Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
     }
 
@@ -890,96 +891,114 @@ public class TestBlackFrames
     // ── Card credits from keyframe visuals ───────────────────────────────
 
     [Fact]
-    public void TestParseKeyframeVisuals_ParsesEntropyAndSaturation()
+    public void TestParseKeyframeVisuals_ParsesLumaPercentilesAndSaturation()
     {
+        // The other signalstats lines (YAVG, the U/V and hue stats) are noise to this parser.
         const string raw = """
             [Parsed_metadata_2 @ 0x0] frame:0    pts:0       pts_time:0
-            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.531285
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=60
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YAVG=130.5
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=200
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.UMIN=90
             [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=108.199
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.HUEAVG=180
             [Parsed_metadata_2 @ 0x0] frame:1    pts:20480   pts_time:2
-            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.000000
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YAVG=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=0
             """;
 
         var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
 
         Assert.Equal(2, visuals.Length);
-        Assert.Equal(new KeyframeVisual(0.0, 0.531285, 108.199), visuals[0]);
-        Assert.Equal(new KeyframeVisual(2.0, 0.0, 33.0), visuals[1]);
+        Assert.Equal(new KeyframeVisual(0.0, 16, 60, 200, 235, 108.199), visuals[0]);
+        Assert.Equal(new KeyframeVisual(2.0, 16, 16, 16, 235, 0), visuals[1]);
     }
 
     [Fact]
-    public void TestParseKeyframeVisuals_UsesLumaPlaneAndSkipsBlocksWithoutEntropy()
+    public void TestParseKeyframeVisuals_SkipsBlocksMissingAStat()
     {
-        // U/V entropy lines must not be mistaken for the luma plane, and a trailing block with no
-        // entropy metadata (e.g. truncated output) must be dropped rather than emitted as zeros.
-        const string raw = """
-            [Parsed_metadata_3 @ 0x0] frame:0 pts:0 pts_time:5
-            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
-            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.U=0.400000
-            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.V=0.410000
-            [Parsed_metadata_3 @ 0x0] lavfi.signalstats.SATAVG=12.5
-            [Parsed_metadata_3 @ 0x0] frame:1 pts:1 pts_time:7
-            """;
-
-        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
-
-        Assert.Equal(5.0, visual.Time);
-        Assert.Equal(0.12, visual.Entropy);
-        Assert.Equal(12.5, visual.Saturation);
-    }
-
-    [Fact]
-    public void TestParseKeyframeVisuals_SkipsBlocksWithoutSaturation()
-    {
-        // A trailing block truncated before lavfi.signalstats.SATAVG must be dropped rather than
-        // emitted with the default saturation 0, which would otherwise pass the low-saturation
-        // credit-card gate (0 < SaturationCreditMaximum) and fabricate a false card.
+        // A block missing a stat, whether mid-output or truncated at the end, must be dropped rather
+        // than emitted with zeros: a zero saturation passes the credit-card gate and a zero spread
+        // would fabricate a card.
         const string raw = """
             [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:5
-            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=128
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
             [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
             [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:7
-            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.050000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [Parsed_metadata_2 @ 0x0] frame:2 pts:2 pts_time:9
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=128
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
             """;
 
         var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
 
-        Assert.Equal(5.0, visual.Time);
-        Assert.Equal(0.12, visual.Entropy);
-        Assert.Equal(12.5, visual.Saturation);
+        Assert.Equal(new KeyframeVisual(5.0, 16, 128, 128, 235, 12.5), visual);
     }
 
     [Fact]
     public void TestParseKeyframeVisuals_ParsesExponentNotation()
     {
-        // Defensive: stock FFmpeg emits decimal here, but if a build ever emits exponent form the whole
-        // numeric token must be parsed, not truncated at the mantissa (which would record 1s instead of
-        // ~0s and feed corrupt values into detection and the cache).
+        // Defensive: signalstats prints integers, but if a build ever emits exponent form the whole
+        // numeric token must be parsed, not truncated at the mantissa, which would feed corrupt
+        // values into detection and the cache.
         const string raw = """
             [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:1e-05
-            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=1.5e-06
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=1.6e+01
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=1.28e+02
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=1.28e+02
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=2.35e+02
             [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=3.2e+01
             [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:2
             """;
 
         var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
 
-        Assert.Equal(1e-05, visual.Time);
-        Assert.Equal(1.5e-06, visual.Entropy);
-        Assert.Equal(32.0, visual.Saturation);
+        Assert.Equal(new KeyframeVisual(1e-05, 16, 128, 128, 235, 32), visual);
     }
 
-    [Theory]
-    [InlineData(0.12, 30.0, true)] // uniform, muted background -> credit card
-    [InlineData(0.349, 95.0, true)] // just inside both exclusive maxima -> credit card
-    [InlineData(0.35, 30.0, false)] // entropy at the exclusive max -> not a card
-    [InlineData(0.55, 30.0, false)] // busy/high-entropy content -> not a card
-    [InlineData(0.12, 96.0, false)] // saturation at the exclusive max -> not a card
-    [InlineData(0.12, 200.0, false)] // vivid saturated colour -> not a card
-    public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
+    // Each row: a keyframe visual and whether it is a credit card.
+    public static TheoryData<KeyframeVisual, bool> CreditCardKeyframeCases => new()
     {
-        Assert.Equal(expected, CreditsCardAnalyzer.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+        { KeyframeVisuals.Card(0), true },
+        { KeyframeVisuals.WhiteCard(0), true },
+
+        // Spread 9: the background is not dominant.
+        { new KeyframeVisual(0, 16, 128, 137, 235, 30), false },
+
+        // Spread 8 with contrast 60 on both sides: both boundaries inclusive.
+        { new KeyframeVisual(0, 68, 128, 136, 196, 30), true },
+
+        // Contrast 59: a bare wall or a fade.
+        { new KeyframeVisual(0, 69, 128, 128, 187, 30), false },
+
+        { KeyframeVisuals.BlankBlack(0), false },
+        { KeyframeVisuals.Dark(0), false },
+        { KeyframeVisuals.FlatWithSubject(0), false },
+
+        // Card at the exclusive saturation maximum.
+        { KeyframeVisuals.Card(0, saturation: 96), false },
+    };
+
+    [Theory]
+    [MemberData(nameof(CreditCardKeyframeCases))]
+    public void TestIsCreditCardKeyframe(KeyframeVisual visual, bool expected)
+    {
+        Assert.Equal(expected, CreditsCardAnalyzer.IsCreditCardKeyframe(visual));
     }
 
     // Each row: keyframe visuals, minimum credit duration, expected (Start, End) or null.
@@ -1041,8 +1060,8 @@ public class TestBlackFrames
         // Only 10s of card -> below the minimum duration.
         { Seq(40, 2, (30, 40)), 15, null },
 
-        // Dark (low luma) but detailed content is high entropy, like a night scene -> not a card.
-        { [.. Times(0, 58, 2).Select(t => new KeyframeVisual(t, 0.63, 50))], 15, null },
+        // Dark (low luma) but detailed content spreads wide within the dark range, like a night scene -> not a card.
+        { [.. Times(0, 58, 2).Select(t => KeyframeVisuals.Dark(t))], 15, null },
 
         // Uniform but vividly saturated frames are excluded on purpose (see CreditsCardAnalyzer).
         { CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200), 15, null },
@@ -1076,13 +1095,13 @@ public class TestBlackFrames
         {
             var data = new TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[], (double Start, double End)?>();
 
-            // Scattered flat shots in an epilogue before a roll (CITY THE ANIMATION E09): with the roll's
-            // black cards counted toward density the run passes the floor; without them it is 8 cards
-            // among 22 keyframes.
+            // Scattered flat shots in an epilogue before a roll (CITY THE ANIMATION E09), the measured
+            // false positive. Under the percentile rule a flat background with a subject in front is
+            // not a card at all, so the roll has no card density and stays the black-frame analyzer's.
             double[] flatShots = [22, 24, 34, 36, 54, 56, 62, 64];
             KeyframeVisual[] epilogue =
             [
-                .. Times(0, 66, 2).Select(t => flatShots.Contains(t) ? new KeyframeVisual(t, 0.2, 30) : new KeyframeVisual(t, 0.55, 108)),
+                .. Times(0, 66, 2).Select(t => flatShots.Contains(t) ? KeyframeVisuals.FlatWithSubject(t) : KeyframeVisuals.Content(t)),
                 .. Black(68, 118, 2),
             ];
             data.Add(epilogue, BlackScanOf(epilogue, black: (68, 118)), [(68, 118)], null);
@@ -1095,6 +1114,17 @@ public class TestBlackFrames
             // White, black, white: one run.
             KeyframeVisual[] cardsAroundRoll = [.. Cards(0, 20, 2), .. Black(22, 60, 2), .. Cards(62, 80, 2)];
             data.Add(cardsAroundRoll, BlackScanOf(cardsAroundRoll, black: (22, 60)), [(22, 60)], (0, 80));
+
+            // A blank black page in the middle of a roll inside an accepted scene: black is black there,
+            // so the page is not content and the run covers the roll and the cards after it.
+            KeyframeVisual[] rollWithBlankPage = [.. Times(0, 18, 2).Select(t => t is 10 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t)), .. Cards(20, 40, 2)];
+            data.Add(rollWithBlankPage, BlackScanOf(rollWithBlankPage, black: (0, 18)), [(0, 18)], (0, 40));
+
+            // A grey vanity card in the middle of a roll, inside the accepted scene that merged across
+            // it: a black card like the roll pages around it, so the roll still has no card density.
+            KeyframeVisual[] rollWithVanityCard = [.. Times(0, 60, 2).Select(t => t is >= 28 and <= 32 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Black(t))];
+            BlackFrame[] rollWithVanityCardScan = [.. rollWithVanityCard.Select((visual, frame) => new BlackFrame(visual.Time is >= 28 and <= 32 ? 0 : 100, visual.Time, frame))];
+            data.Add(rollWithVanityCard, rollWithVanityCardScan, [(0, 60)], null);
 
             // Roll only: as an accepted black scene there is no card density and the roll is the
             // black-frame analyzer's; with no candidate the visuals alone decide and it is recovered here.
@@ -1113,7 +1143,7 @@ public class TestBlackFrames
 
             // A dark lead-in at 90 percent black before a full-black roll: the accepted black scene
             // starts at the roll, so the lead-in is content here too and the run starts at the roll.
-            KeyframeVisual[] darkLeadIn = [.. Times(0, 78, 2).Select(t => new KeyframeVisual(t, 0.1, 0)), .. Cards(80, 100, 2)];
+            KeyframeVisual[] darkLeadIn = [.. Times(0, 78, 2).Select(t => KeyframeVisuals.Black(t)), .. Cards(80, 100, 2)];
             BlackFrame[] darkLeadInScan = [.. darkLeadIn.Select((visual, frame) => new BlackFrame(visual.Time <= 40 ? 90 : visual.Time <= 78 ? 100 : 0, visual.Time, frame))];
             data.Add(darkLeadIn, darkLeadInScan, [(42, 78)], (42, 100));
 
@@ -1122,9 +1152,10 @@ public class TestBlackFrames
             KeyframeVisual[] sparseCardsThenRoll = [.. Cards(0, 24, 12), .. Black(36, 80, 2)];
             data.Add(sparseCardsThenRoll, BlackScanOf(sparseCardsThenRoll, black: (36, 80)), [(36, 80)], (0, 80));
 
-            // Dark detailed keyframes are black to the blackframe filter but high entropy: content, not
-            // black cards. They stay in the density ratio, so 13 cards among 31 keyframes fail the floor.
-            KeyframeVisual[] darkScene = [.. Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? new KeyframeVisual(t, 0.12, 30) : new KeyframeVisual(t, 0.55, 0))];
+            // Dark detailed keyframes are black to the blackframe filter but spread wide in luma: outside
+            // an accepted scene they are content, not black cards. They stay in the density ratio, so
+            // 13 cards among 31 keyframes fail the floor.
+            KeyframeVisual[] darkScene = [.. Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Dark(t))];
             BlackFrame[] darkScan = [.. darkScene.Select((visual, frame) => new BlackFrame(visual.Time % 10 is 2 or 6 ? 100 : 0, visual.Time, frame))];
             data.Add(darkScene, darkScan, [], null);
 
@@ -1132,7 +1163,7 @@ public class TestBlackFrames
             // starts at the roll, so the flashes are content and the run starts there too.
             KeyframeVisual[] blackFlashes =
             [
-                .. Times(0, 28, 2).Select(t => t is 0 or 10 or 20 ? new KeyframeVisual(t, 0.0, 0.0) : new KeyframeVisual(t, 0.55, 108)),
+                .. Times(0, 28, 2).Select(t => t is 0 or 10 or 20 ? KeyframeVisuals.Black(t) : KeyframeVisuals.Content(t)),
                 .. Black(30, 50, 2),
                 .. Cards(52, 80, 2),
             ];
@@ -1141,7 +1172,7 @@ public class TestBlackFrames
 
             // Black card, white card, busy frame repeating, with no black-frame candidate: the visuals
             // alone decide, as the old fallback did, and two cards in three keep the run.
-            KeyframeVisual[] mixedCards = [.. Times(0, 60, 2).Select(t => t % 6 == 0 ? new KeyframeVisual(t, 0.0, 0.0) : t % 6 == 2 ? new KeyframeVisual(t, 0.12, 30) : new KeyframeVisual(t, 0.55, 108))];
+            KeyframeVisual[] mixedCards = [.. Times(0, 60, 2).Select(t => t % 6 == 0 ? KeyframeVisuals.Black(t) : t % 6 == 2 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Content(t))];
             BlackFrame[] mixedCardsScan = [.. mixedCards.Select((visual, frame) => new BlackFrame(visual.Time % 6 == 0 ? 100 : 0, visual.Time, frame))];
             data.Add(mixedCards, mixedCardsScan, [], (0, 60));
 
@@ -1317,23 +1348,17 @@ public class TestBlackFrames
             BlackIntervals = (_, _, _, _) => intervals ?? [],
         };
 
-    private static KeyframeVisual[] CreateCardCreditVisuals(
-        double cardStart,
-        double cardEnd,
-        double cardEntropy = 0.15,
-        double cardSaturation = 32,
-        double contentEntropy = 0.53,
-        double contentSaturation = 108)
+    private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)
     {
         var visuals = new List<KeyframeVisual>();
         for (var time = 0.0; time < cardStart; time += 2)
         {
-            visuals.Add(new KeyframeVisual(time, contentEntropy, contentSaturation));
+            visuals.Add(KeyframeVisuals.Content(time));
         }
 
         for (var time = cardStart; time <= cardEnd; time += 2)
         {
-            visuals.Add(new KeyframeVisual(time, cardEntropy, cardSaturation));
+            visuals.Add(KeyframeVisuals.Card(time, cardSaturation));
         }
 
         return [.. visuals];
@@ -1348,13 +1373,13 @@ public class TestBlackFrames
     }
 
     private static IEnumerable<KeyframeVisual> Cards(double from, double to, double step)
-        => Times(from, to, step).Select(t => new KeyframeVisual(t, 0.12, 30));
+        => Times(from, to, step).Select(t => KeyframeVisuals.Card(t));
 
     private static IEnumerable<KeyframeVisual> Busy(double from, double to, double step)
-        => Times(from, to, step).Select(t => new KeyframeVisual(t, 0.55, 108));
+        => Times(from, to, step).Select(t => KeyframeVisuals.Content(t));
 
     private static IEnumerable<KeyframeVisual> Black(double from, double to, double step)
-        => Times(from, to, step).Select(t => new KeyframeVisual(t, 0.0, 0.0));
+        => Times(from, to, step).Select(t => KeyframeVisuals.Black(t));
 
     /// <summary>
     /// The black-frame scan over the same keyframes as <paramref name="visuals"/>: fully black inside
@@ -1372,8 +1397,8 @@ public class TestBlackFrames
     /// </summary>
     private static KeyframeVisual[] Seq(double end, double step, params (double From, double To)[] cards)
         => [.. Times(0, end, step).Select(t => cards.Any(c => t >= c.From - 1e-9 && t <= c.To + 1e-9)
-            ? new KeyframeVisual(t, 0.12, 30)
-            : new KeyframeVisual(t, 0.55, 108))];
+            ? KeyframeVisuals.Card(t)
+            : KeyframeVisuals.Content(t))];
 
     private static BlackFrame[] CreateStingerSplitFrames() =>
     [

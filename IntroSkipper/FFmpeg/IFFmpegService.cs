@@ -75,7 +75,7 @@ public interface IFFmpegService
     Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Collects per-keyframe visual statistics (entropy and saturation) for the credits fingerprint range.
+    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits fingerprint range.
     /// </summary>
     /// <remarks>
     /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>

@@ -36,7 +36,7 @@ public enum CacheEntryType
     BlackInterval,
 
     /// <summary>
-    /// Per-keyframe visual statistics (entropy and saturation) for card credits detection.
+    /// Per-keyframe visual statistics (luma percentiles and saturation) for card credits detection.
     /// </summary>
     KeyframeVisual,
 }

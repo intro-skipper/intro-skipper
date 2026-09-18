@@ -566,7 +566,7 @@ public sealed class TestCreditsPass
     [Fact]
     public async Task DarkLeadInBeforeTheBlackRoll_StaysOutOfTheCardCandidate()
     {
-        // 900 to 940 is 90 percent black and low entropy, 942 to 979.5 is the roll, white cards follow to
+        // 900 to 940 is 90 percent black and a black page to the visuals, 942 to 979.5 is the roll, white cards follow to
         // the end. The black-frame transition check starts the roll at 942; the card candidate must not
         // reach back into the lead-in.
         using var scope = Scope();
@@ -889,9 +889,9 @@ public sealed class TestCreditsPass
         {
             var fileTime = time + episode.CreditsFingerprintStart;
             visuals.Add(
-                fileTime is >= 560 and <= 570 ? new KeyframeVisual(time, 0.12, 30)
-                : fileTime is >= 572 and <= 590 || fileTime is >= BlackStart and <= Duration - 0.5 ? new KeyframeVisual(time, 0.0, 0.0)
-                : new KeyframeVisual(time, 0.55, 108));
+                fileTime is >= 560 and <= 570 ? KeyframeVisuals.Card(time)
+                : fileTime is >= 572 and <= 590 || fileTime is >= BlackStart and <= Duration - 0.5 ? KeyframeVisuals.Black(time)
+                : KeyframeVisuals.Content(time));
         }
 
         return [.. visuals];
@@ -904,9 +904,9 @@ public sealed class TestCreditsPass
         {
             var fileTime = time + episode.CreditsFingerprintStart;
             visuals.Add(
-                fileTime is >= 900 and <= 979.5 ? new KeyframeVisual(time, 0.1, 0)
-                : fileTime >= 980 ? new KeyframeVisual(time, 0.12, 30)
-                : new KeyframeVisual(time, 0.55, 108));
+                fileTime is >= 900 and <= 979.5 ? KeyframeVisuals.Black(time)
+                : fileTime >= 980 ? KeyframeVisuals.Card(time)
+                : KeyframeVisuals.Content(time));
         }
 
         return [.. visuals];
@@ -924,9 +924,9 @@ public sealed class TestCreditsPass
         {
             var fileTime = time + episode.CreditsFingerprintStart;
             visuals.Add(
-                blackRoll && fileTime >= blackStart && fileTime <= Duration - 0.5 ? new KeyframeVisual(time, 0.0, 0.0)
-                : fileTime >= cardStart && fileTime <= cardEnd ? new KeyframeVisual(time, 0.12, 30)
-                : new KeyframeVisual(time, 0.55, 108));
+                blackRoll && fileTime >= blackStart && fileTime <= Duration - 0.5 ? KeyframeVisuals.Black(time)
+                : fileTime >= cardStart && fileTime <= cardEnd ? KeyframeVisuals.Card(time)
+                : KeyframeVisuals.Content(time));
         }
 
         return [.. visuals];

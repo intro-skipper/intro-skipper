@@ -13,6 +13,9 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 internal static partial class FFmpegOutputParser
 {
+    // The stats KeyframeSignalStatRegex admits, so a block with this many distinct matches has them all.
+    private const int KeyframeSignalStatCount = 5;
+
     private static readonly Regex _silenceDetectionExpression = SilenceRegex();
 
     private static readonly Regex _blackFrameRegex = BlackFrameRegex();
@@ -21,9 +24,7 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _keyframeVisualTimeRegex = KeyframeVisualTimeRegex();
 
-    private static readonly Regex _keyframeEntropyRegex = KeyframeEntropyRegex();
-
-    private static readonly Regex _keyframeSaturationRegex = KeyframeSaturationRegex();
+    private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
@@ -107,59 +108,50 @@ internal static partial class FFmpegOutputParser
     {
         var visuals = new List<KeyframeVisual>();
 
-        /* Parse the per-keyframe metadata emitted by "entropy,signalstats,metadata=print".
+        /* Parse the per-keyframe metadata emitted by "signalstats,metadata=print".
          *
-         * Sample output (one block per keyframe):
+         * Sample output (one block per keyframe, other signalstats lines omitted):
          * [Parsed_metadata_2 @ 0x0] frame:1 pts:20480 pts_time:2
-         * [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.000000
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
          */
         double? time = null;
-        var entropy = 0d;
-        var saturation = 0d;
-        var hasEntropy = false;
-        var hasSaturation = false;
+        var stats = new Dictionary<string, double>(KeyframeSignalStatCount, StringComparer.Ordinal);
 
         foreach (var line in raw.Split('\n'))
         {
             var timeMatch = _keyframeVisualTimeRegex.Match(line);
             if (timeMatch.Success)
             {
-                if (time is not null && hasEntropy && hasSaturation)
-                {
-                    visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
-                }
-
+                AddKeyframeVisual(visuals, time, stats);
                 time = ParseDouble(timeMatch.Groups["time"].Value);
-                entropy = 0d;
-                saturation = 0d;
-                hasEntropy = false;
-                hasSaturation = false;
+                stats.Clear();
                 continue;
             }
 
-            var entropyMatch = _keyframeEntropyRegex.Match(line);
-            if (entropyMatch.Success)
+            var statMatch = _keyframeSignalStatRegex.Match(line);
+            if (statMatch.Success)
             {
-                entropy = ParseDouble(entropyMatch.Groups["value"].Value);
-                hasEntropy = true;
-                continue;
-            }
-
-            var saturationMatch = _keyframeSaturationRegex.Match(line);
-            if (saturationMatch.Success)
-            {
-                saturation = ParseDouble(saturationMatch.Groups["value"].Value);
-                hasSaturation = true;
+                stats[statMatch.Groups["name"].Value] = ParseDouble(statMatch.Groups["value"].Value);
             }
         }
 
-        if (time is not null && hasEntropy && hasSaturation)
-        {
-            visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
-        }
+        AddKeyframeVisual(visuals, time, stats);
 
         return [.. visuals];
+    }
+
+    // A block missing any stat, such as one truncated at the end of the output, is dropped rather
+    // than emitted with zeros that would pass the card gate.
+    private static void AddKeyframeVisual(List<KeyframeVisual> visuals, double? time, Dictionary<string, double> stats)
+    {
+        if (time is { } keyframeTime && stats.Count == KeyframeSignalStatCount)
+        {
+            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"]));
+        }
     }
 
     internal static BlackInterval[] ParseBlackIntervals(string raw)
@@ -202,11 +194,8 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeVisualTimeRegex();
 
-    [GeneratedRegex(@"lavfi\.entropy\.normalized_entropy\.normal\.Y=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
-    private static partial Regex KeyframeEntropyRegex();
-
-    [GeneratedRegex(@"lavfi\.signalstats\.SATAVG=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
-    private static partial Regex KeyframeSaturationRegex();
+    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    private static partial Regex KeyframeSignalStatRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
