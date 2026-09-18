@@ -74,6 +74,9 @@ export function getShowsInLibrary(libraryId: string, libraryName: string): Promi
         sortBy: "SortName",
         sortOrder: "Ascending",
         recursive: "true",
+        // Keep collection members visible so movies in box sets can be edited
+        // individually in the timestamps browser.
+        collapseBoxSetItems: "false",
         // The listing needs names and years only; thumbnails are built by URL.
         enableImages: "false",
     });
