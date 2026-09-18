@@ -14,8 +14,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// and combining analyzer candidates for episodes without a chapter result.
 /// </summary>
 /// <remarks>
-/// With chapter enhancement enabled, chapter matches, the black-frame scan, the card analyzer
-/// over the same keyframe scan's visuals and the season-wide chromaprint comparison each contribute a candidate;
+/// With chapter enhancement enabled, chapter matches, the keyframe analyzer (a black roll from
+/// black-frame evidence and card credits from keyframe visuals, over one keyframe scan) and the
+/// season-wide chromaprint comparison each contribute a candidate;
 /// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
 /// keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
 /// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
@@ -47,8 +48,8 @@ internal sealed partial class CreditsPass(
     /// Analyzes the season's credits.
     /// </summary>
     /// <remarks>
-    /// Per-season BlackFrame and available Chromaprint actions bypass chapter matching.
-    /// A BlackFrame action keeps the card candidate, which reads the same keyframe scan.
+    /// Per-season BlackFrame and available Chromaprint actions bypass chapter matching; a
+    /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps both of its candidates.
     /// Chapter and unavailable Chromaprint actions follow the default chapter-first policy,
     /// including the enhancement option. An already-analyzed episode is reconsidered only
     /// when a new chromaprint candidate reaches outside its stored credits; authoritative
@@ -72,12 +73,8 @@ internal sealed partial class CreditsPass(
         var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
-        // The legacy analyzer accepts no scenes and its range scans never write the visuals row,
-        // so the card candidate would cost a second full decode and see no black evidence.
-        var useCardCredits = useBlackFrame && !_config.UseLegacyBlackFrameAnalyzer && _config.DetectNonBlackCredits;
-
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
-        var detectBlackFrameCredits = useBlackFrame ? CreateBlackFrameDetector() : null;
+        var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
         // Episodes the chapter pre-pass decided, whatever the outcome. Offset-consumed and
@@ -182,32 +179,12 @@ internal sealed partial class CreditsPass(
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
 
-                // The whole credits window, every time: black credits can sit anywhere in it,
-                // before, between or after the other candidates, and the keyframe scan is cached
-                // so only the first analysis of an episode pays for it.
-                var blackFrame = CreditsBlackFrameResult.None;
-                if (detectBlackFrameCredits is not null)
+                // The whole credits window, every time: black credits and card credits can sit anywhere in
+                // it, before, between or after the other candidates, and the keyframe scan is cached so only
+                // the first analysis of an episode pays for it.
+                if (detectKeyframeCredits is not null)
                 {
-                    blackFrame = await detectBlackFrameCredits(episode, cancellationToken).ConfigureAwait(false);
-                    if (blackFrame.Credits is not null)
-                    {
-                        candidates.Add(new AttributedSegment(blackFrame.Credits, SegmentSource.BlackFrame));
-                    }
-                }
-
-                if (useCardCredits)
-                {
-                    // Normally two cache reads: the keyframe scan the black-frame analyzer just ran
-                    // wrote both rows.
-                    var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
-                    var frames = await _ffmpegService.DetectBlackFramesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
-                    var range = CreditsCardAnalyzer.FindCreditRange(visuals, frames, _config.BlackFrameMinimumPercentage, minimumDuration, blackFrame.Scenes);
-                    if (range is not null)
-                    {
-                        candidates.Add(new AttributedSegment(
-                            new Segment(episode.EpisodeId, new TimeRange(range.Start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart)),
-                            SegmentSource.KeyframeVisuals));
-                    }
+                    candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
                 }
 
                 var state = await StoreCandidatesAsync(
@@ -269,20 +246,21 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// The black-frame candidate producer: the legacy analyzer under its toggle, otherwise the
-    /// current one. One instance per season, since the legacy analyzer carries search state
-    /// between episodes.
+    /// The keyframe candidate producer: the legacy black-frame analyzer under its toggle, otherwise
+    /// the keyframe analyzer, which also produces the card candidate. One instance per season, since
+    /// the legacy analyzer carries search state between episodes.
     /// </summary>
-    private Func<QueuedEpisode, CancellationToken, Task<CreditsBlackFrameResult>> CreateBlackFrameDetector()
+    private Func<QueuedEpisode, CancellationToken, Task<IReadOnlyList<AttributedSegment>>> CreateKeyframeDetector()
     {
         if (_config.UseLegacyBlackFrameAnalyzer)
         {
             var legacy = new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _config);
-            return async (episode, cancellationToken) => new CreditsBlackFrameResult(await legacy.DetectCreditsAsync(episode, cancellationToken).ConfigureAwait(false), []);
+            return async (episode, cancellationToken) => await legacy.DetectCreditsAsync(episode, cancellationToken).ConfigureAwait(false) is { } credits
+                ? [new AttributedSegment(credits, SegmentSource.BlackFrame)]
+                : [];
         }
 
-        var current = new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _config);
-        return current.DetectCreditsAsync;
+        return new KeyframeAnalyzer(_loggerFactory.CreateLogger<KeyframeAnalyzer>(), _ffmpegService, _config).DetectCreditsAsync;
     }
 
     /// <summary>
