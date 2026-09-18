@@ -195,6 +195,41 @@ public sealed class TestLegacyImporter
     }
 
     [Fact]
+    public async Task Import_ReconciliationRunsOnce_SecondInitializationDoesNotReEnqueue()
+    {
+        // Reconciliation enqueues by bumping the item's ProjectionQueue Version (see
+        // EnqueueProjectionsAsync's upsert), so a naive "run every start" reconciliation
+        // would keep bumping an already-converged item's version forever. Gating it on
+        // DbImportRecord.ProjectionBacklogReconciledAt means a second, independent
+        // facade over the same file -- simulating a restart -- must leave the version
+        // exactly where the first run left it.
+        using var scope = new FixtureScope();
+        var itemId = Guid.NewGuid();
+        LegacySchemaFixtures.CreateV5(
+            scope.LegacyPath,
+            [new(itemId, 10, 60, (int)AnalysisMode.Introduction)],
+            []);
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using (var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path))
+        {
+            var queued = Assert.Single(await db.ProjectionQueue.AsNoTracking().ToListAsync());
+            Assert.Equal(1, queued.Version);
+            var marker = Assert.Single(await db.ImportHistory.AsNoTracking().ToListAsync());
+            Assert.NotNull(marker.ProjectionBacklogReconciledAt);
+        }
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using (var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path))
+        {
+            var queued = Assert.Single(await db.ProjectionQueue.AsNoTracking().ToListAsync());
+            Assert.Equal(1, queued.Version);
+        }
+    }
+
+    [Fact]
     public async Task Import_MalformedValues_SkipsBadRowsAndDegradesBadJsonWithoutAbortingImport()
     {
         using var scope = new FixtureScope();

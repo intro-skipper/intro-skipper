@@ -47,4 +47,17 @@ public class DbImportRecord
     /// Gets or sets free-form diagnostics (the detected legacy shape).
     /// </summary>
     public string Notes { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the UTC time the one-time projection-backlog reconciliation
+    /// (<see cref="IntroSkipperDatabase.ReconcileProjectionBacklogAsync"/>) completed, or
+    /// <see langword="null"/> if it has not run yet. This row already exists exactly once
+    /// per database (created the first time <see cref="IntroSkipperDatabase.InitializeCoreAsync"/>
+    /// runs, whether or not a legacy file was found), so it doubles as the marker for this
+    /// unrelated one-time concern rather than adding a second single-row table for it. An
+    /// install whose <see cref="ImportedAt"/> predates this field's existence still reads it
+    /// as <see langword="null"/>, so the reconciliation still runs once for installs that
+    /// migrated before this fix shipped — the property this marker exists to guarantee.
+    /// </summary>
+    public DateTime? ProjectionBacklogReconciledAt { get; set; }
 }

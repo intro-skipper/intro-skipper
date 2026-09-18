@@ -152,6 +152,9 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(r => r.Notes)
                   .IsRequired();
+
+            entity.Property(r => r.ProjectionBacklogReconciledAt)
+                  .HasConversion(_utcNullableDateTimeConverter);
         });
 
         modelBuilder.Entity<DbDisabledItem>(entity =>

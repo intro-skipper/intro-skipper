@@ -173,7 +173,8 @@ public sealed class TestLegacyAnalysisCompatibility
             // with no segments, so it never enqueues).
             await using var db = DatabaseTestHelpers.CreateSegmentContext(databasePath);
             var queued = await db.ProjectionQueue.Select(q => q.ItemId).ToListAsync();
-            Assert.Equal(new[] { ids[0], ids[2] }.OrderBy(id => id), queued.OrderBy(id => id));
+            Guid[] expectedQueued = [ids[0], ids[2]];
+            Assert.Equal(expectedQueued.OrderBy(id => id), queued.OrderBy(id => id));
         }
         finally
         {
