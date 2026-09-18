@@ -68,7 +68,8 @@ internal static class ConfigHasher
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
-                $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
+                // Keep the false legacy token to preserve the default hash used by existing rows.
+                $"|bflegacy=False|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}"),
@@ -231,13 +232,8 @@ internal static class ConfigHasher
     /// <returns>The normalized language code, or an empty string when unset.</returns>
     public static string NormalizeAudioLanguage(string? language) => language?.Trim().ToLowerInvariant() ?? string.Empty;
 
-    // DetectNonBlackCredits only affects output when the default analyzer is active; including it
-    // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
-    // cannot observe the setting (the UI also hides it there).
     private static string CreditsNonBlackToken(PluginConfiguration config)
-        => !config.UseLegacyBlackFrameAnalyzer
-            ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}")
-            : string.Empty;
+        => FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}");
 
     // Only present when enabled so the default-off configuration keeps the hash it had before
     // the option existed and does not re-analyze every recap on upgrade.

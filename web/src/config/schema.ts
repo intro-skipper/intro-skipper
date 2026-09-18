@@ -366,9 +366,6 @@ export const configSchema = {
         description:
             'Start a Chromaprint recap at the black frame just before the shared "previously on" sting instead of 0:00, so a scene played before the recap is not skipped. Chapter and black-frame-only recaps still start at 0:00. With the option above also enabled, Chromaprint must run first (Prefer Chromaprint Analysis on the Analysis tab), or the black-frame recap claims the episode at 0:00 before Chromaprint sees it.',
     },
-    // No tab renders this. The Black Frame tab reads it to decide which of the
-    // legacy and modern toggles to show.
-    UseLegacyBlackFrameAnalyzer: { kind: "checkbox", label: "Use legacy black frame analyzer" },
     RefineCreditsBoundary: {
         kind: "checkbox",
         label: "Refine credits boundary",

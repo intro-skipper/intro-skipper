@@ -180,7 +180,6 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Introduction, "channels")]
     [InlineData(AnalysisMode.Introduction, "duration")]
     [InlineData(AnalysisMode.Introduction, "action")]
-    [InlineData(AnalysisMode.Credits, "legacy")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
     [InlineData(AnalysisMode.Recap, "cold-open")]
@@ -198,7 +197,6 @@ public sealed class TestLegacyAnalysisCompatibility
             case "channels": config.PreferAudioStreamWithMostChannels = false; break;
             case "duration": config.MinimumIntroDuration++; break;
             case "action": await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = AnalyzerAction.Chapter }); break;
-            case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
             case "cold-open": config.AnchorRecapToColdOpen = true; break;

@@ -504,24 +504,6 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task LegacyBlackFrameAnalyzer_FeedsThePassUnderItsToggle()
-    {
-        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
-        var (episodes, ffmpeg, database) = CreateSeason(
-            rangeScan: (_, range, _, _, _) => range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : []);
-        var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false, EnhanceChapterCredits = true };
-        var pass = new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, config);
-
-        await pass.RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal([SegmentSource.Chapter, SegmentSource.BlackFrame], segments.Select(s => s.Source).ToList());
-        Assert.Equal((900, 950), (segments[0].ToSegment().Start, segments[0].ToSegment().End));
-        Assert.InRange(segments[1].ToSegment().Start, BlackStart, BlackStart + 10); // legacy binary search precision
-        Assert.Equal(Duration, segments[1].ToSegment().End);
-    }
-
-    [Fact]
     public async Task NoCandidates_SettlesTheEpisodeWithoutSegments()
     {
         using var scope = Scope();
@@ -638,33 +620,6 @@ public sealed class TestCreditsPass
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task LegacyBlackFrameFallback_AnalyzesOnlyTheUnchapteredEpisode(int chapteredIndex)
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(rangeScan: (episode, range, _, _, _) => episode.EpisodeNumber == chapteredIndex + 1
-            ? throw new InvalidOperationException("Authoritative chapter should not be scanned")
-            : range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : []);
-        var manager = ChapterManagerStub.CreateForItems(id => id == episodes[chapteredIndex].EpisodeId
-            ? [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]
-            : [], out _);
-        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_chapterRepository", manager);
-        var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false };
-
-        await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[chapteredIndex].EpisodeId));
-        Assert.Equal(SegmentSource.Chapter, chapter.Source);
-        Assert.Equal((900, 950), (chapter.ToSegment().Start, chapter.ToSegment().End));
-        var fallback = Assert.Single(await database.GetSegmentsAsync(episodes[1 - chapteredIndex].EpisodeId));
-        Assert.Equal(SegmentSource.BlackFrame, fallback.Source);
-        Assert.InRange(fallback.ToSegment().Start, BlackStart, BlackStart + 10);
-        Assert.Equal(Duration, fallback.ToSegment().End);
-        Assert.True(ffmpeg.RangeScanCalls > 0);
     }
 
     [Fact]

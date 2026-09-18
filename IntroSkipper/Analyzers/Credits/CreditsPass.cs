@@ -248,21 +248,11 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// The black-frame candidate producer: the legacy analyzer under its toggle, otherwise the
-    /// current one. One instance per season, since the legacy analyzer carries search state
-    /// between episodes.
+    /// The black-frame candidate producer. One instance per season so the detector can retain
+    /// any state needed while processing sibling episodes.
     /// </summary>
     private Func<QueuedEpisode, CancellationToken, Task<Segment?>> CreateBlackFrameDetector()
-    {
-        if (_config.UseLegacyBlackFrameAnalyzer)
-        {
-            var legacy = new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _config);
-            return legacy.DetectCreditsAsync;
-        }
-
-        var current = new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _config);
-        return current.DetectCreditsAsync;
-    }
+        => new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _config).DetectCreditsAsync;
 
     /// <summary>
     /// Whether a stored active credits row already contains the raw candidate, allowing for

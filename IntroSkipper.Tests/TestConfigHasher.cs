@@ -38,10 +38,8 @@ public sealed class TestConfigHasher
         var mostChannels = new PluginConfiguration { PreferAudioStreamWithMostChannels = true };
         var lowestIndex = new PluginConfiguration { PreferAudioStreamWithMostChannels = false };
         var englishMostChannels = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = true };
-        var nonBlackOn = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false, DetectNonBlackCredits = true };
-        var nonBlackOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
-        var legacyNonBlackOn = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
-        var legacyNonBlackOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
+        var nonBlackOn = new PluginConfiguration { DetectNonBlackCredits = true };
+        var nonBlackOff = new PluginConfiguration { DetectNonBlackCredits = false };
 
         Case("BlackFrame cache changes with threshold", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold64, CacheEntryType.BlackFrame, AnalysisMode.Credits), false);
         Case("BlackFrame cache changes with mode", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Introduction), Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), false);
@@ -65,13 +63,9 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with preferred language", Analysis(defaults, AnalysisMode.Credits), Analysis(english, AnalysisMode.Credits), false);
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
 
-        // Toggling the non-black fallback changes credits output (when its analyzer is active), so it
-        // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
-        // BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not invalidate
-        // stored credits analysis on that path.
+        // Toggling the non-black fallback changes credits output, so it must invalidate stored
+        // credits analysis instead of hash-matching a stale result.
         Case("Credits analysis changes with DetectNonBlackCredits", Analysis(nonBlackOn, AnalysisMode.Credits), Analysis(nonBlackOff, AnalysisMode.Credits), false);
-        Case("Credits analysis changes when legacy analyzer selected", Analysis(nonBlackOff, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), false);
-        Case("Credits analysis ignores DetectNonBlackCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), true);
 
         // Chromaprint availability changes what the Chromaprint-backed modes can produce;
         // the chapter-only modes never consult it.
