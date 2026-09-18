@@ -1070,11 +1070,11 @@ public class TestBlackFrames
 
     // Each row: keyframe visuals, the black-frame scan over the same keyframes, the black scenes the
     // black-frame analyzer accepted or null when it found no credits, expected (Start, End) or null.
-    public static TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[]?, (double Start, double End)?> BlackKeyframeCases
+    public static TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[], (double Start, double End)?> BlackKeyframeCases
     {
         get
         {
-            var data = new TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[]?, (double Start, double End)?>();
+            var data = new TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[], (double Start, double End)?>();
 
             // Scattered flat shots in an epilogue before a roll (CITY THE ANIMATION E09): with the roll's
             // black cards counted toward density the run passes the floor; without them it is 8 cards
@@ -1100,16 +1100,16 @@ public class TestBlackFrames
             // black-frame analyzer's; with no candidate the visuals alone decide and it is recovered here.
             KeyframeVisual[] rollOnly = [.. Black(0, 60, 2)];
             data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [(0, 60)], null);
-            data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), null, (0, 60));
+            data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [], (0, 60));
 
             // Short white cards then a short roll, each below the minimum on its own, qualify together.
             KeyframeVisual[] shortCardsThenShortRoll = [.. Cards(0, 10, 2), .. Black(12, 24, 2)];
-            data.Add(shortCardsThenShortRoll, BlackScanOf(shortCardsThenShortRoll, black: (12, 24)), null, (0, 24));
+            data.Add(shortCardsThenShortRoll, BlackScanOf(shortCardsThenShortRoll, black: (12, 24)), [], (0, 24));
 
             // Sparse black cards on a 21 s cadence that the black-frame analyzer could not confirm:
             // recovered as the old fallback did.
             KeyframeVisual[] sparseRoll = [.. Black(0, 63, 21)];
-            data.Add(sparseRoll, BlackScanOf(sparseRoll, black: (0, 63)), null, (0, 63));
+            data.Add(sparseRoll, BlackScanOf(sparseRoll, black: (0, 63)), [], (0, 63));
 
             // A dark lead-in at 90 percent black before a full-black roll: the accepted black scene
             // starts at the roll, so the lead-in is content here too and the run starts at the roll.
@@ -1126,7 +1126,7 @@ public class TestBlackFrames
             // black cards. They stay in the density ratio, so 13 cards among 31 keyframes fail the floor.
             KeyframeVisual[] darkScene = [.. Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? new KeyframeVisual(t, 0.12, 30) : new KeyframeVisual(t, 0.55, 0))];
             BlackFrame[] darkScan = [.. darkScene.Select((visual, frame) => new BlackFrame(visual.Time % 10 is 2 or 6 ? 100 : 0, visual.Time, frame))];
-            data.Add(darkScene, darkScan, null, null);
+            data.Add(darkScene, darkScan, [], null);
 
             // One-keyframe black flashes before an interval-confirmed roll: the accepted black scene
             // starts at the roll, so the flashes are content and the run starts there too.
@@ -1143,7 +1143,7 @@ public class TestBlackFrames
             // alone decide, as the old fallback did, and two cards in three keep the run.
             KeyframeVisual[] mixedCards = [.. Times(0, 60, 2).Select(t => t % 6 == 0 ? new KeyframeVisual(t, 0.0, 0.0) : t % 6 == 2 ? new KeyframeVisual(t, 0.12, 30) : new KeyframeVisual(t, 0.55, 108))];
             BlackFrame[] mixedCardsScan = [.. mixedCards.Select((visual, frame) => new BlackFrame(visual.Time % 6 == 0 ? 100 : 0, visual.Time, frame))];
-            data.Add(mixedCards, mixedCardsScan, null, (0, 60));
+            data.Add(mixedCards, mixedCardsScan, [], (0, 60));
 
             // White cards then a short roll, content, then a separate longer roll: the black-frame
             // analyzer accepts both scenes and returns the later one. The earlier one still counts, so
@@ -1158,14 +1158,14 @@ public class TestBlackFrames
 
     [Theory]
     [MemberData(nameof(BlackKeyframeCases))]
-    public void TestCreditsCardAnalyzer_BlackKeyframes(KeyframeVisual[] visuals, BlackFrame[] blackFrames, (double Start, double End)[]? blackFrameScenes, (double Start, double End)? expected)
+    public void TestCreditsCardAnalyzer_BlackKeyframes(KeyframeVisual[] visuals, BlackFrame[] blackFrames, (double Start, double End)[] blackFrameScenes, (double Start, double End)? expected)
     {
         var range = CreditsCardAnalyzer.FindCreditRange(
             visuals,
             blackFrames,
             minimumPercentage: 85,
             minimumDuration: 15,
-            blackFrameScenes?.Select(scene => new TimeRange(scene.Start, scene.End)).ToList());
+            [.. blackFrameScenes.Select(scene => new TimeRange(scene.Start, scene.End))]);
 
         if (expected is null)
         {

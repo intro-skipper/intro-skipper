@@ -57,11 +57,11 @@ internal static class CreditsCardAnalyzer
     /// <param name="blackFrames">The black-frame scan over the same keyframes, ordered by time.</param>
     /// <param name="minimumPercentage">The configured minimum black percentage.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
-    /// <param name="blackFrameScenes">The black scenes the black-frame analyzer accepted, relative to the credits fingerprint start, or <see langword="null" /> when it found no credits.</param>
+    /// <param name="blackFrameScenes">The black scenes the black-frame analyzer accepted, relative to the credits fingerprint start; empty when it found no credits.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int minimumPercentage, int minimumDuration, IReadOnlyList<TimeRange>? blackFrameScenes)
+    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int minimumPercentage, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes)
     {
-        if (blackFrameScenes is null)
+        if (blackFrameScenes.Count == 0)
         {
             return FindCreditRange(visuals, minimumDuration);
         }
@@ -84,7 +84,7 @@ internal static class CreditsCardAnalyzer
     /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
     public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, int minimumDuration)
-        => FindCreditRange(Classify(visuals, [], null), minimumDuration);
+        => FindCreditRange(Classify(visuals, [], []), minimumDuration);
 
     /// <summary>
     /// Classifies a keyframe as a near-uniform credit card: low luma entropy (uniform background)
@@ -97,7 +97,7 @@ internal static class CreditsCardAnalyzer
         => visual.Entropy < EntropyCreditMaximum &&
            visual.Saturation < SaturationCreditMaximum;
 
-    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange>? blackFrameScenes)
+    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes)
     {
         var keyframes = new List<CardKeyframe>(visuals.Count);
         var next = 0;
@@ -110,7 +110,7 @@ internal static class CreditsCardAnalyzer
 
             var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= BlackKeyframeJoinTolerance;
             var kind = !IsCreditCardKeyframe(visual) ? KeyframeKind.Content
-                : blackFrameScenes is not null && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
+                : blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
                 : black ? KeyframeKind.Content
                 : KeyframeKind.Card;
             keyframes.Add(new CardKeyframe(visual.Time, kind));

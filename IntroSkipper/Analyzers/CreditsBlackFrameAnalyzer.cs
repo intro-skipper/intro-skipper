@@ -72,7 +72,7 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>A task that returns the credits candidate, <see langword="null" /> when no accepted scene met the minimum duration, and every accepted scene.</returns>
+    /// <returns>A task that returns the credits candidate and every accepted scene, or <see cref="CreditsBlackFrameResult.None" /> when no accepted scene met the minimum duration.</returns>
     private async Task<CreditsBlackFrameResult> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, minimumPercentage);
@@ -104,7 +104,6 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
             }
         }
 
-        List<TimeRange> accepted = [.. scenes.Select(scene => new TimeRange(scene.StartTime, scene.EndTime))];
         foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
         {
             var refinedStartTime = _config.RefineCreditsBoundary
@@ -119,11 +118,14 @@ internal sealed partial class CreditsBlackFrameAnalyzer(
             {
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
 
+                // The picked scene carries its refined start, so the transition the boundary probe
+                // confirmed counts as part of the roll for the card analyzer.
+                List<TimeRange> accepted = [.. scenes.Select(accepted => new TimeRange(accepted == scene ? refinedStartTime : accepted.StartTime, accepted.EndTime))];
                 return new CreditsBlackFrameResult(segment, accepted);
             }
         }
 
-        return new CreditsBlackFrameResult(null, accepted);
+        return CreditsBlackFrameResult.None;
     }
 
     /// <summary>

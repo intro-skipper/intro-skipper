@@ -72,8 +72,8 @@ internal sealed partial class CreditsPass(
         var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
-        // The legacy analyzer runs its own range scans and never writes the visuals row, so the
-        // card candidate needs the current black-frame analyzer.
+        // The legacy analyzer accepts no scenes and its range scans never write the visuals row,
+        // so the card candidate would cost a second full decode and see no black evidence.
         var useCardCredits = useBlackFrame && !_config.UseLegacyBlackFrameAnalyzer && _config.DetectNonBlackCredits;
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
@@ -201,7 +201,7 @@ internal sealed partial class CreditsPass(
                     // wrote both rows.
                     var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
                     var frames = await _ffmpegService.DetectBlackFramesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
-                    var range = CreditsCardAnalyzer.FindCreditRange(visuals, frames, _config.BlackFrameMinimumPercentage, minimumDuration, blackFrame.Credits is null ? null : blackFrame.Scenes);
+                    var range = CreditsCardAnalyzer.FindCreditRange(visuals, frames, _config.BlackFrameMinimumPercentage, minimumDuration, blackFrame.Scenes);
                     if (range is not null)
                     {
                         candidates.Add(new AttributedSegment(
