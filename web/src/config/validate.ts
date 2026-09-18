@@ -1,23 +1,24 @@
+import type { FieldSpec } from "./field-spec.ts";
 import {
     configKeys,
     configSchema,
     orderedPairs,
     type ConfigKey,
     type ConfigKeysOfType,
-    type FieldSpec,
     type PluginConfig,
 } from "./schema.ts";
 
 type NumberKey = ConfigKeysOfType<number>;
 
 /**
- * Range and format rules for one field, read from its schema entry. Pair
- * ordering is validatePair's job. Returns the message to show, or null.
+ * Range and format rules for one value, read from its field spec. Works for any
+ * schema; pair ordering is validatePair's job. Returns the message to show, or null.
  */
-export function validateField(key: ConfigKey, value: PluginConfig[ConfigKey]): string | null {
-    const spec: FieldSpec = configSchema[key];
+export function validateSpec(spec: FieldSpec, value: unknown): string | null {
     switch (spec.kind) {
         case "number": {
+            // Null is an optional field left empty; anything else non-numeric is
+            // still being typed.
             if (typeof value !== "number") return null;
             const { min, max } = spec;
             if (min !== undefined && max !== undefined && (value < min || value > max)) {
@@ -42,7 +43,7 @@ export function validateField(key: ConfigKey, value: PluginConfig[ConfigKey]): s
     }
 }
 
-/** The other side of the min/max pair this field belongs to, if any. */
+/** The other side of the min/max pair this config field belongs to, if any. */
 export function linkedField(key: ConfigKey): NumberKey | null {
     for (const [minKey, maxKey] of orderedPairs) {
         if (key === minKey) return maxKey;
@@ -52,8 +53,8 @@ export function linkedField(key: ConfigKey): NumberKey | null {
 }
 
 /**
- * Whether this field still respects its min/max pair. Callers run it only
- * after validateField passes, so a field never shows two messages.
+ * Whether this config field still respects its min/max pair. Callers run it
+ * only after validateSpec passes, so a field never shows two messages.
  */
 export function validatePair(key: ConfigKey, config: PluginConfig): string | null {
     for (const [minKey, maxKey] of orderedPairs) {
@@ -67,12 +68,12 @@ export function validatePair(key: ConfigKey, config: PluginConfig): string | nul
     return null;
 }
 
-/** Every current error, keyed by field. Pair errors only when both sides pass alone. */
+/** Every current config error, keyed by field. Pair errors only when both sides pass alone. */
 export function validateAll(config: PluginConfig): Map<ConfigKey, string> {
     const errors = new Map<ConfigKey, string>();
 
     for (const key of configKeys) {
-        const error = validateField(key, config[key]);
+        const error = validateSpec(configSchema[key], config[key]);
         if (error) errors.set(key, error);
     }
 

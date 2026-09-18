@@ -12,6 +12,38 @@ export function ignoreAbort(err: unknown): void {
     if (!isAbortError(err)) console.error(err);
 }
 
+type Listener<Args extends unknown[]> = (...args: Args) => void;
+
+/**
+ * Typed listeners whose registration ends with a signal. `Events` maps an event
+ * name to the argument tuple its listeners receive.
+ */
+export function eventBus<Events extends Record<string, unknown[]>>() {
+    const listeners: { [E in keyof Events]?: Set<Listener<Events[E]>> } = {};
+
+    return {
+        on<E extends keyof Events>(
+            event: E,
+            callback: Listener<Events[E]>,
+            { signal }: { signal: AbortSignal },
+        ): void {
+            if (signal.aborted) return;
+            let set = listeners[event];
+            if (!set) {
+                set = new Set();
+                listeners[event] = set;
+            }
+            set.add(callback);
+            signal.addEventListener("abort", () => set.delete(callback), { once: true });
+        },
+        emit<E extends keyof Events>(event: E, ...args: Events[E]): void {
+            for (const callback of listeners[event] ?? []) {
+                callback(...args);
+            }
+        },
+    };
+}
+
 /** A controller that aborts when `parent` does. Abort it early to end a nested lifetime. */
 export function childScope(parent: AbortSignal): AbortController {
     const child = new AbortController();

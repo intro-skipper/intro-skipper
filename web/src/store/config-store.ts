@@ -1,6 +1,8 @@
-import { configKeys, isKind, type ConfigKey, type PluginConfig } from "../config/schema.ts";
-import { linkedField, validateField, validatePair } from "../config/validate.ts";
+import type { FieldStoreEvents } from "../config/field-spec.ts";
+import { configKeys, configSchema, isKind, type ConfigKey, type PluginConfig } from "../config/schema.ts";
+import { linkedField, validatePair, validateSpec } from "../config/validate.ts";
 import { withDashboardLoading } from "../components/async-feedback.ts";
+import { eventBus } from "../lifecycle.ts";
 import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts";
 
 // Central config store for the dashboard. Keeps the loaded config, tracks
@@ -8,28 +10,8 @@ import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts
 let config: PluginConfig | null = null;
 let snapshot: PluginConfig | null = null;
 
-// Event name to listener argument tuple.
-type StoreEvents = {
-    loaded: [];
-    saved: [];
-    changed: [{ field: ConfigKey }];
-    validation: [{ field: ConfigKey; error: string | null }];
-};
-
-type Listener<K extends keyof StoreEvents> = (...args: StoreEvents[K]) => void;
-
-const listeners: { [K in keyof StoreEvents]: Set<Listener<K>> } = {
-    loaded: new Set(),
-    saved: new Set(),
-    changed: new Set(),
-    validation: new Set(),
-};
-
-function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): void {
-    for (const cb of listeners[event]) {
-        cb(...args);
-    }
-}
+const bus = eventBus<FieldStoreEvents<ConfigKey> & { saved: [] }>();
+const { emit } = bus;
 
 // The one normalizer for exclusion entries, applied on load and by the field on
 // write, so a stale untrimmed or empty entry from the server cannot keep a field
@@ -55,7 +37,7 @@ function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
 
 // Direct rules first; the pair check only once the field passes on its own.
 function fieldError(field: ConfigKey, current: PluginConfig): string | null {
-    return validateField(field, current[field]) ?? validatePair(field, current);
+    return validateSpec(configSchema[field], current[field]) ?? validatePair(field, current);
 }
 
 // Config values are primitives or string arrays, so a shallow element compare
@@ -73,15 +55,7 @@ function takeSnapshot(source: PluginConfig): void {
 
 export const configStore = {
     /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
-    subscribe<K extends keyof StoreEvents>(
-        event: K,
-        callback: Listener<K>,
-        { signal }: { signal: AbortSignal },
-    ): void {
-        if (signal.aborted) return;
-        listeners[event].add(callback);
-        signal.addEventListener("abort", () => listeners[event].delete(callback), { once: true });
-    },
+    subscribe: bus.on,
 
     async load(): Promise<void> {
         try {

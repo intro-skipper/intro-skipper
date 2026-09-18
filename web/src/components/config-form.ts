@@ -1,17 +1,19 @@
-import type { KeyOfKind } from "../config/schema.ts";
-import { configField, type ControlKey, type FieldRules } from "./input-field.ts";
+import { configSchema, type KeyOfKind } from "../config/schema.ts";
+import { configStore } from "../store/config-store.ts";
+import { formFor, type FieldRules } from "./input-field.ts";
 import { exclusionListField, type ExclusionListBehaviour } from "./exclusion-list-field.ts";
 import { inlineCheckboxGroup } from "./inline-checkbox-group.ts";
-import { bindVisibility } from "./field-bind.ts";
 
 /**
- * The config-bound controls of one tab render. Every store subscription and
- * listener they open ends when `signal` aborts, so a tab never cleans up by hand.
+ * The config-bound controls of one tab render, all over the plugin config
+ * store. Every store subscription and listener they open ends when `signal`
+ * aborts, so a tab never cleans up by hand.
  */
 export function configForm(signal: AbortSignal) {
+    const form = formFor(configSchema, configStore, signal);
     return {
-        field(id: ControlKey, rules: FieldRules = {}): HTMLElement {
-            return configField(id, { ...rules, signal });
+        field(id: Parameters<typeof form.field>[0], rules: FieldRules = {}): HTMLElement {
+            return form.field(id, rules);
         },
         list(id: KeyOfKind<"list">, behaviour: ExclusionListBehaviour = {}): HTMLElement {
             return exclusionListField(id, { ...behaviour, signal });
@@ -19,9 +21,16 @@ export function configForm(signal: AbortSignal) {
         checkboxGroup(title: string, ids: readonly KeyOfKind<"checkbox">[]): HTMLElement {
             return inlineCheckboxGroup(title, ids, signal);
         },
-        /** Shows `element` only while `visible()` holds, re-checked on every store change. */
+        /** Shows `element` only while `visible()` holds, re-checked on every config change. */
         visibleWhen(element: HTMLElement, visible: () => boolean): void {
-            bindVisibility(element, visible, signal);
+            const evalVisibility = () => {
+                element.style.display = visible() ? "" : "none";
+            };
+            configStore.subscribe("loaded", evalVisibility, { signal });
+            configStore.subscribe("changed", evalVisibility, { signal });
+            if (configStore.isLoaded()) {
+                evalVisibility();
+            }
         },
     };
 }

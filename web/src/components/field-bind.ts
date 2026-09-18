@@ -1,5 +1,7 @@
-import type { ConfigKey } from "../config/schema.ts";
-import { configStore } from "../store/config-store.ts";
+import type { FieldStore } from "../config/field-spec.ts";
+
+/** Any field store, seen through string keys. What a rendered control binds to. */
+export type BoundStore = FieldStore<Record<string, unknown>>;
 
 /** Adds ids to the control's aria-describedby without dropping existing ones. */
 export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids: string[]): void {
@@ -18,34 +20,17 @@ export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids:
     input.setAttribute("aria-describedby", Array.from(describedBy).join(" "));
 }
 
-/** Shows `container` only while `visible()` holds, re-checked on every store change until `signal` aborts. */
-export function bindVisibility(
-    container: HTMLElement,
-    visible: () => boolean,
-    signal: AbortSignal,
-): void {
-    const evalVisibility = () => {
-        container.style.display = visible() ? "" : "none";
-    };
-
-    configStore.subscribe("loaded", evalVisibility, { signal });
-    configStore.subscribe("changed", evalVisibility, { signal });
-
-    if (configStore.isLoaded()) {
-        evalVisibility();
-    }
-}
-
 /**
- * Shared wiring for config-bound controls: initial value, visibility, disabled
- * state, and validation messages, all until `signal` aborts. `onLoaded` copies
- * the store value into the control; it is skipped while the control has focus
- * so typing is not clobbered.
+ * Shared wiring for a control bound to `store[id]`: initial value, visibility,
+ * disabled state, and validation messages, all until `signal` aborts. `onLoaded`
+ * copies the store value into the control; it is skipped while the control has
+ * focus so typing is not clobbered.
  */
 export function bindField(opts: {
+    store: BoundStore;
     container: HTMLElement;
     input: HTMLInputElement | HTMLSelectElement;
-    id: ConfigKey;
+    id: string;
     signal: AbortSignal;
     disabled?: () => boolean;
     visible?: () => boolean;
@@ -53,7 +38,7 @@ export function bindField(opts: {
     describedByIds?: string[];
     onLoaded: () => void;
 }): void {
-    const { container, input, id, signal, errorDiv, describedByIds = [], onLoaded } = opts;
+    const { store, container, input, id, signal, errorDiv, describedByIds = [], onLoaded } = opts;
 
     const evalState = () => {
         if (opts.visible) {
@@ -71,14 +56,14 @@ export function bindField(opts: {
         evalState();
     };
 
-    configStore.subscribe("loaded", sync, { signal });
+    store.subscribe("loaded", sync, { signal });
 
-    // Late-mounted fields still need an initial value if the config already loaded.
-    if (configStore.isLoaded()) {
+    // Late-mounted fields still need an initial value if the store already loaded.
+    if (store.isLoaded()) {
         sync();
     }
 
-    configStore.subscribe(
+    store.subscribe(
         "changed",
         ({ field }) => {
             evalState();
@@ -101,7 +86,7 @@ export function bindField(opts: {
 
         setDescribedBy(input, [errorId]);
 
-        configStore.subscribe(
+        store.subscribe(
             "validation",
             ({ field, error }) => {
                 if (field !== id) return;

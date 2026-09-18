@@ -1,11 +1,11 @@
 import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
+import { formFor } from "./input-field.ts";
+import { createOverrideStore, overrideKeys, overrideSchema } from "./season-overrides.ts";
 import * as api from "../store/api.ts";
-import type { AnalysisOverrides, AnalyzerActions, SeasonItem } from "../types.ts";
-import { configSchema, type ConfigKey } from "../config/schema.ts";
+import type { AnalyzerActions, SeasonItem } from "../types.ts";
 import { abortable, childScope, delay, ignoreAbort, isAbortError } from "../lifecycle.ts";
-import { configStore } from "../store/config-store.ts";
 
 // Analyzer override choices per mode, in display order. Every mode accepts
 // Default, Chapter and None; the middle entries are the extra analyzers.
@@ -57,7 +57,6 @@ type ScanOutcome = "completed" | "failed" | "unavailable";
 export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     container: HTMLElement;
     toggle: (open: boolean) => void;
-    prepareForShow: (showId: string) => void;
     /** Loads the season's overrides and scan state. `panel` is the season panel's lifetime. */
     loadForSeason: (
         showId: string,
@@ -94,6 +93,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         analyzerGroup.append(item);
     }
 
+    // The per-season overrides: the second store the field controls bind to.
+    const overrides = createOverrideStore();
+    const overrideForm = formFor(overrideSchema, overrides, signal);
+
     const analysisWindow = el("fieldset", { className: "ts-analysis-window" });
     const analysisWindowLegend = el("legend", {}, "Analysis window");
     const analysisWindowDescription = el(
@@ -102,85 +105,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         "Optional per-season limits. Leave a field blank to inherit the global Analysis settings.",
     );
     const analysisWindowGrid = el("div", { className: "ts-analysis-window-grid" });
-
-    function overrideField(
-        id: string,
-        label: string,
-        description: string,
-        min: string,
-        max?: string,
-    ): HTMLInputElement {
-        const field = el("div", { className: "ts-override-field" });
-        const labelEl = el("label", { className: "ts-override-label", for: id }, label);
-        const input = el("input", {
-            type: "number",
-            id,
-            min,
-            ...(max ? { max } : {}),
-            placeholder: "Global default",
-            inputmode: "numeric",
-        });
-        const descriptionEl = el("span", { className: "ts-override-description" }, description);
-        field.append(labelEl, input, descriptionEl);
-        analysisWindowGrid.append(field);
-        return input;
-    }
-
-    // Same limits as the global fields, so an override can never be a value the
-    // global setting would reject.
-    const percentLimits = configSchema.AnalysisPercent;
-    const lengthLimits = configSchema.AnalysisLengthLimit;
-    const analysisPercentInput = overrideField(
-        "ts-analysis-percent-override",
-        "Percent of media to analyze",
-        "Percentage of each item's runtime.",
-        String(percentLimits.min),
-        String(percentLimits.max),
+    analysisWindowGrid.append(
+        overrideForm.field("AnalysisPercent"),
+        overrideForm.field("AnalysisLengthLimit"),
     );
-    const analysisLengthInput = overrideField(
-        "ts-analysis-length-override",
-        "Maximum runtime to analyze (minutes)",
-        "Upper limit for each item.",
-        String(lengthLimits.min),
-    );
-    const previewOverrideField = el("div", { className: "ts-preview-override" });
-    const previewOverrideLabel = el(
-        "label",
-        { className: "ts-override-label", for: "ts-preview-from-credits-override" },
-        "Set after credits scene as preview",
-    );
-    const previewOverrideSelect = el("select", {
-        id: "ts-preview-from-credits-override",
-        name: "preview-from-credits-override",
-    });
-    const previewDefaultOption = el("option", { value: "default" }, "Global default");
-    previewOverrideSelect.append(
-        previewDefaultOption,
-        el("option", { value: "enabled" }, "Enabled"),
-        el("option", { value: "disabled" }, "Disabled"),
-    );
-    function updatePreviewDefaultLabel(): void {
-        previewDefaultOption.textContent = configStore.isLoaded()
-            ? configStore.get("AnimePreviewFromCreditsEnd")
-                ? "Global: Anime only"
-                : "Global: Disabled"
-            : "Global default";
-    }
-    configStore.subscribe("loaded", updatePreviewDefaultLabel, { signal });
-    configStore.subscribe(
-        "changed",
-        ({ field }: { field: ConfigKey }) => {
-            if (field === "AnimePreviewFromCreditsEnd") updatePreviewDefaultLabel();
-        },
-        { signal },
-    );
-    updatePreviewDefaultLabel();
-    const previewOverrideDescription = el(
-        "span",
-        { className: "ts-override-description" },
-        "Creates a preview from the end of credits to the next credits block or episode end.",
-    );
-    previewOverrideField.append(previewOverrideLabel, previewOverrideSelect, previewOverrideDescription);
     const resetWindowBtn = el(
         "button",
         { className: "ts-reset-overrides", type: "button" },
@@ -189,9 +117,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     resetWindowBtn.addEventListener(
         "click",
         () => {
-            analysisPercentInput.value = "";
-            analysisLengthInput.value = "";
-            previewOverrideSelect.value = "default";
+            for (const key of overrideKeys) overrides.set(key, null);
         },
         { signal },
     );
@@ -199,7 +125,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         analysisWindowLegend,
         analysisWindowDescription,
         analysisWindowGrid,
-        previewOverrideField,
+        overrideForm.field("PreviewFromCreditsEnd"),
         resetWindowBtn,
     );
 
@@ -261,7 +187,9 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     let currentSeasonId = "";
     let currentIsMovie = false;
     let currentSeriesSeasons: readonly SeasonItem[] = [];
-    let analysisOverridesLoaded = false;
+    // False until the season's saved overrides arrive, and again after a failed
+    // read, so Save cannot turn a transient failure into a destructive reset.
+    let overridesLoaded = false;
     // The season panel the bar currently serves. Requests for it take this signal,
     // so a load or save abandoned by navigation stops at its next await.
     let panel: AbortSignal = signal;
@@ -275,8 +203,8 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     }
 
     function updateApplyAvailability(): void {
-        applyBtn.disabled = currentIsMovie || !analysisOverridesLoaded;
-        if (!analysisOverridesLoaded && !currentIsMovie) {
+        applyBtn.disabled = currentIsMovie || !overridesLoaded;
+        if (!overridesLoaded && !currentIsMovie) {
             applyBtn.title = "Analysis-window settings are still loading.";
         } else {
             applyBtn.removeAttribute("title");
@@ -322,19 +250,16 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         );
     }
 
-    function readOverride(input: HTMLInputElement, label: string, min: number, max?: number): number | null {
-        if (input.value.trim() === "") return null;
-        const value = Number(input.value);
-        if (!Number.isInteger(value) || value < min || (max !== undefined && value > max)) {
-            throw new Error(label + " is outside the supported range.");
-        }
-        return value;
-    }
-
     fullSeriesCheckbox.addEventListener("change", updateActionLabels, { signal });
 
     async function applyOverrides(): Promise<void> {
-        if (!analysisOverridesLoaded) return;
+        if (!overridesLoaded) return;
+
+        const error = overrides.firstError();
+        if (error) {
+            statusMessage.show(error, "var(--is-error)");
+            return;
+        }
 
         const operation = panel;
         const seasonIds = targetSeasonIds();
@@ -342,30 +267,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         for (const [key, select] of actionSelects) {
             actions[key] = select.value;
         }
-
-        let overrides: AnalysisOverrides;
-        try {
-            overrides = {
-                AnalysisPercent: readOverride(
-                    analysisPercentInput,
-                    "Percent",
-                    percentLimits.min,
-                    percentLimits.max,
-                ),
-                AnalysisLengthLimit: readOverride(
-                    analysisLengthInput,
-                    "Maximum runtime",
-                    lengthLimits.min,
-                ),
-                PreviewFromCreditsEnd:
-                    previewOverrideSelect.value === "default"
-                        ? null
-                        : previewOverrideSelect.value === "enabled",
-            };
-        } catch (err) {
-            statusMessage.show(err instanceof Error ? err.message : "Invalid analysis overrides.", "var(--is-error)");
-            return;
-        }
+        const values = overrides.values();
 
         statusMessage.show("Saving overrides…", "var(--is-text-muted)");
 
@@ -378,7 +280,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                     }
                     const windowResponse = await api.updateAnalysisOverrides(
                         seasonId,
-                        overrides,
+                        values,
                         operation,
                     );
                     if (!windowResponse.ok) {
@@ -552,24 +454,6 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             container.classList.toggle("open", open);
         },
 
-        prepareForShow(showId: string) {
-            scanScope?.abort();
-            scanScope = null;
-            currentShowId = showId;
-            currentSeasonId = "";
-            currentIsMovie = false;
-            currentSeriesSeasons = [];
-            fullSeriesCheckbox.checked = false;
-            analysisOverridesLoaded = false;
-            fullSeriesLabel.style.display = "";
-            // No season yet, so `panel` is stale: Scan stays off until loadForSeason.
-            scanBtn.disabled = true;
-            fullSeriesCheckbox.disabled = false;
-            updateActionLabels();
-            updateApplyAvailability();
-            statusMessage.clear();
-        },
-
         async loadForSeason(showId, seasonId, isMovie, panelSignal, seriesSeasons) {
             panel = panelSignal;
             scanScope?.abort();
@@ -581,7 +465,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             currentShowId = showId;
             currentSeasonId = seasonId;
             currentIsMovie = isMovie;
-            analysisOverridesLoaded = false;
+            overridesLoaded = false;
             if (seriesSeasons) {
                 currentSeriesSeasons = seriesSeasons;
             }
@@ -607,27 +491,11 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 for (const [key, select] of actionSelects) {
                     select.value = actions[key] ?? "Default";
                 }
+                // On a failed read the last known values stay visible but Save
+                // stays off.
                 if (overrideResult.ok && overrideResult.data) {
-                    analysisOverridesLoaded = true;
-                    analysisPercentInput.value = overrideResult.data.AnalysisPercent == null
-                        ? ""
-                        : String(overrideResult.data.AnalysisPercent);
-                    analysisLengthInput.value = overrideResult.data.AnalysisLengthLimit == null
-                        ? ""
-                        : String(overrideResult.data.AnalysisLengthLimit);
-                    previewOverrideSelect.value = overrideResult.data.PreviewFromCreditsEnd == null
-                        ? "default"
-                        : overrideResult.data.PreviewFromCreditsEnd
-                          ? "enabled"
-                          : "disabled";
-                    if (configStore.isLoaded()) {
-                        analysisPercentInput.placeholder = "Global: " + String(configStore.get("AnalysisPercent"));
-                        analysisLengthInput.placeholder = "Global: " + String(configStore.get("AnalysisLengthLimit"));
-                    }
-                } else {
-                    // Keep the last known values visible, but prevent Apply from
-                    // turning a transient read failure into a destructive reset.
-                    analysisOverridesLoaded = false;
+                    overrides.load(overrideResult.data);
+                    overridesLoaded = true;
                 }
                 updateApplyAvailability();
             }

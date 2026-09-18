@@ -1,4 +1,5 @@
-import { configSchema, type FieldSpec, type KeyOfKind } from "../config/schema.ts";
+import type { FieldSpec } from "../config/field-spec.ts";
+import { configSchema, type KeyOfKind } from "../config/schema.ts";
 import { configStore, trimmedEntries } from "../store/config-store.ts";
 import { el } from "./dom.ts";
 import { setDescribedBy } from "./field-bind.ts";
