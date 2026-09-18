@@ -83,10 +83,6 @@ export async function mapWithConcurrency<T, R>(
     return results;
 }
 
-export function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function errorText(err: unknown): string {
     return err instanceof Error ? err.message : "Unknown error";
 }

@@ -8,12 +8,13 @@ const SEGMENT_FETCH_CONCURRENCY = 6;
 export async function getEpisodesWithSegments(
     showId: string,
     seasonId: string,
+    signal: AbortSignal,
 ): Promise<{
     episodes: EpisodeItem[];
     segments: Array<ApiResult<SegmentDto[]> | null>;
     disabledItemIds: string[] | null;
 }> {
-    const episodes = await getEpisodes(showId, seasonId);
+    const episodes = await getEpisodes(showId, seasonId, signal);
 
     if (episodes.length === 0) {
         return { episodes: [], segments: [], disabledItemIds: [] };
@@ -21,9 +22,9 @@ export async function getEpisodesWithSegments(
 
     const [segments, disabledItemIds] = await Promise.all([
         mapWithConcurrency(episodes, SEGMENT_FETCH_CONCURRENCY, (ep) =>
-            api.getEpisodeSegments(ep.Id),
+            api.getEpisodeSegments(ep.Id, signal),
         ),
-        getDisabledItemIds(seasonId),
+        getDisabledItemIds(seasonId, signal),
     ]);
 
     return { episodes, segments, disabledItemIds };
@@ -31,7 +32,10 @@ export async function getEpisodesWithSegments(
 
 // Distinguishes loaded-empty from state-unknown: a failed fetch returns null so
 // callers hide the toggles instead of rendering every item as enabled.
-export async function getDisabledItemIds(seasonId: string): Promise<string[] | null> {
-    const result = await api.getDisabledItems(seasonId);
+export async function getDisabledItemIds(
+    seasonId: string,
+    signal: AbortSignal,
+): Promise<string[] | null> {
+    const result = await api.getDisabledItems(seasonId, signal);
     return result.ok && result.data ? result.data : null;
 }

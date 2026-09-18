@@ -18,22 +18,18 @@ export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids:
     input.setAttribute("aria-describedby", Array.from(describedBy).join(" "));
 }
 
-/**
- * Subscribes to config store events to toggle `container` visibility.
- * Must be called within a `configStore.beginScope()` / `endScope()` window
- * so the subscriptions are tracked and cleaned up on scope disposal.
- */
-export function bindVisibility(container: HTMLElement, visible?: () => boolean): void {
-    if (!visible) {
-        return;
-    }
-
+/** Shows `container` only while `visible()` holds, re-checked on every store change until `signal` aborts. */
+export function bindVisibility(
+    container: HTMLElement,
+    visible: () => boolean,
+    signal: AbortSignal,
+): void {
     const evalVisibility = () => {
         container.style.display = visible() ? "" : "none";
     };
 
-    configStore.subscribe("loaded", evalVisibility);
-    configStore.subscribe("changed", evalVisibility);
+    configStore.subscribe("loaded", evalVisibility, { signal });
+    configStore.subscribe("changed", evalVisibility, { signal });
 
     if (configStore.isLoaded()) {
         evalVisibility();
@@ -42,25 +38,29 @@ export function bindVisibility(container: HTMLElement, visible?: () => boolean):
 
 /**
  * Shared wiring for config-bound controls: initial value, visibility, disabled
- * state, and validation messages. `onLoaded` copies the store value into the
- * control; it is skipped while the control has focus so typing is not clobbered.
+ * state, and validation messages, all until `signal` aborts. `onLoaded` copies
+ * the store value into the control; it is skipped while the control has focus
+ * so typing is not clobbered.
  */
 export function bindField(opts: {
     container: HTMLElement;
     input: HTMLInputElement | HTMLSelectElement;
-    fieldOpts: { id: ConfigKey; disabled?: () => boolean; visible?: () => boolean };
+    id: ConfigKey;
+    signal: AbortSignal;
+    disabled?: () => boolean;
+    visible?: () => boolean;
     errorDiv?: HTMLElement;
     describedByIds?: string[];
     onLoaded: () => void;
 }): void {
-    const { container, input, fieldOpts, errorDiv, describedByIds = [], onLoaded } = opts;
+    const { container, input, id, signal, errorDiv, describedByIds = [], onLoaded } = opts;
 
     const evalState = () => {
-        if (fieldOpts.visible) {
-            container.style.display = fieldOpts.visible() ? "" : "none";
+        if (opts.visible) {
+            container.style.display = opts.visible() ? "" : "none";
         }
-        if (fieldOpts.disabled) {
-            const isDisabled = fieldOpts.disabled();
+        if (opts.disabled) {
+            const isDisabled = opts.disabled();
             input.disabled = isDisabled;
             container.classList.toggle("disabled-block", isDisabled);
         }
@@ -71,24 +71,28 @@ export function bindField(opts: {
         evalState();
     };
 
-    configStore.subscribe("loaded", sync);
+    configStore.subscribe("loaded", sync, { signal });
 
     // Late-mounted fields still need an initial value if the config already loaded.
     if (configStore.isLoaded()) {
         sync();
     }
 
-    configStore.subscribe("changed", ({ field }) => {
-        evalState();
-        if (field === fieldOpts.id && document.activeElement !== input) {
-            onLoaded();
-        }
-    });
+    configStore.subscribe(
+        "changed",
+        ({ field }) => {
+            evalState();
+            if (field === id && document.activeElement !== input) {
+                onLoaded();
+            }
+        },
+        { signal },
+    );
 
     setDescribedBy(input, describedByIds);
 
     if (errorDiv) {
-        const errorId = errorDiv.id || fieldOpts.id + "-error";
+        const errorId = errorDiv.id || id + "-error";
         errorDiv.id = errorId;
         errorDiv.setAttribute("aria-live", "polite");
         errorDiv.setAttribute("aria-atomic", "true");
@@ -97,16 +101,20 @@ export function bindField(opts: {
 
         setDescribedBy(input, [errorId]);
 
-        configStore.subscribe("validation", ({ field, error }) => {
-            if (field !== fieldOpts.id) return;
-            errorDiv.textContent = error ?? "";
-            errorDiv.style.display = error ? "" : "none";
-            input.classList.toggle("field-error-active", Boolean(error));
-            if (error) {
-                input.setAttribute("aria-invalid", "true");
-            } else {
-                input.removeAttribute("aria-invalid");
-            }
-        });
+        configStore.subscribe(
+            "validation",
+            ({ field, error }) => {
+                if (field !== id) return;
+                errorDiv.textContent = error ?? "";
+                errorDiv.style.display = error ? "" : "none";
+                input.classList.toggle("field-error-active", Boolean(error));
+                if (error) {
+                    input.setAttribute("aria-invalid", "true");
+                } else {
+                    input.removeAttribute("aria-invalid");
+                }
+            },
+            { signal },
+        );
     }
 }

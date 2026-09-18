@@ -63,16 +63,12 @@ export const toolsTab: Tab = {
                 checkbox: { label: "Include cached fingerprint files" },
             });
             if (!result) return;
-            try {
-                const response = await api.eraseTimestamps(type, result.checkboxChecked);
-                if (!response.ok) {
-                    window.Dashboard.alert("Failed to erase " + type + " timestamps");
-                    return;
-                }
-                window.Dashboard.alert(type + " timestamps erased");
-            } catch {
+            const response = await api.eraseTimestamps(type, result.checkboxChecked);
+            if (!response.ok) {
                 window.Dashboard.alert("Failed to erase " + type + " timestamps");
+                return;
             }
+            window.Dashboard.alert(type + " timestamps erased");
         });
 
         const rebuildBtn = el(
@@ -87,29 +83,25 @@ export const toolsTab: Tab = {
                 confirmLabel: "Rebuild",
             });
             if (!result) return;
-            try {
-                let response = await api.rebuildDatabase();
-                if (response.status === 409) {
-                    // The server refused because the existing database cannot be read
-                    // for backup; rebuilding means starting empty.
-                    const discard = await confirmDialog({
-                        title: "Database Unreadable",
-                        body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
-                        confirmLabel: "Discard and Rebuild",
-                    });
-                    if (!discard) return;
-                    response = await api.rebuildDatabase({ forceCleanOnBackupFailure: true });
-                }
-                if (!response.ok) {
-                    window.Dashboard.alert("Failed to rebuild database");
-                    return;
-                }
-                window.Dashboard.alert(
-                    "Database rebuild initiated. A full Jellyfin restart is required.",
-                );
-            } catch {
-                window.Dashboard.alert("Failed to rebuild database");
+            let response = await api.rebuildDatabase();
+            if (response.status === 409) {
+                // The server refused because the existing database cannot be read
+                // for backup; rebuilding means starting empty.
+                const discard = await confirmDialog({
+                    title: "Database Unreadable",
+                    body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
+                    confirmLabel: "Discard and Rebuild",
+                });
+                if (!discard) return;
+                response = await api.rebuildDatabase({ forceCleanOnBackupFailure: true });
             }
+            if (!response.ok) {
+                window.Dashboard.alert("Failed to rebuild database");
+                return;
+            }
+            window.Dashboard.alert(
+                "Database rebuild initiated. A full Jellyfin restart is required.",
+            );
         });
 
         const resetBtn = el(
@@ -124,13 +116,8 @@ export const toolsTab: Tab = {
                 confirmLabel: "Reset",
             });
             if (!result) return;
-            try {
-                const response = await api.resetConfiguration();
-                if (!response.ok) {
-                    window.Dashboard.alert("Failed to reset settings");
-                    return;
-                }
-            } catch {
+            const response = await api.resetConfiguration();
+            if (!response.ok) {
                 window.Dashboard.alert("Failed to reset settings");
                 return;
             }

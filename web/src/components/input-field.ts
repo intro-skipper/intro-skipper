@@ -21,10 +21,13 @@ function debounced(fn: () => void): () => void {
 }
 
 /** Rules that depend on other settings, so they stay with the tab that renders the field. */
-export type FieldOverrides = {
+export type FieldRules = {
     visible?: () => boolean;
     disabled?: () => boolean;
 };
+
+/** What a control needs beyond its schema entry: its rules and the lifetime its subscriptions end with. */
+export type FieldOptions = FieldRules & { signal: AbortSignal };
 
 type ControlKind = Exclude<FieldKind, "list">;
 
@@ -41,7 +44,7 @@ type Field = {
  * description/warning meta, all read from the field's schema entry. The control
  * reads from and writes to configStore under `id`.
  */
-export function configField(id: ControlKey, overrides: FieldOverrides = {}): HTMLElement {
+export function configField(id: ControlKey, options: FieldOptions): HTMLElement {
     const spec: FieldSpec = configSchema[id];
     // The one cast: TypeScript cannot tell that the entry indexed by `id` is the
     // entry whose kind we just read.
@@ -50,18 +53,18 @@ export function configField(id: ControlKey, overrides: FieldOverrides = {}): HTM
 
     switch (field.kind) {
         case "checkbox":
-            return checkbox(field, inputId, overrides);
+            return checkbox(field, inputId, options);
         case "select":
-            return select(field, inputId, overrides);
+            return select(field, inputId, options);
         default:
-            return textInput(field, inputId, overrides);
+            return textInput(field, inputId, options);
     }
 }
 
 function checkbox(
     { id, spec }: Extract<Field, { kind: "checkbox" }>,
     inputId: string,
-    overrides: FieldOverrides,
+    options: FieldOptions,
 ): HTMLElement {
     const container = el("div", {
         className: spec.description
@@ -74,7 +77,8 @@ function checkbox(
     bindField({
         container,
         input,
-        fieldOpts: { id, ...overrides },
+        id,
+        ...options,
         describedByIds: appendFieldMeta(container, { ...spec, idBase: inputId }),
         onLoaded: () => {
             input.checked = configStore.get(id);
@@ -87,30 +91,31 @@ function checkbox(
 function select(
     { id, spec }: Extract<Field, { kind: "select" }>,
     inputId: string,
-    overrides: FieldOverrides,
+    options: FieldOptions,
 ): HTMLElement {
     const container = el("div", { className: "select-container" });
     const label = el("label", { className: "select-label", for: inputId }, spec.label);
     const control = el("select", { id: inputId, name: id });
-    // Read the options from the schema entry itself so their values keep the
+    // Read the choices from the schema entry itself so their values keep the
     // literal types the store expects.
-    const options = configSchema[id].options;
-    for (const option of options) {
-        control.append(el("option", { value: option.value }, option.label));
+    const choices = configSchema[id].options;
+    for (const choice of choices) {
+        control.append(el("option", { value: choice.value }, choice.label));
     }
     container.append(label, control);
 
     bindField({
         container,
         input: control,
-        fieldOpts: { id, ...overrides },
+        id,
+        ...options,
         describedByIds: appendFieldMeta(container, { ...spec, idBase: inputId }),
         onLoaded: () => {
             control.value = configStore.get(id);
         },
     });
     control.addEventListener("change", () => {
-        const chosen = options.find((option) => option.value === control.value);
+        const chosen = choices.find((choice) => choice.value === control.value);
         if (chosen) configStore.set(id, chosen.value);
     });
     return container;
@@ -119,7 +124,7 @@ function select(
 function textInput(
     field: Extract<Field, { kind: "number" | "text" | "regex" }>,
     inputId: string,
-    overrides: FieldOverrides,
+    options: FieldOptions,
 ): HTMLElement {
     const { id, spec } = field;
     const container = el("div", { className: "input-container" });
@@ -151,7 +156,8 @@ function textInput(
     bindField({
         container,
         input,
-        fieldOpts: { id, ...overrides },
+        id,
+        ...options,
         errorDiv,
         describedByIds: appendFieldMeta(container, {
             description,

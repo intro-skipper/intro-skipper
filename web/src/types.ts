@@ -3,12 +3,13 @@
 import type { PluginConfig } from "./config/schema.ts";
 
 // API responses and timestamp domain models.
-export type ApiResult<T> = {
-    ok: boolean;
-    status: number | null;
-    data?: T;
-    error?: string;
-};
+
+// The answer to one request. `ok` narrows: a success carries the parsed body,
+// a failure carries the error text and the HTTP status, or null when the
+// request never reached the server.
+export type ApiResult<T> =
+    | { ok: true; status: number; data: T }
+    | { ok: false; status: number | null; error: string };
 
 export type AnalyzerActions = {
     Introduction?: string;
@@ -176,12 +177,12 @@ export type EpisodeItem = {
     SeriesName: string | null;
 };
 
-// Routing contract used across tabs.
+// Routing contract used across tabs. `signal` aborts when the tab is left, so
+// everything the render starts (fetches, listeners, store subscriptions) ends there.
 export interface Tab {
     id: string;
     label: string;
-    render: (container: HTMLElement) => void;
-    destroy?: () => void;
+    render: (container: HTMLElement, signal: AbortSignal) => void;
 }
 
 // Jellyfin injects these globals into the dashboard page.

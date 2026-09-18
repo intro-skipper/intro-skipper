@@ -7,7 +7,7 @@ import { appendFieldMeta } from "./field-meta.ts";
 type ListKey = KeyOfKind<"list">;
 
 /** Behaviour a tab adds to a list field; the label and copy come from the schema. */
-type ExclusionListBehaviour = {
+export type ExclusionListBehaviour = {
     /** Fetched on first focus and offered as a datalist. */
     suggestions?: () => Promise<string[]>;
     /** Runs before an entry is added; returning false drops it. */
@@ -22,7 +22,10 @@ function readValues(field: ListKey): string[] {
     return trimmedEntries(configStore.get(field));
 }
 
-export function exclusionListField(id: ListKey, behaviour: ExclusionListBehaviour = {}): HTMLElement {
+export function exclusionListField(
+    id: ListKey,
+    { signal, ...behaviour }: ExclusionListBehaviour & { signal: AbortSignal },
+): HTMLElement {
     const spec: Extract<FieldSpec, { kind: "list" }> = configSchema[id];
     const container = el("div", { className: "input-container exclusion-list-field" });
     const inputId = "field-" + id;
@@ -142,12 +145,16 @@ export function exclusionListField(id: ListKey, behaviour: ExclusionListBehaviou
         }
     });
 
-    configStore.subscribe("loaded", render);
-    configStore.subscribe("changed", ({ field }) => {
-        if (field === id) {
-            render();
-        }
-    });
+    configStore.subscribe("loaded", render, { signal });
+    configStore.subscribe(
+        "changed",
+        ({ field }) => {
+            if (field === id) {
+                render();
+            }
+        },
+        { signal },
+    );
 
     if (configStore.isLoaded()) {
         render();

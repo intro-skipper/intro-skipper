@@ -25,11 +25,6 @@ const listeners: { [K in keyof StoreEvents]: Set<Listener<K>> } = {
     validation: new Set(),
 };
 
-// Track subscriptions created while a tab renders so they can be removed
-// together when the tab is torn down.
-let scopedUnsubscribes: Array<() => void> = [];
-let trackingScope = false;
-
 function emit<K extends keyof StoreEvents>(event: K, ...args: StoreEvents[K]): void {
     for (const cb of listeners[event]) {
         cb(...args);
@@ -77,30 +72,15 @@ function takeSnapshot(source: PluginConfig): void {
 }
 
 export const configStore = {
-    subscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
+    /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
+    subscribe<K extends keyof StoreEvents>(
+        event: K,
+        callback: Listener<K>,
+        { signal }: { signal: AbortSignal },
+    ): void {
+        if (signal.aborted) return;
         listeners[event].add(callback);
-        if (trackingScope) {
-            scopedUnsubscribes.push(() => listeners[event].delete(callback));
-        }
-    },
-
-    unsubscribe<K extends keyof StoreEvents>(event: K, callback: Listener<K>): void {
-        listeners[event].delete(callback);
-    },
-
-    /** Start tracking subscriptions. Call before rendering a tab. */
-    beginScope(): void {
-        trackingScope = true;
-        scopedUnsubscribes = [];
-    },
-
-    /** Remove all subscriptions added since beginScope(). Call on tab destroy. */
-    endScope(): void {
-        for (const unsubscribe of scopedUnsubscribes) {
-            unsubscribe();
-        }
-        scopedUnsubscribes = [];
-        trackingScope = false;
+        signal.addEventListener("abort", () => listeners[event].delete(callback), { once: true });
     },
 
     async load(): Promise<void> {
@@ -151,7 +131,9 @@ export const configStore = {
             const result = await savePluginConfig(serverConfig);
 
             // Keep the skip-button patch in sync, but do not block saving on it.
-            updateSkipDuration().catch(console.error);
+            void updateSkipDuration().then((result) => {
+                if (!result.ok) console.error("Failed to update skip duration", result.error);
+            });
 
             config = serverConfig;
             takeSnapshot(serverConfig);
