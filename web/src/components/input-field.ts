@@ -14,12 +14,24 @@ import { appendFieldMeta } from "./field-meta.ts";
 /** Delay before committing typed input to the store (ms). */
 const INPUT_DEBOUNCE_MS = 180;
 
-function debounced(fn: () => void): () => void {
+// Runs `fn` once typing pauses; flush() runs a pending call now, so a value the
+// user just typed reaches the store before the button they clicked reads it.
+function debounced(fn: () => void): { (): void; flush(): void } {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    return () => {
+    const run = () => {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(fn, INPUT_DEBOUNCE_MS);
+        timer = setTimeout(() => {
+            timer = null;
+            fn();
+        }, INPUT_DEBOUNCE_MS);
     };
+    run.flush = () => {
+        if (timer === null) return;
+        clearTimeout(timer);
+        timer = null;
+        fn();
+    };
+    return run;
 }
 
 /** Rules that depend on other settings, so they stay with the tab that renders the field. */
@@ -214,7 +226,10 @@ function textInput(
                   store.set(id, num);
               }
             : () => store.set(id, input.value);
-    input.addEventListener("input", debounced(commit));
+    const commitSoon = debounced(commit);
+    input.addEventListener("input", commitSoon);
+    // Leaving the field (including by clicking a button) commits at once.
+    input.addEventListener("change", () => commitSoon.flush());
 
     return container;
 }

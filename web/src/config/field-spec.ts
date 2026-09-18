@@ -25,6 +25,7 @@ export type FieldSpec =
           readonly min?: number;
           /** Doubles as the HTML max attribute and the validation ceiling. */
           readonly max?: number;
+          /** The HTML step attribute. An integer step also makes a fraction a validation error. */
           readonly step?: number;
           /** An empty input means "no value" (null) rather than "still typing". */
           readonly optional?: true;

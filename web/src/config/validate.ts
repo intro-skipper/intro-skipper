@@ -20,7 +20,10 @@ export function validateSpec(spec: FieldSpec, value: unknown): string | null {
             // Null is an optional field left empty; anything else non-numeric is
             // still being typed.
             if (typeof value !== "number") return null;
-            const { min, max } = spec;
+            const { min, max, step } = spec;
+            if (step !== undefined && Number.isInteger(step) && !Number.isInteger(value)) {
+                return "Must be a whole number";
+            }
             if (min !== undefined && max !== undefined && (value < min || value > max)) {
                 return `Must be between ${min} and ${max}`;
             }
