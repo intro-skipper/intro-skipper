@@ -98,7 +98,8 @@ body:
       description: Check everything that is enabled under Dashboard -> Plugins -> Intro Skipper -> Settings.
       options:
         - label: Prefer Chromaprint Analysis (Analysis tab)
-        - label: Use alternative black frame analyzer (Black Frame tab)
+        - label: Refine credits boundary (Black Frame tab)
+        - label: Detect non-black credits (Black Frame tab)
         - label: Detect recap using black frames (Black Frame tab)
         - label: An analyzer override is set for this season (Timestamps tab -> Manage)
         - label: Other settings on the Analysis, Detection, Chapters or Black Frame tabs differ from the defaults (list them in the notes below)

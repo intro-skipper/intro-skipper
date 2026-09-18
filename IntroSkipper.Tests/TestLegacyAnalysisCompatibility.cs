@@ -74,18 +74,12 @@ public sealed class TestLegacyAnalysisCompatibility
 
     [Theory]
     [InlineData(AnalysisMode.Introduction, false)]
-    [InlineData(AnalysisMode.Credits, false)]
-    [InlineData(AnalysisMode.Credits, true)]
     [InlineData(AnalysisMode.Recap, false)]
     [InlineData(AnalysisMode.Introduction, false, 22)]
-    [InlineData(AnalysisMode.Credits, false, 22, false)]
-    [InlineData(AnalysisMode.Credits, true, 22, false)]
     [InlineData(AnalysisMode.Recap, false, 22)]
     [InlineData(AnalysisMode.Preview, false, 22, false)]
     [InlineData(AnalysisMode.Commercial, false, 22)]
     [InlineData(AnalysisMode.Introduction, false, 23)]
-    [InlineData(AnalysisMode.Credits, false, 23, false)]
-    [InlineData(AnalysisMode.Credits, true, 23, false)]
     [InlineData(AnalysisMode.Recap, false, 23)]
     [InlineData(AnalysisMode.Preview, false, 23, false)]
     [InlineData(AnalysisMode.Commercial, false, 23)]
@@ -173,6 +167,36 @@ public sealed class TestLegacyAnalysisCompatibility
             DatabaseTestHelpers.DeleteSqliteFiles(legacyPath);
             Directory.Delete(directory, true);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LegacyCreditsCompletions_AreReanalyzedByModernAnalyzer(bool alternative)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration { DetectNonBlackCredits = true };
+        var id = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(
+            config,
+            AnalysisMode.Credits,
+            AnalyzerAction.Default,
+            ffmpegValid: true,
+            alternativeBlackFrameAnalyzer: alternative,
+            release: 24);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [id], legacyHash);
+
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+
+        Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+        Assert.Equal(legacyHash, snapshot.AnalysisRecords[(id, AnalysisMode.Credits)].ConfigHash);
+
+        var candidate = new QueuedEpisode { EpisodeId = id };
+        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, ffmpegValid: true).Classify(candidate);
+        Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
     }
 
     [Theory]
