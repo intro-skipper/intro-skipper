@@ -221,6 +221,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
     async function navigateToShow(show: ShowItem): Promise<void> {
         const view = nextView();
 
+        actions.prepareForShow(show.Id);
         resetViewContent();
 
         if (show.Type === "Movie") {

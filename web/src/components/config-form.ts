@@ -1,6 +1,6 @@
 import { configSchema, type KeyOfKind } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
-import { formFor, type FieldRules } from "./input-field.ts";
+import { formFor } from "./input-field.ts";
 import { exclusionListField, type ExclusionListBehaviour } from "./exclusion-list-field.ts";
 import { inlineCheckboxGroup } from "./inline-checkbox-group.ts";
 
@@ -12,9 +12,7 @@ import { inlineCheckboxGroup } from "./inline-checkbox-group.ts";
 export function configForm(signal: AbortSignal) {
     const form = formFor(configSchema, configStore, signal);
     return {
-        field(id: Parameters<typeof form.field>[0], rules: FieldRules = {}): HTMLElement {
-            return form.field(id, rules);
-        },
+        field: form.field,
         list(id: KeyOfKind<"list">, behaviour: ExclusionListBehaviour = {}): HTMLElement {
             return exclusionListField(id, { ...behaviour, signal });
         },

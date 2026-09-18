@@ -57,6 +57,11 @@ type ScanOutcome = "completed" | "failed" | "unavailable";
 export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     container: HTMLElement;
     toggle: (open: boolean) => void;
+    /**
+     * Forgets the previous season the moment a show is opened, so nothing can
+     * scan or erase it while the new show's seasons and episodes load.
+     */
+    prepareForShow: (showId: string) => void;
     /** Loads the season's overrides and scan state. `panel` is the season panel's lifetime. */
     loadForSeason: (
         showId: string,
@@ -454,6 +459,24 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             container.classList.toggle("open", open);
         },
 
+        prepareForShow(showId) {
+            scanScope?.abort();
+            scanScope = null;
+            currentShowId = showId;
+            currentSeasonId = "";
+            currentIsMovie = false;
+            currentSeriesSeasons = [];
+            fullSeriesCheckbox.checked = false;
+            overridesLoaded = false;
+            // No season yet: Scan and Erase stay off until loadForSeason.
+            scanBtn.disabled = true;
+            eraseBtn.disabled = true;
+            fullSeriesCheckbox.disabled = false;
+            updateActionLabels();
+            updateApplyAvailability();
+            statusMessage.clear();
+        },
+
         async loadForSeason(showId, seasonId, isMovie, panelSignal, seriesSeasons) {
             panel = panelSignal;
             scanScope?.abort();
@@ -471,6 +494,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             }
 
             resetScanButton();
+            eraseBtn.disabled = false;
             updateApplyAvailability();
             statusMessage.clear();
 

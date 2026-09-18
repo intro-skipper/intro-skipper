@@ -181,6 +181,7 @@ function textInput(
         if (min !== undefined) inputAttrs.min = String(min);
         if (max !== undefined) inputAttrs.max = String(max);
         if (step !== undefined) inputAttrs.step = String(step);
+        if (spec.placeholder !== undefined) inputAttrs.placeholder = labelText(spec.placeholder);
     } else if (spec.kind === "regex") {
         inputAttrs.placeholder = spec.default;
         description = (description ?? "") + " <br/>Default: <code>" + spec.default + "</code>";
