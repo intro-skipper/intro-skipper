@@ -49,14 +49,17 @@ public sealed class TestChromaprintOverlongRegion
             ["A"] = Fingerprint(LhsLength, 0xFFFF0000u),
             ["B"] = Fingerprint(RhsLength, 0x0000FFFFu),
         };
-        var episodes = fingerprints.Keys.Select((name, index) => new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            Name = name,
-            EpisodeNumber = index + 1,
-            Duration = 1800,
-            IntroFingerprintEnd = 600,
-        }).ToList();
+        List<QueuedEpisode> episodes =
+        [
+            .. fingerprints.Keys.Select((name, index) => new QueuedEpisode
+            {
+                EpisodeId = Guid.NewGuid(),
+                Name = name,
+                EpisodeNumber = index + 1,
+                Duration = 1800,
+                IntroFingerprintEnd = 600,
+            })
+        ];
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (episode, _) => fingerprints[episode.Name],
