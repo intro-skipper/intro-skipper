@@ -29,4 +29,48 @@ public sealed class TestAnalysisConfigHash
             ConfigHasher.Analysis(before, mode, AnalyzerAction.Default, ffmpegValid: true),
             ConfigHasher.Analysis(after, mode, afterAction, ffmpegValid: true));
     }
+
+    [Fact]
+    public void ExplainAnalysisHashChange_IdentifiesAnalyzerActionChange()
+    {
+        var config = new PluginConfiguration();
+        var storedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Chapter, ffmpegValid: true);
+
+        Assert.Equal(
+            "analyzer action changed from Chapter to Default",
+            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
+    }
+
+    [Fact]
+    public void ExplainAnalysisHashChange_IdentifiesChromaprintAvailabilityChange()
+    {
+        var config = new PluginConfiguration();
+        var storedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
+
+        Assert.Equal(
+            "Chromaprint availability changed from false to true",
+            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
+    }
+
+    [Fact]
+    public void ExplainAnalysisHashChange_IdentifiesActionAndAvailabilityChangesTogether()
+    {
+        var config = new PluginConfiguration();
+        var storedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Chapter, ffmpegValid: false);
+
+        Assert.Equal(
+            "analyzer action changed from Chapter to Default and Chromaprint availability changed from false to true",
+            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
+    }
+
+    [Fact]
+    public void ExplainAnalysisHashChange_UsesConfigurationOrVersionFallback()
+    {
+        var config = new PluginConfiguration();
+        var storedHash = ConfigHasher.Analysis(new PluginConfiguration { AnalysisPercent = 10 }, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        Assert.Equal(
+            "analysis configuration or analyzer version changed",
+            ConfigHasher.ExplainAnalysisHashChange(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, storedHash));
+    }
 }
