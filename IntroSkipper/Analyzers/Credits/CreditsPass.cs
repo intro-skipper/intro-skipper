@@ -50,7 +50,9 @@ internal sealed partial class CreditsPass(
     /// <remarks>
     /// Per-season BlackFrame and available Chromaprint actions bypass chapter matching; a
     /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps both of its candidates.
-    /// Chapter and unavailable Chromaprint actions follow the default chapter-first policy,
+    /// Chapter actions, and actions naming a method that is unavailable (Chromaprint without ffmpeg
+    /// or a season of one, or a detection method switched off in the settings), follow the default
+    /// chapter-first policy over whichever methods remain enabled,
     /// including the enhancement option. An already-analyzed episode is reconsidered only
     /// when a new chromaprint candidate reaches outside its stored credits; authoritative
     /// chapters still prevent replacement.
@@ -62,15 +64,19 @@ internal sealed partial class CreditsPass(
     /// <returns>A task that completes when every episode has been written or marked failed.</returns>
     public async Task RunAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken)
     {
-        var chromaprintAvailable = ffmpegValid && items.Count > 1;
+        // A detection method switched off in the settings is unavailable here exactly as an
+        // unavailable Chromaprint is, so an action naming one falls back to the default policy
+        // instead of restricting the pass to an analyzer that will never be built.
+        var chromaprintAvailable = _config.EnableChromaprintAnalyzer && ffmpegValid && items.Count > 1;
+        var keyframeAvailable = _config.EnableKeyframeAnalyzer;
         var restriction = action switch
         {
-            AnalyzerAction.BlackFrame => action,
+            AnalyzerAction.BlackFrame when keyframeAvailable => action,
             AnalyzerAction.Chromaprint when chromaprintAvailable => action,
             _ => AnalyzerAction.Default,
         };
-        var useChapter = restriction is AnalyzerAction.Default;
-        var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
+        var useChapter = _config.EnableChapterAnalyzer && restriction is AnalyzerAction.Default;
+        var useBlackFrame = keyframeAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;

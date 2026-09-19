@@ -124,6 +124,27 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool PreferChromaprint { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether chapter analysis runs. Disabled, the analyzer is
+    /// never built, so no mode consults chapter names.
+    /// </summary>
+    public bool EnableChapterAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Chromaprint fingerprinting runs. Disabled, the
+    /// analyzer is never built, so no audio is fingerprinted or compared. Only the modes that
+    /// use it (Introduction, Recap and Credits) are affected.
+    /// </summary>
+    public bool EnableChromaprintAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the keyframe scan runs. Disabled, neither the
+    /// keyframe analyzer nor the recap black-frame fallback is built, so no video is decoded for
+    /// black-frame evidence or keyframe visuals. <see cref="DetectRecapUsingBlackFrames"/> remains
+    /// the specific opt-in for the recap fallback underneath this switch.
+    /// </summary>
+    public bool EnableKeyframeAnalyzer { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to combine recognized credits chapters with
     /// black-frame and chromaprint candidates. When disabled, valid credits chapters settle
     /// the episode before combined detection, even when playback adjustments consume the range.
@@ -329,6 +350,8 @@ public class PluginConfiguration : BasePluginConfiguration
     /// shared sting instead of 0:00, so a cold open ahead of the recap is not skipped. Only takes
     /// effect for episodes that reach <see cref="Analyzers.ChromaprintAnalyzer"/> still unanalyzed,
     /// so with <see cref="DetectRecapUsingBlackFrames"/> it needs <see cref="PreferChromaprint"/>.
+    /// The fade is black-frame evidence, so this also needs <see cref="EnableKeyframeAnalyzer"/>,
+    /// without which a Chromaprint recap cannot be placed at all.
     /// </summary>
     public bool AnchorRecapToColdOpen { get; set; } = false;
 

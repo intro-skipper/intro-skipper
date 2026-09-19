@@ -392,6 +392,17 @@ internal sealed partial class ChromaprintAnalyzer(
             return null;
         }
 
+        // The sting is a marker, not the segment: a shared region of only
+        // RecapCardMinimumDuration qualifies, and every recap this path has produced since it was
+        // added takes its extent from black-frame evidence. With the keyframe scan switched off
+        // there is nothing to place the recap end with, so this path contributes no candidate
+        // rather than storing the marker as if it were the recap. The chain also skips building
+        // this analyzer for Recap in that state; this keeps the invariant where it is decided.
+        if (!_config.EnableKeyframeAnalyzer)
+        {
+            return null;
+        }
+
         if (!_recapBoundaryCache.TryGetValue(episode.EpisodeId, out var maximumBoundary))
         {
             maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(

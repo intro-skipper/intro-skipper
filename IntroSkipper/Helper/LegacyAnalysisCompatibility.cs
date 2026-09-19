@@ -29,7 +29,15 @@ internal static class LegacyAnalysisCompatibility
         {
             var mode = modeGroup.Key;
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+            var usesKeyframes = mode is AnalysisMode.Credits or AnalysisMode.Recap;
+
+            // Those releases ran every detection method, so a record they wrote may carry a result
+            // from a method this server has since switched off. Adoption is blocked for the modes
+            // that method reaches; those seasons re-analyze instead.
             if (!AnalysisHelpers.IsSupported(mode)
+                || !config.EnableChapterAnalyzer
+                || (usesChromaprint && !config.EnableChromaprintAnalyzer)
+                || (usesKeyframes && !config.EnableKeyframeAnalyzer)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))

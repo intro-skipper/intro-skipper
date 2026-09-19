@@ -168,6 +168,64 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(0, settled.CreditsFingerprintEnd);
     }
 
+    /// <summary>
+    /// The first-wins chain builds only the detection methods the settings enable, so a switched-off
+    /// Chromaprint fingerprints nothing. A season action naming it changes nothing either, the way an
+    /// action naming an analyzer absent from the chain already does.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalyzerAction.Default)]
+    [InlineData(AnalyzerAction.Chromaprint)]
+    public async Task IntroductionMode_WithChromaprintSwitchedOff_FingerprintsNothing(AnalyzerAction action)
+    {
+        var config = new PluginConfiguration { EnableChromaprintAnalyzer = false };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var (ffmpeg, task) = CreateCreditsRun(config);
+
+        await task.AnalyzeItemsAsync(
+            [CreditsEpisode(episodeNumber: 1), CreditsEpisode(episodeNumber: 2)],
+            AnalysisMode.Introduction,
+            action,
+            ffmpegValid: true,
+            CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.FingerprintCalls);
+    }
+
+    /// <summary>
+    /// The recap black-frame fallback decodes keyframes, so the keyframe switch gates it even while
+    /// its own opt-in is enabled. It is hosted by the chapter analyzer but is a method of its own:
+    /// switching chapter analysis off must not take it with it.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, 2)]
+    [InlineData(false, true, 0)]
+    [InlineData(true, false, 2)]
+    public async Task RecapBlackFrameFallback_FollowsTheKeyframeSwitchIndependentlyOfChapterAnalysis(
+        bool keyframeEnabled,
+        bool chapterEnabled,
+        int expectedScans)
+    {
+        var config = new PluginConfiguration
+        {
+            DetectRecapUsingBlackFrames = true,
+            EnableChromaprintAnalyzer = false,
+            EnableChapterAnalyzer = chapterEnabled,
+            EnableKeyframeAnalyzer = keyframeEnabled,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var (ffmpeg, task) = CreateCreditsRun(config);
+
+        await task.AnalyzeItemsAsync(
+            [CreditsEpisode(episodeNumber: 1), CreditsEpisode(episodeNumber: 2)],
+            AnalysisMode.Recap,
+            AnalyzerAction.Default,
+            ffmpegValid: true,
+            CancellationToken.None);
+
+        Assert.Equal(expectedScans, ffmpeg.RangeScanCalls);
+    }
+
     private static readonly Guid CreditsSeasonId = Guid.NewGuid();
 
     private static QueuedEpisode CreditsEpisode(int episodeNumber) => new()

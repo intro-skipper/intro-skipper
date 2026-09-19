@@ -92,7 +92,7 @@ internal static class ConfigHasher
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
 
-        return ComputeHash(input);
+        return ComputeHash(input + DetectionMethodToken(config, mode));
     }
 
     /// <summary>
@@ -231,24 +231,50 @@ internal static class ConfigHasher
     /// <returns>The normalized language code, or an empty string when unset.</returns>
     public static string NormalizeAudioLanguage(string? language) => language?.Trim().ToLowerInvariant() ?? string.Empty;
 
-    // DetectNonBlackCredits only affects output when the default analyzer is active; including it
+    // DetectNonBlackCredits only affects output when the keyframe analyzer is active; including it
     // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
-    // cannot observe the setting (the UI also hides it there).
+    // cannot observe the setting (the UI also hides it there), or when the keyframe scan is
+    // switched off and no analyzer reads it at all.
     private static string CreditsNonBlackToken(PluginConfiguration config)
-        => !config.UseLegacyBlackFrameAnalyzer
+        => !config.UseLegacyBlackFrameAnalyzer && config.EnableKeyframeAnalyzer
             ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}")
             : string.Empty;
 
     // Only present when enabled so the default-off configuration keeps the hash it had before
-    // the option existed and does not re-analyze every recap on upgrade.
+    // the option existed and does not re-analyze every recap on upgrade. Anchoring happens while
+    // a Chromaprint recap is placed against black-frame evidence, so with the keyframe scan
+    // switched off nothing reads the option and toggling it must not re-scan those seasons.
     private static string RecapColdOpenToken(PluginConfiguration config)
-        => config.AnchorRecapToColdOpen ? "|coldOpen=True" : string.Empty;
+        => config.AnchorRecapToColdOpen && config.EnableKeyframeAnalyzer ? "|coldOpen=True" : string.Empty;
+
+    // Only present when a detection method is switched off, so the default-on configuration keeps
+    // the hash it had before the switches existed and does not re-analyze anything on upgrade. A
+    // method reaches only the modes it can change: chapter analysis runs in every mode, Chromaprint
+    // in the modes carrying the availability token, and the keyframe scan in the modes carrying the
+    // black-frame tokens. The token is not scoped to the season's analyzer action: an action naming
+    // a disabled method falls back to the default policy, so no action leaves a method unconsulted
+    // in a way that would make an omission safe.
+    private static string DetectionMethodToken(PluginConfiguration config, AnalysisMode mode)
+        => string.Concat(
+            config.EnableChapterAnalyzer ? string.Empty : "|noChapter=True",
+            config.EnableChromaprintAnalyzer || mode is not (AnalysisMode.Introduction or AnalysisMode.Recap or AnalysisMode.Credits)
+                ? string.Empty
+                : "|noChromaprint=True",
+            config.EnableKeyframeAnalyzer || mode is not (AnalysisMode.Credits or AnalysisMode.Recap)
+                ? string.Empty
+                : "|noKeyframe=True");
 
     // Only present when enabled so the default-off configuration keeps the hash it had before
     // the option existed. A BlackFrame action restricts the credits pass to that analyzer, which
-    // cannot observe the option, so toggling it must not re-scan those seasons.
+    // cannot observe the option, so toggling it must not re-scan those seasons. The restriction
+    // only holds while the keyframe scan is enabled: with it off the action falls back to the
+    // default policy, which does consult chapters, so the token must be present again.
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
-        => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
+        => config.EnhanceChapterCredits
+            && config.EnableChapterAnalyzer
+            && !(action is AnalyzerAction.BlackFrame && config.EnableKeyframeAnalyzer)
+            ? "|enhanceChapterCredits=True"
+            : string.Empty;
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(

@@ -256,24 +256,95 @@ public class TestRecapDetection
         Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
         Assert.Equal(3, ffmpeg.RangeScanCalls);
 
-        // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
-        // with other episodes at the given seconds.
-        static uint[] Fingerprint(uint unique, params (double Start, double End, uint Shared)[] runs)
-        {
-            var points = Enumerable.Range(0, Position(60)).Select(i => unique + (uint)i).ToArray();
-            foreach (var (start, end, shared) in runs)
-            {
-                for (var i = Position(start); i < Position(end); i++)
-                {
-                    points[i] = shared + (uint)(i - Position(start));
-                }
-            }
+    }
 
-            return points;
+    /// <summary>
+    /// A Chromaprint recap takes its extent from black-frame evidence: the shared region is only a
+    /// sting, short enough to qualify at <c>RecapCardMinimumDuration</c>. With the keyframe scan off
+    /// there is nothing to place the end with, so the path stores no recap and decodes nothing,
+    /// rather than storing the marker as if it were the segment.
+    /// </summary>
+    [Theory]
+    [InlineData(true, 28d, 90d, 3)]
+    [InlineData(false, null, null, 0)]
+    public async Task ChromaprintRecap_IsPlacedByBlackFrameEvidenceOrNotAtAll(
+        bool keyframeEnabled,
+        double? expectedStart,
+        double? expectedEnd,
+        int expectedScans)
+    {
+        var fingerprints = new Dictionary<string, uint[]>
+        {
+            ["A"] = Fingerprint(0x10000, (0, 5, 0x1000), (35, 40, 0x2000)),
+            ["B"] = Fingerprint(0x20000, (0, 5, 0x1000)),
+            ["C"] = Fingerprint(0x30000, (35, 40, 0x2000)),
+        };
+        var episodes = new[] { "A", "B", "C" }.Select((name, index) => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = name,
+            EpisodeNumber = index + 1,
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+        }).ToList();
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => fingerprints[episode.Name],
+            RangeBlackFrames = (_, _, _, _, _) => [new BlackFrame(100, 28, 0), new BlackFrame(100, 50, 1), new BlackFrame(100, 90, 2)],
+        };
+        using var db = new TempSegmentDb();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            db.Database,
+            new PluginConfiguration
+            {
+                AnchorRecapToColdOpen = true,
+                EnableKeyframeAnalyzer = keyframeEnabled,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        var a = episodes.Single(episode => episode.Name == "A");
+        var segments = await db.Database.GetSegmentsAsync(a.EpisodeId);
+        if (expectedStart is null)
+        {
+            Assert.Empty(segments);
+        }
+        else
+        {
+            var recap = Assert.Single(segments);
+            Assert.Equal(expectedStart.Value, TickConversions.ToSeconds(recap.StartTicks));
+            Assert.Equal(expectedEnd!.Value, TickConversions.ToSeconds(recap.EndTicks));
         }
 
-        static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
+        Assert.Equal(expectedScans, ffmpeg.RangeScanCalls);
     }
+
+    // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
+    // with other episodes at the given seconds.
+    private static uint[] Fingerprint(uint unique, params (double Start, double End, uint Shared)[] runs)
+    {
+        var points = Enumerable.Range(0, Position(60)).Select(i => unique + (uint)i).ToArray();
+        foreach (var (start, end, shared) in runs)
+        {
+            for (var i = Position(start); i < Position(end); i++)
+            {
+                points[i] = shared + (uint)(i - Position(start));
+            }
+        }
+
+        return points;
+    }
+
+    private static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
 
     [Fact]
     public void RecapFingerprintRange_UsesIntroFingerprintWindow()

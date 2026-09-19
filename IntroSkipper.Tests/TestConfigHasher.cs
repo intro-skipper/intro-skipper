@@ -4,6 +4,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -126,6 +127,102 @@ public sealed class TestConfigHasher
         // The legacy hash predates audio stream selection, so those settings must not affect it.
         var changedSelection = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = false };
         Assert.Equal(hash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(changedSelection, AnalysisMode.Introduction));
+    }
+
+    /// <summary>
+    /// A BlackFrame action restricts the credits pass to the keyframe analyzer, which cannot observe
+    /// chapter enhancement — but only while that method is enabled. With it off the action falls back
+    /// to the default policy, which does consult chapters, so the option must invalidate again or the
+    /// season keeps credits produced under the other setting.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void ChapterEnhancementUnderABlackFrameAction_IsIgnoredOnlyWhileTheKeyframeScanRuns(bool keyframeEnabled, bool expectEqual)
+    {
+        var plain = new PluginConfiguration { EnableKeyframeAnalyzer = keyframeEnabled };
+        var enhanced = new PluginConfiguration { EnableKeyframeAnalyzer = keyframeEnabled, EnhanceChapterCredits = true };
+
+        var first = ConfigHasher.Analysis(plain, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true);
+        var second = ConfigHasher.Analysis(enhanced, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true);
+
+        Assert.Equal(expectEqual, first == second);
+    }
+
+    /// <summary>
+    /// A conditional token drops out once no analyzer can read its setting, so toggling that setting
+    /// does not re-scan seasons whose result it cannot change. Card credits and the recap cold-open
+    /// anchor both need the keyframe scan; chapter enhancement needs chapter analysis.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalysisMode.Credits, "card-credits")]
+    [InlineData(AnalysisMode.Recap, "cold-open")]
+    [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
+    public void SettingsNoEnabledMethodReads_DoNotInvalidateAnalysis(AnalysisMode mode, string setting)
+    {
+        static PluginConfiguration Configure(string setting, bool enabled) => setting switch
+        {
+            "card-credits" => new PluginConfiguration { EnableKeyframeAnalyzer = false, DetectNonBlackCredits = enabled },
+            "cold-open" => new PluginConfiguration { EnableKeyframeAnalyzer = false, AnchorRecapToColdOpen = enabled },
+            "chapter-enhancement" => new PluginConfiguration { EnableChapterAnalyzer = false, EnhanceChapterCredits = enabled },
+            _ => throw new ArgumentOutOfRangeException(nameof(setting)),
+        };
+
+        Assert.Equal(
+            ConfigHasher.Analysis(Configure(setting, true), mode, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(Configure(setting, false), mode, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    /// <summary>
+    /// The default configuration must keep the hash it had before the detection method switches
+    /// existed, in every mode, or upgrading re-analyzes the whole library. These are the values
+    /// releases without the switches wrote; the tokens are emitted only when a method is off.
+    /// </summary>
+    [Fact]
+    public void DefaultAnalysisHashes_ArePinnedAcrossEveryMode()
+    {
+        var defaults = new PluginConfiguration();
+
+        var actual = string.Join(
+            ",",
+            Enum.GetValues<AnalysisMode>().Select(mode =>
+                $"{mode}={ConfigHasher.Analysis(defaults, mode, AnalyzerAction.Default, ffmpegValid: true)}"));
+
+        Assert.Equal(
+            "Introduction=6908FA7CE6CEDB25,Credits=353008E48A5F559E,Preview=19C776EE18C06441,Recap=9F39FAF9AB4D7445,Commercial=C5F494E8A415EC4F",
+            actual);
+    }
+
+    /// <summary>
+    /// A detection method reaches only the modes it runs in, so switching one off invalidates
+    /// exactly those modes' analysis and leaves the rest alone. Detection cache rows never move:
+    /// a method switched back on reuses its cached scans instead of decoding again.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalysisMode.Introduction, true, true, false)]
+    [InlineData(AnalysisMode.Credits, true, true, true)]
+    [InlineData(AnalysisMode.Recap, true, true, true)]
+    [InlineData(AnalysisMode.Preview, true, false, false)]
+    [InlineData(AnalysisMode.Commercial, true, false, false)]
+    public void DetectionMethod_InvalidatesOnlyTheModesItRunsIn(AnalysisMode mode, bool chapter, bool chromaprint, bool keyframe)
+    {
+        var defaults = new PluginConfiguration();
+        var baseline = ConfigHasher.Analysis(defaults, mode, AnalyzerAction.Default, ffmpegValid: true);
+        (PluginConfiguration Config, bool Invalidates)[] methods =
+        [
+            (new PluginConfiguration { EnableChapterAnalyzer = false }, chapter),
+            (new PluginConfiguration { EnableChromaprintAnalyzer = false }, chromaprint),
+            (new PluginConfiguration { EnableKeyframeAnalyzer = false }, keyframe),
+        ];
+
+        foreach (var (config, invalidates) in methods)
+        {
+            Assert.Equal(invalidates, baseline != ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true));
+            foreach (var type in Enum.GetValues<CacheEntryType>())
+            {
+                Assert.Equal(ConfigHasher.DetectionCache(defaults, type, mode), ConfigHasher.DetectionCache(config, type, mode));
+            }
+        }
     }
 
     [Theory]

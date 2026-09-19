@@ -118,6 +118,30 @@ export const configSchema = {
         description:
             "Run chromaprint before the chapter analyzer for intros and recaps. Credits ignore this setting.",
     },
+    EnableChapterAnalyzer: {
+        kind: "checkbox",
+        label: "Chapter analysis",
+        description:
+            "Match chapter names against the configured patterns. Used by every segment type.",
+        warning:
+            "Turning this off re-analyzes <b>every</b> segment type, recomputing their stored timestamps without chapter matches. Snapping a boundary to a chapter is a separate setting on the Detection tab and is unaffected.",
+    },
+    EnableChromaprintAnalyzer: {
+        kind: "checkbox",
+        label: "Chromaprint fingerprinting",
+        description:
+            "Compare the episodes of a season by audio fingerprint. Used by Introduction, Recap and Credits. This is the slowest method; turning it off skips fingerprint decoding entirely.",
+        warning:
+            "Turning this off re-analyzes Introduction, Recap and Credits, recomputing their stored timestamps without fingerprint matches. Cached fingerprints are kept and reused if you turn it back on.",
+    },
+    EnableKeyframeAnalyzer: {
+        kind: "checkbox",
+        label: "Keyframe scan",
+        description:
+            "Decode keyframes for black-frame evidence and keyframe visuals. Used by Credits, by the recap black-frame fallback on the Black Frame tab, and to place the end of a Chromaprint recap.",
+        warning:
+            "Turning this off re-analyzes Credits and Recap, recomputing their stored timestamps without black-frame evidence. Recap detection is then left to chapters: a Chromaprint recap has no way to place its end without this scan. Cached scans are kept and reused if you turn it back on.",
+    },
     EnhanceChapterCredits: {
         kind: "checkbox",
         label: "Enhance chapter credits",

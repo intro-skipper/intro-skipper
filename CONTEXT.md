@@ -60,6 +60,10 @@ _Avoid_: Interleaved special, cross-season special
 One unit of work handed to the analysis queue. Three kinds: a changed item from the library watcher, a manual scan of a season from the dashboard, and a library pass from the scheduled task.
 _Avoid_: Job, task (Jellyfin owns that word), ticket
 
+**Detection method**:
+One of the three analyzers a setting can switch off for the whole server: chapter analysis, Chromaprint fingerprinting and the keyframe scan. A method switched off is never built, so it cannot run. Distinct from boundary refinement (silence, keyframe snapping, chapter snapping), which adjusts a segment a method already found and has its own settings.
+_Avoid_: Detection type, analysis type, analyzer (unqualified)
+
 **Pass**:
 One run of the analyzer over a set of seasons. Passes never overlap; a pass waits for the pass in flight.
 _Avoid_: Run (for the noun), scan (the dashboard's word for a manual pass), batch
