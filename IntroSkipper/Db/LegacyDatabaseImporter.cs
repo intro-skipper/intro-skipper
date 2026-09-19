@@ -150,6 +150,7 @@ internal static partial class LegacyDatabaseImporter
         var skipped = 0;
         var pending = new List<DbSegment>();
         var promotions = new HashSet<Guid>();
+        var importedItems = new HashSet<Guid>();
 
         var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using (reader.ConfigureAwait(false))
@@ -219,6 +220,7 @@ internal static partial class LegacyDatabaseImporter
                 var configHash = ReadOptionalString(reader, hashOrdinal);
 
                 pending.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
+                importedItems.Add(itemId);
                 imported++;
 
                 if (pending.Count >= IntroSkipperDbContext.SaveBatchSize)
@@ -229,6 +231,11 @@ internal static partial class LegacyDatabaseImporter
         }
 
         await SaveBatchAsync(newDb, newDb.Segments, pending, cancellationToken).ConfigureAwait(false);
+
+        // Imported rows change what their items serve, so they journal like every
+        // other servable write; otherwise Jellyfin only learns of them when its own
+        // media segment scan pulls them. Promotions below change provenance only.
+        await IntroSkipperDatabase.EnqueueProjectionsAsync(newDb, importedItems, cancellationToken).ConfigureAwait(false);
 
         if (promotions.Count > 0)
         {

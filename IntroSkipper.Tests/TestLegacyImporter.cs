@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -105,6 +106,11 @@ public sealed class TestLegacyImporter
         Assert.Equal(3, marker.SegmentsImported);
         Assert.Equal(3, marker.SegmentsSkipped);
         Assert.Equal(1, marker.SeasonStatesImported);
+
+        // The import journals each item it wrote rows for, so the projection worker
+        // pushes them to Jellyfin without waiting for Jellyfin's own segment scan.
+        var queued = await db.ProjectionQueue.AsNoTracking().ToDictionaryAsync(q => q.ItemId, q => q.Version);
+        Assert.Equal(new Dictionary<Guid, long> { [itemA] = 1, [itemB] = 1 }, queued);
     }
 
     [Fact]
