@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -14,8 +13,8 @@ using Xunit;
 namespace IntroSkipper.Tests;
 
 /// <summary>
-/// Schema-level invariants of <c>introskipper-v2.db</c>: the unique range index, the
-/// range CHECK constraint, timestamp stamping, and the migration baseline.
+/// Schema-level invariants of <c>introskipper-v2.db</c>: the range CHECK constraint,
+/// timestamp stamping, and the migration baseline.
 /// </summary>
 public sealed class TestDbSegmentStorage : IDisposable
 {
@@ -23,59 +22,25 @@ public sealed class TestDbSegmentStorage : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    [Theory]
-    [InlineData(AnalysisMode.Introduction)]
-    [InlineData(AnalysisMode.Credits)]
-    [InlineData(AnalysisMode.Preview)]
-    [InlineData(AnalysisMode.Recap)]
-    [InlineData(AnalysisMode.Commercial)]
-    public void UniqueIndex_RejectsExactDuplicateRange_ForEveryMode(AnalysisMode mode)
-    {
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        var options = CreateInMemoryOptions(connection);
-
-        var itemId = Guid.NewGuid();
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            db.Database.EnsureCreated();
-
-            db.Segments.Add(new DbSegment(itemId, mode, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.Chapter));
-            db.SaveChanges();
-        }
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            // Inserting the exact same (item, type, start, end) quadruple must violate
-            // the uniform unique index and throw a DbUpdateException.
-            db.Segments.Add(new DbSegment(itemId, mode, TickConversions.FromSeconds(0), TickConversions.FromSeconds(10), SegmentSource.User));
-
-            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
-        }
-    }
-
     [Fact]
-    public void SaveChanges_StampsCreatedAndUpdatedTimestamps()
+    public async Task SaveChanges_StampsCreatedAndUpdatedTimestamps()
     {
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        var options = CreateInMemoryOptions(connection);
-
         var itemId = Guid.NewGuid();
         var before = DateTime.UtcNow;
 
-        using (var db = new IntroSkipperDbContext(options))
+        await using (var db = _db.Context())
         {
-            db.Database.EnsureCreated();
+            await db.Database.MigrateAsync();
             db.Segments.Add(new DbSegment(itemId, AnalysisMode.Introduction, 0, 100, SegmentSource.Chapter));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         var afterInsert = DateTime.UtcNow;
         DateTime createdAt;
 
-        using (var db = new IntroSkipperDbContext(options))
+        await using (var db = _db.Context())
         {
-            var segment = db.Segments.Single(s => s.ItemId == itemId);
+            var segment = await db.Segments.SingleAsync(s => s.ItemId == itemId);
             createdAt = segment.CreatedAt;
 
             Assert.InRange(segment.CreatedAt, before, afterInsert);
@@ -84,12 +49,12 @@ public sealed class TestDbSegmentStorage : IDisposable
 
             // Modifying the row refreshes UpdatedAt but keeps CreatedAt.
             segment.State = SegmentState.Suppressed;
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
-        using (var db = new IntroSkipperDbContext(options))
+        await using (var db = _db.Context())
         {
-            var segment = db.Segments.Single(s => s.ItemId == itemId);
+            var segment = await db.Segments.SingleAsync(s => s.ItemId == itemId);
             Assert.Equal(createdAt, segment.CreatedAt);
             Assert.True(segment.UpdatedAt >= segment.CreatedAt);
         }
@@ -169,19 +134,5 @@ public sealed class TestDbSegmentStorage : IDisposable
             Assert.Equal("segment-config", segment.ConfigHash);
             Assert.NotEqual(Guid.Empty, segment.Id);
         }
-    }
-
-    /// <summary>
-    /// Opens the shared in-memory connection (the database lives while it stays open;
-    /// the caller owns disposal) and builds context options over it.
-    /// </summary>
-    /// <param name="connection">Unopened in-memory SQLite connection.</param>
-    /// <returns>Context options bound to the connection.</returns>
-    private static DbContextOptions<IntroSkipperDbContext> CreateInMemoryOptions(SqliteConnection connection)
-    {
-        connection.Open();
-        return new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
     }
 }

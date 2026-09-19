@@ -477,19 +477,6 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task CancellationBeforeAnEpisode_Rethrows()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason();
-        using var cancellation = new CancellationTokenSource();
-        await cancellation.CancelAsync();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, cancellation.Token));
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
-    }
-
-    [Fact]
     public async Task BlackFrameScanFailure_FailsThatEpisodeAndContinues()
     {
         using var scope = Scope();

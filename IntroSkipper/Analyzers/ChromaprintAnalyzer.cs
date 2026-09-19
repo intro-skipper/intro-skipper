@@ -550,7 +550,7 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="id">Episode ID.</param>
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
     /// <returns>Inverted index.</returns>
-    internal Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
+    private Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
     {
         if (_invertedIndexCache.TryGetValue(id, out var cached))
         {

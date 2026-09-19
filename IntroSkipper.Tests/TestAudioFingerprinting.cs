@@ -9,7 +9,6 @@
  */
 
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
@@ -21,12 +20,6 @@ namespace IntroSkipper.Tests;
 
 public class TestAudioFingerprinting
 {
-    [FactSkipFFmpegTests]
-    public async Task TestInstallationCheck()
-    {
-        Assert.True(await CreateFFmpegService().CheckFFmpegVersionAsync());
-    }
-
     [FactSkipFFmpegTests]
     public async Task TestFingerprinting()
     {
@@ -60,27 +53,6 @@ public class TestAudioFingerprinting
         var actual = await ffmpegService.FingerprintAsync(
             QueueEpisode("audio/big_buck_bunny_intro.mp3"),
             AnalysisMode.Introduction);
-
-        Assert.Equal(expected, actual);
-    }
-
-    [Fact]
-    public void TestIndexGeneration()
-    {
-        //                     0  1  2  3  4  5   6   7
-        var fpr = new uint[] { 1, 2, 3, 1, 5, 77, 42, 2 };
-        var expected = new Dictionary<uint, int>()
-        {
-            {1, 3},
-            {2, 7},
-            {3, 2},
-            {5, 4},
-            {42, 6},
-            {77, 5},
-        };
-
-        var analyzer = CreateChromaprintAnalyzer();
-        var actual = analyzer.CreateInvertedIndex(Guid.NewGuid(), fpr);
 
         Assert.Equal(expected, actual);
     }

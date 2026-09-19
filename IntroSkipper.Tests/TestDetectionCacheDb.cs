@@ -12,11 +12,10 @@ using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 /// <summary>
-/// Cache schema invariants and the schema lifecycle's corruption recovery.
+/// Cache upsert semantics and the schema lifecycle's corruption recovery.
 /// </summary>
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
@@ -25,42 +24,20 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     public void Dispose() => _cache.Dispose();
 
     [Fact]
-    public void UniqueIndex_PreventsUpsertDuplicate()
+    public void Upsert_ReplacesTheRowOfTheSameKey_AndKeepsOtherRanges()
     {
-        var id = Guid.NewGuid();
+        var cacheDatabase = _cache.Database;
+        var itemId = Guid.NewGuid();
 
-        using (var db = CreateContext())
-        {
-            db.EnsureSchema();
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30));
-            db.SaveChanges();
-        }
+        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 30, EntrypointTestHelpers.EmptyJsonArray, "old");
+        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 30, Encoding.UTF8.GetBytes("[1]"), "new");
+        cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 30, 60, EntrypointTestHelpers.EmptyJsonArray, "new");
 
-        // Adding same (ItemId, Mode, Type, Start, End) should throw
-        using (var db = CreateContext())
-        {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, Encoding.UTF8.GetBytes("[1]"), 0, 30));
-            Assert.ThrowsAny<DbUpdateException>(() => db.SaveChanges());
-        }
-    }
-
-    [Fact]
-    public void DifferentStartEnd_AllowedForSameItemAndType()
-    {
-        var id = Guid.NewGuid();
-
-        using (var db = CreateContext())
-        {
-            db.EnsureSchema();
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 30, 60));
-            db.SaveChanges();
-        }
-
-        using (var db = CreateContext())
-        {
-            Assert.Equal(2, db.DetectionCache.Count(e => e.ItemId == id && e.Type == CacheEntryType.Silence));
-        }
+        var replaced = cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 30);
+        Assert.NotNull(replaced);
+        Assert.Equal("[1]", Encoding.UTF8.GetString(replaced.Data));
+        Assert.Equal("new", replaced.ConfigHash);
+        Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 30, 60));
     }
 
     [Fact]
