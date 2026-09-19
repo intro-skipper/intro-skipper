@@ -231,6 +231,7 @@ function textInput(
     input.addEventListener("input", commitSoon);
     // Leaving the field (including by clicking a button) commits at once.
     input.addEventListener("change", () => commitSoon.flush());
+    input.addEventListener("blur", () => commitSoon.flush());
 
     return container;
 }
