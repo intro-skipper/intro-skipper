@@ -5,6 +5,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers.Credits;
@@ -49,11 +50,11 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <remarks>
     /// Per-season BlackFrame and available Chromaprint actions bypass chapter matching; a
-    /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps both of its candidates.
-    /// Chapter and unavailable Chromaprint actions follow the default chapter-first policy,
-    /// including the enhancement option. An already-analyzed episode is reconsidered only
-    /// when a new chromaprint candidate reaches outside its stored credits; authoritative
-    /// chapters still prevent replacement.
+    /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps whichever of its
+    /// two candidates are switched on. Chapter actions, and actions naming an analyzer that cannot
+    /// contribute, follow the default chapter-first policy, including the enhancement option. An
+    /// already-analyzed episode is reconsidered only when a new chromaprint candidate reaches
+    /// outside its stored credits; authoritative chapters still prevent replacement.
     /// </remarks>
     /// <param name="items">The season's queued episodes, analyzed or not.</param>
     /// <param name="action">The season's analyzer action for credits.</param>
@@ -63,14 +64,20 @@ internal sealed partial class CreditsPass(
     public async Task RunAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken)
     {
         var chromaprintAvailable = ffmpegValid && items.Count > 1;
+
+        // With every candidate the keyframe analyzer could contribute switched off there is nothing
+        // to build, so an action naming it falls back to the default policy instead of restricting
+        // the pass to an analyzer that would find nothing, exactly as an unavailable Chromaprint
+        // already does. Shared with the hasher, which omits the enhancement token while it holds.
+        var keyframeCreditsEnabled = ConfigHasher.KeyframeCreditsEnabled(_config);
         var restriction = action switch
         {
-            AnalyzerAction.BlackFrame => action,
+            AnalyzerAction.BlackFrame when keyframeCreditsEnabled => action,
             AnalyzerAction.Chromaprint when chromaprintAvailable => action,
             _ => AnalyzerAction.Default,
         };
         var useChapter = restriction is AnalyzerAction.Default;
-        var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
+        var useBlackFrame = keyframeCreditsEnabled && restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;

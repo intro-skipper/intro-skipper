@@ -478,7 +478,7 @@ public class TestBlackFrames
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: true, detectCardCredits: true);
 
         Assert.Collection(
             candidates,
@@ -496,6 +496,31 @@ public class TestBlackFrames
             });
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
+    }
+
+    /// <summary>
+    /// The card run reads the black scenes the black-frame rules accept, so its range must match what
+    /// the same scan produces with both candidates on: see the case above, card 100 to 154.
+    /// </summary>
+    [Fact]
+    public async Task DetectCreditsAsync_WithoutBlackRollCredits_KeepsTheCardCandidateUnchanged()
+    {
+        var ffmpeg = new StubFFmpegService
+        {
+            CreditsBlackFrames = (_, _) => CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95),
+            KeyframeVisuals = _ => [.. Cards(0, 18, 2), .. Black(20, 54, 2)],
+            RangeBlackFrames = (_, _, _, _, _) => [],
+            BlackIntervals = (_, _, _, _) => [],
+        };
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: false, detectCardCredits: true);
+
+        var card = Assert.Single(candidates);
+        Assert.Equal(SegmentSource.KeyframeVisuals, card.Source);
+        Assert.Equal(100, card.Segment.Start);
+        Assert.Equal(154, card.Segment.End);
     }
 
     [Fact]
@@ -1349,7 +1374,7 @@ public class TestBlackFrames
     }
 
     private static async Task<Segment?> BlackFrameCredits(KeyframeAnalyzer analyzer, QueuedEpisode episode)
-        => (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false)).SingleOrDefault(c => c.Source == SegmentSource.BlackFrame).Segment;
+        => (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: true, detectCardCredits: false)).SingleOrDefault(c => c.Source == SegmentSource.BlackFrame).Segment;
 
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {

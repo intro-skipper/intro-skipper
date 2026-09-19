@@ -184,6 +184,7 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
     [InlineData(AnalysisMode.Recap, "cold-open")]
+    [InlineData(AnalysisMode.Credits, "no-black-roll")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -202,6 +203,7 @@ public sealed class TestLegacyAnalysisCompatibility
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
             case "cold-open": config.AnchorRecapToColdOpen = true; break;
+            case "no-black-roll": config.DetectBlackFrameCredits = false; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 

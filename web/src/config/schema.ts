@@ -145,6 +145,14 @@ export const configSchema = {
         description:
             "Run chromaprint before the chapter analyzer for intros and recaps. Credits ignore this setting.",
     },
+    DetectBlackFrameCredits: {
+        kind: "checkbox",
+        label: "Detect credits on a black roll",
+        description:
+            "Detect credits rolling over black, from the black-frame evidence in the keyframe scan. Turn this off when scene transitions that fade to black are being stored as credits.",
+        warning:
+            "Turning this off re-analyzes credits, recomputing their stored timestamps without black-roll candidates. Recap detection is unaffected and has its own setting on the Black Frame tab. Cached scans are kept and reused if you turn it back on.",
+    },
     EnhanceChapterCredits: {
         kind: "checkbox",
         label: "Enhance chapter credits",
