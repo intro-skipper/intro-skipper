@@ -4,34 +4,7 @@
 // business; a field's visibility rule stays with the tab too, because it needs
 // the config store.
 
-type SelectOption = { readonly value: string; readonly label: string };
-
-type FieldBase = {
-    readonly label: string;
-    /** Static HTML. Never built from user input. */
-    readonly description?: string;
-    /** Static HTML. Never built from user input. */
-    readonly warning?: string;
-};
-
-export type FieldSpec =
-    | (FieldBase & { readonly kind: "checkbox" })
-    | (FieldBase & {
-          readonly kind: "number";
-          /** Doubles as the HTML min attribute and the validation floor. */
-          readonly min?: number;
-          /** Doubles as the HTML max attribute and the validation ceiling. */
-          readonly max?: number;
-          readonly step?: number;
-      })
-    | (FieldBase & { readonly kind: "text"; readonly placeholder?: string })
-    /** A regular expression with a reset-to-default; the default is also the placeholder. */
-    | (FieldBase & { readonly kind: "regex"; readonly default: string })
-    | (FieldBase & { readonly kind: "select"; readonly options: readonly SelectOption[] })
-    /** A list of trimmed, non-empty strings. */
-    | (FieldBase & { readonly kind: "list"; readonly placeholder?: string });
-
-export type FieldKind = FieldSpec["kind"];
+import type { FieldKind, FieldSchema, KeysOfKind, ValuesOf } from "./field-spec.ts";
 
 const PATTERN_TAIL = "(?![\\s:]+End)(\\s|:|$)";
 
@@ -514,28 +487,16 @@ export const configSchema = {
             "Higher compression reduces disk usage but increases CPU time during analysis. " +
             "Changing this only affects newly cached data.",
     },
-} as const satisfies Record<string, FieldSpec>;
+} as const satisfies FieldSchema;
 
 export type ConfigSchema = typeof configSchema;
 export type ConfigKey = keyof ConfigSchema;
-
-type ValueOf<S extends FieldSpec> = S extends { kind: "checkbox" }
-    ? boolean
-    : S extends { kind: "number" }
-      ? number
-      : S extends { kind: "select"; options: readonly { value: infer V }[] }
-        ? V
-        : S extends { kind: "text" | "regex" }
-          ? string
-          : S extends { kind: "list" }
-            ? string[]
-            : never;
 
 /**
  * The plugin configuration as the server sends it. Every schema key is
  * editable; FileTransformationPluginEnabled is set by the server and only read.
  */
-export type PluginConfig = { -readonly [K in ConfigKey]: ValueOf<ConfigSchema[K]> } & {
+export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
 };
 
@@ -545,9 +506,7 @@ export type ConfigKeysOfType<V> = {
 }[ConfigKey];
 
 /** Config keys whose schema entry has the given kind. */
-export type KeyOfKind<Kd extends FieldKind> = {
-    [K in ConfigKey]: ConfigSchema[K] extends { kind: Kd } ? K : never;
-}[ConfigKey];
+export type KeyOfKind<Kd extends FieldKind> = KeysOfKind<ConfigSchema, Kd>;
 
 export const configKeys = Object.keys(configSchema) as ConfigKey[];
 

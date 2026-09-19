@@ -569,8 +569,7 @@ a {
 }
 
 .ts-action-scope-hint,
-.ts-action-description,
-.ts-override-description {
+.ts-action-description {
     color: var(--is-text-muted);
     font-size: 0.8em;
 }
@@ -602,33 +601,35 @@ a {
     gap: 12px;
 }
 
-.ts-preview-override {
+/* The override fields are ordinary form controls, packed tighter than on the settings tabs. */
+.ts-analysis-window .input-container,
+.ts-analysis-window .select-container {
     display: grid;
     gap: 4px;
+    min-width: 0;
+    margin: 0;
+}
+
+.ts-analysis-window .select-container {
     margin-top: 12px;
     max-width: 520px;
 }
 
-.ts-preview-override select {
-    max-width: 260px;
-}
-
-.ts-override-field {
-    display: grid;
-    gap: 4px;
-    min-width: 0;
-}
-
-.ts-override-label {
+.ts-analysis-window .input-label,
+.ts-analysis-window .select-label {
     font-size: 0.82em;
+    margin: 0;
     color: var(--is-text);
 }
 
-.ts-override-field input {
+.ts-analysis-window input,
+.ts-analysis-window select {
     max-width: 260px;
 }
 
-.ts-override-description {
+.ts-analysis-window .field-description {
+    margin: 0;
+    font-size: 0.8em;
     line-height: 1.35;
 }
 

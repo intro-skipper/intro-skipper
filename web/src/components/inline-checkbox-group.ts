@@ -25,6 +25,7 @@ export function inlineCheckboxGroup(
         container.append(label);
 
         bindField({
+            store: configStore,
             container: label,
             input,
             id,

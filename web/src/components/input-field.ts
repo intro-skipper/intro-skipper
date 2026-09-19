@@ -1,23 +1,37 @@
 import {
-    configSchema,
+    labelText,
     type FieldKind,
+    type FieldSchema,
     type FieldSpec,
-    type KeyOfKind,
-} from "../config/schema.ts";
-import { configStore } from "../store/config-store.ts";
+    type FieldStore,
+    type KeysOfKind,
+    type ValuesOf,
+} from "../config/field-spec.ts";
 import { el } from "./dom.ts";
-import { bindField } from "./field-bind.ts";
+import { bindField, type BoundStore } from "./field-bind.ts";
 import { appendFieldMeta } from "./field-meta.ts";
 
 /** Delay before committing typed input to the store (ms). */
 const INPUT_DEBOUNCE_MS = 180;
 
-function debounced(fn: () => void): () => void {
+// Runs `fn` once typing pauses; flush() runs a pending call now, so a value the
+// user just typed reaches the store before the button they clicked reads it.
+function debounced(fn: () => void): { (): void; flush(): void } {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    return () => {
+    const run = () => {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(fn, INPUT_DEBOUNCE_MS);
+        timer = setTimeout(() => {
+            timer = null;
+            fn();
+        }, INPUT_DEBOUNCE_MS);
     };
+    run.flush = () => {
+        if (timer === null) return;
+        clearTimeout(timer);
+        timer = null;
+        fn();
+    };
+    return run;
 }
 
 /** Rules that depend on other settings, so they stay with the tab that renders the field. */
@@ -31,41 +45,56 @@ export type FieldOptions = FieldRules & { signal: AbortSignal };
 
 type ControlKind = Exclude<FieldKind, "list">;
 
-/** Every config key configField can render. Lists have exclusionListField. */
-export type ControlKey = KeyOfKind<ControlKind>;
-
-// A key with its own spec, so narrowing on `kind` narrows both together.
-type Field = {
-    [Kd in ControlKind]: { kind: Kd; id: KeyOfKind<Kd>; spec: Extract<FieldSpec, { kind: Kd }> };
-}[ControlKind];
+/** Every key of `S` that fieldControl can render. Lists have exclusionListField. */
+export type ControlKey<S extends FieldSchema> = KeysOfKind<S, ControlKind>;
 
 /**
- * A config-bound form control: label, control, optional error line, and the
- * description/warning meta, all read from the field's schema entry. The control
- * reads from and writes to configStore under `id`.
+ * A store a form binds to: typed against its schema's values at the call site,
+ * and read through string keys inside the controls.
  */
-export function configField(id: ControlKey, options: FieldOptions): HTMLElement {
-    const spec: FieldSpec = configSchema[id];
-    // The one cast: TypeScript cannot tell that the entry indexed by `id` is the
-    // entry whose kind we just read.
-    const field = { kind: spec.kind, id, spec } as Field;
-    const inputId = "field-" + id;
+export type FormStore<S extends FieldSchema> = FieldStore<ValuesOf<S>> & BoundStore;
 
-    switch (field.kind) {
+/**
+ * A form control bound to `store[id]`, built from the field's entry in `schema`:
+ * label, control, optional error line, and the description/warning meta. The
+ * control reads and writes the store by the kind it rendered.
+ */
+export function fieldControl<S extends FieldSchema>(
+    schema: S,
+    store: FormStore<S>,
+    id: ControlKey<S>,
+    options: FieldOptions,
+): HTMLElement {
+    const spec: FieldSpec = schema[id];
+    const key = String(id);
+    switch (spec.kind) {
         case "checkbox":
-            return checkbox(field, inputId, options);
+            return checkbox(store, key, spec, options);
         case "select":
-            return select(field, inputId, options);
+            return select(store, key, spec, options);
+        case "list":
+            throw new Error(`${key} is a list; render it with exclusionListField`);
         default:
-            return textInput(field, inputId, options);
+            return textInput(store, key, spec, options);
     }
 }
 
+/** The controls of one form, all bound to the same store and ending with the same signal. */
+export function formFor<S extends FieldSchema>(schema: S, store: FormStore<S>, signal: AbortSignal) {
+    return {
+        field(id: ControlKey<S>, rules: FieldRules = {}): HTMLElement {
+            return fieldControl(schema, store, id, { ...rules, signal });
+        },
+    };
+}
+
 function checkbox(
-    { id, spec }: Extract<Field, { kind: "checkbox" }>,
-    inputId: string,
+    store: BoundStore,
+    id: string,
+    spec: Extract<FieldSpec, { kind: "checkbox" }>,
     options: FieldOptions,
 ): HTMLElement {
+    const inputId = "field-" + id;
     const container = el("div", {
         className: spec.description
             ? "checkbox-container checkbox-container-withDescription"
@@ -75,85 +104,96 @@ function checkbox(
     container.append(el("label", { className: "checkbox-label" }, input, el("span", {}, spec.label)));
 
     bindField({
+        store,
         container,
         input,
         id,
         ...options,
         describedByIds: appendFieldMeta(container, { ...spec, idBase: inputId }),
         onLoaded: () => {
-            input.checked = configStore.get(id);
+            input.checked = store.get(id) === true;
         },
     });
-    input.addEventListener("change", () => configStore.set(id, input.checked));
+    input.addEventListener("change", () => store.set(id, input.checked));
     return container;
 }
 
 function select(
-    { id, spec }: Extract<Field, { kind: "select" }>,
-    inputId: string,
+    store: BoundStore,
+    id: string,
+    spec: Extract<FieldSpec, { kind: "select" }>,
     options: FieldOptions,
 ): HTMLElement {
+    const inputId = "field-" + id;
     const container = el("div", { className: "select-container" });
     const label = el("label", { className: "select-label", for: inputId }, spec.label);
     const control = el("select", { id: inputId, name: id });
-    // Read the choices from the schema entry itself so their values keep the
-    // literal types the store expects.
-    const choices = configSchema[id].options;
-    for (const choice of choices) {
-        control.append(el("option", { value: choice.value }, choice.label));
-    }
+    // Options are addressed by index so a choice's value can be any primitive,
+    // including null for "use the default".
+    const optionEls = spec.options.map((choice, index) =>
+        el("option", { value: String(index) }, labelText(choice.label)),
+    );
+    control.append(...optionEls);
     container.append(label, control);
 
     bindField({
+        store,
         container,
         input: control,
         id,
         ...options,
         describedByIds: appendFieldMeta(container, { ...spec, idBase: inputId }),
         onLoaded: () => {
-            control.value = configStore.get(id);
+            spec.options.forEach((choice, index) => {
+                if (typeof choice.label === "function") optionEls[index].textContent = choice.label();
+            });
+            const current = store.get(id);
+            const index = spec.options.findIndex((choice) => choice.value === current);
+            control.value = index >= 0 ? String(index) : "";
         },
     });
     control.addEventListener("change", () => {
-        const chosen = choices.find((choice) => choice.value === control.value);
-        if (chosen) configStore.set(id, chosen.value);
+        const choice = spec.options[Number(control.value)];
+        if (choice) store.set(id, choice.value);
     });
     return container;
 }
 
 function textInput(
-    field: Extract<Field, { kind: "number" | "text" | "regex" }>,
-    inputId: string,
+    store: BoundStore,
+    id: string,
+    spec: Extract<FieldSpec, { kind: "number" | "text" | "regex" }>,
     options: FieldOptions,
 ): HTMLElement {
-    const { id, spec } = field;
+    const inputId = "field-" + id;
     const container = el("div", { className: "input-container" });
     const label = el("label", { className: "input-label", for: inputId }, spec.label);
     const inputAttrs: Record<string, string> = {
-        type: field.kind === "number" ? "number" : "text",
+        type: spec.kind === "number" ? "number" : "text",
         id: inputId,
         name: id,
         autocomplete: "off",
     };
     let description = spec.description;
-    if (field.kind === "number") {
-        const { min, max, step } = field.spec;
+    if (spec.kind === "number") {
+        const { min, max, step } = spec;
         inputAttrs.inputmode = step !== undefined && String(step).includes(".") ? "decimal" : "numeric";
         if (min !== undefined) inputAttrs.min = String(min);
         if (max !== undefined) inputAttrs.max = String(max);
         if (step !== undefined) inputAttrs.step = String(step);
-    } else if (field.kind === "regex") {
-        inputAttrs.placeholder = field.spec.default;
-        description =
-            (description ?? "") + " <br/>Default: <code>" + field.spec.default + "</code>";
-    } else if (field.spec.placeholder) {
-        inputAttrs.placeholder = field.spec.placeholder;
+        if (spec.placeholder !== undefined) inputAttrs.placeholder = labelText(spec.placeholder);
+    } else if (spec.kind === "regex") {
+        inputAttrs.placeholder = spec.default;
+        description = (description ?? "") + " <br/>Default: <code>" + spec.default + "</code>";
+    } else if (spec.placeholder) {
+        inputAttrs.placeholder = spec.placeholder;
     }
     const input = el("input", inputAttrs);
     const errorDiv = el("div", { className: "field-error" });
     container.append(label, input, errorDiv);
 
     bindField({
+        store,
         container,
         input,
         id,
@@ -165,21 +205,33 @@ function textInput(
             idBase: inputId,
         }),
         onLoaded: () => {
-            input.value = String(configStore.get(id));
+            if (spec.kind === "number" && spec.placeholder !== undefined) {
+                input.placeholder = labelText(spec.placeholder);
+            }
+            const value = store.get(id);
+            input.value = value === null || value === undefined ? "" : String(value);
         },
     });
 
     const commit =
-        field.kind === "number"
+        spec.kind === "number"
             ? () => {
-                  // Empty or non-numeric text means the user is still typing.
-                  if (input.value === "") return;
+                  if (input.value === "") {
+                      // Empty is "no value" for an optional field; otherwise the
+                      // user is still typing.
+                      if (spec.optional) store.set(id, null);
+                      return;
+                  }
                   const num = Number(input.value);
                   if (Number.isNaN(num)) return;
-                  configStore.set(field.id, num);
+                  store.set(id, num);
               }
-            : () => configStore.set(field.id, input.value);
-    input.addEventListener("input", debounced(commit));
+            : () => store.set(id, input.value);
+    const commitSoon = debounced(commit);
+    input.addEventListener("input", commitSoon);
+    // Leaving the field (including by clicking a button) commits at once.
+    input.addEventListener("change", () => commitSoon.flush());
+    input.addEventListener("blur", () => commitSoon.flush());
 
     return container;
 }
