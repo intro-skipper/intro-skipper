@@ -81,6 +81,33 @@ public class TestPluginConfiguration
         Assert.Equal("/mnt/remote", root.GetProperty("PathExclusions")[0].GetString());
     }
 
+    [Fact]
+    public void DetectionMethods_DefaultToEnabledAndRoundTripThroughXml()
+    {
+        var defaults = new PluginConfiguration();
+        Assert.True(defaults.EnableChapterAnalyzer);
+        Assert.True(defaults.EnableChromaprintAnalyzer);
+        Assert.True(defaults.EnableKeyframeAnalyzer);
+
+        var serializer = new XmlSerializer(typeof(PluginConfiguration));
+        using var writer = new StringWriter();
+        serializer.Serialize(
+            writer,
+            new PluginConfiguration
+            {
+                EnableChapterAnalyzer = false,
+                EnableChromaprintAnalyzer = false,
+                EnableKeyframeAnalyzer = false,
+            });
+
+        using var reader = new StringReader(writer.ToString());
+        var roundTripped = Assert.IsType<PluginConfiguration>(serializer.Deserialize(reader));
+
+        Assert.False(roundTripped.EnableChapterAnalyzer);
+        Assert.False(roundTripped.EnableChromaprintAnalyzer);
+        Assert.False(roundTripped.EnableKeyframeAnalyzer);
+    }
+
     [Theory]
     [InlineData(PluginConfiguration.MinimumAnalysisPercent - 2, PluginConfiguration.MinimumAnalysisPercent)]
     [InlineData(PluginConfiguration.MinimumAnalysisPercent - 1, PluginConfiguration.MinimumAnalysisPercent)]

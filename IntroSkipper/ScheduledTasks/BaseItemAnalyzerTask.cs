@@ -513,9 +513,20 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken)
     {
         // Chapters come first. Chromaprint needs a season to compare (no movies) and a
-        // compatible ffmpeg.
-        var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
-        IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
+        // compatible ffmpeg. A detection method switched off in the settings is never built,
+        // so it cannot run. The chapter analyzer also hosts the recap black-frame fallback,
+        // which answers to the keyframe switch, so it is built whenever either method needs it
+        // and skips the half that is off.
+        var recapBlackFrameFallback = mode == AnalysisMode.Recap && Config.DetectRecapUsingBlackFrames && Config.EnableKeyframeAnalyzer;
+        IMediaFileAnalyzer? chapter = Config.EnableChapterAnalyzer || recapBlackFrameFallback
+            ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config)
+            : null;
+
+        // A Chromaprint recap takes its extent from black-frame evidence, so with the keyframe scan
+        // switched off it can produce nothing; skip the comparison rather than fingerprint for a
+        // result that is discarded. Introduction is unaffected.
+        var chromaprintUsable = mode is AnalysisMode.Introduction || (mode is AnalysisMode.Recap && Config.EnableKeyframeAnalyzer);
+        IMediaFileAnalyzer? chromaprint = Config.EnableChromaprintAnalyzer && ffmpegValid && !isMovie && chromaprintUsable
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
@@ -524,7 +535,7 @@ public partial class BaseItemAnalyzerTask(
 
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
         // the rest keep their relative order. An action naming an analyzer that is not in the
-        // chain (Chromaprint without ffmpeg) changes nothing.
+        // chain (Chromaprint without ffmpeg, or a detection method switched off) changes nothing.
         var preferred = action switch
         {
             AnalyzerAction.Chapter => chapter,

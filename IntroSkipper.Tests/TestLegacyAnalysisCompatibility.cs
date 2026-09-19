@@ -184,6 +184,18 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
     [InlineData(AnalysisMode.Recap, "cold-open")]
+    // Those releases ran every detection method, so a record they wrote may hold a result from a
+    // method this server has since switched off. Adoption stops for the modes that method reaches.
+    [InlineData(AnalysisMode.Introduction, "no-chapter")]
+    [InlineData(AnalysisMode.Credits, "no-chapter")]
+    [InlineData(AnalysisMode.Recap, "no-chapter")]
+    [InlineData(AnalysisMode.Preview, "no-chapter")]
+    [InlineData(AnalysisMode.Commercial, "no-chapter")]
+    [InlineData(AnalysisMode.Introduction, "no-chromaprint")]
+    [InlineData(AnalysisMode.Credits, "no-chromaprint")]
+    [InlineData(AnalysisMode.Recap, "no-chromaprint")]
+    [InlineData(AnalysisMode.Credits, "no-keyframe")]
+    [InlineData(AnalysisMode.Recap, "no-keyframe")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -202,6 +214,9 @@ public sealed class TestLegacyAnalysisCompatibility
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
             case "cold-open": config.AnchorRecapToColdOpen = true; break;
+            case "no-chapter": config.EnableChapterAnalyzer = false; break;
+            case "no-chromaprint": config.EnableChromaprintAnalyzer = false; break;
+            case "no-keyframe": config.EnableKeyframeAnalyzer = false; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
@@ -249,6 +264,38 @@ public sealed class TestLegacyAnalysisCompatibility
             new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
             Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
         }
+    }
+
+    /// <summary>
+    /// A switched-off detection method blocks adoption only for the modes it runs in. The rest
+    /// still adopt, so switching off Chromaprint does not re-analyze the chapter-only modes.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalysisMode.Commercial, "no-chromaprint", 22)]
+    [InlineData(AnalysisMode.Commercial, "no-keyframe", 22)]
+    [InlineData(AnalysisMode.Introduction, "no-keyframe", 24)]
+    public async Task ModesADisabledMethodDoesNotRunIn_StillAdoptLegacyCompletion(AnalysisMode mode, string change, int release)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration();
+        var id = Guid.NewGuid();
+        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, AnalyzerAction.Default, true, false, release);
+        await temp.Database.MarkItemsAnalyzedAsync(mode, [id], legacyHash);
+        switch (change)
+        {
+            case "no-chromaprint": config.EnableChromaprintAnalyzer = false; break;
+            case "no-keyframe": config.EnableKeyframeAnalyzer = false; break;
+            default: throw new ArgumentOutOfRangeException(nameof(change));
+        }
+
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
+
+        Assert.True(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
+        Assert.Equal(
+            ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true),
+            snapshot.AnalysisRecords[(id, mode)].ConfigHash);
     }
 
     [Theory]

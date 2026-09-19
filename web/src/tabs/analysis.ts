@@ -3,6 +3,7 @@ import type { KeyOfKind } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
 import { htmlEl } from "../components/dom.ts";
 import { fieldRow } from "../components/tab-layout.ts";
+import { fieldGroup } from "../components/field-group.ts";
 import { configForm, type ConfigForm } from "../components/config-form.ts";
 
 /** A min/max pair side by side. The ordering rule itself lives in the schema. */
@@ -34,6 +35,12 @@ export const analysisTab: Tab = {
         const chaptersOff = () => configStore.get("FullLengthChapters") !== true;
 
         container.append(
+            fieldGroup(
+                "Detection methods",
+                form.field("EnableChapterAnalyzer"),
+                form.field("EnableChromaprintAnalyzer"),
+                form.field("EnableKeyframeAnalyzer"),
+            ),
             form.field("PreferChromaprint"),
             form.field("EnhanceChapterCredits"),
             form.field("FullLengthChapters"),

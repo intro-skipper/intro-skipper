@@ -79,10 +79,16 @@ internal sealed partial class ChapterAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
+        // This analyzer hosts two detection methods with separate switches: chapter matching, and
+        // the recap black-frame fallback, which decodes keyframes and so answers to the keyframe
+        // switch with DetectRecapUsingBlackFrames as its specific opt-in underneath. Either can run
+        // without the other.
+        var chapterAnalysis = _config.EnableChapterAnalyzer;
+        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames && _config.EnableKeyframeAnalyzer;
         var expression = GetExpression(mode);
 
-        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
+        if ((!chapterAnalysis || (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection))
+            && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;
         }
@@ -95,7 +101,7 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var matches = FindChapterCandidates(episode, mode);
+            var matches = chapterAnalysis ? FindChapterCandidates(episode, mode) : [];
 
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {

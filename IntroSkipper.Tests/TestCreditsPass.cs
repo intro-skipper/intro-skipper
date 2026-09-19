@@ -821,6 +821,85 @@ public sealed class TestCreditsPass
         Assert.Equal(oldRow.ConfigHash, newRow.ConfigHash);
     }
 
+    /// <summary>
+    /// A detection method switched off in the settings is never built, so the pass spends no
+    /// ffmpeg on it and the methods that remain still settle the episode.
+    /// </summary>
+    [Fact]
+    public async Task ChromaprintSwitchedOff_FingerprintsNothingAndKeepsTheKeyframeScan()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason();
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnableChromaprintAnalyzer = false })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.FingerprintCalls);
+        Assert.Equal(2, ffmpeg.CreditsScanCalls);
+        Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
+    [Fact]
+    public async Task KeyframeScanSwitchedOff_DecodesNoKeyframesAndKeepsChromaprint()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason();
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnableKeyframeAnalyzer = false })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+        Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
+    /// <summary>
+    /// A recognized credits chapter settles the episode while chapter analysis is enabled, and
+    /// contributes nothing once it is switched off, leaving the keyframe scan to settle it. Chapter
+    /// reads themselves continue either way: snapping a boundary to a chapter is refinement, not a
+    /// detection method, and keeps its own setting.
+    /// </summary>
+    [Theory]
+    [InlineData(true, SegmentSource.Chapter)]
+    [InlineData(false, SegmentSource.BlackFrame)]
+    public async Task ChapterAnalysis_ContributesOnlyWhileItsMethodIsEnabled(bool enabled, SegmentSource expected)
+    {
+        using var scope = Scope();
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_chapterRepository",
+            ChapterManagerStub.Create([Chapter("Main", 0), Chapter("Ending", 900)], out _));
+        var (episodes, ffmpeg, database) = CreateSeason();
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnableChapterAnalyzer = enabled })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        Assert.Equal(expected, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
+    /// <summary>
+    /// A BlackFrame action restricts the pass to the keyframe analyzer, so with that method
+    /// switched off the action would leave the pass with nothing to run. It falls back to the
+    /// default policy over the methods that remain, as an unavailable Chromaprint action does.
+    /// </summary>
+    [Fact]
+    public async Task BlackFrameAction_WithTheKeyframeScanSwitchedOff_FallsBackToTheDefaultPolicy()
+    {
+        using var scope = Scope();
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_chapterRepository",
+            ChapterManagerStub.Create([Chapter("Main", 0), Chapter("Ending", 900)], out _));
+        var (episodes, ffmpeg, database) = CreateSeason();
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnableKeyframeAnalyzer = false })
+            .RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: true, CancellationToken.None);
+
+        // A chapter result proves the pass left the restriction and ran the default policy.
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
     private static double PointTime(int point) => WindowStart + (point * ChromaprintConstants.SampleDuration);
 
     private static IDisposable Scope(params ChapterInfo[] chapters)
