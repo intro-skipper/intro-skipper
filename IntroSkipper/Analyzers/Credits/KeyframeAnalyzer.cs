@@ -36,6 +36,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
 /// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
 /// <see cref="StampCardKinds"/>).
+/// Each candidate kind has its own switch. Suppressing the black roll withholds the black-frame
+/// candidates only: the black-frame rules still run, because the card run reads the scenes they
+/// accept and reject.
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -66,7 +69,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
+        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectBlackFrameCredits, _config.DetectNonBlackCredits, cancellationToken);
 
     /// <summary>
     /// Detects the credits from FFmpeg keyframe evidence with explicit thresholds.
@@ -75,10 +78,11 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="detectBlackFrameCredits">Whether the black roll is offered as a candidate. The evidence is read either way.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
-    internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectBlackFrameCredits, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
         // keyframes inert.
@@ -95,7 +99,9 @@ internal sealed partial class KeyframeAnalyzer(
             ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, pages, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
             : ([], [], []);
 
-        List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
+        List<AttributedSegment> candidates = detectBlackFrameCredits
+            ? [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))]
+            : [];
         if (detectCardCredits)
         {
             var range = CardRunFinder.FindCreditRange(StampCardKinds(pages, blackMinimum, scenes, rejected), minimumDuration);

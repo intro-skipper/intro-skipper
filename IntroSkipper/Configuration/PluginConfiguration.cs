@@ -150,6 +150,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool RefineCreditsBoundary { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to detect credits from black-frame evidence: a roll of
+    /// credits over black. The evidence is still read as context for <see cref="DetectNonBlackCredits"/>,
+    /// which needs it to tell a black card apart from a black roll.
+    /// </summary>
+    public bool DetectBlackFrameCredits { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to detect credits on a near-uniform low-saturation card
     /// (text on black, white, grey, or muted colour) from the keyframe scan's visuals. The candidate is
     /// combined with the black-frame and other credits candidates, so card credits before or after a

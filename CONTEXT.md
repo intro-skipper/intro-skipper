@@ -31,7 +31,7 @@ One keyframe of the keyframe scan: its black-frame row and its keyframe visual, 
 _Avoid_: Frame, row (for the pair)
 
 **Keyframe analyzer**:
-The analyzer over one keyframe scan. It emits black-frame candidates for roll credits and at most one card run; `docs/credits.md` has its rules.
+The analyzer over one keyframe scan. It emits black-frame candidates for roll credits and at most one card run, each kind with its own setting; `docs/credits.md` has its rules.
 _Avoid_: Black-frame analyzer (for the class), card analyzer
 
 **Black-frame evidence**:
