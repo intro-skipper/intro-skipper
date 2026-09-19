@@ -74,12 +74,16 @@ internal sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// The single home of the marker-supersession rule, shared by the intent path
-    /// (one item) and the bulk analysis/maintenance writes: an existing marker bumps
-    /// its version with the due time reset, a missing one inserts. Runs inside the
-    /// caller's transaction; the projection worker's poll picks the markers up, so
-    /// bulk writers never await Jellyfin.
+    /// (one item), the bulk analysis/maintenance writes and the legacy import: an
+    /// existing marker bumps its version with the due time reset, a missing one
+    /// inserts. Runs inside the caller's transaction; the projection worker's poll
+    /// picks the markers up, so bulk writers never await Jellyfin.
     /// </summary>
-    private static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    /// <param name="db">Open context whose transaction the upsert joins.</param>
+    /// <param name="itemIds">Items whose projection is behind; duplicates collapse.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the markers are written.</returns>
+    internal static async Task EnqueueProjectionsAsync(IntroSkipperDbContext db, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
         // Atomic multi-row upserts, never a tracked read-modify-write: the analyzer
         // and maintenance callers hold no projection stripe, so the worker's

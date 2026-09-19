@@ -164,8 +164,10 @@ public sealed class TestLegacyAnalysisCompatibility
             Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(database, snapshot, config));
             Assert.Equal(legacyBytes, await File.ReadAllBytesAsync(legacyPath));
 
+            // Only the import's own markers, at version 1: hash adoption journals nothing.
             await using var db = DatabaseTestHelpers.CreateSegmentContext(databasePath);
-            Assert.Empty(await db.ProjectionQueue.ToListAsync());
+            var queued = await db.ProjectionQueue.AsNoTracking().ToDictionaryAsync(q => q.ItemId, q => q.Version);
+            Assert.Equal(new Dictionary<Guid, long> { [ids[0]] = 1, [ids[2]] = 1 }, queued);
         }
         finally
         {
