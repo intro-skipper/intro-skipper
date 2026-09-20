@@ -115,13 +115,22 @@ internal sealed partial class KeyframeAnalyzer(
                 return (null, []);
             }
         }
-        else if (scenes.Count == 1 && CreditSceneMetricsCalculator.Calculate(blackFrames, scenes[0], minimum).IsSparse(scenes[0], minimumDuration))
+        else if (scenes.Any(scene => CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration)))
         {
+            // Probe sparse scenes with blackdetect: this filters fades and scene transitions
+            // without rejecting a genuine roll when the optional probe has no result.
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             var supportedScenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
-            if (supportedScenes.Count > 0)
+            if (blackIntervals.Length > 0)
             {
-                scenes = supportedScenes;
+                if (supportedScenes.Count > 0)
+                {
+                    scenes = supportedScenes;
+                }
+                else if (scenes.Count > 1)
+                {
+                    return (null, []);
+                }
             }
         }
 

@@ -300,6 +300,34 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_MultipleSparseScenesRequireBlackIntervalSupport()
+    {
+        // Two sparse scenes clear the keyframe density gate because the source has only a few
+        // keyframes in each run. The later one represents a dark scene transition; only the first
+        // scene has a confirmed blackdetect interval and should remain a credits candidate.
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(10, 45, 4),
+            new(96, 60, 5),
+            new(96, 70, 6),
+            new(96, 80, 7),
+        ];
+        var ffmpeg = CreditsScan(frames, intervals: [new BlackInterval(10, 30)]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.NotNull(result);
+        Assert.Equal((10, 30), (result.Start, result.End));
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
     public void TestRefineBoundary_NoPriorKeyframe_ReturnsOriginalStart()
     {
         // When the scene starts at the very first keyframe's time, there is no preceding keyframe.
