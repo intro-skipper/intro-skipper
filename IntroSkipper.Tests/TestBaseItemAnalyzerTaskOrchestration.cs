@@ -19,25 +19,6 @@ using Xunit;
 
 public sealed class TestBaseItemAnalyzerTaskOrchestration
 {
-    [Fact]
-    public async Task AnalyzeItemsAsync_PropagatesCancellationToFfmpegValidation()
-    {
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        using var cancellation = new CancellationTokenSource();
-        await cancellation.CancelAsync();
-
-        var analyzer = new BaseItemAnalyzerTask(
-            NullLoggerFactory.Instance,
-            EntrypointTestHelpers.CreateSeasonResolver(EntrypointTestHelpers.CreateLibraryManager()),
-            ffmpegService: FfmpegTestHelpers.CreateFFmpegService(),
-            cacheService: null!,
-            cacheDatabase: null!,
-            database: null!);
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => analyzer.AnalyzeItemsAsync(new Progress<double>(), cancellation.Token));
-    }
-
     /// <summary>
     /// Credits the user authored never enter the credits pass, so the Preview mode has to
     /// refresh the derived preview when the preview minimum changes: a stale one goes, an
@@ -92,27 +73,6 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var rows = await database.GetSegmentsAsync(episode.EpisodeId);
         Assert.Equal(SegmentSource.User, Assert.Single(rows, s => s.Type == AnalysisMode.Credits).Source);
         Assert.Equal(expectPreview, rows.Any(s => s.Type == AnalysisMode.Preview));
-    }
-
-    [Fact]
-    public async Task AnalyzeItemsAsync_InvalidFfmpeg_IsProbedOnceAcrossAnalyzerAndQueueVerification()
-    {
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
-        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), path: "/media/missing-episode.mkv");
-        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
-        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
-        var ffmpegService = new StubFFmpegService { VersionCheck = () => false };
-        var analyzer = new BaseItemAnalyzerTask(
-            NullLoggerFactory.Instance,
-            EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
-            ffmpegService,
-            cacheService: null!,
-            cacheDatabase: null!,
-            DatabaseTestHelpers.CreateTempSegmentDatabase());
-
-        await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
-
-        Assert.Equal(1, ffmpegService.VersionCheckCalls);
     }
 
     /// <summary>

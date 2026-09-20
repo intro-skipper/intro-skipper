@@ -7,7 +7,7 @@ using IntroSkipper.Db;
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
-/// Derives an anime episode's Preview segment: the span after the first credits block, up to
+/// Derives an episode's Preview segment: the span after the first credits block, up to
 /// the next credits block (a trailing dubbing or sponsor card) or the end of the episode.
 /// </summary>
 internal static class AnimePreviewDeriver
@@ -105,7 +105,7 @@ internal static class AnimePreviewDeriver
     }
 
     /// <summary>
-    /// Decides whether an anime Preview segment needs to be written for an episode, and builds it.
+    /// Decides whether a credits-derived Preview segment needs to be written for an episode, and builds it.
     /// </summary>
     /// <remarks>
     /// Returns a new Segment when the Preview is missing, its Start no longer matches the current

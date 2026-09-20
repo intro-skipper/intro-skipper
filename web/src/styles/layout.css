@@ -380,14 +380,24 @@
 
 .ts-manage-toggle {
     color: var(--is-text-muted);
-    padding: 5px 12px;
+    padding: 6px 12px;
     font-size: 0.8em;
     font-family: inherit;
     touch-action: manipulation;
+    border: 1px solid var(--is-border);
+    border-radius: 5px;
+    background: var(--is-input-bg);
+    cursor: pointer;
 }
 
 .ts-manage-toggle:hover {
     color: var(--is-text);
+    background: var(--is-hover-strong);
+}
+
+.ts-manage-toggle[aria-expanded="true"] {
+    color: var(--is-accent);
+    border-color: var(--is-accent);
 }
 
 .ts-season-panel {
@@ -445,13 +455,33 @@
         flex-wrap: nowrap;
     }
 
-    .ts-action-row {
+    .ts-action-top-row,
+    .ts-action-bottom-row {
         flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ts-action-editor-link {
+        align-self: flex-end;
+    }
+
+    .ts-action-bottom-row {
         align-items: stretch;
     }
 
     .ts-action-buttons {
         margin-left: 0;
+        align-self: flex-end;
+        justify-content: flex-end;
+    }
+
+    .ts-analysis-window-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ts-analysis-window input,
+    .ts-analysis-window select {
+        max-width: none;
     }
 
     /* Keep library and show cards horizontal on mobile and truncate long titles. */

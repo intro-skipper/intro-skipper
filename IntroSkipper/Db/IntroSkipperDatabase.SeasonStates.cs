@@ -15,6 +15,57 @@ namespace IntroSkipper.Db;
 internal sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task<AnalysisOverrides> GetAnalysisOverridesAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var result = await db.SeasonAnalysisOverrides
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .Select(s => new { s.AnalysisPercent, s.AnalysisLengthLimit, s.PreviewFromCreditsEnd })
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return result is null
+            ? new AnalysisOverrides(null, null, null)
+            : new AnalysisOverrides(result.AnalysisPercent, result.AnalysisLengthLimit, result.PreviewFromCreditsEnd);
+    }
+
+    /// <inheritdoc/>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
+    /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
+    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, bool? previewFromCreditsEnd, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        if (analysisPercent is null && analysisLengthLimit is null && previewFromCreditsEnd is null)
+        {
+            await db.SeasonAnalysisOverrides
+                .Where(s => s.SeasonId == seasonId)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "AnalysisPercent", "AnalysisLengthLimit", "PreviewFromCreditsEnd")
+            VALUES ({seasonId}, {analysisPercent}, {analysisLengthLimit}, {previewFromCreditsEnd})
+            ON CONFLICT("SeasonId") DO UPDATE SET
+                "AnalysisPercent" = excluded."AnalysisPercent",
+                "AnalysisLengthLimit" = excluded."AnalysisLengthLimit",
+                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd"
+            """,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);

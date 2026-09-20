@@ -1,5 +1,4 @@
 import type { Tab } from "../types.ts";
-import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
 import {
     clearExcludedTimestamps,
@@ -8,14 +7,11 @@ import {
 } from "../store/api.ts";
 import { getAllShows } from "../store/jellyfin-client.ts";
 import { el, htmlEl } from "../components/dom.ts";
-import { bindVisibility } from "../components/field-bind.ts";
-import { inputField } from "../components/input-field.ts";
-import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
+import { configForm } from "../components/config-form.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { exclusionListField } from "../components/exclusion-list-field.ts";
 import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
-import { errorText, pluralize } from "../utils.ts";
+import { pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
     let normalized = value.trim().replace(/\\/g, "/");
@@ -54,9 +50,10 @@ async function loadMediaNameSuggestions(type: "Series" | "Movie"): Promise<strin
 }
 
 async function loadStoragePathSuggestions(): Promise<string[]> {
-    const libraries = await getStorageUsage();
+    const result = await getStorageUsage();
+    if (!result.ok) throw new Error(result.error);
     const paths: string[] = [];
-    for (const library of libraries) {
+    for (const library of result.data) {
         for (const folder of library.Folders) {
             const path = folder.Path.trim();
             if (path.length > 0) {
@@ -71,7 +68,9 @@ async function loadStoragePathSuggestions(): Promise<string[]> {
 export const generalTab: Tab = {
     id: "general",
     label: "General",
-    render(container) {
+    render(container, signal) {
+        const form = configForm(signal);
+
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(
             el("h3", { className: "checkbox-list-label" }, "Inject Skip Button CSS"),
@@ -88,22 +87,12 @@ export const generalTab: Tab = {
 
         injectSection.append(
             actionButton("Inject CSS", async () => {
-                statusMessage.show("Injecting CSS\u2026", "var(--is-accent)");
-                try {
-                    const response = await injectSkipButtonCss();
-                    if (response.ok) {
-                        statusMessage.show(
-                            "Skip button CSS injected successfully!",
-                            "var(--is-success)",
-                        );
-                    } else {
-                        statusMessage.show(
-                            `Failed to inject CSS: Server returned ${String(response.status)}`,
-                            "var(--is-error)",
-                        );
-                    }
-                } catch (error: unknown) {
-                    statusMessage.show(`Failed to inject CSS: ${errorText(error)}`, "var(--is-error)");
+                statusMessage.show("Injecting CSS…", "var(--is-accent)");
+                const response = await injectSkipButtonCss();
+                if (response.ok) {
+                    statusMessage.show("Skip button CSS injected successfully!", "var(--is-success)");
+                } else {
+                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "var(--is-error)");
                 }
             }),
         );
@@ -116,7 +105,7 @@ export const generalTab: Tab = {
                 "This feature requires the File Transformation plugin to work. " +
                 '<a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank">Install it here</a>',
         );
-        bindVisibility(ftWarning, () => !configStore.get("FileTransformationPluginEnabled"));
+        form.visibleWhen(ftWarning, () => !configStore.get("FileTransformationPluginEnabled"));
 
         const clearExcludedSection = el("div", { className: "input-container" });
         clearExcludedSection.append(
@@ -148,11 +137,8 @@ export const generalTab: Tab = {
 
                 clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
                 const response = await clearExcludedTimestamps();
-                if (!response.ok || !response.data) {
-                    clearStatus.show(
-                        response.error ?? "Failed to clear excluded timestamp data.",
-                        "var(--is-error)",
-                    );
+                if (!response.ok) {
+                    clearStatus.show(response.error, "var(--is-error)");
                     return;
                 }
 
@@ -164,133 +150,45 @@ export const generalTab: Tab = {
             clearStatus.element,
         );
 
+        const fileTransformationOn = () =>
+            configStore.get("UseFileTransformationPlugin") === true;
+
         container.append(
-            inputField({
-                kind: "checkbox",
-                id: "AutoDetectIntros",
-                label: "Automatically Analyze New Media",
-                description:
-                    'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
-            }),
-            inputField({
-                kind: "checkbox",
-                id: "ReanalyzeSettledSeasons",
-                label: "Re-analyze settled seasons",
-                description:
-                    "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
-            }),
-            inputField({
-                kind: "number",
-                id: "SettledSeasonDelayHours",
-                label: "Settled season delay (hours)",
-                min: 0,
-                max: MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
-                step: 1,
-                description:
-                    "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",
+            form.field("AutoDetectIntros"),
+            form.field("ReanalyzeSettledSeasons"),
+            form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
-            inputField({
-                kind: "checkbox",
-                id: "UpdateMediaSegments",
-                label: "Update Missing Segments During Scan",
-                description:
-                    "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
-            }),
-            exclusionListField({
-                id: "SeriesExclusions",
-                label: "Excluded series",
-                placeholder: "Series name",
-                description:
-                    "Series names matched exactly, case-insensitively. Start typing to pick from your libraries.",
+            form.field("UpdateMediaSegments"),
+            form.list("SeriesExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Series"),
             }),
-            exclusionListField({
-                id: "MovieExclusions",
-                label: "Excluded movies",
-                placeholder: "Movie name",
-                description:
-                    "Movie names matched exactly, case-insensitively. Start typing to pick from your libraries.",
+            form.list("MovieExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Movie"),
             }),
-            exclusionListField({
-                id: "PathExclusions",
-                label: "Excluded paths",
-                placeholder: "/media/library",
-                description:
-                    "Exact paths or child paths under a listed root. Storage folders are available as suggestions when the server reports them.",
+            form.list("PathExclusions", {
                 suggestions: loadStoragePathSuggestions,
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            inlineCheckboxGroup("Analyze for:", [
-                { id: "ScanIntroduction", label: "Introduction" },
-                { id: "ScanCredits", label: "Credits" },
-                { id: "ScanRecap", label: "Recap" },
-                { id: "ScanPreview", label: "Preview" },
-                { id: "ScanCommercial", label: "Commercials" },
+            form.checkboxGroup("Analyze for:", [
+                "ScanIntroduction",
+                "ScanCredits",
+                "ScanRecap",
+                "ScanPreview",
+                "ScanCommercial",
             ]),
-            inputField({
-                kind: "checkbox",
-                id: "AnalyzeSeasonZero",
-                label: "Analyze Season 0 (Specials / Extras)",
-                description:
-                    "Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.",
-            }),
-            inputField({
-                kind: "checkbox",
-                id: "UseFileTransformationPlugin",
-                label: "Use File Transformation Plugin to patch the web interface",
+            form.field("AnalyzeSeasonZero"),
+            form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),
             ftWarning,
-            inputField({
-                kind: "number",
-                id: "SkipbuttonHideDelay",
-                label: "Skip button hide delay (in seconds)",
-                min: 0,
-                max: 1000,
-                description:
-                    "Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).",
-                visible: () => configStore.get("UseFileTransformationPlugin") === true,
-                warning:
-                    "Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.",
-            }),
-            inputField({
-                kind: "checkbox",
-                id: "AutoSkipIntro",
-                label: "Auto-skip intros",
-                description:
-                    "Automatically skip intro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
-                visible: () => configStore.get("UseFileTransformationPlugin") === true,
-            }),
-            inputField({
-                kind: "checkbox",
-                id: "AutoSkipCredits",
-                label: "Auto-skip credits/outros",
-                description:
-                    "Automatically skip credits/outro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
-                visible: () => configStore.get("UseFileTransformationPlugin") === true,
-            }),
-            inputField({
-                kind: "number",
-                id: "SkipButtonVisibleSeconds",
-                label: "Hide skip button before segment end (seconds)",
-                min: 0,
-                max: 600,
-                step: 1,
-                description:
-                    "Hide the skip button this many seconds before the segment ends. Set to 0 to disable this end-relative limit. The normal skip button hide delay still applies.",
-                visible: () => configStore.get("UseFileTransformationPlugin") === true,
-            }),
+            form.field("SkipbuttonHideDelay", { visible: fileTransformationOn }),
+            form.field("AutoSkipIntro", { visible: fileTransformationOn }),
+            form.field("AutoSkipCredits", { visible: fileTransformationOn }),
+            form.field("SkipButtonVisibleSeconds", { visible: fileTransformationOn }),
             injectSection,
-            inputField({
-                kind: "checkbox",
-                id: "EnableMainMenu",
-                label: "Show Intro Skipper in Main Menu",
-                description:
-                    "Toggle the Intro Skipper entry in the server's main navigation. Save and refresh the client (or clear cache) to apply.",
-            }),
+            form.field("EnableMainMenu"),
         );
     },
 };

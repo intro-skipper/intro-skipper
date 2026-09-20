@@ -1,5 +1,7 @@
-import type { PluginConfig } from "../types.ts";
-import { configStore } from "../store/config-store.ts";
+import type { FieldStore } from "../config/field-spec.ts";
+
+/** Any field store, seen through string keys. What a rendered control binds to. */
+export type BoundStore = FieldStore<Record<string, unknown>>;
 
 /** Adds ids to the control's aria-describedby without dropping existing ones. */
 export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids: string[]): void {
@@ -19,48 +21,31 @@ export function setDescribedBy(input: HTMLInputElement | HTMLSelectElement, ids:
 }
 
 /**
- * Subscribes to config store events to toggle `container` visibility.
- * Must be called within a `configStore.beginScope()` / `endScope()` window
- * so the subscriptions are tracked and cleaned up on scope disposal.
- */
-export function bindVisibility(container: HTMLElement, visible?: () => boolean): void {
-    if (!visible) {
-        return;
-    }
-
-    const evalVisibility = () => {
-        container.style.display = visible() ? "" : "none";
-    };
-
-    configStore.subscribe("loaded", evalVisibility);
-    configStore.subscribe("changed", evalVisibility);
-
-    if (configStore.isLoaded()) {
-        evalVisibility();
-    }
-}
-
-/**
- * Shared wiring for config-bound controls: initial value, visibility, disabled
- * state, and validation messages. `onLoaded` copies the store value into the
- * control; it is skipped while the control has focus so typing is not clobbered.
+ * Shared wiring for a control bound to `store[id]`: initial value, visibility,
+ * disabled state, and validation messages, all until `signal` aborts. `onLoaded`
+ * copies the store value into the control; it is skipped while the control has
+ * focus so typing is not clobbered.
  */
 export function bindField(opts: {
+    store: BoundStore;
     container: HTMLElement;
     input: HTMLInputElement | HTMLSelectElement;
-    fieldOpts: { id: keyof PluginConfig; disabled?: () => boolean; visible?: () => boolean };
+    id: string;
+    signal: AbortSignal;
+    disabled?: () => boolean;
+    visible?: () => boolean;
     errorDiv?: HTMLElement;
     describedByIds?: string[];
     onLoaded: () => void;
 }): void {
-    const { container, input, fieldOpts, errorDiv, describedByIds = [], onLoaded } = opts;
+    const { store, container, input, id, signal, errorDiv, describedByIds = [], onLoaded } = opts;
 
     const evalState = () => {
-        if (fieldOpts.visible) {
-            container.style.display = fieldOpts.visible() ? "" : "none";
+        if (opts.visible) {
+            container.style.display = opts.visible() ? "" : "none";
         }
-        if (fieldOpts.disabled) {
-            const isDisabled = fieldOpts.disabled();
+        if (opts.disabled) {
+            const isDisabled = opts.disabled();
             input.disabled = isDisabled;
             container.classList.toggle("disabled-block", isDisabled);
         }
@@ -71,24 +56,28 @@ export function bindField(opts: {
         evalState();
     };
 
-    configStore.subscribe("loaded", sync);
+    store.subscribe("loaded", sync, { signal });
 
-    // Late-mounted fields still need an initial value if the config already loaded.
-    if (configStore.isLoaded()) {
+    // Late-mounted fields still need an initial value if the store already loaded.
+    if (store.isLoaded()) {
         sync();
     }
 
-    configStore.subscribe("changed", ({ field }) => {
-        evalState();
-        if (field === fieldOpts.id && document.activeElement !== input) {
-            onLoaded();
-        }
-    });
+    store.subscribe(
+        "changed",
+        ({ field }) => {
+            evalState();
+            if (field === id && document.activeElement !== input) {
+                onLoaded();
+            }
+        },
+        { signal },
+    );
 
     setDescribedBy(input, describedByIds);
 
     if (errorDiv) {
-        const errorId = errorDiv.id || fieldOpts.id + "-error";
+        const errorId = errorDiv.id || id + "-error";
         errorDiv.id = errorId;
         errorDiv.setAttribute("aria-live", "polite");
         errorDiv.setAttribute("aria-atomic", "true");
@@ -97,16 +86,20 @@ export function bindField(opts: {
 
         setDescribedBy(input, [errorId]);
 
-        configStore.subscribe("validation", ({ field, error }) => {
-            if (field !== fieldOpts.id) return;
-            errorDiv.textContent = error ?? "";
-            errorDiv.style.display = error ? "" : "none";
-            input.classList.toggle("field-error-active", Boolean(error));
-            if (error) {
-                input.setAttribute("aria-invalid", "true");
-            } else {
-                input.removeAttribute("aria-invalid");
-            }
-        });
+        store.subscribe(
+            "validation",
+            ({ field, error }) => {
+                if (field !== id) return;
+                errorDiv.textContent = error ?? "";
+                errorDiv.style.display = error ? "" : "none";
+                input.classList.toggle("field-error-active", Boolean(error));
+                if (error) {
+                    input.setAttribute("aria-invalid", "true");
+                } else {
+                    input.removeAttribute("aria-invalid");
+                }
+            },
+            { signal },
+        );
     }
 }

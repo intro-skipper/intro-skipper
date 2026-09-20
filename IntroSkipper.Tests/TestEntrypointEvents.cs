@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -79,9 +78,9 @@ public sealed class TestEntrypointEvents
 
         library.RaiseItemRemoved(JellyfinItems.Movie(removedId));
 
-        using var db = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
-        Assert.Equal(!expectDeleted, db.DetectionCache.Any(e => e.ItemId == removedId));
-        Assert.True(db.DetectionCache.Any(e => e.ItemId == otherId));
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
+        Assert.Equal(!expectDeleted, cacheDatabase.FindEntry(removedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0) is not null);
+        Assert.NotNull(cacheDatabase.FindEntry(otherId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool autoDetectIntros, string? cacheDbPath = null)

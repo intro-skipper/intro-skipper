@@ -575,6 +575,32 @@ internal sealed partial class IntroSkipperDatabase
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        Guid[] ids = [.. itemIds.Distinct()];
+        if (ids.Length == 0)
+        {
+            return 0;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var doomedRows = db.Segments.Where(s =>
+                EF.Parameter(ids).Contains(s.ItemId)
+                && s.Type == AnalysisMode.Preview
+                && s.Source == SegmentSource.CreditsDerived
+                && s.State == SegmentState.Active);
+            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
+    }
+
     // Every stored row must carry a mappable mode: downstream conversions index
     // AnalysisHelpers.ModeToSegmentType with it, so a persisted unmapped mode would
     // poison every later mirror of the item. The segments POST edge rejects such modes

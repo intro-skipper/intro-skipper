@@ -2,6 +2,7 @@ import { el } from "./dom.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
 import { createStatusMessage } from "./async-feedback.ts";
 import { parseTimeInput, formatTimeInput } from "../utils.ts";
+import { abortable, ignoreAbort, isAbortError } from "../lifecycle.ts";
 import * as api from "../store/api.ts";
 import type { SegmentDto, SegmentType } from "../types.ts";
 
@@ -35,6 +36,8 @@ export function sourceBadgeText(segment: SegmentDto): string {
             return "derived";
         case "Combined":
             return "combined";
+        case "KeyframeVisuals":
+            return "card";
         default:
             return segment.Source.toLowerCase();
     }
@@ -65,16 +68,18 @@ function readRange(
     return { start, end };
 }
 
+/** `signal` is the editor's lifetime; a mutation in flight when it aborts is abandoned. */
 export function segmentEditor(opts: {
     itemId: string;
     initialSegments: SegmentDto[];
     onChanged: (segments: SegmentDto[]) => void;
-}): { container: HTMLElement; isDirty: () => boolean; destroy: () => void } {
+    signal: AbortSignal;
+}): { container: HTMLElement; isDirty: () => boolean } {
+    const { signal } = opts;
     const container = el("div", { className: "ts-segment-editor" });
     const rowsEl = el("div");
     const status = createStatusMessage({ className: "ts-segment-status", display: "block" });
 
-    let destroyed = false;
     let busy = false;
     // Last rendered segment list; used to compute a local fallback view when a
     // post-mutation reload fails.
@@ -84,16 +89,18 @@ export function segmentEditor(opts: {
     let dirtyChecks: Array<() => boolean> = [];
 
     function setStatus(msg: string, color = "var(--is-text-muted)"): void {
-        if (destroyed) return;
         status.show(msg, color);
     }
 
     // Serializes mutations: while one is in flight, further clicks are ignored.
+    // An abort mid-mutation is the editor going away, not a failure.
     async function withBusy(fn: () => Promise<void>): Promise<void> {
         if (busy) return;
         busy = true;
         try {
             await fn();
+        } catch (err) {
+            if (!isAbortError(err)) throw err;
         } finally {
             busy = false;
         }
@@ -110,9 +117,8 @@ export function segmentEditor(opts: {
         fallback: SegmentDto[],
         overlap?: { type: SegmentType; start: number; end: number; excludeId?: string },
     ): Promise<void> {
-        const result = await api.getEpisodeSegments(opts.itemId);
-        if (destroyed) return;
-        const segments = result.ok ? (result.data ?? []) : fallback;
+        const result = await api.getEpisodeSegments(opts.itemId, signal);
+        const segments = result.ok ? result.data : fallback;
         renderRows(segments);
         opts.onChanged(segments);
         if (result.ok) {
@@ -168,15 +174,14 @@ export function segmentEditor(opts: {
             endInput.disabled = true;
             const restoreBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Restore");
             restoreBtn.addEventListener("click", () => withBusy(async () => {
-                const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
-                if (destroyed) return;
+                const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id, signal);
                 if (response.ok) {
                     const next = current.map((s) =>
                         s.Id === segment.Id ? { ...s, Suppressed: false } : s,
                     );
                     await reloadAfterMutation("Segment restored.", next);
                 } else {
-                    setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
+                    setStatus(response.error, "var(--is-error)");
                 }
             }));
             row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
@@ -195,8 +200,12 @@ export function segmentEditor(opts: {
         saveBtn.addEventListener("click", () => withBusy(async () => {
             const range = readRange(startInput, endInput, errorEl);
             if (range === null) return;
-            const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: range.start, End: range.end });
-            if (destroyed) return;
+            const result = await api.updateEpisodeSegment(
+                opts.itemId,
+                segment.Id,
+                { Start: range.start, End: range.end },
+                signal,
+            );
             if (result.ok) {
                 const next = current.map((s) =>
                     s.Id === segment.Id ? { ...s, Start: range.start, End: range.end } : s,
@@ -208,23 +217,25 @@ export function segmentEditor(opts: {
                     excludeId: segment.Id,
                 });
             } else {
-                errorEl.textContent = result.error ?? "Failed to save segment";
+                errorEl.textContent = result.error;
             }
         }));
 
-        deleteBtn.addEventListener("click", async () => {
+        const deleteSegment = async () => {
             if (busy) return;
-            const confirmed = await confirmDialog({
-                title: "Delete segment",
-                body: segment.Source === "User"
-                    ? "This permanently deletes the segment."
-                    : "This hides the automatically detected segment. Re-analysis will not re-add it. Erasing timestamps restores automatic detection.",
-                confirmLabel: "Delete",
-            });
-            if (!confirmed || destroyed) return;
+            const confirmed = await abortable(
+                confirmDialog({
+                    title: "Delete segment",
+                    body: segment.Source === "User"
+                        ? "This permanently deletes the segment."
+                        : "This hides the automatically detected segment. Re-analysis will not re-add it. Erasing timestamps restores automatic detection.",
+                    confirmLabel: "Delete",
+                }),
+                signal,
+            );
+            if (!confirmed) return;
             await withBusy(async () => {
-                const result = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
-                if (destroyed) return;
+                const result = await api.deleteEpisodeSegment(opts.itemId, segment.Id, signal);
                 if (result.ok) {
                     // Mirrors the server's delete rule (see confirm text above):
                     // user segments are removed, automatic ones are tombstoned.
@@ -233,10 +244,11 @@ export function segmentEditor(opts: {
                         : current.map((s) => (s.Id === segment.Id ? { ...s, Suppressed: true } : s));
                     await reloadAfterMutation("Segment deleted.", next);
                 } else {
-                    setStatus(result.error ?? "Failed to delete segment", "var(--is-error)");
+                    setStatus(result.error, "var(--is-error)");
                 }
             });
-        });
+        };
+        deleteBtn.addEventListener("click", () => void deleteSegment().catch(ignoreAbort));
 
         row.append(startInput, endInput, badge, saveBtn, deleteBtn, errorEl);
         return row;
@@ -263,8 +275,11 @@ export function segmentEditor(opts: {
             const range = readRange(startInput, endInput, errorEl);
             if (range === null) return;
             const type = select.value as SegmentType;
-            const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: range.start, End: range.end });
-            if (destroyed) return;
+            const result = await api.createEpisodeSegment(
+                opts.itemId,
+                { Type: type, Start: range.start, End: range.end },
+                signal,
+            );
             if (result.ok) {
                 // reloadAfterMutation always re-renders, so the add row (and its
                 // inputs) is rebuilt empty either way.
@@ -277,7 +292,7 @@ export function segmentEditor(opts: {
                     excludeId: created?.Id,
                 });
             } else {
-                errorEl.textContent = result.error ?? "Failed to add segment";
+                errorEl.textContent = result.error;
             }
         }));
 
@@ -304,11 +319,7 @@ export function segmentEditor(opts: {
         // or the add row holds typed input; callers use this to avoid re-renders
         // that would discard unsaved edits.
         isDirty() {
-            return !destroyed && dirtyChecks.some((check) => check());
-        },
-        destroy() {
-            destroyed = true;
-            container.replaceChildren();
+            return !signal.aborted && dirtyChecks.some((check) => check());
         },
     };
 }

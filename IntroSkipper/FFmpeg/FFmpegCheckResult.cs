@@ -8,7 +8,7 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 /// <param name="Status">Status token: <c>okay</c>, <c>unknown</c> before the first check has run, or the name of the failed requirement.</param>
 /// <param name="Outputs">Raw output of every probe that ran, in check order.</param>
-/// <param name="KeyframeVisualsSupported">Whether the build has the entropy and signalstats filters the keyframe visuals need. Assumed until a check says otherwise, so a scan before the first check runs the full keyframe scan.</param>
+/// <param name="KeyframeVisualsSupported">Whether the build has the signalstats filter the keyframe visuals need. Assumed until a check says otherwise, so a scan before the first check runs the full keyframe scan.</param>
 public sealed record FFmpegCheckResult(string Status, IReadOnlyList<FFmpegCheckOutput> Outputs, bool KeyframeVisualsSupported = true)
 {
     /// <summary>

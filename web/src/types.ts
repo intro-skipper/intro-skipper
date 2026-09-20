@@ -1,95 +1,15 @@
-// Shared types for plugin configuration, Jellyfin API payloads, and UI wiring.
-export interface PluginConfig {
-    // Numeric settings persisted in the plugin configuration.
-    MaxParallelism: number;
-    AnalysisPercent: number;
-    SettledSeasonDelayHours: number;
-    AnalysisLengthLimit: number;
-    MinimumIntroDuration: number;
-    MaximumIntroDuration: number;
-    MinimumCreditsDuration: number;
-    MaximumCreditsDuration: number;
-    MaximumMovieCreditsDuration: number;
-    MinimumRecapDuration: number;
-    MaximumRecapDuration: number;
-    MinimumRecapDetectionDuration: number;
-    MaximumRecapDetectionDuration: number;
-    MinimumPreviewDuration: number;
-    MaximumPreviewDuration: number;
-    MinimumCommercialDuration: number;
-    MaximumCommercialDuration: number;
-    ProcessThreads: number;
-    ScanTimeoutSeconds: number;
-    IntroEndOffset: number;
-    IntroStartOffset: number;
-    SkipbuttonHideDelay: number;
-    SkipButtonVisibleSeconds: number;
-    SilenceDetectionMaximumNoise: number;
-    SilenceDetectionMinimumDuration: number;
-    BlackFrameMinimumPercentage: number;
-    BlackFrameThreshold: number;
-    AdjustWindowInward: number;
-    AdjustWindowOutward: number;
-    EndSnapThreshold: number;
-
-    // String settings persisted in the plugin configuration.
-    ProcessPriority: string;
-    CacheCompressionLevel: "NoCompression" | "Fastest" | "Optimal" | "SmallestSize";
-    ChapterAnalyzerIntroductionPattern: string;
-    ChapterAnalyzerEndCreditsPattern: string;
-    ChapterAnalyzerPreviewPattern: string;
-    ChapterAnalyzerRecapPattern: string;
-    ChapterAnalyzerCommercialPattern: string;
-    PreferredAudioLanguage: string;
-    SeriesExclusions: string[];
-    MovieExclusions: string[];
-    PathExclusions: string[];
-
-    // Feature toggles persisted in the plugin configuration.
-    AutoDetectIntros: boolean;
-    ReanalyzeSettledSeasons: boolean;
-    AnalyzeSeasonZero: boolean;
-    UpdateMediaSegments: boolean;
-    UseLegacyBlackFrameAnalyzer: boolean;
-    RefineCreditsBoundary: boolean;
-    DetectNonBlackCredits: boolean;
-    UseChapterMarkersBlackFrame: boolean;
-    FullLengthChapters: boolean;
-    EnableSponsorBlockChapterDetection: boolean;
-    SkipFirstEpisode: boolean;
-    SkipFirstEpisodeAnime: boolean;
-    AnimePreviewFromCreditsEnd: boolean;
-    ScanIntroduction: boolean;
-    ScanCredits: boolean;
-    ScanRecap: boolean;
-    DetectRecapUsingBlackFrames: boolean;
-    AnchorRecapToColdOpen: boolean;
-    ScanPreview: boolean;
-    ScanCommercial: boolean;
-    EnableMainMenu: boolean;
-    PreferChromaprint: boolean;
-    EnhanceChapterCredits: boolean;
-    PreferAudioStreamWithMostChannels: boolean;
-    ProbeAudioDuration: boolean;
-    SnapToKeyframe: boolean;
-    AdjustIntroBasedOnSilence: boolean;
-    AdjustIntroBasedOnChapters: boolean;
-    IncludeIntroStartOffsetWhenSnapping: boolean;
-    UseFileTransformationPlugin: boolean;
-    AutoSkipIntro: boolean;
-    AutoSkipCredits: boolean;
-
-    // Server-managed flag exposed to the dashboard.
-    readonly FileTransformationPluginEnabled: boolean;
-}
+// Shared types for Jellyfin API payloads and UI wiring. The plugin configuration
+// itself is declared in config/schema.ts.
+import type { PluginConfig } from "./config/schema.ts";
 
 // API responses and timestamp domain models.
-export type ApiResult<T> = {
-    ok: boolean;
-    status: number | null;
-    data?: T;
-    error?: string;
-};
+
+// The answer to one request. `ok` narrows: a success carries the parsed body,
+// a failure carries the error text and the HTTP status, or null when the
+// request never reached the server.
+export type ApiResult<T> =
+    | { ok: true; status: number; data: T }
+    | { ok: false; status: number | null; error: string };
 
 export type AnalyzerActions = {
     Introduction?: string;
@@ -97,6 +17,12 @@ export type AnalyzerActions = {
     Recap?: string;
     Preview?: string;
     Commercial?: string;
+};
+
+export type AnalysisOverrides = {
+    AnalysisPercent: number | null;
+    AnalysisLengthLimit: number | null;
+    PreviewFromCreditsEnd: boolean | null;
 };
 
 // One stored segment as returned by the plural segments API. The Id is shared with
@@ -251,41 +177,12 @@ export type EpisodeItem = {
     SeriesName: string | null;
 };
 
-// Config keys whose value has type V, so a control binds only to keys it can hold.
-export type ConfigKeysOfType<V> = {
-    [K in keyof PluginConfig]: PluginConfig[K] extends V ? K : never;
-}[keyof PluginConfig];
-
-// Options for generated form controls; `kind` picks the control and the key type.
-type FieldBase<K extends keyof PluginConfig> = {
-    id: K;
-    label: string;
-    description?: string;
-    warning?: string;
-    disabled?: () => boolean;
-    visible?: () => boolean;
-};
-
-export type InputFieldOptions =
-    | (FieldBase<ConfigKeysOfType<boolean>> & { kind: "checkbox" })
-    | (FieldBase<ConfigKeysOfType<number>> & {
-          kind: "number";
-          min?: number;
-          max?: number;
-          step?: number;
-      })
-    | (FieldBase<ConfigKeysOfType<string>> & { kind: "text"; placeholder?: string })
-    | (FieldBase<ConfigKeysOfType<string>> & {
-          kind: "select";
-          options: Array<{ value: string; label: string }>;
-      });
-
-// Routing contract used across tabs.
+// Routing contract used across tabs. `signal` aborts when the tab is left, so
+// everything the render starts (fetches, listeners, store subscriptions) ends there.
 export interface Tab {
     id: string;
     label: string;
-    render: (container: HTMLElement) => void;
-    destroy?: () => void;
+    render: (container: HTMLElement, signal: AbortSignal) => void;
 }
 
 // Jellyfin injects these globals into the dashboard page.

@@ -26,13 +26,21 @@ _Avoid_: Detection, hit, match
 One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together.
 _Avoid_: Entropy scan
 
+**Keyframe analyzer**:
+The analyzer over one keyframe scan. It emits the black-frame candidate and the card run as two candidates.
+_Avoid_: Black-frame analyzer (for the class), card analyzer
+
 **Black-frame evidence**:
 The per-keyframe black percentage a keyframe scan reports. The basis for detecting roll credits.
 _Avoid_: Black frames (for the data), pblack
 
 **Keyframe visuals**:
-The per-keyframe entropy and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
+The per-keyframe luma percentiles and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
 _Avoid_: Entropy data, visual stats, card evidence
+
+**Card credits**:
+Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe whatever it shows and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits.
+_Avoid_: Non-black credits, entropy credits, uniform-card credits
 
 ### Analysis
 

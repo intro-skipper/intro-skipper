@@ -34,14 +34,27 @@ internal static class ConfigHasher
     /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint. Folded into the
     /// hash for Chromaprint-capable modes so a settled <see cref="EpisodeState.NoSegments"/> season is
     /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
+    /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
+    /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
+    /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
     /// <returns>A compact hex hash.</returns>
-    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    public static string Analysis(
+        PluginConfiguration config,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
+        int? analysisPercentOverride = null,
+        int? analysisLengthLimitOverride = null,
+        bool? previewFromCreditsEndOverride = null)
     {
+        var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
+        var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
+        var previewFromCreditsEnd = previewFromCreditsEndOverride ?? config.AnimePreviewFromCreditsEnd;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
+                $"|pct={analysisPercent}|limit={analysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
@@ -57,19 +70,19 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
+                $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
                 $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
-                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
+                $"|animePreview={previewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(
@@ -135,7 +148,7 @@ internal static class ConfigHasher
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
 
-            CacheEntryType.KeyframeVisual => $"cache|v1|{type}|{mode}",
+            CacheEntryType.KeyframeVisual => $"cache|v2|{type}|{mode}",
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };

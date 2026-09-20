@@ -69,6 +69,24 @@ public sealed class QueuedEpisode
     public double IntroFingerprintEnd { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level percentage override used to build the
+    /// fingerprint window and analysis hash.
+    /// </summary>
+    public int? AnalysisPercentOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level runtime override used to build the
+    /// fingerprint window and analysis hash.
+    /// </summary>
+    public int? AnalysisLengthLimitOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting that derives a Preview segment from the
+    /// end of Credits.
+    /// </summary>
+    public bool? PreviewFromCreditsEndOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }

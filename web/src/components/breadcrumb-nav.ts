@@ -23,14 +23,16 @@ type BreadcrumbNavOptions = {
     segments: BreadcrumbSegment[];
     allShows: ShowItem[];
     onSearchSelect: (show: ShowItem) => void;
+    /** The tab's lifetime; the search box's listeners end with it. */
+    signal: AbortSignal;
 };
 
 export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     container: HTMLElement;
     updateSegments: (segments: BreadcrumbSegment[]) => void;
     updateShows: (shows: ShowItem[]) => void;
-    destroy: () => void;
 } {
+    const { signal } = opts;
     const container = el("div", { className: "ts-top-bar" });
     const crumbsNav = el("nav", { className: "ts-breadcrumbs-nav", "aria-label": "Breadcrumb" });
     const crumbsEl = el("ol", { className: "ts-breadcrumbs" });
@@ -201,14 +203,23 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     }
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const handleInput = () => {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            renderSearchResults(searchInput.value);
-        }, SEARCH_DEBOUNCE_MS);
-    };
-
-    searchInput.addEventListener("input", handleInput);
+    searchInput.addEventListener(
+        "input",
+        () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                renderSearchResults(searchInput.value);
+            }, SEARCH_DEBOUNCE_MS);
+        },
+        { signal },
+    );
+    signal.addEventListener(
+        "abort",
+        () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+        },
+        { once: true },
+    );
 
     const handleKeydown = (event: KeyboardEvent) => {
         if (event.key === "ArrowDown") {
@@ -254,9 +265,9 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
         }
     };
 
-    searchInput.addEventListener("keydown", handleKeydown);
-    searchWrapper.addEventListener("focusout", handleFocusout);
-    searchInput.addEventListener("focus", handleFocus);
+    searchInput.addEventListener("keydown", handleKeydown, { signal });
+    searchWrapper.addEventListener("focusout", handleFocusout, { signal });
+    searchInput.addEventListener("focus", handleFocus, { signal });
 
     renderSegments(opts.segments);
 
@@ -270,18 +281,6 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
             if (searchInput.value.trim()) {
                 renderSearchResults(searchInput.value);
             }
-        },
-
-        destroy() {
-            if (debounceTimer) {
-                clearTimeout(debounceTimer);
-                debounceTimer = null;
-            }
-            searchInput.removeEventListener("input", handleInput);
-            searchInput.removeEventListener("keydown", handleKeydown);
-            searchInput.removeEventListener("focus", handleFocus);
-            searchWrapper.removeEventListener("focusout", handleFocusout);
-            closeResults();
         },
     };
 }

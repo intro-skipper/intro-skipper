@@ -451,23 +451,43 @@ a {
 /* Timestamp tab action bar. */
 
 .ts-action-bar {
-    background: rgba(0, 0, 0, 0.2);
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--is-border);
+    background: var(--is-surface);
+    padding: 16px;
+    border: 1px solid var(--is-border);
     margin-bottom: 12px;
-    border-radius: 4px;
+    border-radius: 8px;
     display: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
 }
 
 .ts-action-bar.open {
     display: block;
 }
 
-.ts-action-row {
+.ts-action-top-row,
+.ts-action-bottom-row {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    gap: 16px;
+}
+
+.ts-action-top-row {
+    align-items: flex-end;
     flex-wrap: wrap;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--is-border);
+}
+
+.ts-action-bottom-row {
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 14px;
+}
+
+.ts-action-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 132px;
 }
 
 .ts-full-series {
@@ -475,16 +495,17 @@ a {
     align-items: center;
     gap: 6px;
     white-space: nowrap;
-    font-size: 0.85em;
+    font-size: 0.9em;
     color: var(--is-text);
     cursor: pointer;
 }
 
 .ts-analyzer-group {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: flex-end;
+    gap: 10px;
     flex-wrap: wrap;
+    flex: 1 1 480px;
 }
 
 .ts-analyzer-item {
@@ -502,13 +523,14 @@ a {
 .ts-action-buttons {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
     margin-left: auto;
 }
 
 .ts-action-btn {
-    padding: 5px 12px;
-    border-radius: 4px;
-    font-size: 0.8em;
+    padding: 7px 12px;
+    border-radius: 5px;
+    font-size: 0.82em;
     cursor: pointer;
     border: none;
     font-family: inherit;
@@ -528,26 +550,104 @@ a {
     cursor: not-allowed;
 }
 
-.ts-action-meta {
-    margin-top: 8px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.8em;
-}
-
-.ts-action-meta a {
+.ts-action-editor-link {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    margin-left: auto;
     color: var(--is-accent);
+    font-size: 0.8em;
     text-decoration: underline;
 }
 
-.ts-action-meta a:focus-visible {
+.ts-action-editor-link:focus-visible {
     border-radius: 2px;
 }
 
 .ts-action-status {
     margin-top: 8px;
     font-size: 0.85em;
+}
+
+.ts-action-scope-hint,
+.ts-action-description {
+    color: var(--is-text-muted);
+    font-size: 0.8em;
+}
+
+.ts-action-scope-hint {
+    padding-left: 24px;
+}
+
+.ts-analysis-window {
+    margin: 14px 0 0;
+    padding: 12px 14px 10px;
+    border-color: var(--is-border);
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.ts-analysis-window legend {
+    font-size: 0.85em;
+    color: var(--is-text);
+}
+
+.ts-action-description {
+    margin: 0 0 12px;
+    line-height: 1.4;
+}
+
+.ts-analysis-window-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+/* The override fields are ordinary form controls, packed tighter than on the settings tabs. */
+.ts-analysis-window .input-container,
+.ts-analysis-window .select-container {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    margin: 0;
+}
+
+.ts-analysis-window .select-container {
+    margin-top: 12px;
+    max-width: 520px;
+}
+
+.ts-analysis-window .input-label,
+.ts-analysis-window .select-label {
+    font-size: 0.82em;
+    margin: 0;
+    color: var(--is-text);
+}
+
+.ts-analysis-window input,
+.ts-analysis-window select {
+    max-width: 260px;
+}
+
+.ts-analysis-window .field-description {
+    margin: 0;
+    font-size: 0.8em;
+    line-height: 1.35;
+}
+
+.ts-reset-overrides {
+    margin-top: 10px;
+    padding: 5px 9px;
+    color: var(--is-text-muted);
+    background: transparent;
+    border: 1px solid var(--is-border);
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78em;
+}
+
+.ts-reset-overrides:hover {
+    color: var(--is-text);
+    background: var(--is-hover);
 }
 
 /* Timestamp tab episode list. */

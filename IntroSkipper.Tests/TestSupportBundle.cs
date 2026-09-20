@@ -102,4 +102,40 @@ public class TestSupportBundle
         Assert.DoesNotContain(settings, s => s.Name == nameof(PluginConfiguration.FileTransformationPluginEnabled));
         Assert.Equal("BelowNormal", settings.Single(s => s.Name == nameof(PluginConfiguration.ProcessPriority)).Value);
     }
+
+    [Fact]
+    public void WarningManager_KeepsFingerprintFailuresUntilFullScanReset()
+    {
+        WarningManager.ResetFingerprintFailures();
+
+        WarningManager.RecordFingerprintFailure("chromaprint output for \"a.mkv\" was malformed");
+        WarningManager.RecordFingerprintFailure("chromaprint fingerprinting of \"b.mkv\" timed out");
+
+        var (failures, dropped) = WarningManager.GetFingerprintFailures();
+        Assert.Equal(["chromaprint output for \"a.mkv\" was malformed", "chromaprint fingerprinting of \"b.mkv\" timed out"], failures);
+        Assert.Equal(0, dropped);
+        Assert.Contains(nameof(PluginWarning.InvalidChromaprintFingerprint), WarningManager.GetWarnings(), StringComparison.Ordinal);
+
+        WarningManager.ResetFingerprintFailures();
+
+        Assert.Empty(WarningManager.GetFingerprintFailures().Failures);
+        Assert.DoesNotContain(nameof(PluginWarning.InvalidChromaprintFingerprint), WarningManager.GetWarnings(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WarningManager_CountsFingerprintFailuresPastTheCap()
+    {
+        WarningManager.ResetFingerprintFailures();
+
+        for (var i = 0; i < WarningManager.MaxFingerprintFailures + 3; i++)
+        {
+            WarningManager.RecordFingerprintFailure($"file {i}");
+        }
+
+        var (failures, dropped) = WarningManager.GetFingerprintFailures();
+        Assert.Equal(WarningManager.MaxFingerprintFailures, failures.Count);
+        Assert.Equal(3, dropped);
+
+        WarningManager.ResetFingerprintFailures();
+    }
 }
