@@ -117,8 +117,9 @@ internal sealed partial class KeyframeAnalyzer(
         }
         else if (scenes.Any(scene => CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration)))
         {
-            // Probe sparse scenes with blackdetect: this filters fades and scene transitions
-            // without rejecting a genuine roll when the optional probe has no result.
+            // Probe all candidates for ranking. When any are confirmed, keep dense scenes unchanged
+            // and add interval-supported scenes that do not overlap them by frame range.
+            // If none are confirmed, keep the original candidate set.
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             var supportedScenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
             if (supportedScenes.Count > 0)
