@@ -327,6 +327,77 @@ public class TestBlackFrames
         Assert.Equal(2, ffmpeg.IntervalScanCalls);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task DetectCreditsAsync_UnconfirmedProbePreservesKeyframeScenes(bool denseLastScene, bool hasIntervals)
+    {
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(10, 100, 4),
+            .. Enumerable.Range(0, denseLastScene ? 11 : 3)
+                .Select(i => new BlackFrame(96, 110 + (i * (denseLastScene ? 2 : 10)), i + 5)),
+        ];
+        var ffmpeg = CreditsScan(frames, intervals: hasIntervals ? [new BlackInterval(0, 1)] : []);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+
+        var result = await BlackFrameCredits(analyzer, CreateQueuedCreditsEpisode());
+
+        Assert.NotNull(result);
+        Assert.Equal((110, 130), (result.Start, result.End));
+        Assert.Equal(2, ffmpeg.IntervalScanCalls);
+    }
+
+    [Theory]
+    [InlineData(10, 30, 10, 30)]
+    [InlineData(105, 130, 100, 130)]
+    public async Task DetectCreditsAsync_SparseProbePreservesDenseSceneAndItsCardRun(
+        double intervalStart,
+        double intervalEnd,
+        double expectedBlackStart,
+        double expectedBlackEnd)
+    {
+        KeyframeVisual[] visuals =
+        [
+            KeyframeVisuals.Content(0),
+            .. Black(10, 30, 10),
+            KeyframeVisuals.Content(60),
+            .. Cards(90, 98, 2),
+            .. Black(100, 130, 2),
+        ];
+        BlackFrame[] frames = [.. visuals.Select((visual, frame) => new BlackFrame(visual.Time is >= 10 and <= 30 or >= 100 ? 96 : 0, visual.Time, frame))];
+        var ffmpeg = new StubFFmpegService
+        {
+            CreditsBlackFrames = (_, _) => frames,
+            KeyframeVisuals = _ => visuals,
+            BlackIntervals = (_, _, _, _) => [new BlackInterval(intervalStart, intervalEnd)],
+            RangeBlackFrames = (_, _, _, _, _) => [],
+        };
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+
+        var candidates = await analyzer.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+
+        Assert.Collection(
+            candidates,
+            blackFrame =>
+            {
+                Assert.Equal(SegmentSource.BlackFrame, blackFrame.Source);
+                Assert.Equal((expectedBlackStart, expectedBlackEnd), (blackFrame.Segment.Start, blackFrame.Segment.End));
+            },
+            card =>
+            {
+                Assert.Equal(SegmentSource.KeyframeVisuals, card.Source);
+                Assert.Equal((90, 130), (card.Segment.Start, card.Segment.End));
+            });
+        Assert.Equal(2, ffmpeg.IntervalScanCalls);
+    }
+
     [Fact]
     public void TestRefineBoundary_NoPriorKeyframe_ReturnsOriginalStart()
     {

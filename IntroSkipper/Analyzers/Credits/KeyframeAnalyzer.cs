@@ -121,16 +121,14 @@ internal sealed partial class KeyframeAnalyzer(
             // without rejecting a genuine roll when the optional probe has no result.
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             var supportedScenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
-            if (blackIntervals.Length > 0)
+            if (supportedScenes.Count > 0)
             {
-                if (supportedScenes.Count > 0)
-                {
-                    scenes = supportedScenes;
-                }
-                else if (scenes.Count > 1)
-                {
-                    return (null, []);
-                }
+                var denseScenes = scenes
+                    .Where(scene => !CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration))
+                    .ToList();
+                scenes = [.. denseScenes
+                    .Concat(supportedScenes.Where(supported => !denseScenes.Any(dense => supported.StartFrame <= dense.EndFrame && supported.EndFrame >= dense.StartFrame)))
+                    .OrderBy(scene => scene.StartFrame)];
             }
         }
 
