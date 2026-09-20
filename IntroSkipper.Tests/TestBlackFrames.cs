@@ -324,7 +324,7 @@ public class TestBlackFrames
 
         Assert.NotNull(result);
         Assert.Equal((10, 30), (result.Start, result.End));
-        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        Assert.Equal(2, ffmpeg.IntervalScanCalls);
     }
 
     [Fact]
