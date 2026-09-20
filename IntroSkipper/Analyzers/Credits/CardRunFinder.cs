@@ -31,6 +31,7 @@ internal static class CardRunFinder
     // spread and saturation alone, so admitting them would cost the card run finder's zero-false-positive
     // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
     private const double SaturationCreditMaximum = 96.0;
+    private const double LimitedRangeWhite = 235.0;
     private const double MinimumCardFraction = 0.5;
 
     // The blackframe and metadata filters format the same pts differently, so the same keyframe
@@ -97,9 +98,18 @@ internal static class CardRunFinder
     /// <param name="visual">The per-keyframe visual statistics.</param>
     /// <returns><see langword="true" /> when the keyframe looks like a credit card.</returns>
     internal static bool IsCreditCardKeyframe(KeyframeVisual visual)
-        => visual.LumaHigh - visual.LumaLow <= BackgroundSpreadMaximum &&
+        => !IsSolidWhite(visual) &&
+           visual.LumaHigh - visual.LumaLow <= BackgroundSpreadMaximum &&
            Math.Max(visual.LumaMax - visual.LumaHigh, visual.LumaLow - visual.LumaMin) >= TextContrastMinimum &&
            visual.Saturation < SaturationCreditMaximum;
+
+    // A blank white screen has no foreground text. Keep it out explicitly so a future change to
+    // the contrast thresholds cannot turn a solid frame into a card candidate.
+    private static bool IsSolidWhite(KeyframeVisual visual)
+        => visual.LumaMin >= LimitedRangeWhite &&
+           visual.LumaLow >= LimitedRangeWhite &&
+           visual.LumaHigh >= LimitedRangeWhite &&
+           visual.LumaMax >= LimitedRangeWhite;
 
     private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes)
     {
@@ -113,8 +123,9 @@ internal static class CardRunFinder
             }
 
             var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= BlackKeyframeJoinTolerance;
-            var card = IsCreditCardKeyframe(visual);
-            var kind = (black || card) && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
+            var solidWhite = IsSolidWhite(visual);
+            var card = !solidWhite && IsCreditCardKeyframe(visual);
+            var kind = !solidWhite && (black || card) && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
                 : card && !black ? KeyframeKind.Card
                 : KeyframeKind.Content;
             keyframes.Add(new CardKeyframe(visual.Time, kind));

@@ -1108,6 +1108,7 @@ public class TestBlackFrames
     {
         { KeyframeVisuals.Card(0), true },
         { KeyframeVisuals.WhiteCard(0), true },
+        { KeyframeVisuals.WhiteScreen(0), false },
 
         // Spread 9: the background is not dominant.
         { new KeyframeVisual(0, 16, 128, 137, 235, 30), false },
@@ -1198,6 +1199,9 @@ public class TestBlackFrames
         // Uniform but vividly saturated frames are excluded on purpose (see CardRunFinder).
         { CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200), 15, null },
 
+        // A completely white screen has no text and is not a credit card.
+        { [.. Times(0, 60, 2).Select(t => KeyframeVisuals.WhiteScreen(t))], 15, null },
+
         // All busy content -> null.
         { Seq(60, 2), 15, null },
     };
@@ -1263,6 +1267,11 @@ public class TestBlackFrames
             KeyframeVisual[] rollOnly = [.. Black(0, 60, 2)];
             data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [(0, 60)], null);
             data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [], (0, 60));
+
+            // Solid white frames are content even if the black-frame evidence misclassifies them;
+            // visual evidence must not let a white screen extend an accepted black scene.
+            KeyframeVisual[] whiteScreens = [.. Times(0, 60, 2).Select(t => KeyframeVisuals.WhiteScreen(t))];
+            data.Add(whiteScreens, BlackScanOf(whiteScreens, black: (0, 60)), [(0, 60)], null);
 
             // Short white cards then a short roll, each below the minimum on its own, qualify together.
             KeyframeVisual[] shortCardsThenShortRoll = [.. Cards(0, 10, 2), .. Black(12, 24, 2)];
