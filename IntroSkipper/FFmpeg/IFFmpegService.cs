@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024-2026 intro-skipper contributors
+// SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
