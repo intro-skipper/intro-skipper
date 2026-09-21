@@ -1273,6 +1273,12 @@ public class TestBlackFrames
             KeyframeVisual[] whiteScreens = [.. Times(0, 60, 2).Select(t => KeyframeVisuals.WhiteScreen(t))];
             data.Add(whiteScreens, BlackScanOf(whiteScreens, black: (0, 60)), [(0, 60)], null);
 
+            KeyframeVisual[] whiteScreensThenCards = [.. Times(0, 18, 2).Select(KeyframeVisuals.WhiteScreen), .. Cards(20, 40, 2)];
+            data.Add(whiteScreensThenCards, BlackScanOf(whiteScreensThenCards, black: (0, 18)), [(0, 18)], (20, 40));
+
+            KeyframeVisual[] cardsThenWhiteScreens = [.. Cards(0, 20, 2), .. Times(22, 40, 2).Select(KeyframeVisuals.WhiteScreen)];
+            data.Add(cardsThenWhiteScreens, BlackScanOf(cardsThenWhiteScreens, black: (22, 40)), [(22, 40)], (0, 20));
+
             // Short white cards then a short roll, each below the minimum on its own, qualify together.
             KeyframeVisual[] shortCardsThenShortRoll = [.. Cards(0, 10, 2), .. Black(12, 24, 2)];
             data.Add(shortCardsThenShortRoll, BlackScanOf(shortCardsThenShortRoll, black: (12, 24)), [], (0, 24));

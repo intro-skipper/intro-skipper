@@ -39,7 +39,7 @@ The per-keyframe luma percentiles and saturation a keyframe scan reports. The ba
 _Avoid_: Entropy data, visual stats, card evidence
 
 **Card credits**:
-Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe whatever it shows and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits.
+Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe that is not solid white and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits. Solid white screens are always content, even inside an accepted scene.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
 
 ### Analysis
