@@ -37,6 +37,12 @@ internal static class KeyframeVisuals
     /// <summary>A dark tinted scene flat enough to pass the card test on luma alone.</summary>
     internal static KeyframeVisual TintedFlat(double time) => new(time, 0, 12, 19, 198, 21, 30);
 
+    /// <summary>A dark grey scene before the cut to the roll: black to the blackframe filter, unsaturated, its darkest tenth five levels above black.</summary>
+    internal static KeyframeVisual DarkGrey(double time) => new(time, 15, 21, 26, 131, 0, 0);
+
+    /// <summary>A black roll page on a source with lifted blacks: the darkest tenth at 20 rather than 16.</summary>
+    internal static KeyframeVisual LiftedBlack(double time) => new(time, 18, 20, 20, 235, 0, 0);
+
     /// <summary>Dense white lettering on black: too much text for the card test, still a text page.</summary>
     internal static KeyframeVisual DenseText(double time) => new(time, 16, 16, 74, 244, 0, 0);
 

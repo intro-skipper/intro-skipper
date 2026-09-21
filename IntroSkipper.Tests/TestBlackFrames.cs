@@ -312,6 +312,8 @@ public class TestBlackFrames
     [InlineData("dense red text", 120.0)]
     [InlineData("dark highlight", 120.0)]
     [InlineData("cut then highlight", null)]
+    [InlineData("dark grey lead-in", 130.0)]
+    [InlineData("lifted blacks", 120.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
@@ -319,7 +321,9 @@ public class TestBlackFrames
         // credits, until lettering shows on more than half of them; no visuals at all leave the
         // black-frame result alone. Dense lettering and coloured lettering are rolls like any other.
         // A dark scene with one lit spot on every page is a roll as it always was; a cut followed by
-        // such a keyframe is lettered on half its pages and is not.
+        // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
+        // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
+        // with lifted blacks sets the scan's black level and is a roll.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -334,6 +338,8 @@ public class TestBlackFrames
             "red text" => [.. times.Select(KeyframeVisuals.RedText)],
             "dense red text" => [.. times.Select(KeyframeVisuals.DenseRedText)],
             "dark highlight" => [.. times.Select(KeyframeVisuals.DarkHighlight)],
+            "dark grey lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
             _ => [],
         };
         var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);

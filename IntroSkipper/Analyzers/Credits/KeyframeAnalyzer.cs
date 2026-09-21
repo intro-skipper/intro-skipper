@@ -17,8 +17,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
 /// through density gating, blackdetect interval recovery for sparse candidates and optional boundary
 /// refinement. Two gates use the visuals on black keyframes: a keyframe whose background is saturated
-/// is a dark tinted scene and does not count as black, and a black scene lettered on no more than half
-/// its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
+/// or above the scan's black level is a dark scene and does not count as black, and a black scene
+/// lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
 /// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
@@ -29,6 +29,12 @@ internal sealed partial class KeyframeAnalyzer(
     IFFmpegService ffmpegService,
     PluginConfiguration? configuration = null)
 {
+    // Black sits at 16 on the limited-range scale the scan is pinned to; a scan whose black keyframes
+    // typically sit higher has lifted blacks and sets its own level. A couple of levels over it is
+    // encoder noise, more is a dark grey scene.
+    private const double LimitedRangeBlack = 16;
+    private const double BlackLevelTolerance = 2;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -62,9 +68,9 @@ internal sealed partial class KeyframeAnalyzer(
         // black keyframes inert.
         var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
 
-        // Tinted keyframes are content to the black-frame rules, so they leave before the thresholds
-        // are normalized against the scan they will be applied to.
-        var sceneFrames = WithoutTintedKeyframes(blackFrames, visuals);
+        // Tinted and dark grey keyframes are content to the black-frame rules, so they leave before
+        // the thresholds are normalized against the scan they will be applied to.
+        var sceneFrames = WithoutDarkKeyframes(blackFrames, visuals, minimumPercentage);
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
             ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
             : (minimumPercentage, minimumPercentage);
@@ -177,18 +183,29 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
-    /// Drops the black percentage of keyframes whose visual is saturated. Black is unsaturated; a
-    /// keyframe the blackframe filter counts as black at that saturation is a dark tinted scene, such
-    /// as a blue night cave, not a roll or a card.
+    /// Drops the black percentage of keyframes whose visual is not black. Every pixel under the
+    /// blackframe filter's threshold is black to it, so a dark tinted scene, such as a blue night
+    /// cave, and a dark grey scene, such as a dim room before the cut to the roll, both count as black
+    /// there. Black is unsaturated, with its darkest tenth at the scan's black level: the median
+    /// darkest tenth of the scan's unsaturated black keyframes, never below 16, so a source with
+    /// lifted blacks keeps its roll and a sub-black fade cannot set the level.
     /// </summary>
-    private static List<BlackFrame> WithoutTintedKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals)
+    private static List<BlackFrame> WithoutDarkKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals, int minimumPercentage)
     {
         if (visuals.Count == 0)
         {
             return blackFrames;
         }
 
-        return [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? frame with { Percentage = 0 } : frame)];
+        List<double> levels = [.. blackFrames
+            .Where(frame => frame.Percentage >= minimumPercentage)
+            .Select(frame => VisualAt(visuals, frame.Time))
+            .OfType<KeyframeVisual>()
+            .Where(visual => visual.SaturationLow < CardRunFinder.BlackSaturationMaximum)
+            .Select(visual => visual.LumaLow)
+            .Order()];
+        var blackLevel = levels.Count == 0 ? LimitedRangeBlack : Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
+        return [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { } visual && (visual.SaturationLow >= CardRunFinder.BlackSaturationMaximum || visual.LumaLow > blackLevel + BlackLevelTolerance) ? frame with { Percentage = 0 } : frame)];
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
