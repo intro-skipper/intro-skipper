@@ -6,6 +6,7 @@
 
 using System.Net.Mime;
 using System.Runtime.InteropServices;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
@@ -92,6 +93,32 @@ public partial class TroubleshootingController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<SupportBundle> GetSupportBundleJson() => BuildSupportBundle();
 
+    /// <summary>
+    /// Resets every plugin setting to its default and saves the configuration. The series, movie and
+    /// path exclusion lists are user data rather than tuning and are kept. Jellyfin's per-library
+    /// provider selection and the injected skip button CSS are stored outside the plugin configuration
+    /// and are left as they are.
+    /// </summary>
+    /// <response code="204">Configuration reset.</response>
+    /// <returns>No content.</returns>
+    [HttpPost("Configuration/Reset")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult ResetConfiguration()
+    {
+        var plugin = Plugin.Instance!;
+        var current = plugin.Configuration;
+        plugin.UpdateConfiguration(new PluginConfiguration
+        {
+            SeriesExclusions = [.. current.SeriesExclusions],
+            MovieExclusions = [.. current.MovieExclusions],
+            PathExclusions = [.. current.PathExclusions],
+
+            // Runtime state the plugin detects at startup, not a setting.
+            FileTransformationPluginEnabled = current.FileTransformationPluginEnabled,
+        });
+        return NoContent();
+    }
+
     private SupportBundle BuildSupportBundle()
     {
         var plugin = Plugin.Instance!;
@@ -131,10 +158,27 @@ public partial class TroubleshootingController : ControllerBase
             {
                 Text = string.Join('\n', settings.Select(s => $"{s.Name}: {s.Value}")),
             },
+            new("Fingerprint failures since the last full scan", Collapsed: true)
+            {
+                Text = DescribeFingerprintFailures(),
+            },
             .. ffmpeg.Outputs.Select(o => new SupportBundleSection($"FFmpeg {o.Name}", Collapsed: true) { Text = o.Output }),
         ];
 
         return new SupportBundle(sections);
+    }
+
+    // One failure per line, or null so the section renders as "None".
+    private static string? DescribeFingerprintFailures()
+    {
+        var (failures, dropped) = WarningManager.GetFingerprintFailures();
+        if (failures.Count == 0)
+        {
+            return null;
+        }
+
+        var text = string.Join('\n', failures);
+        return dropped > 0 ? text + FormattableString.Invariant($"\nand {dropped} more") : text;
     }
 
     // "2026-08-22 03:00 UTC, Completed in 14 min", with the error message appended for failed runs.

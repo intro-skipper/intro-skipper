@@ -1,5 +1,6 @@
 import type { Tab } from "../types.ts";
 import * as api from "../store/api.ts";
+import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
 import { tabWarning } from "../components/tab-warning.ts";
@@ -62,16 +63,12 @@ export const toolsTab: Tab = {
                 checkbox: { label: "Include cached fingerprint files" },
             });
             if (!result) return;
-            try {
-                const response = await api.eraseTimestamps(type, result.checkboxChecked);
-                if (!response.ok) {
-                    window.Dashboard.alert("Failed to erase " + type + " timestamps");
-                    return;
-                }
-                window.Dashboard.alert(type + " timestamps erased");
-            } catch {
+            const response = await api.eraseTimestamps(type, result.checkboxChecked);
+            if (!response.ok) {
                 window.Dashboard.alert("Failed to erase " + type + " timestamps");
+                return;
             }
+            window.Dashboard.alert(type + " timestamps erased");
         });
 
         const rebuildBtn = el(
@@ -86,29 +83,48 @@ export const toolsTab: Tab = {
                 confirmLabel: "Rebuild",
             });
             if (!result) return;
-            try {
-                let response = await api.rebuildDatabase();
-                if (response.status === 409) {
-                    // The server refused because the existing database cannot be read
-                    // for backup; rebuilding means starting empty.
-                    const discard = await confirmDialog({
-                        title: "Database Unreadable",
-                        body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
-                        confirmLabel: "Discard and Rebuild",
-                    });
-                    if (!discard) return;
-                    response = await api.rebuildDatabase({ forceCleanOnBackupFailure: true });
-                }
-                if (!response.ok) {
-                    window.Dashboard.alert("Failed to rebuild database");
-                    return;
-                }
-                window.Dashboard.alert(
-                    "Database rebuild initiated. A full Jellyfin restart is required.",
-                );
-            } catch {
-                window.Dashboard.alert("Failed to rebuild database");
+            let response = await api.rebuildDatabase();
+            if (response.status === 409) {
+                // The server refused because the existing database cannot be read
+                // for backup; rebuilding means starting empty.
+                const discard = await confirmDialog({
+                    title: "Database Unreadable",
+                    body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
+                    confirmLabel: "Discard and Rebuild",
+                });
+                if (!discard) return;
+                response = await api.rebuildDatabase({ forceCleanOnBackupFailure: true });
             }
+            if (!response.ok) {
+                window.Dashboard.alert("Failed to rebuild database");
+                return;
+            }
+            window.Dashboard.alert(
+                "Database rebuild initiated. A full Jellyfin restart is required.",
+            );
+        });
+
+        const resetBtn = el(
+            "button",
+            { className: "action-button raised block", type: "button" },
+            "Reset Settings to Defaults",
+        );
+        resetBtn.addEventListener("click", async () => {
+            const result = await confirmDialog({
+                title: "Confirm Settings Reset",
+                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection and the injected skip button CSS are kept.",
+                confirmLabel: "Reset",
+            });
+            if (!result) return;
+            const response = await api.resetConfiguration();
+            if (!response.ok) {
+                window.Dashboard.alert("Failed to reset settings");
+                return;
+            }
+            // The store reports its own load failure, so the reset is
+            // confirmed only once the fields show the defaults.
+            await configStore.load();
+            window.Dashboard.alert("Settings reset to defaults");
         });
 
         container.append(
@@ -118,6 +134,7 @@ export const toolsTab: Tab = {
             tabWarning(
                 "Rebuilding the database requires a full Jellyfin restart to complete, not just a dashboard restart.",
             ),
+            resetBtn,
         );
     },
 };

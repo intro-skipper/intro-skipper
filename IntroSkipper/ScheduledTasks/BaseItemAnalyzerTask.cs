@@ -85,6 +85,11 @@ public partial class BaseItemAnalyzerTask(
         // A scoped run resolves only the series and movies owning the requested items. A
         // full run resolves every series and movie.
         var scope = itemIds?.ToHashSet();
+        if (scope is null)
+        {
+            WarningManager.ResetFingerprintFailures();
+        }
+
         var owners = scope is null ? _seasonResolver.EnumerateLibrary(out _) : _seasonResolver.OwnersOf(scope);
         if (owners.Count == 0 && scope is null)
         {

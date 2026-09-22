@@ -148,7 +148,7 @@ internal static class ConfigHasher
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
 
-            CacheEntryType.KeyframeVisual => $"cache|v1|{type}|{mode}",
+            CacheEntryType.KeyframeVisual => $"cache|v3|{type}|{mode}",
 
             CacheEntryType.ShortcutDuration => $"cache|v1|{type}",
 

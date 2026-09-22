@@ -4,15 +4,19 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Per-keyframe visual statistics used to detect non-black credits that the
-/// black-frame scan is blind to (text on a near-uniform low-saturation card).
+/// Per-keyframe luma statistics used to detect credits on a near-uniform card.
 /// </summary>
 /// <remarks>
-/// Both signals are emitted by stock FFmpeg in the same keyframe decode as the
-/// black-frame scan (<c>entropy</c> and <c>signalstats</c> filters), so acquiring
-/// them costs only the additional metadata parse.
+/// All from the <c>signalstats</c> filter in the same keyframe decode as the black-frame scan, on the
+/// 8-bit limited-range scale the graph pins with <c>format=yuv420p</c>. A card is a dominant background
+/// (<see cref="LumaLow"/> to <see cref="LumaHigh"/> within a few levels) with text far from it
+/// (<see cref="LumaMin"/> or <see cref="LumaMax"/> far outside that band).
 /// </remarks>
 /// <param name="Time">Keyframe time relative to the credits fingerprint start.</param>
-/// <param name="Entropy">Normalised luma histogram entropy (0..1); low values mark a near-uniform "card" background.</param>
-/// <param name="Saturation">Mean saturation (<c>SATAVG</c>, 0..255); low values mark greyscale/muted backgrounds.</param>
-public sealed record KeyframeVisual(double Time, double Entropy, double Saturation);
+/// <param name="LumaMin">Lowest luma in the frame (<c>YMIN</c>).</param>
+/// <param name="LumaLow">10th percentile luma (<c>YLOW</c>).</param>
+/// <param name="LumaHigh">90th percentile luma (<c>YHIGH</c>).</param>
+/// <param name="LumaMax">Highest luma in the frame (<c>YMAX</c>).</param>
+/// <param name="SaturationLow">10th percentile saturation (<c>SATLOW</c>, 0..255): the background's saturation, since the least saturated tenth of a frame with lettering on it is background.</param>
+/// <param name="Saturation">Mean saturation (<c>SATAVG</c>, 0..255).</param>
+public sealed record KeyframeVisual(double Time, double LumaMin, double LumaLow, double LumaHigh, double LumaMax, double SaturationLow, double Saturation);

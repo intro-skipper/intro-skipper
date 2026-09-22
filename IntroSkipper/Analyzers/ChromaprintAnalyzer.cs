@@ -186,7 +186,7 @@ internal sealed partial class ChromaprintAnalyzer(
             catch (FingerprintException ex)
             {
                 LogCaughtFingerprintError(ex);
-                WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
+                WarningManager.RecordFingerprintFailure(ex.Message);
 
                 // Keep a transient fingerprint failure retriable. A completed neighbor may be
                 // included only to provide a comparison fingerprint; do not discard its valid result.
@@ -599,7 +599,7 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="id">Episode ID.</param>
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
     /// <returns>Inverted index.</returns>
-    internal Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
+    private Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
     {
         if (_invertedIndexCache.TryGetValue(id, out var cached))
         {

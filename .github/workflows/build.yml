@@ -30,7 +30,9 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ ! startsWith(github.event.head_commit.message, 'release v') }}
+    if: >-
+      ! startsWith(github.event.head_commit.message, 'release v') &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.fork)
 
     runs-on: ubuntu-latest
 

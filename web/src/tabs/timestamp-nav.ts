@@ -1,6 +1,6 @@
 import type { ShowItem } from "../types.ts";
 import { getShowsInLibrary } from "../store/jellyfin-client.ts";
-import { pluralize } from "../utils.ts";
+import { abortable } from "../lifecycle.ts";
 
 // Navigation state discriminated union.
 type NavState =
@@ -9,42 +9,17 @@ type NavState =
     | { view: "episodes"; show: ShowItem; seasonId: string; seasonName: string };
 
 /**
- * Manages navigation state, staleness guards, loading indicators,
- * and the resolved per-library show lists for the timestamps browser.
+ * Navigation state, the dashboard loading indicator's depth count, and the
+ * resolved per-library show lists for the timestamps browser. The loading
+ * indicator is cleared when `signal` aborts.
  */
-export function createNavState() {
-    let destroyed = false;
-    let viewVersion = 0;
-    let panelVersion = 0;
+export function createNavState(signal: AbortSignal) {
     let loadingDepth = 0;
     let state: NavState = { view: "libraries" };
 
     // Resolved show lists, for synchronous reads (search index, cached views).
     // The fetch itself is deduplicated and cached by jellyfin-client.
     const libraryShows = new Map<string, ShowItem[]>();
-
-    function nextViewVersion(): number {
-        viewVersion += 1;
-        panelVersion += 1;
-        return viewVersion;
-    }
-
-    function nextPanelVersion(): number {
-        panelVersion += 1;
-        return panelVersion;
-    }
-
-    function isCurrentView(version: number): boolean {
-        return !destroyed && version === viewVersion;
-    }
-
-    function isCurrentPanel(version: number): boolean {
-        return !destroyed && version === panelVersion;
-    }
-
-    function isAlive(): boolean {
-        return !destroyed;
-    }
 
     function showDashboardLoading(): void {
         if (loadingDepth === 0) {
@@ -61,34 +36,26 @@ export function createNavState() {
         }
     }
 
-    function resetDashboardLoading(): void {
-        if (loadingDepth === 0) return;
-        loadingDepth = 0;
-        window.Dashboard.hideLoadingMsg();
-    }
+    signal.addEventListener(
+        "abort",
+        () => {
+            if (loadingDepth === 0) return;
+            loadingDepth = 0;
+            window.Dashboard.hideLoadingMsg();
+        },
+        { once: true },
+    );
 
     /**
-     * Returns shows for a library and records them for synchronous access.
-     *
-     * @param onCount Called with the formatted item count when available.
-     * @param onError Called when the fetch fails.
+     * Loads a library's shows and records them for synchronous access. The
+     * record feeds the tab-wide search index, so it lives for the tab, not the
+     * view that asked: a caller rendering a view wraps the call in abortable()
+     * with its own signal.
      */
-    async function ensureLibraryShows(
-        libraryId: string,
-        libraryName: string,
-        onCount?: (count: string) => void,
-        onError?: () => void,
-    ): Promise<ShowItem[]> {
-        try {
-            const shows = await getShowsInLibrary(libraryId, libraryName);
-            if (!isAlive()) return [];
-            libraryShows.set(libraryId, shows);
-            onCount?.(pluralize(shows.length, "item"));
-            return shows;
-        } catch (err) {
-            if (isAlive()) onError?.();
-            throw err;
-        }
+    async function ensureLibraryShows(libraryId: string, libraryName: string): Promise<ShowItem[]> {
+        const shows = await abortable(getShowsInLibrary(libraryId, libraryName), signal);
+        libraryShows.set(libraryId, shows);
+        return shows;
     }
 
     function getCachedShows(libraryId: string): ShowItem[] | undefined {
@@ -107,31 +74,11 @@ export function createNavState() {
         state = next;
     }
 
-    function destroy(): void {
-        destroyed = true;
-        viewVersion += 1;
-        panelVersion += 1;
-        resetDashboardLoading();
-    }
-
     return {
-        // State
         getState,
         setState,
-        destroy,
-
-        // Version guards
-        nextViewVersion,
-        nextPanelVersion,
-        isCurrentView,
-        isCurrentPanel,
-        isAlive,
-
-        // Loading
         showDashboardLoading,
         hideDashboardLoading,
-
-        // Library cache
         ensureLibraryShows,
         getCachedShows,
         getAllCachedShows,

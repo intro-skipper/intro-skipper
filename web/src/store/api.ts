@@ -1,5 +1,6 @@
+import type { PluginConfig } from "../config/schema.ts";
+import { isAbortError } from "../lifecycle.ts";
 import type {
-    PluginConfig,
     ApiResult,
     SegmentDto,
     SegmentChangeAcceptedResponse,
@@ -17,31 +18,7 @@ import type {
 
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
 
-// Shared API helpers for the Intro Skipper dashboard.
-async function fetchWithAuth(
-    url: string,
-    method: string,
-    body?: string | null,
-): Promise<Response> {
-    const address = window.ApiClient.serverAddress().replace(/\/+$/, "");
-    const fullUrl = address + "/" + url;
-
-    const headers: Record<string, string> = {
-        Authorization: "MediaBrowser Token=" + window.ApiClient.accessToken(),
-    };
-
-    if (method === "POST" || method === "PUT") {
-        headers["Content-Type"] = "application/json";
-    }
-
-    return await fetch(fullUrl, { method, headers, body });
-}
-
-export function getJson<T>(url: string): Promise<ApiResult<T>> {
-    return request<T>(url, "GET");
-}
-
-// Plugin configuration.
+// Plugin configuration goes through Jellyfin's own client, which handles auth.
 export function loadPluginConfig(): Promise<PluginConfig> {
     return window.ApiClient.getPluginConfiguration(PLUGIN_ID);
 }
@@ -50,7 +27,9 @@ export function savePluginConfig(config: PluginConfig): Promise<unknown> {
     return window.ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
 }
 
-// Extracts the most useful error text from an ASP.NET error payload.
+// Extracts the most useful error text from an ASP.NET error payload. An abort
+// while the body is still arriving is a cancellation, not an error message, and
+// stays one.
 async function readErrorMessage(response: Response): Promise<string> {
     try {
         const data: unknown = await response.json();
@@ -65,38 +44,57 @@ async function readErrorMessage(response: Response): Promise<string> {
                 }
             }
         }
-    } catch {
-        // Fall through to the generic message.
+    } catch (err) {
+        if (isAbortError(err)) throw err;
+        // Unparseable body: fall through to the generic message.
     }
     return "Server returned " + response.status;
 }
 
-// Shared request envelope: JSON body in (when given), ApiResult out. A 204
-// response carries no body and maps to null data (the DELETE case).
-async function request<T>(
-    url: string,
-    method: "GET" | "POST" | "PUT" | "DELETE",
-    body?: unknown,
-): Promise<ApiResult<T>> {
+// Several endpoints answer 200, 202 or 204 with no body at all; those map to
+// null data. Anything else must be JSON.
+async function readBody(response: Response): Promise<unknown> {
+    const text = await response.text();
+    return text.length === 0 ? null : JSON.parse(text);
+}
+
+type RequestOptions = {
+    method?: "GET" | "POST" | "PUT" | "DELETE";
+    body?: unknown;
+    signal?: AbortSignal;
+};
+
+/**
+ * The one fetch in the dashboard. Adds the Jellyfin token, sends `body` as
+ * JSON, and answers with an ApiResult: `ok: true` with the parsed body (null
+ * when the response is empty), or `ok: false` with the server's error text or
+ * the network error message. It never throws for a failed request. The one
+ * exception is `signal`: when it aborts, the returned promise rejects with the
+ * fetch AbortError so the caller's continuation stops.
+ */
+async function request<T>(url: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
+    const method = options.method ?? "GET";
+    const address = window.ApiClient.serverAddress().replace(/\/+$/, "");
+    const headers: Record<string, string> = {
+        Authorization: "MediaBrowser Token=" + window.ApiClient.accessToken(),
+    };
+    if (method === "POST" || method === "PUT") {
+        headers["Content-Type"] = "application/json";
+    }
+
     try {
-        const response = await fetchWithAuth(
-            url,
+        const response = await fetch(address + "/" + url, {
             method,
-            body === undefined ? null : JSON.stringify(body),
-        );
+            headers,
+            body: options.body === undefined ? null : JSON.stringify(options.body),
+            signal: options.signal,
+        });
         if (response.ok) {
-            return {
-                ok: true,
-                status: response.status,
-                data: (response.status === 204 ? null : await response.json()) as T,
-            };
+            return { ok: true, status: response.status, data: (await readBody(response)) as T };
         }
-        return {
-            ok: false,
-            status: response.status,
-            error: await readErrorMessage(response),
-        };
+        return { ok: false, status: response.status, error: await readErrorMessage(response) };
     } catch (err: unknown) {
+        if (isAbortError(err)) throw err;
         return {
             ok: false,
             status: null,
@@ -105,11 +103,19 @@ async function request<T>(
     }
 }
 
+export function getJson<T>(url: string, signal?: AbortSignal): Promise<ApiResult<T>> {
+    return request<T>(url, { signal });
+}
+
 // Segment browsing and editing (plural segments API). Suppressed (tombstoned)
 // segments are included so the editor can offer Restore; display code filters them.
-export function getEpisodeSegments(itemId: string): Promise<ApiResult<SegmentDto[]>> {
+export function getEpisodeSegments(
+    itemId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<SegmentDto[]>> {
     return getJson<SegmentDto[]>(
         `Episode/${encodeURIComponent(itemId)}/Segments?includeSuppressed=true`,
+        signal,
     );
 }
 
@@ -121,170 +127,229 @@ async function requestSegmentMutation(
     url: string,
     method: "POST" | "PUT",
     body?: unknown,
-): Promise<ApiResult<SegmentDto>> {
-    const result = await request<SegmentDto | SegmentChangeAcceptedResponse>(url, method, body);
-    if (!result.ok || result.status !== 202) {
-        return result as ApiResult<SegmentDto>;
-    }
-    const accepted = result.data as SegmentChangeAcceptedResponse;
-    return { ok: true, status: result.status, data: accepted.Segments?.[0] };
+    signal?: AbortSignal,
+): Promise<ApiResult<SegmentDto | undefined>> {
+    const result = await request<SegmentDto | SegmentChangeAcceptedResponse>(url, {
+        method,
+        body,
+        signal,
+    });
+    if (!result.ok) return result;
+    // An empty 2xx body reads as null; only the 202 envelope carries Segments.
+    const data =
+        result.data !== null && "Segments" in result.data ? result.data.Segments[0] : result.data;
+    return { ok: true, status: result.status, data };
 }
 
 export function createEpisodeSegment(
     itemId: string,
     body: SegmentCreateRequest,
-): Promise<ApiResult<SegmentDto>> {
-    return requestSegmentMutation(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", body);
+    signal?: AbortSignal,
+): Promise<ApiResult<SegmentDto | undefined>> {
+    return requestSegmentMutation(
+        `Episode/${encodeURIComponent(itemId)}/Segments`,
+        "POST",
+        body,
+        signal,
+    );
 }
 
 export function updateEpisodeSegment(
     itemId: string,
     segmentId: string,
     body: SegmentUpdateRequest,
-): Promise<ApiResult<SegmentDto>> {
+    signal?: AbortSignal,
+): Promise<ApiResult<SegmentDto | undefined>> {
     return requestSegmentMutation(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
         "PUT",
         body,
+        signal,
     );
 }
 
-// A 202 body (accepted, projection pending) parses as non-null data; delete callers
-// only check `ok`, so no unwrapping is needed.
-export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<ApiResult<null>> {
+export function deleteEpisodeSegment(
+    itemId: string,
+    segmentId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
     return request<null>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
-        "DELETE",
+        { method: "DELETE", signal },
     );
 }
 
 export function restoreEpisodeSegment(
     itemId: string,
     segmentId: string,
-): Promise<ApiResult<SegmentDto>> {
+    signal?: AbortSignal,
+): Promise<ApiResult<SegmentDto | undefined>> {
     return requestSegmentMutation(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}/Restore`,
         "POST",
+        undefined,
+        signal,
     );
 }
 
 // Per-season analyzer actions.
-export function getAnalyzerActions(seasonId: string): Promise<ApiResult<AnalyzerActions>> {
-    return getJson<AnalyzerActions>(`Intros/AnalyzerActions/${encodeURIComponent(seasonId)}`);
+export function getAnalyzerActions(
+    seasonId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<AnalyzerActions>> {
+    return getJson<AnalyzerActions>(`Intros/AnalyzerActions/${encodeURIComponent(seasonId)}`, signal);
 }
 
-export function updateAnalyzerActions(id: string, actions: AnalyzerActions): Promise<Response> {
-    return fetchWithAuth(
-        "Intros/AnalyzerActions/UpdateSeason",
-        "POST",
-        JSON.stringify({ id, analyzerActions: actions }),
+export function updateAnalyzerActions(
+    id: string,
+    actions: AnalyzerActions,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>("Intros/AnalyzerActions/UpdateSeason", {
+        method: "POST",
+        body: { id, analyzerActions: actions },
+        signal,
+    });
+}
+
+export function getAnalysisOverrides(
+    seasonId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<AnalysisOverrides>> {
+    return getJson<AnalysisOverrides>(
+        `Intros/AnalysisOverrides/${encodeURIComponent(seasonId)}`,
+        signal,
     );
-}
-
-export function getAnalysisOverrides(seasonId: string): Promise<ApiResult<AnalysisOverrides>> {
-    return getJson<AnalysisOverrides>(`Intros/AnalysisOverrides/${encodeURIComponent(seasonId)}`);
 }
 
 export function updateAnalysisOverrides(
     id: string,
     overrides: AnalysisOverrides,
-): Promise<Response> {
-    return fetchWithAuth(
-        "Intros/AnalysisOverrides/UpdateSeason",
-        "POST",
-        JSON.stringify({ id, ...overrides }),
-    );
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>("Intros/AnalysisOverrides/UpdateSeason", {
+        method: "POST",
+        body: { id, ...overrides },
+        signal,
+    });
 }
 
 // Per-item media-segment disable: a disabled item's automatic segments are
 // withheld from Jellyfin while user segments keep syncing. The listing is keyed
 // by the season-state key (a movie's own ID for movies); mutations name only
 // the item and the server resolves the owning key itself.
-export function getDisabledItems(seasonId: string): Promise<ApiResult<string[]>> {
-    return getJson<string[]>(`Intros/DisabledItems/${encodeURIComponent(seasonId)}`);
+export function getDisabledItems(
+    seasonId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<string[]>> {
+    return getJson<string[]>(`Intros/DisabledItems/${encodeURIComponent(seasonId)}`, signal);
 }
 
-export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {
-    return request<null>(
-        `Intros/DisabledItems/${encodeURIComponent(itemId)}`,
-        disabled ? "PUT" : "DELETE",
-    );
+export function setItemDisabled(
+    itemId: string,
+    disabled: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>(`Intros/DisabledItems/${encodeURIComponent(itemId)}`, {
+        method: disabled ? "PUT" : "DELETE",
+        signal,
+    });
 }
 
 // Scan controls.
-export function scanSeason(showId: string, seasonId: string): Promise<Response> {
-    return fetchWithAuth(
+export function scanSeason(
+    showId: string,
+    seasonId: string,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>(
         `Intros/ScanSeason/${encodeURIComponent(showId)}/${encodeURIComponent(seasonId)}`,
-        "POST",
+        { method: "POST", signal },
     );
 }
 
-export function getScanStatus(seasonId: string): Promise<ApiResult<ScanStatus>> {
-    return getJson<ScanStatus>(`Intros/ScanStatus/${encodeURIComponent(seasonId)}`);
+export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<ApiResult<ScanStatus>> {
+    return getJson<ScanStatus>(`Intros/ScanStatus/${encodeURIComponent(seasonId)}`, signal);
 }
 
 // Timestamp deletion.
-export function eraseTimestamps(mode: string, eraseCache: boolean): Promise<Response> {
-    return fetchWithAuth(
+export function eraseTimestamps(
+    mode: string,
+    eraseCache: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>(
         `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}`,
-        "POST",
+        { method: "POST", signal },
     );
 }
 
-export function eraseItemTimestamps(urlPath: string, eraseCache: boolean): Promise<Response> {
-    return fetchWithAuth(`${urlPath}?eraseCache=${eraseCache}`, "DELETE");
+export function eraseItemTimestamps(
+    urlPath: string,
+    eraseCache: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
+    return request<null>(`${urlPath}?eraseCache=${eraseCache}`, { method: "DELETE", signal });
 }
 
-export function clearExcludedTimestamps(): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
-    return request<ClearExcludedTimestampsResponse>("Intros/ExcludedTimestamps/Clear", "POST");
+export function clearExcludedTimestamps(
+    signal?: AbortSignal,
+): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
+    return request<ClearExcludedTimestampsResponse>("Intros/ExcludedTimestamps/Clear", {
+        method: "POST",
+        signal,
+    });
 }
 
 // Support and storage tools.
-export async function getSupportBundle(): Promise<SupportBundle> {
-    const response = await fetchWithAuth("IntroSkipper/SupportBundle/Json", "GET");
-    if (!response.ok) {
-        throw new Error("Failed to fetch support bundle (HTTP " + response.status + ")");
+export async function getSupportBundle(signal?: AbortSignal): Promise<ApiResult<SupportBundle>> {
+    const result = await request<SupportBundle>("IntroSkipper/SupportBundle/Json", { signal });
+    if (
+        result.ok &&
+        (typeof result.data?.Markdown !== "string" || !Array.isArray(result.data.Sections))
+    ) {
+        return { ok: false, status: result.status, error: "Unexpected support bundle response shape" };
     }
-    const data = (await response.json()) as SupportBundle;
-    if (typeof data?.Markdown !== "string" || !Array.isArray(data.Sections)) {
-        throw new Error("Unexpected support bundle response shape");
-    }
-    return data;
+    return result;
 }
 
-export async function getStorageUsage(): Promise<LibraryStorage[]> {
-    const response = await fetchWithAuth("System/Info/Storage", "GET");
-    if (!response.ok) {
-        throw new Error("Failed to fetch storage usage (HTTP " + response.status + ")");
+export async function getStorageUsage(signal?: AbortSignal): Promise<ApiResult<LibraryStorage[]>> {
+    const result = await request<SystemStorageInfo>("System/Info/Storage", { signal });
+    if (!result.ok) return result;
+    if (!Array.isArray(result.data?.Libraries)) {
+        return { ok: false, status: result.status, error: "Unexpected storage response shape" };
     }
-    const data = (await response.json()) as SystemStorageInfo;
-    if (!Array.isArray(data?.Libraries)) {
-        throw new Error("Unexpected storage response shape");
-    }
-    return data.Libraries;
+    return { ok: true, status: result.status, data: result.data.Libraries };
 }
 
 // Database maintenance. Without force the server answers 409 when the existing
 // database cannot be read for backup; forcing discards it and rebuilds empty.
-export function rebuildDatabase(options?: { forceCleanOnBackupFailure: boolean }): Promise<Response> {
+export function rebuildDatabase(
+    options?: { forceCleanOnBackupFailure: boolean },
+    signal?: AbortSignal,
+): Promise<ApiResult<null>> {
     const query = options?.forceCleanOnBackupFailure ? "?forceCleanOnBackupFailure=true" : "";
-    return fetchWithAuth("Intros/RebuildDatabase" + query, "POST");
+    return request<null>("Intros/RebuildDatabase" + query, { method: "POST", signal });
+}
+
+export function resetConfiguration(signal?: AbortSignal): Promise<ApiResult<null>> {
+    return request<null>("IntroSkipper/Configuration/Reset", { method: "POST", signal });
 }
 
 // Skip button web patch helpers.
-export function injectSkipButtonCss(): Promise<Response> {
-    return fetchWithAuth("SkipButtonCss/InjectCss", "POST");
+export function injectSkipButtonCss(signal?: AbortSignal): Promise<ApiResult<null>> {
+    return request<null>("SkipButtonCss/InjectCss", { method: "POST", signal });
 }
 
-export function updateSkipDuration(): Promise<Response> {
-    return fetchWithAuth("SkipButtonCss/UpdateSkipDuration", "POST");
+export function updateSkipDuration(signal?: AbortSignal): Promise<ApiResult<null>> {
+    return request<null>("SkipButtonCss/UpdateSkipDuration", { method: "POST", signal });
 }
 
 // Plugin discovery.
-export async function checkPlugins(): Promise<PluginInfo[]> {
-    const response = await fetchWithAuth("Plugins", "GET");
-    if (!response.ok) {
-        throw new Error("Failed to fetch plugins (HTTP " + response.status + ")");
+export async function checkPlugins(signal?: AbortSignal): Promise<ApiResult<PluginInfo[]>> {
+    const result = await request<PluginInfo[]>("Plugins", { signal });
+    if (result.ok && !Array.isArray(result.data)) {
+        return { ok: false, status: result.status, error: "Unexpected plugins response shape" };
     }
-    return (await response.json()) as PluginInfo[];
+    return result;
 }

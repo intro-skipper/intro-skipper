@@ -20,11 +20,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Per-keyframe luma histogram entropy and mean saturation, on the 8-bit limited-range scale
-    // the credit-card thresholds are tuned for (10-bit sources report SATAVG about 4x higher).
-    private const string KeyframeVisualFilters = "format=yuv420p,entropy,signalstats,metadata=print";
+    // Per-keyframe luma percentiles and mean saturation, on the 8-bit limited-range scale the
+    // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
+    private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // Generous: the probe is six fast ffmpeg info queries, each capped at 2 s of process-exit
+    // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
@@ -39,11 +39,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         ("-h filter=silencedetect", "noise tolerance", "silencedetect options", "The installed version of ffmpeg does not support the silencedetect filter", "silencedetect_not_supported"),
     ];
 
-    // Probed after the requirements. These filters only feed keyframe visuals, so a build
-    // without them keeps every other scan and loses non-black credits detection.
+    // Probed after the requirements. This filter only feeds keyframe visuals, so a build
+    // without it keeps every other scan and loses card credits detection.
     private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
     [
-        ("entropy", "entropy options"),
         ("signalstats", "signalstats options"),
     ];
 
@@ -201,12 +200,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     {
         // The keyframe scan: one decode from the credits start to end of file feeds two outputs
         // with a filtergraph each, so blackframe negotiates its input as it does alone (gray for
-        // gray sources, yuv420p for 10-bit ones) while format=yuv420p pins entropy and
-        // signalstats to the 8-bit limited-range scale their thresholds are tuned for. One graph
-        // with both chains hands blackframe yuv420p on gray sources, where luma 20 lands at 33
-        // and stops counting as black. The blackframe filter logs its own lines and
-        // metadata=print logs the entropy and saturation lines, so each parser reads its part
-        // of the same stderr.
+        // gray sources, yuv420p for 10-bit ones) while format=yuv420p pins signalstats to the
+        // 8-bit limited-range scale its thresholds are tuned for. One graph with both chains
+        // hands blackframe yuv420p on gray sources, where luma 20 lands at 33 and stops counting
+        // as black. The blackframe filter logs its own lines and metadata=print logs the
+        // signalstats lines, so each parser reads its part of the same stderr.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, end);
         var withVisuals = _versionGate.CheckResult.KeyframeVisualsSupported;
@@ -280,7 +278,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     // requested duration) and the keyframe scan runs to end of file, so every writer of a
     // KeyframeVisual row clips here. Times are relative to the -ss seek, so an in-window frame
     // falls within [0, window.Duration]; an unclipped run would let FindCreditRange select a
-    // low-entropy run past CreditsFingerprintEnd and persist credits outside the scan window.
+    // card run past CreditsFingerprintEnd and persist credits outside the scan window.
     private static KeyframeVisual[] ParseKeyframeVisualsInWindow(string raw, TimeRange window)
         => [.. FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= window.Duration)];
 

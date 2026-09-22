@@ -1,4 +1,4 @@
-import { validator } from "../validation/validator.ts";
+import { validateAll } from "../config/validate.ts";
 import { configStore } from "../store/config-store.ts";
 import { confirmDashboard } from "./confirm-dialog.ts";
 import { el } from "./dom.ts";
@@ -6,10 +6,16 @@ import { el } from "./dom.ts";
 /** How long the "Changes saved" message stays visible (ms). */
 const STATUS_CLEAR_MS = 3000;
 
-export function createAppShell(rootEl: HTMLElement): {
+/**
+ * Header, tab sidebar, content area and the save footer. Everything it wires
+ * up ends when `signal` aborts.
+ */
+export function createAppShell(
+    rootEl: HTMLElement,
+    signal: AbortSignal,
+): {
     navEl: HTMLElement;
     contentEl: HTMLElement;
-    destroy: () => void;
 } {
     const shell = el("div", { className: "app-shell" });
 
@@ -37,7 +43,7 @@ export function createAppShell(rootEl: HTMLElement): {
     const dirtyIndicator = el(
         "span",
         { className: "dirty-indicator", "aria-live": "polite" },
-        "\u25cf Unsaved changes",
+        "● Unsaved changes",
     );
     dirtyIndicator.style.display = "none";
 
@@ -78,17 +84,12 @@ export function createAppShell(rootEl: HTMLElement): {
         }
     };
 
-    const handleSkipLink = (event: MouseEvent) => {
-        event.preventDefault();
-        content.focus();
-    };
-
     const runSave = async () => {
         if (saveButton.disabled) return;
 
         saveButton.disabled = true;
-        saveButton.textContent = "Saving\u2026";
-        setStatus("Saving\u2026", "info");
+        saveButton.textContent = "Saving…";
+        setStatus("Saving…", "info");
 
         try {
             await configStore.save();
@@ -103,7 +104,7 @@ export function createAppShell(rootEl: HTMLElement): {
     };
 
     const handleSave = async () => {
-        const errors = validator.validateAll(configStore.getAll());
+        const errors = validateAll(configStore.getAll());
         // Let the user save through warnings after an explicit confirmation.
         if (
             errors.size === 0 ||
@@ -113,19 +114,30 @@ export function createAppShell(rootEl: HTMLElement): {
         }
     };
 
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-        if (!configStore.isDirty()) return;
-        event.preventDefault();
-        event.returnValue = "";
-    };
-
-    const onSaveClick = () => {
-        handleSave().catch(console.error);
-    };
-
-    skipLink.addEventListener("click", handleSkipLink);
-    saveButton.addEventListener("click", onSaveClick);
-    window.addEventListener("beforeunload", handleBeforeUnload);
+    skipLink.addEventListener(
+        "click",
+        (event) => {
+            event.preventDefault();
+            content.focus();
+        },
+        { signal },
+    );
+    saveButton.addEventListener(
+        "click",
+        () => {
+            handleSave().catch(console.error);
+        },
+        { signal },
+    );
+    window.addEventListener(
+        "beforeunload",
+        (event) => {
+            if (!configStore.isDirty()) return;
+            event.preventDefault();
+            event.returnValue = "";
+        },
+        { signal },
+    );
 
     const updateDirtyIndicator = () => {
         const isDirty = configStore.isDirty();
@@ -140,23 +152,17 @@ export function createAppShell(rootEl: HTMLElement): {
     };
 
     // Keep the unsaved indicator aligned with the store lifecycle.
-    configStore.subscribe("changed", updateDirtyIndicator);
-    configStore.subscribe("saved", clearDirtyIndicator);
-    configStore.subscribe("loaded", clearDirtyIndicator);
+    configStore.subscribe("changed", updateDirtyIndicator, { signal });
+    configStore.subscribe("saved", clearDirtyIndicator, { signal });
+    configStore.subscribe("loaded", clearDirtyIndicator, { signal });
 
-    return {
-        navEl: sidebar,
-        contentEl: content,
-        destroy() {
-            skipLink.removeEventListener("click", handleSkipLink);
-            saveButton.removeEventListener("click", onSaveClick);
-            window.removeEventListener("beforeunload", handleBeforeUnload);
-            configStore.unsubscribe("changed", updateDirtyIndicator);
-            configStore.unsubscribe("saved", clearDirtyIndicator);
-            configStore.unsubscribe("loaded", clearDirtyIndicator);
-            if (statusTimer !== null) {
-                window.clearTimeout(statusTimer);
-            }
+    signal.addEventListener(
+        "abort",
+        () => {
+            if (statusTimer !== null) window.clearTimeout(statusTimer);
         },
-    };
+        { once: true },
+    );
+
+    return { navEl: sidebar, contentEl: content };
 }

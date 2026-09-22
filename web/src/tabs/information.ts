@@ -2,6 +2,7 @@ import type { SupportBundleEntry, SupportBundleSection, Tab } from "../types.ts"
 import * as api from "../store/api.ts";
 import { el } from "../components/dom.ts";
 import { bindStatusMessage } from "../components/async-feedback.ts";
+import { ignoreAbort } from "../lifecycle.ts";
 
 // Copies text to the clipboard. Dashboards served over plain HTTP have no
 // navigator.clipboard, so fall back to selecting an offscreen textarea.
@@ -89,7 +90,7 @@ function renderSections(sections: SupportBundleSection[]): HTMLElement[] {
 export const informationTab: Tab = {
     id: "information",
     label: "Information",
-    render(container) {
+    render(container, signal) {
         const supportContainer = el("section", { className: "tab-readonly-section" });
         const supportTitle = el(
             "h3",
@@ -138,25 +139,26 @@ export const informationTab: Tab = {
 
         async function loadSupportBundle(): Promise<void> {
             supportStatus.show("Loading support log…");
-            try {
-                const bundle = await api.getSupportBundle();
-                markdown = bundle.Markdown;
-                supportSections.replaceChildren(...renderSections(bundle.Sections));
-                copyButtonEl.disabled = !markdown;
-                if (bundle.Sections.length === 0) {
-                    supportStatus.show("Support log is empty.");
-                } else {
-                    supportStatus.clear();
-                }
-            } catch {
+            const result = await api.getSupportBundle(signal);
+            if (!result.ok) {
                 markdown = "";
                 supportSections.replaceChildren();
                 copyButtonEl.disabled = true;
                 supportStatus.show("Failed to load support log.", "var(--is-error)");
+                return;
+            }
+            const bundle = result.data;
+            markdown = bundle.Markdown;
+            supportSections.replaceChildren(...renderSections(bundle.Sections));
+            copyButtonEl.disabled = !markdown;
+            if (bundle.Sections.length === 0) {
+                supportStatus.show("Support log is empty.");
+            } else {
+                supportStatus.clear();
             }
         }
 
-        loadSupportBundle().catch(console.error);
+        loadSupportBundle().catch(ignoreAbort);
 
         // Storage usage — structured list with progress bars.
         const storageContainer = el("section", { className: "tab-readonly-section" });
@@ -227,35 +229,35 @@ export const informationTab: Tab = {
 
         async function loadStorageUsage(): Promise<void> {
             storageStatus.show("Loading storage usage…");
-            try {
-                const libraries = await api.getStorageUsage();
-                storageList.replaceChildren();
-                if (libraries.length === 0) {
-                    storageStatus.show("Storage usage is empty.");
-                    return;
-                }
-                const list = el("ul", { className: "storage-list" });
-                for (const lib of libraries) {
-                    for (const folder of lib.Folders) {
-                        list.append(
-                            buildListItem(
-                                lib.Name,
-                                folder.Path,
-                                folder.UsedSpace,
-                                folder.FreeSpace,
-                            ),
-                        );
-                    }
-                }
-                storageList.append(list);
-                storageStatus.show("Storage usage loaded.");
-            } catch {
-                storageList.replaceChildren();
+            const result = await api.getStorageUsage(signal);
+            storageList.replaceChildren();
+            if (!result.ok) {
                 storageStatus.show("Failed to load storage usage.", "var(--is-error)");
+                return;
             }
+            const libraries = result.data;
+            if (libraries.length === 0) {
+                storageStatus.show("Storage usage is empty.");
+                return;
+            }
+            const list = el("ul", { className: "storage-list" });
+            for (const lib of libraries) {
+                for (const folder of lib.Folders) {
+                    list.append(
+                        buildListItem(
+                            lib.Name,
+                            folder.Path,
+                            folder.UsedSpace,
+                            folder.FreeSpace,
+                        ),
+                    );
+                }
+            }
+            storageList.append(list);
+            storageStatus.show("Storage usage loaded.");
         }
 
-        loadStorageUsage().catch(console.error);
+        loadStorageUsage().catch(ignoreAbort);
 
         container.append(supportContainer, storageContainer);
     },

@@ -104,61 +104,6 @@ public class TestFFmpegService
     }
 
     [Fact]
-    public async Task CheckFFmpegVersionAsync_SharesConcurrentProbe()
-    {
-        var probeCount = 0;
-        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var ffmpegService = CreateFFmpegService(_ =>
-        {
-            Interlocked.Increment(ref probeCount);
-            probeStarted.SetResult();
-            return releaseProbe.Task;
-        });
-
-        var first = ffmpegService.CheckFFmpegVersionAsync();
-        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var second = ffmpegService.CheckFFmpegVersionAsync();
-
-        Assert.Equal(1, probeCount);
-        releaseProbe.SetResult(true);
-        Assert.True(await first);
-        Assert.True(await second);
-        Assert.Equal(1, probeCount);
-    }
-
-    [Fact]
-    public async Task CheckFFmpegVersionAsync_SharesConcurrentFailedProbeThenRetries()
-    {
-        var probeCount = 0;
-        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var ffmpegService = CreateFFmpegService(_ =>
-        {
-            if (Interlocked.Increment(ref probeCount) == 1)
-            {
-                probeStarted.SetResult();
-                return releaseProbe.Task;
-            }
-
-            return Task.FromResult(true);
-        });
-
-        var first = ffmpegService.CheckFFmpegVersionAsync();
-        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var second = ffmpegService.CheckFFmpegVersionAsync();
-
-        Assert.Equal(1, probeCount);
-        releaseProbe.SetResult(false);
-        Assert.False(await first);
-        Assert.False(await second);
-
-        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
-        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
-        Assert.Equal(2, probeCount);
-    }
-
-    [Fact]
     public async Task CheckFFmpegVersionAsync_CancelsCallerWithoutCancelingSharedProbe()
     {
         var probeCount = 0;

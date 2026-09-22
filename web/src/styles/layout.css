@@ -479,7 +479,8 @@
         grid-template-columns: 1fr;
     }
 
-    .ts-override-field input {
+    .ts-analysis-window input,
+    .ts-analysis-window select {
         max-width: none;
     }
 
