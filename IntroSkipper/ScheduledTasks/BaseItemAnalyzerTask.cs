@@ -104,8 +104,29 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(
             SeasonsInScope(owners, scope, progress),
             options,
-            (season, ct) => new ValueTask(AnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
         progress.Report(100);
+    }
+
+    // A season that throws is logged and skipped so the pass goes on to the others: a
+    // changed-items pass at the end of a library scan covers every item Jellyfin saved,
+    // and one broken season must not cost the rest their analysis. Cancellation still
+    // stops the pass.
+    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var first = season.Episodes.Count > 0 ? season.Episodes[0] : null;
+            LogSeasonFailed(_logger, ex, first?.SeriesName ?? string.Empty, first?.SeasonNumber ?? 0, season.Key);
+        }
     }
 
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
@@ -578,6 +599,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "None of the {Count} requested items resolved to a season to analyze")]
     private static partial void LogNothingInScope(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to analyze {Series} season {Season} ({Key}); skipping it this pass")]
+    private static partial void LogSeasonFailed(ILogger logger, Exception exception, string series, int season, Guid key);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);

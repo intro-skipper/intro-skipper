@@ -173,6 +173,36 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void Resolve_WaitsForJellyfinToProbeAnItem_ButShowsIt()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        var probed = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId);
+        var unprobed = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, episodeNumber: 2);
+        unprobed.RunTimeTicks = null;
+        var movie = JellyfinItems.Movie(movieId);
+        movie.RunTimeTicks = 0;
+        var resolver = CreateResolver(JellyfinItems.WithParents([JellyfinItems.Series(seriesId), probed, unprobed, movie]));
+
+        // A library scan raises ItemAdded before the refresh that probes the file. Analyzed
+        // then, the item has no duration to fingerprint, and a mode that fails nothing
+        // records it as analyzed with nothing found. The refresh saves it, which queues it
+        // again. The dashboard still lists it under its season.
+        var seasons = resolver.ResolveLibrary(includeExcluded: false, CancellationToken.None).Seasons;
+
+        var season = Assert.Single(seasons);
+        Assert.Equal(seasonId, season.Key);
+        Assert.Equal([probed.Id], season.Episodes.Select(episode => episode.EpisodeId));
+
+        var displayed = resolver.ResolveDisplayed(seasonId);
+        Assert.NotNull(displayed);
+        Assert.Equal([probed.Id, unprobed.Id], displayed.ItemIds);
+        Assert.Equal([probed.Id], displayed.Episodes.Select(episode => episode.EpisodeId));
+    }
+
+    [Fact]
     public void Resolve_KeepsInSeasonSpecialInSpecials_WhenHostSeasonIsExcluded()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { PathExclusions = { "/media/series/season-3" } });
