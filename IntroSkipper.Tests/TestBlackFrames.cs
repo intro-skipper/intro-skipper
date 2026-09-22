@@ -315,6 +315,10 @@ public class TestBlackFrames
     [InlineData("dark grey lead-in", 130.0)]
     [InlineData("lifted blacks", 120.0)]
     [InlineData("mixed black levels", 134.0)]
+    [InlineData("letterboxed dark lead-in", 130.0)]
+    [InlineData("letterboxed dark majority", 138.0)]
+    [InlineData("big text", 120.0)]
+    [InlineData("dense first pages", 124.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
@@ -325,7 +329,12 @@ public class TestBlackFrames
         // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
         // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
         // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
-        // levels starts at its darker part, the accepted trade.
+        // levels starts at its darker part, the accepted trade. Behind letterbox bars a dark scene's
+        // darkest tenth is black like the roll's, and its 90th percentile gives it away, however long
+        // it runs; large lettering lifts a roll page's 90th percentile onto the text and is a roll.
+        // Pages dense enough to lift the 90th percentile into the dark band read as dim content, so
+        // a roll that opens on them starts after them: the accepted trade at keyframe level, where
+        // nothing else tells such a page from a dark scene behind bars.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -343,6 +352,10 @@ public class TestBlackFrames
             "dark grey lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
             "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
             "mixed black levels" => [.. times.Select(t => t < 34 ? KeyframeVisuals.LiftedBlack(t) : KeyframeVisuals.Black(t))],
+            "letterboxed dark lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
+            "letterboxed dark majority" => [.. times.Select(t => t < 38 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
+            "big text" => [.. times.Select(KeyframeVisuals.BigText)],
+            "dense first pages" => [.. times.Select(t => t < 24 ? KeyframeVisuals.DenseText(t) : KeyframeVisuals.Black(t))],
             _ => [],
         };
         var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);
@@ -352,6 +365,23 @@ public class TestBlackFrames
         var result = await BlackFrameCredits(analyzer, episode);
 
         Assert.Equal(expectedStart, result?.Start);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
+    {
+        // Keyframes two seconds apart, a dark grey lead-in trimmed at 30. The boundary probe would
+        // read the gap before 30 with blackframe, which scores the lead-in black, and pull the
+        // start back into it; a trimmed scene does not probe.
+        BlackFrame[] frames = [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))];
+        var ffmpeg = CreditsScan(frames, probeFrames: [new BlackFrame(100, 0.2, 5)], visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(130, result?.Start);
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
     }
 
     [Fact]

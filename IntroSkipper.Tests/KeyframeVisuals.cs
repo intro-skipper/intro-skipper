@@ -43,6 +43,12 @@ internal static class KeyframeVisuals
     /// <summary>A black roll page on a source with lifted blacks: the darkest tenth at 20 rather than 16.</summary>
     internal static KeyframeVisual LiftedBlack(double time) => new(time, 18, 20, 20, 235, 0, 0);
 
+    /// <summary>A dark scene behind letterbox bars: the bars pin the darkest tenth at black, the picture sits above it, a lit face on top.</summary>
+    internal static KeyframeVisual LetterboxedDark(double time) => new(time, 16, 16, 32, 200, 1, 3);
+
+    /// <summary>A black roll page with large lettering: the 90th percentile lands on the text.</summary>
+    internal static KeyframeVisual BigText(double time) => new(time, 16, 16, 100, 240, 0, 0);
+
     /// <summary>Dense white lettering on black: too much text for the card test, still a text page.</summary>
     internal static KeyframeVisual DenseText(double time) => new(time, 16, 16, 74, 244, 0, 0);
 
