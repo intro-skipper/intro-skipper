@@ -315,6 +315,9 @@ public class TestBlackFrames
     [InlineData("dark grey lead-in", 130.0)]
     [InlineData("lifted blacks", 120.0)]
     [InlineData("mixed black levels", 134.0)]
+    [InlineData("letterboxed dark lead-in", 130.0)]
+    [InlineData("letterboxed dark majority", 136.0)]
+    [InlineData("big text", 120.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
@@ -325,7 +328,9 @@ public class TestBlackFrames
         // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
         // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
         // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
-        // levels starts at its darker part, the accepted trade.
+        // levels starts at its darker part, the accepted trade. Behind letterbox bars a dark scene's
+        // darkest tenth is black like the roll's, and its 90th percentile gives it away, however long
+        // it runs; large lettering lifts a roll page's 90th percentile onto the text and is a roll.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -343,6 +348,9 @@ public class TestBlackFrames
             "dark grey lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
             "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
             "mixed black levels" => [.. times.Select(t => t < 34 ? KeyframeVisuals.LiftedBlack(t) : KeyframeVisuals.Black(t))],
+            "letterboxed dark lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
+            "letterboxed dark majority" => [.. times.Select(t => t < 36 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
+            "big text" => [.. times.Select(KeyframeVisuals.BigText)],
             _ => [],
         };
         var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);

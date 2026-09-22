@@ -18,8 +18,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// through density gating, blackdetect interval recovery for sparse candidates and optional boundary
 /// refinement. Three rules use the visuals on black keyframes: a keyframe whose background is
 /// saturated is a dark tinted scene and does not count as black, a black scene starts after leading
-/// keyframes lighter than its black level, a dim last shot before the cut to the roll, and a black
-/// scene lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
+/// keyframes that show dim content rather than black, a dim last shot before the cut to the roll, and
+/// a black scene lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
 /// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
@@ -218,14 +218,16 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
-    /// Moves a scene's start past its dark grey lead-in: the leading black keyframes whose darkest
-    /// tenth sits more than <see cref="BlackLevelTolerance"/> above the scene's black level, the
-    /// median darkest tenth of its black keyframes and never below <see cref="LimitedRangeBlack"/>.
-    /// A dim last shot before the cut to the roll is such a lead-in. So is the lighter prefix of a
-    /// roll authored at two black levels: nothing the scan keeps tells the two apart, and the later
-    /// start skips less story. A keyframe without a visual ends the lead-in, since nothing says it is
-    /// lighter, and a scene whose lighter keyframes are the majority sets its level from them and
-    /// keeps its start.
+    /// Moves a scene's start past its dark grey lead-in: the leading black keyframes that show dim
+    /// content rather than black. The scene's black level is the median darkest tenth of its black
+    /// keyframes, never below <see cref="LimitedRangeBlack"/>; a keyframe is dim when its darkest
+    /// tenth sits more than <see cref="BlackLevelTolerance"/> above it, or, behind letterbox bars
+    /// that pin the darkest tenth at black, when its 90th percentile sits above the level yet under
+    /// the lettering contrast (see <see cref="IsDimContent"/>). A dim last shot before the cut to the
+    /// roll is such a lead-in. So is the lighter prefix of a roll authored at two black levels:
+    /// nothing the scan keeps tells the two apart, and the later start skips less story. A keyframe
+    /// without a visual ends the lead-in, since nothing says it is dim, and a scene whose lighter
+    /// keyframes are the majority sets its level from them and keeps its start.
     /// </summary>
     /// <returns>The scene with its start moved, and the lead-in from the old start to its last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
@@ -251,7 +253,7 @@ internal sealed partial class KeyframeAnalyzer(
         var lastLeadInTime = scene.StartTime;
         foreach (var (frame, visual) in pages)
         {
-            if (visual is null || visual.LumaLow <= blackLevel + BlackLevelTolerance)
+            if (visual is null || !IsDimContent(visual, blackLevel))
             {
                 return frame.Frame == scene.StartFrame
                     ? (scene, null)
@@ -263,6 +265,17 @@ internal sealed partial class KeyframeAnalyzer(
 
         return (scene, null);
     }
+
+    // Dim content on a black keyframe: a background above the scene's black level, or a 90th
+    // percentile above the level yet under the lettering contrast. The second reading is for a
+    // picture behind letterbox bars, where the bars are the darkest tenth and stay at black however
+    // dim the picture is; a dark scene there sits at 25 to 45 on the 90th percentile. A roll page
+    // sits at the level on both, or lifts its 90th percentile onto the text when the lettering is
+    // large. Pages dense with small lettering inside a roll can land in between, and the rule never
+    // reaches them, since it reads leading keyframes only.
+    private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
+        => visual.LumaLow > blackLevel + BlackLevelTolerance
+            || (visual.LumaHigh > blackLevel + BlackLevelTolerance && visual.LumaHigh < blackLevel + CardRunFinder.TextContrastMinimum);
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
     // not black, such as the dark scene after a cut, and those must not vouch for it. A scene none of
