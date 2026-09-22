@@ -48,7 +48,7 @@ public class TestLumaWindowDecode
             Assert.InRange(window.FrameCount, 11, 13);
             Assert.All(window.Times, time => Assert.InRange(time, 0.5, 1.0));
             Assert.Equal(window.Times.OrderBy(time => time), window.Times);
-            var measure = LeadInProbe.Measure(window.Frame(0), window.Width, new bool[window.Width * window.Height]);
+            var measure = LeadInProbe.Measure(window.Frame(0), window.Width, LumaWindows.AllRows(window.Height), new bool[window.Width * window.Height]);
             Assert.InRange(measure.Background, 20, 22);
             Assert.Equal(0, measure.ForegroundFraction);
         }

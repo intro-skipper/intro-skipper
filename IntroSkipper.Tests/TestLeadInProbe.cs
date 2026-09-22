@@ -19,9 +19,9 @@ public class TestLeadInProbe
     {
         var mask = new bool[Width * Height];
 
-        var text = LeadInProbe.Measure(TextRows(21, phase: 0), Width, mask);
-        var blob = LeadInProbe.Measure(Blob(21), Width, mask);
-        var blank = LeadInProbe.Measure(Blank(16), Width, mask);
+        var text = LeadInProbe.Measure(TextRows(21, phase: 0), Width, AllRows(Height), mask);
+        var blob = LeadInProbe.Measure(Blob(21), Width, AllRows(Height), mask);
+        var blank = LeadInProbe.Measure(Blank(16), Width, AllRows(Height), mask);
 
         Assert.Equal(21, text.Background);
         Assert.InRange(text.ForegroundFraction, LeadInProbe.ForegroundMinimum, LeadInProbe.ForegroundMaximum);
@@ -40,7 +40,7 @@ public class TestLeadInProbe
         var pictureRows = Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27).ToArray();
         var mask = new bool[Width * Height];
 
-        var whole = LeadInProbe.Measure(frame, Width, mask);
+        var whole = LeadInProbe.Measure(frame, Width, AllRows(Height), mask);
         var picture = LeadInProbe.Measure(frame, Width, pictureRows, mask);
 
         Assert.Equal(16, whole.Background);
@@ -53,11 +53,11 @@ public class TestLeadInProbe
     {
         var a = new bool[Width * Height];
         var b = new bool[Width * Height];
-        LeadInProbe.Measure(TextRows(21, phase: 0), Width, a);
-        LeadInProbe.Measure(TextRows(16, phase: 0), Width, b);
+        LeadInProbe.Measure(TextRows(21, phase: 0), Width, AllRows(Height), a);
+        LeadInProbe.Measure(TextRows(16, phase: 0), Width, AllRows(Height), b);
         Assert.Equal(1, LeadInProbe.Iou(a, b));
 
-        LeadInProbe.Measure(TextRows(16, phase: 2), Width, b);
+        LeadInProbe.Measure(TextRows(16, phase: 2), Width, AllRows(Height), b);
         Assert.Equal(0, LeadInProbe.Iou(a, b));
     }
 
@@ -71,10 +71,24 @@ public class TestLeadInProbe
         Assert.Equal(Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27), rows);
     }
 
+    [Fact]
+    public void PictureRows_IgnoreAStrayBrightPixelInABar()
+    {
+        // One pixel of noise in a bar row of one frame does not make the row picture; a row where
+        // two percent of the pixels rise above the level does.
+        var noisy = Letterboxed(Blob(21), barRows: 9);
+        noisy[(2 * Width) + 10] = 40;
+        var window = Window(0, (0.5, () => noisy), (0.5, () => Letterboxed(Blob(21), barRows: 9)));
+
+        var rows = LeadInProbe.PictureRows(window, Level, Tolerance);
+
+        Assert.Equal(Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27), rows);
+    }
+
     [Theory]
     [InlineData(100.0, 102.0, 98.75, 102.75)]
-    [InlineData(100.0, 108.0, 98.75, 108.75)]
-    [InlineData(100.0, 109.0, double.NaN, double.NaN)]
+    [InlineData(100.0, 107.5, 98.75, 108.25)]
+    [InlineData(100.0, 107.6, double.NaN, double.NaN)]
     public void ProbeWindow_SpansTheKeyframesWithTheRulesMargins(double a, double b, double start, double end)
     {
         var window = LeadInProbe.ProbeWindow(a, b);
@@ -95,7 +109,7 @@ public class TestLeadInProbe
         // Continuity alone: a lit block on a lighter background, then the same block on the level.
         // The block is no lettering, so the text rule cannot be what keeps the prefix.
         var window = Window(0, (1.0, () => Block(21)), (1.5, () => Block(16)));
-        Assert.True(LeadInProbe.Measure(Block(21), Width, new bool[Width * Height]).TransitionsPerBandRow < LeadInProbe.TransitionsMinimum);
+        Assert.True(LeadInProbe.Measure(Block(21), Width, AllRows(Height), new bool[Width * Height]).TransitionsPerBandRow < LeadInProbe.TransitionsMinimum);
 
         var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
 

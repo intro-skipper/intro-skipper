@@ -198,8 +198,9 @@ internal sealed partial class KeyframeAnalyzer(
 
         foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
         {
-            // A trimmed scene keeps its keyframe start. The gap before it is the lead-in, black to
-            // the blackframe filter, so the boundary probe can only move the start back into it.
+            // A trimmed scene keeps the start the lead-in rules set, the keyframe or the frame the
+            // probe located. The gap before it is the lead-in, black to the blackframe filter, so the
+            // boundary probe could only move the start back into it.
             var refinedStartTime = _config.RefineCreditsBoundary && !trimmedScenes.Contains(scene)
                 ? await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
                 : scene.StartTime;

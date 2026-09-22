@@ -17,6 +17,9 @@ internal static class LumaWindows
     internal const int Height = 36;
     internal const double Fps = 24;
 
+    /// <summary>Every row carries picture.</summary>
+    internal static bool[] AllRows(int height) => [.. Enumerable.Repeat(true, height)];
+
     /// <summary>A frame of one value.</summary>
     internal static byte[] Blank(byte background)
     {

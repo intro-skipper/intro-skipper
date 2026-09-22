@@ -16,9 +16,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// L or when the last second before L is lettered pages, and otherwise trims to L. Anything it
 /// cannot observe is inconclusive: the caller keeps B, the policy's start, and caches nothing.
 /// Every temporal rule is weighted by the frames' durations from their timestamps, clipped to the
-/// span it measures; the last frame has no observed duration. Rows that stay black through the
-/// whole window are letterbox bars and leave every measure, since they would pin the background at
-/// black however dim the picture is. The thresholds are experimental, measured on one sample, six
+/// span it measures; the last frame has no observed duration. Rows that never rise above the level
+/// on more than a stray pixel are letterbox bars and leave every measure, since they would pin the
+/// background at black however dim the picture is. The thresholds are experimental, measured on one sample, six
 /// further episodes and synthetic clips, not validated defaults.
 /// </remarks>
 internal static class LeadInProbe
@@ -33,10 +33,11 @@ internal static class LeadInProbe
 
     // What the rules need around the level change, with a margin for coverage: a second before it
     // for the text rule and half a second after it for stability. The change lies between two
-    // keyframes, and the window spans them up to this gap.
+    // keyframes, and the window spans them up to this gap: 9.5 s of 640 by 360 frames at 30 fps is
+    // 285 frames, under the decode's 64 MiB cap.
     internal const double LookBackPadding = 1.25;
     internal const double LookAheadPadding = 0.75;
-    internal const double MaximumKeyframeGap = 8;
+    internal const double MaximumKeyframeGap = 7.5;
 
     // A lettered page or a lit object covers at least 0.3 percent of the picture and at most 15.
     internal const double ForegroundMinimum = 0.003;
@@ -55,6 +56,10 @@ internal static class LeadInProbe
     internal const double TextMinimumObservedSeconds = 0.75;
     internal const double TextMinimumForegroundSeconds = 0.25;
 
+    // A row carries picture once this share of it rises above the level in some frame: a stray
+    // pixel does not, a dim scene does.
+    internal const double PictureRowMinimumFraction = 0.02;
+
     // Keyframe times come from the black-frame scan at millisecond precision, decoder times are finer.
     private const double TimeTolerance = 0.002;
 
@@ -70,8 +75,10 @@ internal static class LeadInProbe
             : new TimeRange(lastLighterKeyframe - LookBackPadding, firstLevelKeyframe + LookAheadPadding);
 
     /// <summary>
-    /// Finds the rows that carry picture. A row whose brightest pixel over the whole window stays at
-    /// or under the level plus tolerance is a letterbox bar.
+    /// Finds the rows that carry picture. A row is picture when, in at least one frame of the window,
+    /// at least <see cref="PictureRowMinimumFraction"/> of its pixels rise above the level plus
+    /// tolerance; a row that never does is a letterbox bar. The fraction keeps a stray bright pixel,
+    /// noise or ringing at a bar's edge, from turning a bar back into picture.
     /// </summary>
     /// <param name="window">The decoded window.</param>
     /// <param name="blackLevel">The scene's black level on the scan's own scale.</param>
@@ -80,40 +87,32 @@ internal static class LeadInProbe
     internal static bool[] PictureRows(LumaWindow window, double blackLevel, double tolerance)
     {
         var width = window.Width;
-        var brightest = new byte[window.Height];
+        var picture = new bool[window.Height];
+        var minimumPixels = Math.Max(2, (int)Math.Ceiling(width * PictureRowMinimumFraction));
         for (var i = 0; i < window.FrameCount; i++)
         {
             var frame = window.Frame(i);
-            for (var y = 0; y < brightest.Length; y++)
+            for (var y = 0; y < picture.Length; y++)
             {
-                var max = brightest[y];
+                if (picture[y])
+                {
+                    continue;
+                }
+
+                var above = 0;
                 foreach (var value in frame.Slice(y * width, width))
                 {
-                    if (value > max)
+                    if (value > blackLevel + tolerance)
                     {
-                        max = value;
+                        above++;
                     }
                 }
 
-                brightest[y] = max;
+                picture[y] = above >= minimumPixels;
             }
         }
 
-        return [.. brightest.Select(max => max > blackLevel + tolerance)];
-    }
-
-    /// <summary>
-    /// Measures one frame over all of its rows and writes its foreground mask.
-    /// </summary>
-    /// <param name="frame">The frame's luma, row by row.</param>
-    /// <param name="width">The frame width.</param>
-    /// <param name="mask">Receives, per pixel, whether it is foreground; as long as <paramref name="frame"/>.</param>
-    /// <returns>The measure.</returns>
-    internal static LeadInFrameMeasure Measure(ReadOnlySpan<byte> frame, int width, Span<bool> mask)
-    {
-        Span<bool> allRows = stackalloc bool[frame.Length / width];
-        allRows.Fill(true);
-        return Measure(frame, width, allRows, mask);
+        return picture;
     }
 
     /// <summary>
