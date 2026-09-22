@@ -34,6 +34,7 @@ export const analysisTab: Tab = {
         const chaptersOff = () => configStore.get("FullLengthChapters") !== true;
 
         container.append(
+            form.field("DetectBlackFrameCredits"),
             form.field("PreferChromaprint"),
             form.field("EnhanceChapterCredits"),
             form.field("FullLengthChapters"),

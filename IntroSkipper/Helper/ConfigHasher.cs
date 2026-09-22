@@ -68,7 +68,7 @@ internal static class ConfigHasher
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
-                $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
+                $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsBlackFrameToken(config)}{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}"),
@@ -231,6 +231,20 @@ internal static class ConfigHasher
     /// <returns>The normalized language code, or an empty string when unset.</returns>
     public static string NormalizeAudioLanguage(string? language) => language?.Trim().ToLowerInvariant() ?? string.Empty;
 
+    // With no candidate left the credits pass builds no keyframe analyzer, so a BlackFrame action
+    // cannot restrict it and falls back. Shared with CreditsPass so the two cannot disagree.
+    internal static bool KeyframeCreditsEnabled(PluginConfiguration config)
+        => config.UseLegacyBlackFrameAnalyzer
+            ? config.DetectBlackFrameCredits
+            : config.DetectBlackFrameCredits || config.DetectNonBlackCredits;
+
+    // Only present when disabled, so the default-on configuration keeps the hash it had before the
+    // option existed and does not re-analyze credits on upgrade. Both black-frame implementations
+    // answer to it, because it gates the candidate rather than the analyzer, so it is not
+    // conditional on UseLegacyBlackFrameAnalyzer the way the card token is.
+    private static string CreditsBlackFrameToken(PluginConfiguration config)
+        => config.DetectBlackFrameCredits ? string.Empty : "|noBlackFrameCredits=True";
+
     // DetectNonBlackCredits only affects output when the default analyzer is active; including it
     // unconditionally would invalidate cached credits on the legacy BlackFrameAnalyzer path, which
     // cannot observe the setting (the UI also hides it there).
@@ -246,9 +260,12 @@ internal static class ConfigHasher
 
     // Only present when enabled so the default-off configuration keeps the hash it had before
     // the option existed. A BlackFrame action restricts the credits pass to that analyzer, which
-    // cannot observe the option, so toggling it must not re-scan those seasons.
+    // cannot observe the option, so toggling it must not re-scan those seasons — unless that
+    // restriction fell back for want of a candidate, when chapters decide the result again.
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
-        => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
+        => config.EnhanceChapterCredits && !(action is AnalyzerAction.BlackFrame && KeyframeCreditsEnabled(config))
+            ? "|enhanceChapterCredits=True"
+            : string.Empty;
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(

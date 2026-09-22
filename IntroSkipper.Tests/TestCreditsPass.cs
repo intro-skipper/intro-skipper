@@ -807,6 +807,47 @@ public sealed class TestCreditsPass
         Assert.Equal(oldRow.ConfigHash, newRow.ConfigHash);
     }
 
+    /// <summary>
+    /// With both keyframe candidates switched off the analyzer contributes nothing, so the pass
+    /// never builds it and no video is decoded. Chromaprint still settles the episode.
+    /// </summary>
+    [Fact]
+    public async Task BothKeyframeCandidatesSwitchedOff_DecodeNoVideoAndKeepChromaprint()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyframeVisuals: episode => CardVisualsFrom(episode, 800, 830));
+
+        await CreatePass(
+                ffmpeg,
+                database,
+                config: new PluginConfiguration { DetectBlackFrameCredits = false, DetectNonBlackCredits = false })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+        Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
+    /// <summary>
+    /// A BlackFrame action restricts the pass to the keyframe analyzer, so with both of its
+    /// candidates switched off it falls back to the default policy, as an unavailable Chromaprint does.
+    /// </summary>
+    [Fact]
+    public async Task BlackFrameAction_WithBothKeyframeCandidatesOff_FallsBackToTheDefaultPolicy()
+    {
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900));
+        var (episodes, ffmpeg, database) = CreateSeason();
+
+        await CreatePass(
+                ffmpeg,
+                database,
+                config: new PluginConfiguration { DetectBlackFrameCredits = false, DetectNonBlackCredits = false })
+            .RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
+
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
+    }
+
     private static double PointTime(int point) => WindowStart + (point * ChromaprintConstants.SampleDuration);
 
     private static IDisposable Scope(params ChapterInfo[] chapters)
