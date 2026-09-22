@@ -134,8 +134,8 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             }
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
             var truncated = await stdoutTask.ConfigureAwait(false);
-            await stderrTask.ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
             if (timedOut)

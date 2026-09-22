@@ -282,7 +282,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     {
         // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
         // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
-        // size at the info level.
+        // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
+        // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
+        // frames it logged.
         string[] args =
         [
             "-hide_banner", "-nostdin",
@@ -292,6 +294,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-t", window.Duration.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
+            "-fps_mode", "passthrough",
             "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
             "-f", "rawvideo", "-",
         ];

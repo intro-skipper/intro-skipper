@@ -191,20 +191,24 @@ internal static class LeadInProbe
             return new LeadInDecision.Inconclusive("the window starts at the level change");
         }
 
-        var before = new bool[frameSize];
-        var after = new bool[frameSize];
-        var beforeMeasure = Measure(window.Frame(located - 1), window.Width, before);
-        var afterMeasure = Measure(window.Frame(located), window.Width, after);
-        if (beforeMeasure.ForegroundFraction >= ForegroundMinimum
-            && afterMeasure.ForegroundFraction >= ForegroundMinimum
-            && Iou(before, after) >= ContinuityMinimumIou)
+        // Continuity: the same foreground of lettering size on both sides of the change. A lit region
+        // beyond the size of a page is story whatever survives the drop.
+        if (measures[located - 1].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum
+            && measures[located].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum)
         {
-            return new LeadInDecision.Keep();
+            var before = new bool[frameSize];
+            var after = new bool[frameSize];
+            Measure(window.Frame(located - 1), window.Width, before);
+            Measure(window.Frame(located), window.Width, after);
+            if (Iou(before, after) >= ContinuityMinimumIou)
+            {
+                return new LeadInDecision.Keep();
+            }
         }
 
         var lookBackStart = times[located] - TextLookBackSeconds;
         var (observedBack, _) = Observe(times, durations, atLevel, lookBackStart, times[located]);
-        if (observedBack < TextMinimumObservedSeconds)
+        if (observedBack < TextMinimumObservedSeconds - TimeTolerance)
         {
             return new LeadInDecision.Inconclusive("less than three quarters of the second before the level change was decoded");
         }

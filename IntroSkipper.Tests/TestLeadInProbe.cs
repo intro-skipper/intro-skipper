@@ -62,6 +62,20 @@ public class TestLeadInProbe
     }
 
     [Fact]
+    public void Decide_LargeLitRegionAcrossTheChange_DoesNotKeepOnContinuity()
+    {
+        // A lit region far beyond the size of a page survives the background drop unchanged: the
+        // continuity rule does not vouch for it, the text rule sees two edges per row, and the
+        // scene starts at the change.
+        var window = Window(0, (1.0, () => Rectangle(Blank(21), x: 4, y: 4, width: 56, height: 28)), (1.5, () => Rectangle(Blank(16), x: 4, y: 4, width: 56, height: 28)));
+
+        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+
+        var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
+        Assert.Equal(1.0, trim.Time, 6);
+    }
+
+    [Fact]
     public void Decide_LetteredPrefixWithAPageChange_Keeps()
     {
         // Text alone: the page changes at the level change, so nothing carries over, and the last
