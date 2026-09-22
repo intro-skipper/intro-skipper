@@ -314,6 +314,7 @@ public class TestBlackFrames
     [InlineData("cut then highlight", null)]
     [InlineData("dark grey lead-in", 130.0)]
     [InlineData("lifted blacks", 120.0)]
+    [InlineData("mixed black levels", 134.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
@@ -323,7 +324,8 @@ public class TestBlackFrames
         // A dark scene with one lit spot on every page is a roll as it always was; a cut followed by
         // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
         // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
-        // with lifted blacks sets the scan's black level and is a roll.
+        // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
+        // levels starts at its darker part, the accepted trade.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -340,6 +342,7 @@ public class TestBlackFrames
             "dark highlight" => [.. times.Select(KeyframeVisuals.DarkHighlight)],
             "dark grey lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
             "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
+            "mixed black levels" => [.. times.Select(t => t < 34 ? KeyframeVisuals.LiftedBlack(t) : KeyframeVisuals.Black(t))],
             _ => [],
         };
         var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);
@@ -349,6 +352,21 @@ public class TestBlackFrames
         var result = await BlackFrameCredits(analyzer, episode);
 
         Assert.Equal(expectedStart, result?.Start);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_LighterTailStaysInTheScene()
+    {
+        // The black-level rule is confined to the leading boundary: a roll whose last pages sit on a
+        // lifted black keeps them, since only a lead-in is ambiguous with story.
+        double[] times = [.. Times(20, 54, 0.5)];
+        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: [.. times.Select(t => t < 40 ? KeyframeVisuals.Black(t) : KeyframeVisuals.LiftedBlack(t))]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal((120.0, 154.0), (result?.Start, result?.End));
     }
 
     [Fact]

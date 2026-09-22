@@ -16,9 +16,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <remarks>
 /// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
 /// through density gating, blackdetect interval recovery for sparse candidates and optional boundary
-/// refinement. Two gates use the visuals on black keyframes: a keyframe whose background is saturated
-/// or above the scan's black level is a dark scene and does not count as black, and a black scene
-/// lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
+/// refinement. Three rules use the visuals on black keyframes: a keyframe whose background is
+/// saturated is a dark tinted scene and does not count as black, a black scene starts after leading
+/// keyframes lighter than its black level, a dim last shot before the cut to the roll, and a black
+/// scene lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
 /// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
@@ -29,7 +30,7 @@ internal sealed partial class KeyframeAnalyzer(
     IFFmpegService ffmpegService,
     PluginConfiguration? configuration = null)
 {
-    // Black sits at 16 on the limited-range scale the scan is pinned to; a scan whose black keyframes
+    // Black sits at 16 on the limited-range scale the scan is pinned to; a scene whose black keyframes
     // typically sit higher has lifted blacks and sets its own level. A couple of levels over it is
     // encoder noise, more is a dark grey scene.
     private const double LimitedRangeBlack = 16;
@@ -68,9 +69,9 @@ internal sealed partial class KeyframeAnalyzer(
         // black keyframes inert.
         var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
 
-        // Tinted and dark grey keyframes are content to the black-frame rules, so they leave before
-        // the thresholds are normalized against the scan they will be applied to.
-        var sceneFrames = WithoutDarkKeyframes(blackFrames, visuals, minimumPercentage);
+        // Tinted keyframes are content to the black-frame rules, so they leave before the thresholds
+        // are normalized against the scan they will be applied to.
+        var sceneFrames = WithoutTintedKeyframes(blackFrames, visuals);
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
             ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
             : (minimumPercentage, minimumPercentage);
@@ -148,6 +149,11 @@ internal sealed partial class KeyframeAnalyzer(
             }
         }
 
+        // A dim last shot before the cut to the roll is black to the blackframe filter, and by the
+        // statistics the scan keeps it is the same shape as a credit page on a lifted black. The
+        // scene starts after such a lead-in; a lighter section later in the scene stays.
+        scenes = [.. scenes.Select(scene => visuals.Count == 0 ? scene : StartAfterDarkGreyLeadIn(scene, blackFrames, minimum, visuals))];
+
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
@@ -183,29 +189,59 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
-    /// Drops the black percentage of keyframes whose visual is not black. Every pixel under the
-    /// blackframe filter's threshold is black to it, so a dark tinted scene, such as a blue night
-    /// cave, and a dark grey scene, such as a dim room before the cut to the roll, both count as black
-    /// there. Black is unsaturated, with its darkest tenth at the scan's black level: the median
-    /// darkest tenth of the scan's unsaturated black keyframes, never below 16, so a source with
-    /// lifted blacks keeps its roll and a sub-black fade cannot set the level.
+    /// Drops the black percentage of keyframes whose visual is saturated. Black is unsaturated; a
+    /// keyframe the blackframe filter counts as black at that saturation is a dark tinted scene, such
+    /// as a blue night cave, not a roll or a card.
     /// </summary>
-    private static List<BlackFrame> WithoutDarkKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals, int minimumPercentage)
+    private static List<BlackFrame> WithoutTintedKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals)
     {
         if (visuals.Count == 0)
         {
             return blackFrames;
         }
 
-        List<double> levels = [.. blackFrames
-            .Where(frame => frame.Percentage >= minimumPercentage)
-            .Select(frame => VisualAt(visuals, frame.Time))
-            .OfType<KeyframeVisual>()
-            .Where(visual => visual.SaturationLow < CardRunFinder.BlackSaturationMaximum)
-            .Select(visual => visual.LumaLow)
-            .Order()];
-        var blackLevel = levels.Count == 0 ? LimitedRangeBlack : Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
-        return [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { } visual && (visual.SaturationLow >= CardRunFinder.BlackSaturationMaximum || visual.LumaLow > blackLevel + BlackLevelTolerance) ? frame with { Percentage = 0 } : frame)];
+        return [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? frame with { Percentage = 0 } : frame)];
+    }
+
+    /// <summary>
+    /// Moves a scene's start past its dark grey lead-in: the leading black keyframes whose darkest
+    /// tenth sits more than <see cref="BlackLevelTolerance"/> above the scene's black level, the
+    /// median darkest tenth of its black keyframes and never below <see cref="LimitedRangeBlack"/>.
+    /// A dim last shot before the cut to the roll is such a lead-in. So is the lighter prefix of a
+    /// roll authored at two black levels: nothing the scan keeps tells the two apart, and the later
+    /// start skips less story. A keyframe without a visual ends the lead-in, since nothing says it is
+    /// lighter, and a scene whose lighter keyframes are the majority sets its level from them and
+    /// keeps its start.
+    /// </summary>
+    private static CreditScene StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
+    {
+        var pages = new List<(BlackFrame Frame, KeyframeVisual? Visual)>();
+        foreach (var frame in blackFrames)
+        {
+            if (frame.Percentage >= minimum
+                && frame.Time >= scene.StartTime - CardRunFinder.KeyframeJoinTolerance
+                && frame.Time <= scene.EndTime + CardRunFinder.KeyframeJoinTolerance)
+            {
+                pages.Add((frame, VisualAt(visuals, frame.Time)));
+            }
+        }
+
+        List<double> levels = [.. pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.LumaLow).Order()];
+        if (levels.Count == 0)
+        {
+            return scene;
+        }
+
+        var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
+        foreach (var (frame, visual) in pages)
+        {
+            if (visual is null || visual.LumaLow <= blackLevel + BlackLevelTolerance)
+            {
+                return frame.Frame == scene.StartFrame ? scene : new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime);
+            }
+        }
+
+        return scene;
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
