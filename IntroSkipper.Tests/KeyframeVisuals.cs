@@ -16,6 +16,9 @@ internal static class KeyframeVisuals
     /// <summary>A white card with black text.</summary>
     internal static KeyframeVisual WhiteCard(double time) => new(time, 0, 235, 235, 235, 0);
 
+    /// <summary>A completely white screen with no text.</summary>
+    internal static KeyframeVisual WhiteScreen(double time) => new(time, 235, 235, 235, 235, 0);
+
     /// <summary>A black roll page with white text.</summary>
     internal static KeyframeVisual Black(double time) => new(time, 16, 16, 16, 235, 0);
 

@@ -300,6 +300,93 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_MultipleSparseScenesRequireBlackIntervalSupport()
+    {
+        // Two sparse scenes clear the keyframe density gate because the source has only a few
+        // keyframes in each run. The large gap separates the runs; only the first scene has a
+        // confirmed blackdetect interval and should remain a credits candidate.
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(10, 100, 4),
+            new(96, 110, 5),
+            new(96, 120, 6),
+            new(96, 130, 7),
+        ];
+        var ffmpeg = CreditsScan(frames, intervals: [new BlackInterval(10, 30)]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.NotNull(result);
+        Assert.Equal((10, 30), (result.Start, result.End));
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_UnconfirmedProbePreservesKeyframeScenes()
+    {
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(10, 100, 4),
+            new(96, 110, 5),
+            new(96, 120, 6),
+            new(96, 130, 7),
+        ];
+        var ffmpeg = CreditsScan(frames, intervals: [new BlackInterval(0, 1)]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+
+        var result = await BlackFrameCredits(analyzer, CreateQueuedCreditsEpisode());
+
+        Assert.NotNull(result);
+        Assert.Equal((110, 130), (result.Start, result.End));
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_SparseProbePreservesDenseSceneAndItsCardRun()
+    {
+        KeyframeVisual[] visuals =
+        [
+            KeyframeVisuals.Content(0),
+            .. Black(10, 30, 10),
+            KeyframeVisuals.Content(60),
+            .. Cards(90, 98, 2),
+            .. Black(100, 130, 2),
+        ];
+        BlackFrame[] frames = [.. visuals.Select((visual, frame) => new BlackFrame(visual.Time is >= 10 and <= 30 or >= 100 ? 96 : 0, visual.Time, frame))];
+        var ffmpeg = new StubFFmpegService
+        {
+            CreditsBlackFrames = (_, _) => frames,
+            KeyframeVisuals = _ => visuals,
+            BlackIntervals = (_, _, _, _) => [new BlackInterval(10, 30)],
+            RangeBlackFrames = (_, _, _, _, _) => [],
+        };
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+
+        var candidates = await analyzer.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+
+        Assert.Collection(
+            candidates,
+            blackFrame =>
+            {
+                Assert.Equal(SegmentSource.BlackFrame, blackFrame.Source);
+                Assert.Equal((10, 30), (blackFrame.Segment.Start, blackFrame.Segment.End));
+            },
+            card =>
+            {
+                Assert.Equal(SegmentSource.KeyframeVisuals, card.Source);
+                Assert.Equal((90, 130), (card.Segment.Start, card.Segment.End));
+            });
+    }
+
+    [Fact]
     public void TestRefineBoundary_NoPriorKeyframe_ReturnsOriginalStart()
     {
         // When the scene starts at the very first keyframe's time, there is no preceding keyframe.
@@ -1164,6 +1251,11 @@ public class TestBlackFrames
             KeyframeVisual[] rollOnly = [.. Black(0, 60, 2)];
             data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [(0, 60)], null);
             data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [], (0, 60));
+
+            // Solid white frames are content even if the black-frame evidence misclassifies them;
+            // visual evidence must not let a white screen extend an accepted black scene.
+            KeyframeVisual[] whiteScreens = [.. Times(0, 60, 2).Select(t => KeyframeVisuals.WhiteScreen(t))];
+            data.Add(whiteScreens, BlackScanOf(whiteScreens, black: (0, 60)), [(0, 60)], null);
 
             // Short white cards then a short roll, each below the minimum on its own, qualify together.
             KeyframeVisual[] shortCardsThenShortRoll = [.. Cards(0, 10, 2), .. Black(12, 24, 2)];

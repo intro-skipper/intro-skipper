@@ -115,13 +115,21 @@ internal sealed partial class KeyframeAnalyzer(
                 return (null, []);
             }
         }
-        else if (scenes.Count == 1 && CreditSceneMetricsCalculator.Calculate(blackFrames, scenes[0], minimum).IsSparse(scenes[0], minimumDuration))
+        else if (scenes.Any(scene => CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration)))
         {
+            // Probe all candidates for ranking. When any are confirmed, keep dense scenes unchanged
+            // and add interval-supported scenes that do not overlap them by frame range.
+            // If none are confirmed, keep the original candidate set.
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             var supportedScenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
             if (supportedScenes.Count > 0)
             {
-                scenes = supportedScenes;
+                var denseScenes = scenes
+                    .Where(scene => !CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration))
+                    .ToList();
+                scenes = [.. denseScenes
+                    .Concat(supportedScenes.Where(supported => !denseScenes.Any(dense => supported.StartFrame <= dense.EndFrame && supported.EndFrame >= dense.StartFrame)))
+                    .OrderBy(scene => scene.StartFrame)];
             }
         }
 

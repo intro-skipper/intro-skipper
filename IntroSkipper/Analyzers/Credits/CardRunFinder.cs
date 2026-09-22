@@ -9,11 +9,12 @@ namespace IntroSkipper.Analyzers.Credits;
 /// Finds the card run in the keyframe visuals of one episode: credits on a near-uniform
 /// low-saturation card. Text on black, white, grey or a muted colour card shows a near-uniform
 /// background with text on it, which busy content and flat backgrounds with a subject in front
-/// never produce. Inside a black scene the black-frame rules accepted, a black keyframe whatever it
-/// shows and a card-like keyframe are both black cards: they extend a run and count toward its
+/// never produce. Inside a black scene the black-frame rules accepted, a black keyframe that is not
+/// solid white and a card-like keyframe are both black cards: they extend a run and count toward its
 /// duration but never toward its density or cadence, so a black roll cannot carry stray flat shots
 /// before it into the credits or trim sparse white cards next to it. A black card-like keyframe
-/// outside every accepted scene is content.
+/// outside every accepted scene is content. Solid white screens are always content, even inside an
+/// accepted scene.
 /// </summary>
 internal static class CardRunFinder
 {
@@ -31,6 +32,7 @@ internal static class CardRunFinder
     // spread and saturation alone, so admitting them would cost the card run finder's zero-false-positive
     // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
     private const double SaturationCreditMaximum = 96.0;
+    private const double LimitedRangeWhite = 235.0;
     private const double MinimumCardFraction = 0.5;
 
     // The blackframe and metadata filters format the same pts differently, so the same keyframe
@@ -51,11 +53,12 @@ internal static class CardRunFinder
     /// The black scenes the black-frame rules accepted, which carry their interval and boundary
     /// evidence, are the only black evidence used here. One of them is the black-frame candidate; the
     /// others still count, since a card run next to a scene the rules did not pick is its own credits.
-    /// A black keyframe inside an accepted scene is a black card whatever it shows, so a blank page
-    /// between two roll pages does not break the roll, and so is a card-like keyframe inside one, so a
-    /// vanity card between two roll parts cannot give the roll a card density of its own: both extend
-    /// the run and count toward its duration, so short white cards and a short roll qualify together,
-    /// but they are left out of the density ratio and the trim cadence. Counted, a black roll's density carried scattered
+    /// A black keyframe inside an accepted scene is a black card unless it is solid white, so a blank
+    /// black page between two roll pages does not break the roll. Solid white screens remain content.
+    /// A card-like keyframe inside an accepted scene is also a black card, so a vanity card between
+    /// two roll parts cannot give the roll a card density of its own: both extend the run and count
+    /// toward its duration, so short white cards and a short roll qualify together, but they are left
+    /// out of the density ratio and the trim cadence. Counted, a black roll's density carried scattered
     /// flat shots before it into the run: measured on an anime epilogue, that admitted 67 seconds of
     /// story. A black card-like keyframe outside every accepted scene is content, since the black-frame
     /// rules rejected it, as it does a dark lead-in before the roll's transition or a black flash
@@ -97,9 +100,18 @@ internal static class CardRunFinder
     /// <param name="visual">The per-keyframe visual statistics.</param>
     /// <returns><see langword="true" /> when the keyframe looks like a credit card.</returns>
     internal static bool IsCreditCardKeyframe(KeyframeVisual visual)
-        => visual.LumaHigh - visual.LumaLow <= BackgroundSpreadMaximum &&
+        => !IsSolidWhite(visual) &&
+           visual.LumaHigh - visual.LumaLow <= BackgroundSpreadMaximum &&
            Math.Max(visual.LumaMax - visual.LumaHigh, visual.LumaLow - visual.LumaMin) >= TextContrastMinimum &&
            visual.Saturation < SaturationCreditMaximum;
+
+    // A blank white screen has no foreground text. Keep it out explicitly so a future change to
+    // the contrast thresholds cannot turn a solid frame into a card candidate.
+    private static bool IsSolidWhite(KeyframeVisual visual)
+        => visual.LumaMin >= LimitedRangeWhite &&
+           visual.LumaLow >= LimitedRangeWhite &&
+           visual.LumaHigh >= LimitedRangeWhite &&
+           visual.LumaMax >= LimitedRangeWhite;
 
     private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes)
     {
@@ -113,8 +125,9 @@ internal static class CardRunFinder
             }
 
             var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= BlackKeyframeJoinTolerance;
-            var card = IsCreditCardKeyframe(visual);
-            var kind = (black || card) && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
+            var solidWhite = IsSolidWhite(visual);
+            var card = !solidWhite && IsCreditCardKeyframe(visual);
+            var kind = !solidWhite && (black || card) && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
                 : card && !black ? KeyframeKind.Card
                 : KeyframeKind.Content;
             keyframes.Add(new CardKeyframe(visual.Time, kind));
