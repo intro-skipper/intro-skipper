@@ -151,13 +151,27 @@ internal sealed partial class KeyframeAnalyzer(
 
         // A dim last shot before the cut to the roll is black to the blackframe filter, and by the
         // statistics the scan keeps it is the same shape as a credit page on a lifted black. The
-        // scene starts after such a lead-in; a lighter section later in the scene stays.
-        scenes = [.. scenes.Select(scene => visuals.Count == 0 ? scene : StartAfterDarkGreyLeadIn(scene, blackFrames, minimum, visuals))];
+        // scene starts after such a lead-in; a lighter section later in the scene stays. The lead-in
+        // is a rejected range to the card run finder, so its card-like keyframes cannot come back as
+        // a card run when what is left of the scene is too short to be credits.
+        var rejected = new List<TimeRange>();
+        if (visuals.Count > 0)
+        {
+            for (var i = 0; i < scenes.Count; i++)
+            {
+                var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
+                if (leadIn is { } range)
+                {
+                    rejected.Add(range);
+                    scenes[i] = trimmed;
+                }
+            }
+        }
 
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
-        List<TimeRange> rejected = [.. scenes.Where(scene => visuals.Count > 0 && !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime))];
+        rejected.AddRange(scenes.Where(scene => visuals.Count > 0 && !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
         scenes = [.. scenes.Where(scene => visuals.Count == 0 || IsMostlyLettered(scene, blackFrames, minimum, visuals))];
         if (scenes.Count == 0)
         {
@@ -213,7 +227,8 @@ internal sealed partial class KeyframeAnalyzer(
     /// lighter, and a scene whose lighter keyframes are the majority sets its level from them and
     /// keeps its start.
     /// </summary>
-    private static CreditScene StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
+    /// <returns>The scene with its start moved, and the lead-in from the old start to its last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
+    private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
     {
         var pages = new List<(BlackFrame Frame, KeyframeVisual? Visual)>();
         foreach (var frame in blackFrames)
@@ -229,19 +244,24 @@ internal sealed partial class KeyframeAnalyzer(
         List<double> levels = [.. pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.LumaLow).Order()];
         if (levels.Count == 0)
         {
-            return scene;
+            return (scene, null);
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
+        var lastLeadInTime = scene.StartTime;
         foreach (var (frame, visual) in pages)
         {
             if (visual is null || visual.LumaLow <= blackLevel + BlackLevelTolerance)
             {
-                return frame.Frame == scene.StartFrame ? scene : new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime);
+                return frame.Frame == scene.StartFrame
+                    ? (scene, null)
+                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(scene.StartTime, lastLeadInTime));
             }
+
+            lastLeadInTime = frame.Time;
         }
 
-        return scene;
+        return (scene, null);
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are

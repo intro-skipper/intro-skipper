@@ -355,6 +355,22 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_TrimmedLeadInDoesNotComeBackAsCards()
+    {
+        // A card-like dark grey lead-in of 12 s before 13 s of roll: the trim leaves the scene under
+        // the minimum, so there is no accepted scene and the card finder's visual-only fallback runs.
+        // The lead-in must be content there, or it returns as a card run over lead-in and roll.
+        double[] times = [.. Times(20, 45, 0.5)];
+        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 45, percentage: 95), visuals: [.. times.Select(t => t < 32 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
     public async Task DetectCreditsAsync_LighterTailStaysInTheScene()
     {
         // The black-level rule is confined to the leading boundary: a roll whose last pages sit on a
