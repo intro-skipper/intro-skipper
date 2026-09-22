@@ -17,5 +17,6 @@ namespace IntroSkipper.Data;
 /// <param name="LumaLow">10th percentile luma (<c>YLOW</c>).</param>
 /// <param name="LumaHigh">90th percentile luma (<c>YHIGH</c>).</param>
 /// <param name="LumaMax">Highest luma in the frame (<c>YMAX</c>).</param>
+/// <param name="SaturationLow">10th percentile saturation (<c>SATLOW</c>, 0..255): the background's saturation, since the least saturated tenth of a frame with lettering on it is background.</param>
 /// <param name="Saturation">Mean saturation (<c>SATAVG</c>, 0..255).</param>
-public sealed record KeyframeVisual(double Time, double LumaMin, double LumaLow, double LumaHigh, double LumaMax, double Saturation);
+public sealed record KeyframeVisual(double Time, double LumaMin, double LumaLow, double LumaHigh, double LumaMax, double SaturationLow, double Saturation);

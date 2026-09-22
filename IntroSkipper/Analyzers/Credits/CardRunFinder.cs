@@ -25,7 +25,7 @@ internal static class CardRunFinder
 
     // Something is drawn on the background, text usually, at least this far from it in luma. A fade
     // or a bare wall has the spread but not the contrast.
-    private const double TextContrastMinimum = 60;
+    internal const double TextContrastMinimum = 60;
 
     // Vivid/saturated uniform frames are excluded on purpose: a solid-colour content frame (a fade,
     // stylised transition, or saturated sky) is indistinguishable from a saturated colour card by
@@ -37,7 +37,12 @@ internal static class CardRunFinder
 
     // The blackframe and metadata filters format the same pts differently, so the same keyframe
     // can sit under a millisecond apart in the two lists.
-    private const double BlackKeyframeJoinTolerance = 0.01;
+    internal const double KeyframeJoinTolerance = 0.01;
+
+    // Black is unsaturated down to its darkest tenth. A black keyframe whose 10th percentile
+    // saturation is at or above this is a dark tinted scene, not a roll or a card, and is content in
+    // every path below. Coloured lettering on black leaves that tenth at zero.
+    internal const double BlackSaturationMaximum = 10;
 
     private enum KeyframeKind
     {
@@ -62,7 +67,8 @@ internal static class CardRunFinder
     /// flat shots before it into the run: measured on an anime epilogue, that admitted 67 seconds of
     /// story. A black card-like keyframe outside every accepted scene is content, since the black-frame
     /// rules rejected it, as it does a dark lead-in before the roll's transition or a black flash
-    /// before an interval-confirmed roll. With no candidate the visuals alone decide, as the old
+    /// before an interval-confirmed roll. A black keyframe whose visual is saturated is a dark
+    /// tinted scene and content in every case. With no candidate the visuals alone decide, as the old
     /// fallback did, so black cards the black-frame rules could not confirm still count.
     /// </remarks>
     /// <param name="visuals">The per-keyframe visual statistics, ordered by time.</param>
@@ -70,16 +76,12 @@ internal static class CardRunFinder
     /// <param name="blackMinimum">The black percentage at or above which a keyframe is black, normalized against the scan by the black-frame rules.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <param name="blackFrameScenes">The black scenes the black-frame rules accepted, relative to the credits fingerprint start; empty when they found no credits.</param>
+    /// <param name="rejectedScenes">Black scenes the black-frame rules accepted and the analyzer then rejected as gaps; their black keyframes are content in every path, the no-scene fallback included, so a rejected gap cannot come back as a card run.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes)
+    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange>? rejectedScenes = null)
     {
-        if (blackFrameScenes.Count == 0)
-        {
-            return FindCreditRange(visuals, minimumDuration);
-        }
-
         List<double> blackTimes = [.. blackFrames.Where(frame => frame.Percentage >= blackMinimum).Select(frame => frame.Time)];
-        return FindCreditRange(Classify(visuals, blackTimes, blackFrameScenes), minimumDuration);
+        return FindCreditRange(Classify(visuals, blackTimes, blackFrameScenes, rejectedScenes ?? []), minimumDuration);
     }
 
     /// <summary>
@@ -90,7 +92,7 @@ internal static class CardRunFinder
     /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
     public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, int minimumDuration)
-        => FindCreditRange(Classify(visuals, [], []), minimumDuration);
+        => FindCreditRange(Classify(visuals, [], [], []), minimumDuration);
 
     /// <summary>
     /// Classifies a keyframe as a credit card: a dominant near-uniform background, something drawn on
@@ -113,21 +115,38 @@ internal static class CardRunFinder
            visual.LumaHigh >= LimitedRangeWhite &&
            visual.LumaMax >= LimitedRangeWhite;
 
-    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes)
+    /// <summary>
+    /// Whether a keyframe shows lettering: something far above its darkest tenth, at any density and
+    /// colour. A blank page fails on contrast. A dim highlight on a dark keyframe passes, since no
+    /// luma percentile tells it from antialiased coloured text; a scene of such keyframes counts as a
+    /// roll, as it always has, and the keyframe analyzer asks for lettering on most of a scene's pages.
+    /// </summary>
+    /// <param name="visual">The per-keyframe visual statistics.</param>
+    /// <returns><see langword="true" /> when the keyframe shows lettering.</returns>
+    internal static bool IsLetteredPage(KeyframeVisual visual)
+        => visual.LumaMax - visual.LumaLow >= TextContrastMinimum;
+
+    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange> rejectedScenes)
     {
         var keyframes = new List<CardKeyframe>(visuals.Count);
         var next = 0;
         foreach (var visual in visuals)
         {
-            while (next < blackTimes.Count && blackTimes[next] < visual.Time - BlackKeyframeJoinTolerance)
+            while (next < blackTimes.Count && blackTimes[next] < visual.Time - KeyframeJoinTolerance)
             {
                 next++;
             }
 
-            var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= BlackKeyframeJoinTolerance;
-            var solidWhite = IsSolidWhite(visual);
-            var card = !solidWhite && IsCreditCardKeyframe(visual);
-            var kind = !solidWhite && (black || card) && blackFrameScenes.Any(scene => visual.Time >= scene.Start && visual.Time <= scene.End) ? KeyframeKind.BlackCard
+            var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= KeyframeJoinTolerance;
+            var card = IsCreditCardKeyframe(visual);
+
+            // Scene bounds come from black-frame times, so a black keyframe is placed by its matched
+            // black-frame time, with the join tolerance on the bounds for the rounding between the two.
+            // A solid white screen is content in every path, as a saturated or rejected black keyframe is.
+            var time = black ? blackTimes[next] : visual.Time;
+            var kind = IsSolidWhite(visual) || (black && (visual.SaturationLow >= BlackSaturationMaximum || rejectedScenes.Any(scene => InScene(scene, time)))) ? KeyframeKind.Content
+                : blackFrameScenes.Count == 0 ? (card ? KeyframeKind.Card : KeyframeKind.Content)
+                : (black || card) && blackFrameScenes.Any(scene => InScene(scene, time)) ? KeyframeKind.BlackCard
                 : card && !black ? KeyframeKind.Card
                 : KeyframeKind.Content;
             keyframes.Add(new CardKeyframe(visual.Time, kind));
@@ -135,6 +154,9 @@ internal static class CardRunFinder
 
         return keyframes;
     }
+
+    private static bool InScene(TimeRange scene, double time)
+        => time >= scene.Start - KeyframeJoinTolerance && time <= scene.End + KeyframeJoinTolerance;
 
     private static TimeRange? FindCreditRange(List<CardKeyframe> keyframes, int minimumDuration)
     {

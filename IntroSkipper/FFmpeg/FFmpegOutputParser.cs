@@ -14,7 +14,7 @@ namespace IntroSkipper.FFmpeg;
 internal static partial class FFmpegOutputParser
 {
     // The stats KeyframeSignalStatRegex admits, so a block with this many distinct matches has them all.
-    private const int KeyframeSignalStatCount = 5;
+    private const int KeyframeSignalStatCount = 6;
 
     private static readonly Regex _silenceDetectionExpression = SilenceRegex();
 
@@ -116,6 +116,7 @@ internal static partial class FFmpegOutputParser
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATLOW=0
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
          */
         double? time = null;
@@ -150,7 +151,7 @@ internal static partial class FFmpegOutputParser
     {
         if (time is { } keyframeTime && stats.Count == KeyframeSignalStatCount)
         {
-            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"]));
+            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATLOW"], stats["SATAVG"]));
         }
     }
 
@@ -194,7 +195,7 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeVisualTimeRegex();
 
-    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATLOW|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSignalStatRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]

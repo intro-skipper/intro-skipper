@@ -594,7 +594,6 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
-        Assert.Equal(0, ffmpeg.VisualScanCalls);
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal((BlackStart, Duration, SegmentSource.BlackFrame), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
     }
