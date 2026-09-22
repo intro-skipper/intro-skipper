@@ -271,8 +271,9 @@ internal sealed partial class KeyframeAnalyzer(
     // picture behind letterbox bars, where the bars are the darkest tenth and stay at black however
     // dim the picture is; a dark scene there sits at 25 to 45 on the 90th percentile. A roll page
     // sits at the level on both, or lifts its 90th percentile onto the text when the lettering is
-    // large. Pages dense with small lettering inside a roll can land in between, and the rule never
-    // reaches them, since it reads leading keyframes only.
+    // large. Pages dense with small lettering can land in between: inside a roll the rule never
+    // reaches them, since it reads leading keyframes only, and a roll that opens on them starts
+    // after them, the accepted trade until the frame-level probe can read such a page.
     private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
         => visual.LumaLow > blackLevel + BlackLevelTolerance
             || (visual.LumaHigh > blackLevel + BlackLevelTolerance && visual.LumaHigh < blackLevel + CardRunFinder.TextContrastMinimum);

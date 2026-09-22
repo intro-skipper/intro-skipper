@@ -318,6 +318,7 @@ public class TestBlackFrames
     [InlineData("letterboxed dark lead-in", 130.0)]
     [InlineData("letterboxed dark majority", 136.0)]
     [InlineData("big text", 120.0)]
+    [InlineData("dense first pages", 124.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
@@ -331,6 +332,9 @@ public class TestBlackFrames
         // levels starts at its darker part, the accepted trade. Behind letterbox bars a dark scene's
         // darkest tenth is black like the roll's, and its 90th percentile gives it away, however long
         // it runs; large lettering lifts a roll page's 90th percentile onto the text and is a roll.
+        // Pages dense enough to lift the 90th percentile into the dark band read as dim content, so
+        // a roll that opens on them starts after them: the accepted trade at keyframe level, where
+        // nothing else tells such a page from a dark scene behind bars.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -351,6 +355,7 @@ public class TestBlackFrames
             "letterboxed dark lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
             "letterboxed dark majority" => [.. times.Select(t => t < 36 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
             "big text" => [.. times.Select(KeyframeVisuals.BigText)],
+            "dense first pages" => [.. times.Select(t => t < 24 ? KeyframeVisuals.DenseText(t) : KeyframeVisuals.Black(t))],
             _ => [],
         };
         var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);
