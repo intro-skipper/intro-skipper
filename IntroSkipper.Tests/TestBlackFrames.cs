@@ -316,7 +316,7 @@ public class TestBlackFrames
     [InlineData("lifted blacks", 120.0)]
     [InlineData("mixed black levels", 134.0)]
     [InlineData("letterboxed dark lead-in", 130.0)]
-    [InlineData("letterboxed dark majority", 136.0)]
+    [InlineData("letterboxed dark majority", 138.0)]
     [InlineData("big text", 120.0)]
     [InlineData("dense first pages", 124.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
@@ -353,7 +353,7 @@ public class TestBlackFrames
             "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
             "mixed black levels" => [.. times.Select(t => t < 34 ? KeyframeVisuals.LiftedBlack(t) : KeyframeVisuals.Black(t))],
             "letterboxed dark lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
-            "letterboxed dark majority" => [.. times.Select(t => t < 36 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
+            "letterboxed dark majority" => [.. times.Select(t => t < 38 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
             "big text" => [.. times.Select(KeyframeVisuals.BigText)],
             "dense first pages" => [.. times.Select(t => t < 24 ? KeyframeVisuals.DenseText(t) : KeyframeVisuals.Black(t))],
             _ => [],
@@ -365,6 +365,23 @@ public class TestBlackFrames
         var result = await BlackFrameCredits(analyzer, episode);
 
         Assert.Equal(expectedStart, result?.Start);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
+    {
+        // Keyframes two seconds apart, a dark grey lead-in trimmed at 30. The boundary probe would
+        // read the gap before 30 with blackframe, which scores the lead-in black, and pull the
+        // start back into it; a trimmed scene does not probe.
+        BlackFrame[] frames = [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))];
+        var ffmpeg = CreditsScan(frames, probeFrames: [new BlackFrame(100, 0.2, 5)], visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(130, result?.Start);
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
     }
 
     [Fact]

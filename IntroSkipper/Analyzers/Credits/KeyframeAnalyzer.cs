@@ -155,6 +155,7 @@ internal sealed partial class KeyframeAnalyzer(
         // is a rejected range to the card run finder, so its card-like keyframes cannot come back as
         // a card run when what is left of the scene is too short to be credits.
         var rejected = new List<TimeRange>();
+        var trimmedScenes = new HashSet<CreditScene>();
         if (visuals.Count > 0)
         {
             for (var i = 0; i < scenes.Count; i++)
@@ -164,6 +165,7 @@ internal sealed partial class KeyframeAnalyzer(
                 {
                     rejected.Add(range);
                     scenes[i] = trimmed;
+                    trimmedScenes.Add(trimmed);
                 }
             }
         }
@@ -180,7 +182,9 @@ internal sealed partial class KeyframeAnalyzer(
 
         foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
         {
-            var refinedStartTime = _config.RefineCreditsBoundary
+            // A trimmed scene keeps its keyframe start. The gap before it is the lead-in, black to
+            // the blackframe filter, so the boundary probe can only move the start back into it.
+            var refinedStartTime = _config.RefineCreditsBoundary && !trimmedScenes.Contains(scene)
                 ? await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
                 : scene.StartTime;
 
@@ -226,8 +230,9 @@ internal sealed partial class KeyframeAnalyzer(
     /// the lettering contrast (see <see cref="IsDimContent"/>). A dim last shot before the cut to the
     /// roll is such a lead-in. So is the lighter prefix of a roll authored at two black levels:
     /// nothing the scan keeps tells the two apart, and the later start skips less story. A keyframe
-    /// without a visual ends the lead-in, since nothing says it is dim, and a scene whose lighter
-    /// keyframes are the majority sets its level from them and keeps its start.
+    /// without a visual ends the lead-in, since nothing says it is dim. A scene whose lifted keyframes
+    /// are the majority sets its level from their darkest tenth and keeps its start; the 90th
+    /// percentile sets no level, so a dark majority behind bars is still a lead-in.
     /// </summary>
     /// <returns>The scene with its start moved, and the lead-in from the old start to its last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
@@ -275,8 +280,11 @@ internal sealed partial class KeyframeAnalyzer(
     // reaches them, since it reads leading keyframes only, and a roll that opens on them starts
     // after them, the accepted trade until the frame-level probe can read such a page.
     private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
-        => visual.LumaLow > blackLevel + BlackLevelTolerance
-            || (visual.LumaHigh > blackLevel + BlackLevelTolerance && visual.LumaHigh < blackLevel + CardRunFinder.TextContrastMinimum);
+    {
+        var dimFloor = blackLevel + BlackLevelTolerance;
+        return visual.LumaLow > dimFloor
+            || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + CardRunFinder.TextContrastMinimum);
+    }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
     // not black, such as the dark scene after a cut, and those must not vouch for it. A scene none of
