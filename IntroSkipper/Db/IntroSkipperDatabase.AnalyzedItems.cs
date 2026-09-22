@@ -55,6 +55,14 @@ internal sealed partial class IntroSkipperDatabase
 
     /// <inheritdoc/>
     public Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion)> items, string configHash, CancellationToken cancellationToken = default)
+        => MarkItemsAnalyzedAsync(
+            mode,
+            items.Select(item => (item.ItemId, item.FileVersion, (string?)null, (double?)null)),
+            configHash,
+            cancellationToken);
+
+    /// <inheritdoc/>
+    public Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion, string? ShortcutPath, double? Duration)> items, string configHash, CancellationToken cancellationToken = default)
     {
         var rows = items.DistinctBy(item => item.ItemId).ToArray();
         if (rows.Length == 0)
@@ -65,12 +73,12 @@ internal sealed partial class IntroSkipperDatabase
         // {0} binds the mode and {1} the hash once per statement; every row reuses them.
         var statements = MultiRowSql.Statements(
             rows,
-            item => [item.ItemId, item.FileVersion],
-            p => $"({p[0]}, {{0}}, {{1}}, {p[1]})",
+            item => [item.ItemId, item.FileVersion, item.ShortcutPath, item.Duration],
+            p => $"({p[0]}, {{0}}, {{1}}, {p[1]}, {p[2]}, {p[3]})",
             values => $"""
-                INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash", "FileVersion")
+                INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash", "FileVersion", "ShortcutPath", "Duration")
                 VALUES {values}
-                ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash", "FileVersion" = excluded."FileVersion"
+                ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash", "FileVersion" = excluded."FileVersion", "ShortcutPath" = excluded."ShortcutPath", "Duration" = excluded."Duration"
                 """,
             (int)mode,
             configHash);

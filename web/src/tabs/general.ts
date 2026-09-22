@@ -179,6 +179,10 @@ export const generalTab: Tab = {
                 "ScanCommercial",
             ]),
             form.field("AnalyzeSeasonZero"),
+            form.field("ProcessShortcutVideos"),
+            form.field("ShortcutAnalysisBatchSize", {
+                visible: () => configStore.get("ProcessShortcutVideos") === true,
+            }),
             form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),

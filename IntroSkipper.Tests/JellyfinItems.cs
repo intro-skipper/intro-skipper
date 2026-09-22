@@ -44,7 +44,9 @@ internal static class JellyfinItems
         string name = "Pilot",
         string path = "/media/series/s01e01.mkv",
         int? seasonNumber = 1,
-        int episodeNumber = 1)
+        int episodeNumber = 1,
+        bool isShortcut = false,
+        string? shortcutPath = null)
     {
         var episode = new Episode
         {
@@ -58,11 +60,13 @@ internal static class JellyfinItems
         };
         EntrypointTestHelpers.SetPropertyOrField(episode, "Id", id);
         EntrypointTestHelpers.SetPropertyOrField(episode, "SeriesName", seriesName);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "IsShortcut", isShortcut);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "ShortcutPath", shortcutPath ?? string.Empty);
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
         return episode;
     }
 
-    public static Movie Movie(Guid id, string name = "Feature", string path = "/media/feature.mkv")
+    public static Movie Movie(Guid id, string name = "Feature", string path = "/media/feature.mkv", bool isShortcut = false, string? shortcutPath = null)
     {
         var movie = new Movie
         {
@@ -71,6 +75,8 @@ internal static class JellyfinItems
             Path = path,
             RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
         };
+        EntrypointTestHelpers.SetPropertyOrField(movie, "IsShortcut", isShortcut);
+        EntrypointTestHelpers.SetPropertyOrField(movie, "ShortcutPath", shortcutPath ?? string.Empty);
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
         return movie;
     }
