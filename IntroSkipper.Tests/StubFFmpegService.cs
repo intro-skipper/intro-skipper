@@ -44,6 +44,8 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<QueuedEpisode, TimeRange, int, int, BlackInterval[]>? BlackIntervals { get; init; }
 
+    public Func<QueuedEpisode, TimeRange, int, LumaWindow?>? LumaWindows { get; init; }
+
     public int VersionCheckCalls => Volatile.Read(ref _versionCheckCalls);
 
     public int RangeScanCalls => Volatile.Read(ref _rangeScanCalls);
@@ -123,6 +125,12 @@ internal class StubFFmpegService : IFFmpegService
 
     public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
+
+    public virtual Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(LumaWindows)(episode, window, width));
+    }
 
     public virtual Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
     {

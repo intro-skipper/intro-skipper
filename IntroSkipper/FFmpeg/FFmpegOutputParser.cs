@@ -26,6 +26,8 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
+    private static readonly Regex _showInfoRegex = ShowInfoRegex();
+
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
         var currentRange = new TimeRange();
@@ -155,6 +157,25 @@ internal static partial class FFmpegOutputParser
         }
     }
 
+    /// <summary>
+    /// Parses the showinfo filter's log: the presentation time and size of every frame it saw, in order.
+    /// </summary>
+    /// <param name="raw">The ffmpeg standard error output.</param>
+    /// <returns>One entry per frame.</returns>
+    internal static ShowInfoFrame[] ParseShowInfo(string raw)
+    {
+        var frames = new List<ShowInfoFrame>();
+        foreach (Match match in _showInfoRegex.Matches(raw))
+        {
+            frames.Add(new ShowInfoFrame(
+                double.Parse(match.Groups["time"].Value, CultureInfo.InvariantCulture),
+                int.Parse(match.Groups["width"].Value, CultureInfo.InvariantCulture),
+                int.Parse(match.Groups["height"].Value, CultureInfo.InvariantCulture)));
+        }
+
+        return [.. frames];
+    }
+
     internal static BlackInterval[] ParseBlackIntervals(string raw)
     {
         var blackIntervals = new List<BlackInterval>();
@@ -197,6 +218,13 @@ internal static partial class FFmpegOutputParser
 
     [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATLOW|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSignalStatRegex();
+
+    /*
+     * Sample output:
+     * [Parsed_showinfo_3 @ 0x0] n:   0 pts:     17 pts_time:0.017   duration:     41 duration_time:0.041   fmt:gray cl:left sar:1/1 s:320x240 i:P iskey:0 type:B checksum:6B847A12 plane_checksum:[6B847A12] mean:[32] stdev:[42.1]
+     */
+    [GeneratedRegex(@"\[Parsed_showinfo_\d+ @ [^\]]+\] n:\s*\d+ pts:\s*-?\d+ pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)[^\n]*? s:(?<width>\d+)x(?<height>\d+)")]
+    private static partial Regex ShowInfoRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);

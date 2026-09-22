@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -32,6 +33,46 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         bool stderr = false,
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
+    {
+        using var ms = new MemoryStream();
+        await RunCoreAsync(processPath, args, stderr ? null : ms, stderr ? ms : null, long.MaxValue, timeout, cancellationToken).ConfigureAwait(false);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Runs a process to completion and returns both output streams and the exit code. Standard
+    /// output is capped: the moment it crosses <paramref name="maximumStdoutBytes"/> the process is
+    /// killed and the capture says so, so a decode that writes more than expected cannot fill memory.
+    /// </summary>
+    /// <param name="processPath">Executable to start.</param>
+    /// <param name="args">Arguments, one token each.</param>
+    /// <param name="maximumStdoutBytes">Bytes of standard output kept before the process is killed.</param>
+    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
+    /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
+    /// <returns>Both streams, the exit code and whether standard output was cut.</returns>
+    /// <exception cref="TimeoutException">The process did not exit within <paramref name="timeout"/> and was killed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was canceled; the process has been killed.</exception>
+    public async Task<ProcessCapture> RunCapturedAsync(
+        string processPath,
+        IReadOnlyList<string> args,
+        long maximumStdoutBytes,
+        int timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var stdout = new MemoryStream();
+        using var stderr = new MemoryStream();
+        var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumStdoutBytes, timeout, cancellationToken).ConfigureAwait(false);
+        return new ProcessCapture(stdout.ToArray(), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
+    }
+
+    private async Task<(int ExitCode, bool StdoutTruncated)> RunCoreAsync(
+        string processPath,
+        IReadOnlyList<string> args,
+        Stream? stdoutSink,
+        Stream? stderrSink,
+        long maximumStdoutBytes,
+        int timeout,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -69,11 +110,10 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
                 LogFfmpegPriorityNotModified(_logger, e.Message);
             }
 
-            using var ms = new MemoryStream();
             // Draining must not use the caller token: on cancellation or timeout the process is
             // killed first, then its remaining output is drained so the pipes cannot deadlock.
-            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms);
-            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null);
+            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stdoutSink, maximumStdoutBytes, () => KillProcessTree(process));
+            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderrSink, long.MaxValue, static () => { });
 
             using var timeoutCts = new CancellationTokenSource(timeout);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -94,7 +134,8 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
             }
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            var truncated = await stdoutTask.ConfigureAwait(false);
+            await stderrTask.ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
             if (timedOut)
@@ -102,16 +143,16 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
                 throw new TimeoutException($"ffmpeg process was killed after not exiting within {timeout}ms");
             }
 
-            // Observed only: callers parse whatever was written and cache the result, and a
-            // nonzero exit does not yet say whether that output was usable (a file without an
-            // audio stream fails a fingerprint run this way). The line makes those cases
-            // visible in the log before any caller starts treating an exit code as a failure.
+            // Observed only for the single-stream callers: they parse whatever was written and
+            // cache the result, and a nonzero exit does not yet say whether that output was usable
+            // (a file without an audio stream fails a fingerprint run this way). Callers that take
+            // the capture read the exit code themselves.
             if (process.ExitCode != 0 && _logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("ffmpeg exited with code {ExitCode}: {Arguments}", process.ExitCode, string.Join(" ", info.ArgumentList));
             }
 
-            return ms.ToArray();
+            return (process.ExitCode, truncated);
         }
         finally
         {
@@ -120,17 +161,33 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         }
     }
 
-    private static async Task DrainAsync(Stream stream, Stream? destination)
+    // Reads the stream to its end. Bytes go to the destination until the limit is crossed; then
+    // onLimit runs once and the rest is read and dropped so the process can still exit.
+    private static async Task<bool> DrainAsync(Stream stream, Stream? destination, long limit, Action onLimit)
     {
-        var buffer = new byte[4096];
+        var buffer = new byte[64 * 1024];
+        long total = 0;
+        var truncated = false;
         int bytesRead;
         while ((bytesRead = await stream.ReadAsync(buffer).ConfigureAwait(false)) > 0)
         {
-            if (destination is not null)
+            if (destination is null || truncated)
             {
-                await destination.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                continue;
             }
+
+            total += bytesRead;
+            if (total > limit)
+            {
+                truncated = true;
+                onLimit();
+                continue;
+            }
+
+            await destination.WriteAsync(buffer.AsMemory(0, bytesRead)).ConfigureAwait(false);
         }
+
+        return truncated;
     }
 
     private void KillProcessTree(Process process)

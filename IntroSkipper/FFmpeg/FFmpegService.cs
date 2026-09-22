@@ -24,6 +24,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
+    // Luma a lead-in probe may hold at once: about 12 s of 640 px frames at 24 fps, 48 s at 320 px.
+    private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
+
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
@@ -273,6 +276,50 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // One null output with its own filtergraph. Two of these on one input decode it once.
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
+
+    /// <inheritdoc/>
+    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    {
+        // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
+        // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
+        // size at the info level.
+        string[] args =
+        [
+            "-hide_banner", "-nostdin",
+            "-threads", (Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture),
+            "-loglevel", "info",
+            "-ss", window.Start.ToString(CultureInfo.InvariantCulture),
+            "-t", window.Duration.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-an", "-dn", "-sn",
+            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+            "-f", "rawvideo", "-",
+        ];
+
+        var capture = await _processRunner.RunCapturedAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", args, LumaWindowMaximumBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+        if (capture.StdoutTruncated || capture.ExitCode != 0)
+        {
+            LogLumaWindowUnusable(episode.Name, capture.ExitCode, capture.StdoutTruncated);
+            return null;
+        }
+
+        var frames = FFmpegOutputParser.ParseShowInfo(capture.Stderr);
+        if (frames.Length == 0
+            || frames.Any(frame => frame.Width != frames[0].Width || frame.Height != frames[0].Height)
+            || capture.Stdout.Length != (long)frames.Length * frames[0].Width * frames[0].Height)
+        {
+            LogLumaWindowMismatch(episode.Name, frames.Length, capture.Stdout.Length);
+            return null;
+        }
+
+        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogLumaWindowUnusable(string episode, int exitCode, bool truncated);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: {FrameTimes} frame times for {Bytes} bytes of frames")]
+    private partial void LogLumaWindowMismatch(string episode, int frameTimes, long bytes);
 
     // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
     // requested duration) and the keyframe scan runs to end of file, so every writer of a
