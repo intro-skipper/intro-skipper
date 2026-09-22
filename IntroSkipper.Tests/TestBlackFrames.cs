@@ -368,6 +368,69 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeKeep_LeavesTheSceneWhole()
+    {
+        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30. The probe
+        // reads the window the rules need at the probe's width; the same lit block on both sides of
+        // the level change is a keep, and the scene stays as the scan built it, lead-in included.
+        TimeRange? requested = null;
+        var requestedWidth = 0;
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, width) =>
+            {
+                requested = window;
+                requestedWidth = width;
+                return LumaWindows.Window(window.Start, (130 - window.Start, () => LumaWindows.Block(21)), (window.End - 130, () => LumaWindows.Block(16)));
+            });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(120, result?.Start);
+        Assert.Equal((128 - LeadInProbe.LookBackPadding, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
+        Assert.Equal(LeadInProbe.Width, requestedWidth);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeTrim_StartsOnTheFrame()
+    {
+        // The lit object vanishes into blank black at 129, between the keyframes: the scene starts
+        // there, and the lead-in is a rejected range, so its card-like keyframes are content and
+        // the black-frame candidate is the only one.
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16))));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+
+        var credits = Assert.Single(candidates);
+        Assert.Equal(SegmentSource.BlackFrame, credits.Source);
+        Assert.Equal(129, credits.Segment.Start, 3);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeInconclusive_KeepsThePolicyStart()
+    {
+        // No window comes back: the nomination's trim stands and the scene starts at the first
+        // keyframe at the level.
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(130, result?.Start);
+    }
+
+    [Fact]
     public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
     {
         // Keyframes two seconds apart, a dark grey lead-in trimmed at 30. The boundary probe would
@@ -1692,12 +1755,14 @@ public class TestBlackFrames
         BlackFrame[] creditsFrames,
         BlackFrame[]? probeFrames = null,
         BlackInterval[]? intervals = null,
-        KeyframeVisual[]? visuals = null) => new()
+        KeyframeVisual[]? visuals = null,
+        Func<QueuedEpisode, TimeRange, int, LumaWindow?>? lumaWindows = null) => new()
         {
             CreditsBlackFrames = (_, _) => creditsFrames,
             RangeBlackFrames = (_, _, _, _, _) => probeFrames ?? [],
             BlackIntervals = (_, _, _, _) => intervals ?? [],
             KeyframeVisuals = _ => visuals ?? [],
+            LumaWindows = lumaWindows ?? ((_, _, _) => null),
         };
 
     private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)

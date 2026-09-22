@@ -16,12 +16,29 @@ namespace IntroSkipper.Analyzers.Credits;
 /// L or when the last second before L is lettered pages, and otherwise trims to L. Anything it
 /// cannot observe is inconclusive: the caller keeps B, the policy's start, and caches nothing.
 /// Every temporal rule is weighted by the frames' durations from their timestamps, clipped to the
-/// span it measures; the last frame has no observed duration. The thresholds are experimental,
-/// measured on one sample and synthetic clips, not validated defaults.
+/// span it measures; the last frame has no observed duration. Rows that stay black through the
+/// whole window are letterbox bars and leave every measure, since they would pin the background at
+/// black however dim the picture is. The thresholds are experimental, measured on one sample, six
+/// further episodes and synthetic clips, not validated defaults.
 /// </remarks>
 internal static class LeadInProbe
 {
-    // A lettered page or a lit object covers at least 0.3 percent of the frame and at most 15.
+    // The window is decoded at this width. 320 px blurred small lettering into blobs; here text
+    // scored 24 to 56 transitions per band row on the measured material and dark story 2 to 14.
+    internal const int Width = 640;
+
+    // Glyph transitions per band row that make a page lettered, between the highest dark story
+    // window measured, 13.9, and the lowest text window, 24.1.
+    internal const double TransitionsMinimum = 19;
+
+    // What the rules need around the level change, with a margin for coverage: a second before it
+    // for the text rule and half a second after it for stability. The change lies between two
+    // keyframes, and the window spans them up to this gap.
+    internal const double LookBackPadding = 1.25;
+    internal const double LookAheadPadding = 0.75;
+    internal const double MaximumKeyframeGap = 8;
+
+    // A lettered page or a lit object covers at least 0.3 percent of the picture and at most 15.
     internal const double ForegroundMinimum = 0.003;
     internal const double ForegroundMaximum = 0.15;
 
@@ -42,16 +59,51 @@ internal static class LeadInProbe
     private const double TimeTolerance = 0.002;
 
     /// <summary>
-    /// Glyph transitions per band row that make a page lettered, read per resolution and not
-    /// scaled: 18 at 320 px and 22 at 640 px on the measured material, where dark story reached
-    /// 10.7 and 13.9 and text started at 22.1 and 28.5.
+    /// The window to decode for a nominated boundary.
     /// </summary>
-    /// <param name="width">The decoded frame width.</param>
-    /// <returns>The threshold.</returns>
-    internal static double TransitionsThreshold(int width) => width <= 400 ? 18 : 22;
+    /// <param name="lastLighterKeyframe">A, in media time.</param>
+    /// <param name="firstLevelKeyframe">B, in media time.</param>
+    /// <returns>From <see cref="LookBackPadding"/> before A to <see cref="LookAheadPadding"/> after B, or <see langword="null"/> when the keyframes are further apart than <see cref="MaximumKeyframeGap"/>.</returns>
+    internal static TimeRange? ProbeWindow(double lastLighterKeyframe, double firstLevelKeyframe)
+        => firstLevelKeyframe - lastLighterKeyframe > MaximumKeyframeGap
+            ? null
+            : new TimeRange(lastLighterKeyframe - LookBackPadding, firstLevelKeyframe + LookAheadPadding);
 
     /// <summary>
-    /// Measures one frame and writes its foreground mask.
+    /// Finds the rows that carry picture. A row whose brightest pixel over the whole window stays at
+    /// or under the level plus tolerance is a letterbox bar.
+    /// </summary>
+    /// <param name="window">The decoded window.</param>
+    /// <param name="blackLevel">The scene's black level on the scan's own scale.</param>
+    /// <param name="tolerance">How far above the level a value still counts as black.</param>
+    /// <returns>Per row, whether it carries picture.</returns>
+    internal static bool[] PictureRows(LumaWindow window, double blackLevel, double tolerance)
+    {
+        var width = window.Width;
+        var brightest = new byte[window.Height];
+        for (var i = 0; i < window.FrameCount; i++)
+        {
+            var frame = window.Frame(i);
+            for (var y = 0; y < brightest.Length; y++)
+            {
+                var max = brightest[y];
+                foreach (var value in frame.Slice(y * width, width))
+                {
+                    if (value > max)
+                    {
+                        max = value;
+                    }
+                }
+
+                brightest[y] = max;
+            }
+        }
+
+        return [.. brightest.Select(max => max > blackLevel + tolerance)];
+    }
+
+    /// <summary>
+    /// Measures one frame over all of its rows and writes its foreground mask.
     /// </summary>
     /// <param name="frame">The frame's luma, row by row.</param>
     /// <param name="width">The frame width.</param>
@@ -59,16 +111,62 @@ internal static class LeadInProbe
     /// <returns>The measure.</returns>
     internal static LeadInFrameMeasure Measure(ReadOnlySpan<byte> frame, int width, Span<bool> mask)
     {
-        var background = Percentile10(frame);
-        var cutoff = background + CardRunFinder.TextContrastMinimum;
+        Span<bool> allRows = stackalloc bool[frame.Length / width];
+        allRows.Fill(true);
+        return Measure(frame, width, allRows, mask);
+    }
+
+    /// <summary>
+    /// Measures one frame over its picture rows and writes its foreground mask. The background is
+    /// the 10th percentile luma of the picture, the foreground every picture pixel at least the
+    /// lettering contrast above it; rows outside the picture are never foreground.
+    /// </summary>
+    /// <param name="frame">The frame's luma, row by row.</param>
+    /// <param name="width">The frame width.</param>
+    /// <param name="pictureRows">Per row, whether it carries picture.</param>
+    /// <param name="mask">Receives, per pixel, whether it is foreground; as long as <paramref name="frame"/>.</param>
+    /// <returns>The measure; all zero when no row carries picture.</returns>
+    internal static LeadInFrameMeasure Measure(ReadOnlySpan<byte> frame, int width, ReadOnlySpan<bool> pictureRows, Span<bool> mask)
+    {
         var height = frame.Length / width;
+        Span<int> histogram = stackalloc int[256];
+        var picturePixels = 0;
+        for (var y = 0; y < height; y++)
+        {
+            if (!pictureRows[y])
+            {
+                continue;
+            }
+
+            foreach (var value in frame.Slice(y * width, width))
+            {
+                histogram[value]++;
+            }
+
+            picturePixels += width;
+        }
+
+        if (picturePixels == 0)
+        {
+            mask.Clear();
+            return new LeadInFrameMeasure(0, 0, 0);
+        }
+
+        var background = Percentile10(histogram, picturePixels);
+        var cutoff = background + CardRunFinder.TextContrastMinimum;
         var foreground = 0;
         var bandRows = 0;
         var transitions = 0;
         for (var y = 0; y < height; y++)
         {
-            var row = frame.Slice(y * width, width);
             var rowMask = mask.Slice(y * width, width);
+            if (!pictureRows[y])
+            {
+                rowMask.Clear();
+                continue;
+            }
+
+            var row = frame.Slice(y * width, width);
             var rowForeground = 0;
             var rowTransitions = 0;
             var previous = false;
@@ -97,7 +195,7 @@ internal static class LeadInProbe
             }
         }
 
-        return new LeadInFrameMeasure(background, (double)foreground / frame.Length, bandRows == 0 ? 0 : (double)transitions / bandRows);
+        return new LeadInFrameMeasure(background, (double)foreground / picturePixels, bandRows == 0 ? 0 : (double)transitions / bandRows);
     }
 
     /// <summary>
@@ -143,6 +241,12 @@ internal static class LeadInProbe
             return new LeadInDecision.Inconclusive("fewer than two frames decoded");
         }
 
+        var pictureRows = PictureRows(window, blackLevel, tolerance);
+        if (!pictureRows.Any(row => row))
+        {
+            return new LeadInDecision.Inconclusive("no row rises above the level anywhere in the window");
+        }
+
         var times = window.Times;
         var durations = new double[count];
         for (var i = 0; i < count - 1; i++)
@@ -156,7 +260,7 @@ internal static class LeadInProbe
         var atLevel = new bool[count];
         for (var i = 0; i < count; i++)
         {
-            measures[i] = Measure(window.Frame(i), window.Width, scratch);
+            measures[i] = Measure(window.Frame(i), window.Width, pictureRows, scratch);
             atLevel[i] = measures[i].Background <= blackLevel + tolerance;
         }
 
@@ -198,8 +302,8 @@ internal static class LeadInProbe
         {
             var before = new bool[frameSize];
             var after = new bool[frameSize];
-            Measure(window.Frame(located - 1), window.Width, before);
-            Measure(window.Frame(located), window.Width, after);
+            Measure(window.Frame(located - 1), window.Width, pictureRows, before);
+            Measure(window.Frame(located), window.Width, pictureRows, after);
             if (Iou(before, after) >= ContinuityMinimumIou)
             {
                 return new LeadInDecision.Keep();
@@ -224,7 +328,7 @@ internal static class LeadInProbe
         }
 
         if (lettered.Sum(sample => sample.Seconds) >= TextMinimumForegroundSeconds
-            && WeightedMedian(lettered) >= TransitionsThreshold(window.Width))
+            && WeightedMedian(lettered) >= TransitionsMinimum)
         {
             return new LeadInDecision.Keep();
         }
@@ -232,16 +336,10 @@ internal static class LeadInProbe
         return new LeadInDecision.TrimAt(times[located]);
     }
 
-    // The 10th percentile luma of a frame, from a histogram.
-    private static int Percentile10(ReadOnlySpan<byte> frame)
+    // The 10th percentile of a luma histogram over the given number of pixels.
+    private static int Percentile10(ReadOnlySpan<int> histogram, int pixels)
     {
-        Span<int> histogram = stackalloc int[256];
-        foreach (var value in frame)
-        {
-            histogram[value]++;
-        }
-
-        var target = (frame.Length + 9) / 10;
+        var target = (pixels + 9) / 10;
         var seen = 0;
         for (var value = 0; value < histogram.Length; value++)
         {

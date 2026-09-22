@@ -19,7 +19,11 @@ namespace IntroSkipper.Analyzers.Credits;
 /// refinement. Three rules use the visuals on black keyframes: a keyframe whose background is
 /// saturated is a dark tinted scene and does not count as black, a black scene starts after leading
 /// keyframes that show dim content rather than black, a dim last shot before the cut to the roll, and
-/// a black scene lettered on no more than half its pages is a gap between acts, not credits. The card run is found against the black scenes those rules accepted: once they accept
+/// a black scene lettered on no more than half its pages is a gap between acts, not credits. The
+/// frames between the keyframes decide what a lead-in is (see <see cref="LeadInProbe"/>): the same
+/// foreground on both sides of the level change or lettered pages before it keep the prefix, anything
+/// else starts the scene on the frame the level changes, and what the probe cannot observe leaves
+/// the keyframe start. The card run is found against the black scenes those rules accepted: once they accept
 /// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
@@ -160,13 +164,25 @@ internal sealed partial class KeyframeAnalyzer(
         {
             for (var i = 0; i < scenes.Count; i++)
             {
-                var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
-                if (leadIn is { } range)
+                var (trimmed, leadIn, blackLevel) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
+                if (leadIn is not { } range)
                 {
-                    rejected.Add(range);
-                    scenes[i] = trimmed;
-                    trimmedScenes.Add(trimmed);
+                    continue;
                 }
+
+                // The keyframe scan nominates the boundary and the frames between the keyframes
+                // decide. Keep leaves the scene as the scan built it, a trim starts it on the frame
+                // where the background reached the level, and what the probe could not observe
+                // falls back to the nomination's trim, the policy.
+                var decision = await ProbeLeadInAsync(episode, range.End, trimmed.StartTime, blackLevel, cancellationToken).ConfigureAwait(false);
+                if (decision is LeadInDecision.Keep)
+                {
+                    continue;
+                }
+
+                rejected.Add(range);
+                scenes[i] = decision is LeadInDecision.TrimAt trim ? trimmed with { StartTime = trim.Time } : trimmed;
+                trimmedScenes.Add(scenes[i]);
             }
         }
 
@@ -234,8 +250,8 @@ internal sealed partial class KeyframeAnalyzer(
     /// are the majority sets its level from their darkest tenth and keeps its start; the 90th
     /// percentile sets no level, so a dark majority behind bars is still a lead-in.
     /// </summary>
-    /// <returns>The scene with its start moved, and the lead-in from the old start to its last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
-    private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
+    /// <returns>The scene with its start moved, the lead-in from the old start to its last keyframe, and the scene's black level; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
+    private static (CreditScene Scene, TimeRange? LeadIn, double BlackLevel) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
     {
         var pages = new List<(BlackFrame Frame, KeyframeVisual? Visual)>();
         foreach (var frame in blackFrames)
@@ -251,7 +267,7 @@ internal sealed partial class KeyframeAnalyzer(
         List<double> levels = [.. pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.LumaLow).Order()];
         if (levels.Count == 0)
         {
-            return (scene, null);
+            return (scene, null, LimitedRangeBlack);
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
@@ -261,14 +277,58 @@ internal sealed partial class KeyframeAnalyzer(
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
                 return frame.Frame == scene.StartFrame
-                    ? (scene, null)
-                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(scene.StartTime, lastLeadInTime));
+                    ? (scene, null, blackLevel)
+                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(scene.StartTime, lastLeadInTime), blackLevel);
             }
 
             lastLeadInTime = frame.Time;
         }
 
-        return (scene, null);
+        return (scene, null, blackLevel);
+    }
+
+    /// <summary>
+    /// Runs the lead-in probe for a nominated boundary: decodes the frames between the last lighter
+    /// keyframe and the first at the level, with the margins the rules need, and decides. Whatever
+    /// the probe cannot observe, keyframes too far apart or a decode that fails, is inconclusive.
+    /// </summary>
+    /// <param name="episode">The episode.</param>
+    /// <param name="lastLighterKeyframe">A, relative to the credits fingerprint start.</param>
+    /// <param name="firstLevelKeyframe">B, relative to the credits fingerprint start.</param>
+    /// <param name="blackLevel">The scene's black level.</param>
+    /// <param name="cancellationToken">Token used to cancel the decode.</param>
+    /// <returns>The decision; a trim carries its time relative to the credits fingerprint start.</returns>
+    private async Task<LeadInDecision> ProbeLeadInAsync(QueuedEpisode episode, double lastLighterKeyframe, double firstLevelKeyframe, double blackLevel, CancellationToken cancellationToken)
+    {
+        var a = lastLighterKeyframe + episode.CreditsFingerprintStart;
+        var b = firstLevelKeyframe + episode.CreditsFingerprintStart;
+        LeadInDecision decision;
+        if (LeadInProbe.ProbeWindow(a, b) is not { } window)
+        {
+            decision = new LeadInDecision.Inconclusive("the keyframes are too far apart to decode between");
+        }
+        else
+        {
+            try
+            {
+                var frames = await _ffmpegService.DecodeLumaWindowAsync(episode, window, LeadInProbe.Width, cancellationToken).ConfigureAwait(false);
+                decision = frames is null
+                    ? new LeadInDecision.Inconclusive("the window could not be decoded")
+                    : LeadInProbe.Decide(frames, a, b, blackLevel, BlackLevelTolerance);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogLeadInProbeFailed(ex, episode.Name);
+                decision = new LeadInDecision.Inconclusive("the decode failed");
+            }
+        }
+
+        LogLeadInProbe(episode.Name, a, b, decision);
+        return decision is LeadInDecision.TrimAt trim ? new LeadInDecision.TrimAt(trim.Time - episode.CreditsFingerprintStart) : decision;
     }
 
     // Dim content on a black keyframe: a background above the scene's black level, or a 90th
@@ -518,6 +578,12 @@ internal sealed partial class KeyframeAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Refined credit boundary from {OriginalStart:F2}s to {RefinedStart:F2}s")]
     private partial void LogRefinedBoundary(double originalStart, double refinedStart);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Lead-in probe for {Episode} between {LastLighterKeyframe:F2}s and {FirstLevelKeyframe:F2}s: {Decision}")]
+    private partial void LogLeadInProbe(string episode, double lastLighterKeyframe, double firstLevelKeyframe, LeadInDecision decision);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Lead-in probe decode failed for {Episode}")]
+    private partial void LogLeadInProbeFailed(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Black interval detection unavailable for {Episode}")]
     private partial void LogBlackIntervalDetectionUnavailable(Exception ex, string episode);

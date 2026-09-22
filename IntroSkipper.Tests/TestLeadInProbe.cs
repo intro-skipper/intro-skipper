@@ -3,18 +3,14 @@
 
 namespace IntroSkipper.Tests;
 
-using System;
-using System.Collections.Generic;
 using System.Linq;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Data;
 using Xunit;
+using static IntroSkipper.Tests.LumaWindows;
 
 public class TestLeadInProbe
 {
-    private const int Width = 64;
-    private const int Height = 36;
-    private const double Fps = 24;
     private const double Level = 16;
     private const double Tolerance = 2;
 
@@ -29,10 +25,27 @@ public class TestLeadInProbe
 
         Assert.Equal(21, text.Background);
         Assert.InRange(text.ForegroundFraction, LeadInProbe.ForegroundMinimum, LeadInProbe.ForegroundMaximum);
-        Assert.True(text.TransitionsPerBandRow >= LeadInProbe.TransitionsThreshold(Width));
+        Assert.True(text.TransitionsPerBandRow >= LeadInProbe.TransitionsMinimum);
         Assert.Equal(2, blob.TransitionsPerBandRow);
         Assert.Equal(16, blank.Background);
         Assert.Equal(0, blank.ForegroundFraction);
+    }
+
+    [Fact]
+    public void Measure_ReadsThePictureRowsOnly()
+    {
+        // Bars over a quarter of the frame would put the 10th percentile at black; the picture rows
+        // alone put it at the picture's own background, and the foreground fraction is of the picture.
+        var frame = Letterboxed(Blob(21), barRows: 9);
+        var pictureRows = Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27).ToArray();
+        var mask = new bool[Width * Height];
+
+        var whole = LeadInProbe.Measure(frame, Width, mask);
+        var picture = LeadInProbe.Measure(frame, Width, pictureRows, mask);
+
+        Assert.Equal(16, whole.Background);
+        Assert.Equal(21, picture.Background);
+        Assert.Equal(16.0 / (18 * Width), picture.ForegroundFraction, 6);
     }
 
     [Fact]
@@ -49,12 +62,40 @@ public class TestLeadInProbe
     }
 
     [Fact]
+    public void PictureRows_ExcludeRowsBlackThroughoutTheWindow()
+    {
+        var window = Window(0, (1.0, () => Letterboxed(Blob(21), barRows: 9)), (1.0, () => Letterboxed(Blank(16), barRows: 9)));
+
+        var rows = LeadInProbe.PictureRows(window, Level, Tolerance);
+
+        Assert.Equal(Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27), rows);
+    }
+
+    [Theory]
+    [InlineData(100.0, 102.0, 98.75, 102.75)]
+    [InlineData(100.0, 108.0, 98.75, 108.75)]
+    [InlineData(100.0, 109.0, double.NaN, double.NaN)]
+    public void ProbeWindow_SpansTheKeyframesWithTheRulesMargins(double a, double b, double start, double end)
+    {
+        var window = LeadInProbe.ProbeWindow(a, b);
+
+        if (double.IsNaN(start))
+        {
+            Assert.Null(window);
+        }
+        else
+        {
+            Assert.Equal((start, end), (window!.Start, window.End));
+        }
+    }
+
+    [Fact]
     public void Decide_SameForegroundAcrossTheLevelChange_Keeps()
     {
         // Continuity alone: a lit block on a lighter background, then the same block on the level.
         // The block is no lettering, so the text rule cannot be what keeps the prefix.
         var window = Window(0, (1.0, () => Block(21)), (1.5, () => Block(16)));
-        Assert.True(LeadInProbe.Measure(Block(21), Width, new bool[Width * Height]).TransitionsPerBandRow < LeadInProbe.TransitionsThreshold(Width));
+        Assert.True(LeadInProbe.Measure(Block(21), Width, new bool[Width * Height]).TransitionsPerBandRow < LeadInProbe.TransitionsMinimum);
 
         var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
 
@@ -91,6 +132,20 @@ public class TestLeadInProbe
     public void Decide_LitObjectThenBlankBlack_TrimsAtTheLevelChange()
     {
         var window = Window(0, (1.0, () => Blob(21)), (1.5, () => Blank(16)));
+
+        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+
+        var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
+        Assert.Equal(1.0, trim.Time, 6);
+    }
+
+    [Fact]
+    public void Decide_LetterboxBarsDoNotPinTheBackground()
+    {
+        // Bars over a quarter of the frame stay black throughout. Read whole, every frame's 10th
+        // percentile is black and the first frame after A would pass for the change; read over the
+        // picture rows, the change is where the picture drops.
+        var window = Window(0, (1.0, () => Letterboxed(Blob(21), barRows: 9)), (1.5, () => Letterboxed(Blank(16), barRows: 9)));
 
         var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
 
@@ -156,73 +211,5 @@ public class TestLeadInProbe
         var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
-    }
-
-    private static byte[] Blank(byte background)
-    {
-        var frame = new byte[Width * Height];
-        Array.Fill(frame, background);
-        return frame;
-    }
-
-    // A lit square of 8 by 8: 2.8 percent of the frame, two edges per row.
-    private static byte[] Block(byte background) => Rectangle(Blank(background), x: 28, y: 14, width: 8, height: 8);
-
-    // A lit square of 4 by 4: 0.7 percent of the frame, two edges per row.
-    private static byte[] Blob(byte background) => Rectangle(Blank(background), x: 30, y: 16, width: 4, height: 4);
-
-    // Four bands of three rows, each a run of two lit pixels every four across the middle: 24 edges
-    // per row and 12.5 percent of the frame. Phase 2 lights the pixels phase 0 leaves dark.
-    private static byte[] TextRows(byte background, int phase)
-    {
-        var frame = Blank(background);
-        foreach (var band in new[] { 6, 12, 18, 24 })
-        {
-            for (var y = band; y < band + 3; y++)
-            {
-                for (var x = 8 + phase; x < 56; x += 4)
-                {
-                    frame[(y * Width) + x] = 235;
-                    frame[(y * Width) + x + 1] = 235;
-                }
-            }
-        }
-
-        return frame;
-    }
-
-    private static byte[] Rectangle(byte[] frame, int x, int y, int width, int height)
-    {
-        for (var row = y; row < y + height; row++)
-        {
-            for (var column = x; column < x + width; column++)
-            {
-                frame[(row * Width) + column] = 235;
-            }
-        }
-
-        return frame;
-    }
-
-    // Segments of frames at the fixed rate, one after another from the start time.
-    private static LumaWindow Window(double start, params (double Seconds, Func<byte[]> Frame)[] segments)
-    {
-        var frames = new List<(double Time, byte[] Frame)>();
-        foreach (var (seconds, frame) in segments)
-        {
-            var count = (int)Math.Round(seconds * Fps);
-            for (var i = 0; i < count; i++)
-            {
-                frames.Add((start + (frames.Count / Fps), frame()));
-            }
-        }
-
-        return Window(frames);
-    }
-
-    private static LumaWindow Window(IEnumerable<(double Time, byte[] Frame)> frames)
-    {
-        var list = frames.ToList();
-        return new LumaWindow(Width, Height, list.SelectMany(f => f.Frame).ToArray(), [.. list.Select(f => f.Time)]);
     }
 }
