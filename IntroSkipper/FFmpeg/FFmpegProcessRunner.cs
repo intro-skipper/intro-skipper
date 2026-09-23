@@ -62,7 +62,10 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         using var stdout = new MemoryStream();
         using var stderr = new MemoryStream();
         var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumStdoutBytes, timeout, cancellationToken).ConfigureAwait(false);
-        return new ProcessCapture(stdout.ToArray(), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
+
+        // A decode is tens of megabytes: hand out the stream's own buffer instead of copying it.
+        // Disposing a MemoryStream releases nothing, so the buffer stays valid after the return.
+        return new ProcessCapture(stdout.GetBuffer().AsMemory(0, (int)stdout.Length), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
     }
 
     private async Task<(int ExitCode, bool StdoutTruncated)> RunCoreAsync(

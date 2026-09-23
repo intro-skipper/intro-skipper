@@ -14,12 +14,12 @@ namespace IntroSkipper.Analyzers.Credits;
 /// nominates: A is the last keyframe lighter than the level, B the first at it. The probe locates
 /// the level change L in (A, B], keeps the prefix when the same foreground stands on both sides of
 /// L or when the last second before L is lettered pages, and otherwise trims to L. Anything it
-/// cannot observe is inconclusive: the caller keeps B, the policy's start, and caches nothing.
+/// cannot observe is inconclusive: the caller keeps B, the policy's start.
 /// Every temporal rule is weighted by the frames' durations from their timestamps, clipped to the
 /// span it measures; the last frame has no observed duration. Rows that never rise above the level
 /// on more than a stray pixel are letterbox bars and leave every measure, since they would pin the
-/// background at black however dim the picture is. The thresholds are experimental, measured on one sample, six
-/// further episodes and synthetic clips, not validated defaults.
+/// background at black however dim the picture is. The thresholds are experimental, measured on 24
+/// episodes and synthetic clips, not validated defaults.
 /// </remarks>
 internal static class LeadInProbe
 {
@@ -251,7 +251,7 @@ internal static class LeadInProbe
         }
 
         var pictureRows = PictureRows(window, blackLevel, tolerance);
-        if (!pictureRows.Any(row => row))
+        if (Array.IndexOf(pictureRows, true) < 0)
         {
             return new LeadInDecision.Inconclusive("no row rises above the level anywhere in the window");
         }
@@ -280,7 +280,12 @@ internal static class LeadInProbe
         var located = -1;
         for (var i = 1; i < count && located < 0; i++)
         {
-            if (times[i] <= lastLighterKeyframe + TimeTolerance || times[i] > firstLevelKeyframe + TimeTolerance || !atLevel[i] || atLevel[i - 1])
+            if (times[i] > firstLevelKeyframe + TimeTolerance)
+            {
+                break;
+            }
+
+            if (times[i] <= lastLighterKeyframe + TimeTolerance || !atLevel[i] || atLevel[i - 1])
             {
                 continue;
             }
@@ -303,7 +308,15 @@ internal static class LeadInProbe
             // percentile over a black background, and there is no frame to trim to. The second
             // before the last lighter keyframe, inside the prefix, still says whether that content
             // was lettered pages, which keeps the prefix; anything else is the policy's start.
-            var anchor = Array.FindIndex(times.ToArray(), time => time >= lastLighterKeyframe - TimeTolerance);
+            var anchor = -1;
+            for (var i = 0; i < count && anchor < 0; i++)
+            {
+                if (times[i] >= lastLighterKeyframe - TimeTolerance)
+                {
+                    anchor = i;
+                }
+            }
+
             if (anchor <= 0 || Observe(times, durations, atLevel, times[anchor] - TextLookBackSeconds, times[anchor]).Observed < TextMinimumObservedSeconds - TimeTolerance)
             {
                 return new LeadInDecision.Inconclusive("no background crossing, and less than three quarters of the second before the lighter keyframe was decoded");

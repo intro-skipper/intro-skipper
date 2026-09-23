@@ -102,9 +102,10 @@ public interface IFFmpegService
     /// Decodes every frame of a window to its luma plane at a small width, for the credits lead-in probe.
     /// </summary>
     /// <remarks>
-    /// Not cached: the probe caches its decision, not frames. The frames stay on the source's own
-    /// 8-bit scale, 16 to 235 on a limited-range source and 0 to 255 on a full-range one, as the
-    /// keyframe scan's visuals read the same frames, so a level from that scan compares directly.
+    /// Not cached: the probe runs once per nominated lead-in and decides from the frames. They stay
+    /// on the source's own 8-bit scale, 16 to 235 on a limited-range source and 0 to 255 on a
+    /// full-range one, as the keyframe scan's visuals read the same frames, so a level from that
+    /// scan compares directly.
     /// Standard output is capped at 64 MB.
     /// </remarks>
     /// <param name="episode">Media file to decode.</param>

@@ -7,8 +7,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// What the lead-in probe concluded about a nominated boundary. Every outcome leaves the scene's
 /// start between its candidate start and the first keyframe at its black level: <see cref="Keep"/>
 /// leaves it at the candidate start, <see cref="TrimAt"/> moves it to the frame where the level
-/// changes, and <see cref="Inconclusive"/> leaves it at that keyframe, the policy's start, and must
-/// never be cached.
+/// changes, and <see cref="Inconclusive"/> leaves it at that keyframe, the policy's start.
 /// </summary>
 internal abstract record LeadInDecision
 {
