@@ -415,22 +415,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task DetectCreditsAsync_LeadInProbeInconclusive_KeepsThePolicyStart()
-    {
-        // No window comes back: the nomination's trim stands and the scene starts at the first
-        // keyframe at the level.
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var result = await BlackFrameCredits(analyzer, episode);
-
-        Assert.Equal(130, result?.Start);
-    }
-
-    [Fact]
     public async Task DetectCreditsAsync_KeptLeadIn_FacesTheLetteringGateAsThePolicyTrimsIt()
     {
         // Flat dark story at 20 and 22 carries no lettering; lettering before the level change makes
@@ -459,9 +443,10 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
     {
-        // Keyframes two seconds apart, a dark grey lead-in trimmed at 30. The boundary probe would
-        // read the gap before 30 with blackframe, which scores the lead-in black, and pull the
-        // start back into it; a trimmed scene does not probe.
+        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30 and no window
+        // decoded, so the policy trims at 30. The boundary probe would read the gap before 30 with
+        // blackframe, which scores the lead-in black, and pull the start back into it; a trimmed
+        // scene does not probe.
         BlackFrame[] frames = [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))];
         var ffmpeg = CreditsScan(frames, probeFrames: [new BlackFrame(100, 0.2, 5)], visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
