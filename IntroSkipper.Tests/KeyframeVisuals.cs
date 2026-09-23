@@ -40,6 +40,9 @@ internal static class KeyframeVisuals
     /// <summary>A dark grey scene before the cut to the roll: black to the blackframe filter, unsaturated, its darkest tenth five levels above black.</summary>
     internal static KeyframeVisual DarkGrey(double time) => new(time, 15, 21, 26, 131, 0, 0);
 
+    /// <summary>A flat dark story frame: dim to the lead-in rule, its darkest tenth eight levels above black, and nothing 60 levels above that, so no lettering.</summary>
+    internal static KeyframeVisual FlatDark(double time) => new(time, 15, 24, 28, 50, 0, 0);
+
     /// <summary>A black roll page on a source with lifted blacks: the darkest tenth at 20 rather than 16.</summary>
     internal static KeyframeVisual LiftedBlack(double time) => new(time, 18, 20, 20, 235, 0, 0);
 

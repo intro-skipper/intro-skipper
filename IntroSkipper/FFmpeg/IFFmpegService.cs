@@ -102,18 +102,19 @@ public interface IFFmpegService
     /// Decodes every frame of a window to its luma plane at a small width, for the credits lead-in probe.
     /// </summary>
     /// <remarks>
-    /// Not cached: the probe runs once per nominated lead-in and decides from the frames. They stay
+    /// Not cached: every analysis that nominates a lead-in decodes its window again. The frames stay
     /// on the source's own 8-bit scale, 16 to 235 on a limited-range source and 0 to 255 on a
     /// full-range one, as the keyframe scan's visuals read the same frames, so a level from that
     /// scan compares directly.
-    /// Standard output is capped at 64 MB.
+    /// Standard output is capped at 64 MiB.
     /// </remarks>
     /// <param name="episode">Media file to decode.</param>
     /// <param name="window">Absolute media time range to decode.</param>
+    /// <param name="keyframe">A keyframe from the keyframe scan at or before the window start, in media time. The decode seeks there and drops the frames before the window, so a demuxer that seeks by timestamp, such as MPEG-TS, still decodes the window from its start, and the frame times fall on the scan's timeline.</param>
     /// <param name="width">Frame width to scale to; the height follows the aspect ratio.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>The frames with their times, or <see langword="null"/> when the decode cannot be trusted: ffmpeg exited nonzero, its output crossed the byte cap, or the frame and timestamp counts disagree.</returns>
-    Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default);
+    /// <returns>The frames with their times, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, its output crossed the byte cap, or the frame and timestamp counts disagree.</returns>
+    Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, double keyframe, int width, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Detects key frames in a media file within a time range.

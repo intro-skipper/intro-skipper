@@ -24,7 +24,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // Luma a lead-in probe may hold at once: about 12 s of 640 px frames at 24 fps, 48 s at 320 px.
+    // Luma a lead-in probe may hold at once: about 12 s of 640 by 360 frames at 24 fps.
     private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
 
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
@@ -278,28 +278,43 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
 
     /// <inheritdoc/>
-    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, double keyframe, int width, CancellationToken cancellationToken = default)
     {
         // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
         // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
         // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
         // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
-        // frames it logged.
+        // frames it logged. Decoding starts at the keyframe, and trim drops the frames before the
+        // window ahead of the scaler.
+        var seek = Math.Min(keyframe, window.Start);
         string[] args =
         [
             "-hide_banner", "-nostdin",
             "-threads", (Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture),
             "-loglevel", "info",
-            "-ss", window.Start.ToString(CultureInfo.InvariantCulture),
-            "-t", window.Duration.ToString(CultureInfo.InvariantCulture),
+            "-ss", FormatSeconds(seek),
+            "-t", FormatSeconds(window.End - seek),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough",
-            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+            "-vf", $"trim=start={FormatSeconds(window.Start - seek)},scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
             "-f", "rawvideo", "-",
         ];
 
-        var capture = await _processRunner.RunCapturedAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", args, LumaWindowMaximumBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+        // Sized for 16:9 frames at 30 fps, the shape the cap was set for, so the capture fills one
+        // buffer instead of doubling its way there.
+        var expectedBytes = (long)(width * (width * 9 / 16) * 30 * window.Duration);
+        ProcessCapture capture;
+        try
+        {
+            capture = await _processRunner.RunCapturedAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", args, LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogLumaWindowFailed(ex, episode.Name);
+            return null;
+        }
+
         if (capture.StdoutTruncated || capture.ExitCode != 0)
         {
             LogLumaWindowUnusable(episode.Name, capture.ExitCode, capture.StdoutTruncated);
@@ -315,8 +330,15 @@ internal sealed partial class FFmpegService : IFFmpegService
             return null;
         }
 
-        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
+        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => seek + frame.Time)]);
     }
+
+    // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
+    // value under 1e-5, such as a trim start a rounding error away from zero.
+    private static string FormatSeconds(double seconds) => seconds.ToString("0.######", CultureInfo.InvariantCulture);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} could not be decoded")]
+    private partial void LogLumaWindowFailed(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
     private partial void LogLumaWindowUnusable(string episode, int exitCode, bool truncated);

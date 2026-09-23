@@ -89,10 +89,11 @@ public class TestLeadInProbe
     {
         // A moving lit object over a black background: the 90th percentile nominated the boundary,
         // but the background never crosses to the level in the window, so the first frame after A
-        // is not a cut and the policy start stands.
-        var window = Window(0, (1.0, () => Blob(16)), (1.5, () => Blank(16)));
+        // is not a cut. The second before A, decoded in full, is no lettering, so the policy start
+        // stands.
+        var window = Window(-1.0, (2.0, () => Blob(16)), (1.5, () => Blank(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }
@@ -106,9 +107,21 @@ public class TestLeadInProbe
         // decodes before the lighter keyframe.
         var window = Window(-1.0, (2.0, () => TextRows(16, phase: 0)), (1.5, () => Blob(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Keep>(decision);
+    }
+
+    [Fact]
+    public void Decide_LetteringBeforeTheLeadIn_DoesNotKeep()
+    {
+        // The lead-in is the single keyframe A. The lettering before it is story before the black
+        // scene, not the prefix, and cannot keep it.
+        var window = Window(-1.0, (1.5, () => TextRows(16, phase: 0)), (2.0, () => Blob(16)));
+
+        var decision = Decide(window, leadInStart: 0.5);
+
+        Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }
 
     [Fact]
@@ -151,7 +164,7 @@ public class TestLeadInProbe
         var window = Window(0, (1.0, () => Block(21)), (1.5, () => Block(16)));
         Assert.True(LeadInProbe.Measure(Block(21), Width, AllRows(Height), new bool[Width * Height]).TransitionsPerBandRow < LeadInProbe.TransitionsMinimum);
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Keep>(decision);
     }
@@ -164,7 +177,7 @@ public class TestLeadInProbe
         // scene starts at the change.
         var window = Window(0, (1.0, () => Rectangle(Blank(21), x: 4, y: 4, width: 56, height: 28)), (1.5, () => Rectangle(Blank(16), x: 4, y: 4, width: 56, height: 28)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
         Assert.Equal(1.0, trim.Time, 6);
@@ -177,7 +190,7 @@ public class TestLeadInProbe
         // second before it is rows of glyphs.
         var window = Window(0, (1.0, () => TextRows(21, phase: 0)), (1.5, () => TextRows(16, phase: 2)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Keep>(decision);
     }
@@ -187,7 +200,7 @@ public class TestLeadInProbe
     {
         var window = Window(0, (1.0, () => Blob(21)), (1.5, () => Blank(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
         Assert.Equal(1.0, trim.Time, 6);
@@ -197,11 +210,11 @@ public class TestLeadInProbe
     public void Decide_LetterboxBarsDoNotPinTheBackground()
     {
         // Bars over a quarter of the frame stay black throughout. Read whole, every frame's 10th
-        // percentile is black and the first frame after A would pass for the change; read over the
-        // picture rows, the change is where the picture drops.
+        // percentile is black, so the background never crosses and there is no change to trim to;
+        // read over the picture rows, the change is where the picture drops.
         var window = Window(0, (1.0, () => Letterboxed(Blob(21), barRows: 9)), (1.5, () => Letterboxed(Blank(16), barRows: 9)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
         Assert.Equal(1.0, trim.Time, 6);
@@ -216,10 +229,24 @@ public class TestLeadInProbe
         // observed time and the change stands; five frames are not, and the change moves past them.
         var window = Window(0, (1.0, () => Blob(21)), (1 / Fps, () => Blank(16)), (excursionFrames / Fps, () => Blank(24)), (1.5, () => Blank(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
         Assert.Equal(expectedStart, trim.Time, 6);
+    }
+
+    [Fact]
+    public void Decide_BlackBeatBeforeAFinalShot_TrimsWhereTheLevelHoldsToB()
+    {
+        // The story drops to black for a beat after A, a final shot lifts it again, and the roll
+        // starts at B. The beat holds the level for half a second but not up to B, so the scene
+        // starts at B.
+        var window = Window(0, (1.0, () => Blob(23)), (0.625, () => Blank(16)), (1.375, () => Blob(26)), (0.75, () => TextRows(16, phase: 0)));
+
+        var decision = Decide(window, firstLevelKeyframe: 3.0);
+
+        var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
+        Assert.Equal(3.0, trim.Time, 6);
     }
 
     [Fact]
@@ -230,7 +257,7 @@ public class TestLeadInProbe
         var frames = Enumerable.Range(0, 12).Select(i => (i / 12.0, TextRows(21, phase: 0)))
             .Concat(Enumerable.Range(0, 36).Select(i => (1.0 + (i / Fps), TextRows(16, phase: 2))));
 
-        var decision = LeadInProbe.Decide(Window(frames), lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(Window(frames));
 
         Assert.IsType<LeadInDecision.Keep>(decision);
     }
@@ -240,7 +267,7 @@ public class TestLeadInProbe
     {
         var window = Window(0, (1.0, () => Blob(21)), (0.3, () => Blank(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }
@@ -252,7 +279,7 @@ public class TestLeadInProbe
         // not enough to read it, so the policy keeps the keyframe start rather than trimming.
         var window = Window(0.5, (0.5, () => Blob(21)), (1.5, () => Blank(16)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }
@@ -260,10 +287,17 @@ public class TestLeadInProbe
     [Fact]
     public void Decide_WithoutALevelChange_IsInconclusive()
     {
-        var window = Window(0, (2.5, () => Blob(21)));
+        // The background never reaches the level, and the second before A, decoded in full, is no
+        // lettering.
+        var window = Window(-1.0, (3.5, () => Blob(21)));
 
-        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+        var decision = Decide(window);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }
+
+    // A at 0.5 s and B at 1.5 s, with a lead-in that starts before the window, unless a test moves
+    // B or starts the lead-in later.
+    private static LeadInDecision Decide(LumaWindow window, double leadInStart = double.NegativeInfinity, double firstLevelKeyframe = 1.5)
+        => LeadInProbe.Decide(window, leadInStart, lastLighterKeyframe: 0.5, firstLevelKeyframe, Level, Tolerance);
 }

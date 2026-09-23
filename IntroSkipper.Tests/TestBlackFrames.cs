@@ -329,12 +329,12 @@ public class TestBlackFrames
         // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
         // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
         // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
-        // levels starts at its darker part, the accepted trade. Behind letterbox bars a dark scene's
-        // darkest tenth is black like the roll's, and its 90th percentile gives it away, however long
-        // it runs; large lettering lifts a roll page's 90th percentile onto the text and is a roll.
-        // Pages dense enough to lift the 90th percentile into the dark band read as dim content, so
-        // a roll that opens on them starts after them: the accepted trade at keyframe level, where
-        // nothing else tells such a page from a dark scene behind bars.
+        // levels starts at its darker part. Behind letterbox bars a dark scene's darkest tenth is
+        // black like the roll's, and its 90th percentile gives it away, however long it runs; large
+        // lettering lifts a roll page's 90th percentile onto the text and is a roll. Pages dense
+        // enough to lift the 90th percentile into the dark band read as dim content, so a roll that
+        // opens on them starts after them. No frames are decoded here, so every lead-in takes the
+        // policy's start; the lead-in probe's own tests cover the frames that keep a lettered prefix.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -428,6 +428,32 @@ public class TestBlackFrames
         var result = await BlackFrameCredits(analyzer, episode);
 
         Assert.Equal(130, result?.Start);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_KeptLeadIn_FacesTheLetteringGateAsThePolicyTrimsIt()
+    {
+        // Flat dark story at 20 and 22 carries no lettering; lettering before the level change makes
+        // the probe keep the lead-in. The roll from 26 is lettered on 5 of its 9 pages, a roll to
+        // the gate, while the whole kept scene is lettered on only 6 of 12. The gate reads the scene
+        // as the policy trims it, so the kept scene stays credits.
+        KeyframeVisual[] visuals =
+        [
+            KeyframeVisuals.FlatDark(20),
+            KeyframeVisuals.FlatDark(22),
+            KeyframeVisuals.DarkGrey(24),
+            .. Times(26, 42, 2).Select((t, i) => i % 2 == 0 ? KeyframeVisuals.Black(t) : KeyframeVisuals.BlankBlack(t)),
+        ];
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 42, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: visuals,
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (125 - window.Start, () => LumaWindows.TextRows(24, phase: 0)), (window.End - 125, () => LumaWindows.Blank(16))));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(120, result?.Start);
     }
 
     [Fact]
