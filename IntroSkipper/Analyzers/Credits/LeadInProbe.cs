@@ -304,7 +304,12 @@ internal static class LeadInProbe
             // before the last lighter keyframe, inside the prefix, still says whether that content
             // was lettered pages, which keeps the prefix; anything else is the policy's start.
             var anchor = Array.FindIndex(times.ToArray(), time => time >= lastLighterKeyframe - TimeTolerance);
-            return anchor > 0 && IsLetteredBefore(anchor, times, durations, measures)
+            if (anchor <= 0 || Observe(times, durations, atLevel, times[anchor] - TextLookBackSeconds, times[anchor]).Observed < TextMinimumObservedSeconds - TimeTolerance)
+            {
+                return new LeadInDecision.Inconclusive("no background crossing, and less than three quarters of the second before the lighter keyframe was decoded");
+            }
+
+            return IsLetteredBefore(anchor, times, durations, measures)
                 ? new LeadInDecision.Keep()
                 : new LeadInDecision.Inconclusive("no background crossing to the level between the nominated keyframes");
         }

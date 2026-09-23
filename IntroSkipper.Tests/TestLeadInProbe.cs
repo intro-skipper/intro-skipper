@@ -102,8 +102,9 @@ public class TestLeadInProbe
     {
         // Dense lettering on black nominated through the 90th percentile: the background never
         // crosses, so there is no frame to trim to, but the second before the last lighter keyframe
-        // is rows of glyphs and the prefix is credits.
-        var window = Window(0, (1.0, () => TextRows(16, phase: 0)), (1.5, () => Blob(16)));
+        // is rows of glyphs and the prefix is credits. The window carries the look-back the analyzer
+        // decodes before the lighter keyframe.
+        var window = Window(-1.0, (2.0, () => TextRows(16, phase: 0)), (1.5, () => Blob(16)));
 
         var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
 
