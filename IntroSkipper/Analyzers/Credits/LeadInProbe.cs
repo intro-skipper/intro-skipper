@@ -6,66 +6,40 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Decides what a dark grey lead-in before a black scene is, from a decoded window around the frame
-/// where the background drops to the scene's black level.
+/// Places the start of a black scene after its dark grey lead-in on the exact frame where the
+/// background drops to the scene's black level, from a decoded window between the keyframes.
 /// </summary>
 /// <remarks>
-/// Pure over a <see cref="LumaWindow"/>, so the rules are tested without ffmpeg. The keyframe scan
-/// nominates: A is the last keyframe lighter than the level, B the first at it. The probe locates
-/// the level change L in (A, B]: the first frame at the level that follows a frame above it and
-/// holds the level for half a second and up to B. It keeps the prefix when the same foreground
-/// stands on both sides of L or when the last second before L is lettered pages, and otherwise
-/// trims to L.
-/// Without such an L there is no frame to trim to. Lettered pages in the second before A then keep
-/// the prefix, and anything else is inconclusive. The text rule reads only frames inside the
-/// nominated lead-in. Anything the probe cannot observe is inconclusive: the caller keeps B, the
-/// policy's start.
+/// Pure over a <see cref="LumaWindow"/>, so the rule is tested without ffmpeg. The keyframe scan
+/// nominates: A is the last keyframe lighter than the level, B the first at it, and the policy
+/// starts the scene at B. The probe looks for the level change L in (A, B]: the first frame at the
+/// level that follows a frame above it and holds the level for half a second and up to B. It then
+/// trims to L, which is never later than B. Without such an L it is inconclusive and the caller
+/// keeps B. It never keeps the lead-in: an overlay that stays on screen, a channel logo or a
+/// burned-in subtitle, reads like a credit page carried across the cut, and a keep restores the whole
+/// lead-in, minutes of dark story on the measured letterboxed episodes.
 /// Every temporal rule is weighted by the frames' durations from their timestamps, clipped to the
 /// span it measures; the last frame has no observed duration. The bands above the first and below
-/// the last row that rises above the level on more than a stray pixel are letterbox bars. They
-/// leave the background percentile and the foreground, since they would pin the background at
-/// black however dim the picture is, but the foreground fraction is still of the whole frame. The
-/// thresholds are experimental, measured on 24 episodes and synthetic clips, not validated
-/// defaults.
+/// the last row that rises above the level on more than a stray pixel are letterbox bars and leave
+/// the background percentile, since they would pin it at black however dim the picture is.
 /// </remarks>
 internal static class LeadInProbe
 {
-    // The window is decoded at this width. 320 px blurred small lettering into blobs; here text
-    // scored 24 to 56 transitions per band row on the measured material and dark story 2 to 14.
-    internal const int Width = 640;
+    // The window is decoded at this width. The rule reads only each frame's background percentile,
+    // which a small frame gives as well as a large one, and a small frame keeps the decode's output
+    // far under its byte cap for every frame shape and rate.
+    internal const int Width = 160;
 
-    // Glyph transitions per band row that make a page lettered, between the highest dark story
-    // window measured, 13.9, and the lowest text window, 24.1.
-    internal const double TransitionsMinimum = 19;
-
-    // What the rules need around the level change, with a margin for coverage: a second before it
-    // for the text rule and half a second after it for stability. The change lies between two
-    // keyframes, and the window spans them up to this gap: 9.5 s of 640 by 360 frames at 30 fps is
-    // 285 frames, under the decode's 64 MiB cap. Taller frames and higher rates fill the cap at a
-    // shorter gap: 640 by 480 at 30 fps past 5.3 s, 16:9 at 60 fps past 2.9 s. Those windows fall
-    // back to the policy.
-    internal const double LookBackPadding = 1.25;
+    // The window starts just before A, so the lighter keyframe itself is decoded as the frame above
+    // the level before a cut right after it, and ends far enough after B for the half second of
+    // stability a change at B needs.
+    internal const double LookBackPadding = 0.25;
     internal const double LookAheadPadding = 0.75;
-    internal const double MaximumKeyframeGap = 7.5;
-
-    // A lettered page or a lit object covers at least 0.3 percent of the frame and at most 15.
-    internal const double ForegroundMinimum = 0.003;
-    internal const double ForegroundMaximum = 0.15;
-
-    // The same page on both sides of the level change.
-    internal const double ContinuityMinimumIou = 0.8;
 
     // The level must hold for half a second after L and from L to B, on nine tenths of the observed
     // time.
     internal const double StabilitySeconds = 0.5;
     internal const double StabilityMinimumFraction = 0.9;
-
-    // The text rule reads the last second before L, or before A when there is no L. Three quarters
-    // of it must be observed, and a quarter of it inside the lead-in must show foreground of
-    // lettering size.
-    internal const double TextLookBackSeconds = 1.0;
-    internal const double TextMinimumObservedSeconds = 0.75;
-    internal const double TextMinimumForegroundSeconds = 0.25;
 
     // A row carries picture once this share of it rises above the level in some frame: a stray
     // pixel does not, a dim scene does.
@@ -80,19 +54,16 @@ internal static class LeadInProbe
     /// </summary>
     /// <param name="lastLighterKeyframe">A, in media time.</param>
     /// <param name="firstLevelKeyframe">B, in media time.</param>
-    /// <returns>From <see cref="LookBackPadding"/> before A to <see cref="LookAheadPadding"/> after B, or <see langword="null"/> when the keyframes are further apart than <see cref="MaximumKeyframeGap"/>.</returns>
-    internal static TimeRange? ProbeWindow(double lastLighterKeyframe, double firstLevelKeyframe)
-        => firstLevelKeyframe - lastLighterKeyframe > MaximumKeyframeGap
-            ? null
-            : new TimeRange(lastLighterKeyframe - LookBackPadding, firstLevelKeyframe + LookAheadPadding);
+    /// <returns>From <see cref="LookBackPadding"/> before A to <see cref="LookAheadPadding"/> after B.</returns>
+    internal static TimeRange ProbeWindow(double lastLighterKeyframe, double firstLevelKeyframe)
+        => new(lastLighterKeyframe - LookBackPadding, firstLevelKeyframe + LookAheadPadding);
 
     /// <summary>
     /// Finds the rows that carry picture: everything between the first and the last row that, in
     /// some frame of the window, has at least <see cref="PictureRowMinimumFraction"/> of its pixels
-    /// above the level plus tolerance. The bands outside are letterbox bars. Black rows inside, the
-    /// spacing between credit lines, stay picture, so a page's foreground is measured against the
-    /// whole page. The fraction keeps a stray bright pixel, noise or ringing at a bar's edge, from
-    /// turning a bar into picture.
+    /// above the level plus tolerance. The bands outside are letterbox bars. Black rows inside, such
+    /// as the spacing between credit lines, stay picture. The fraction keeps a stray bright pixel,
+    /// noise or ringing at a bar's edge, from turning a bar into picture.
     /// </summary>
     /// <param name="window">The decoded window.</param>
     /// <param name="blackLevel">The scene's black level on the scan's own scale.</param>
@@ -136,23 +107,17 @@ internal static class LeadInProbe
     }
 
     /// <summary>
-    /// Measures one frame over its picture rows and writes its foreground mask. The background is
-    /// the 10th percentile luma of the picture, the foreground every picture pixel at least the
-    /// lettering contrast above it; rows outside the picture are never foreground. The foreground
-    /// fraction is of the whole frame, since a page's own margins and letterbox bars look the same
-    /// inside one window and the area thresholds were set on whole frames.
+    /// The background of one frame: the 10th percentile luma over its picture rows.
     /// </summary>
     /// <param name="frame">The frame's luma, row by row.</param>
     /// <param name="width">The frame width.</param>
-    /// <param name="pictureRows">Per row, whether it carries picture.</param>
-    /// <param name="mask">Receives, per pixel, whether it is foreground; as long as <paramref name="frame"/>.</param>
-    /// <returns>The measure; all zero when no row carries picture.</returns>
-    internal static LeadInFrameMeasure Measure(ReadOnlySpan<byte> frame, int width, ReadOnlySpan<bool> pictureRows, Span<bool> mask)
+    /// <param name="pictureRows">Per row, whether it carries picture; at least one must.</param>
+    /// <returns>The background level.</returns>
+    internal static int Background(ReadOnlySpan<byte> frame, int width, ReadOnlySpan<bool> pictureRows)
     {
-        var height = frame.Length / width;
         Span<int> histogram = stackalloc int[256];
-        var picturePixels = 0;
-        for (var y = 0; y < height; y++)
+        var pixels = 0;
+        for (var y = 0; y < pictureRows.Length; y++)
         {
             if (!pictureRows[y])
             {
@@ -164,92 +129,33 @@ internal static class LeadInProbe
                 histogram[value]++;
             }
 
-            picturePixels += width;
+            pixels += width;
         }
 
-        var background = Percentile10(histogram, picturePixels);
-        var cutoff = background + CardRunFinder.TextContrastMinimum;
-        var foreground = 0;
-        var bandRows = 0;
-        var transitions = 0;
-        for (var y = 0; y < height; y++)
+        var target = (pixels + 9) / 10;
+        var seen = 0;
+        for (var value = 0; value < histogram.Length; value++)
         {
-            var rowMask = mask.Slice(y * width, width);
-            if (!pictureRows[y])
+            seen += histogram[value];
+            if (seen >= target)
             {
-                rowMask.Clear();
-                continue;
-            }
-
-            var row = frame.Slice(y * width, width);
-            var rowForeground = 0;
-            var rowTransitions = 0;
-            var previous = false;
-            for (var x = 0; x < width; x++)
-            {
-                var lit = row[x] >= cutoff;
-                rowMask[x] = lit;
-                if (lit)
-                {
-                    rowForeground++;
-                }
-
-                if (x > 0 && lit != previous)
-                {
-                    rowTransitions++;
-                }
-
-                previous = lit;
-            }
-
-            foreground += rowForeground;
-            if (rowForeground >= 2)
-            {
-                bandRows++;
-                transitions += rowTransitions;
+                return value;
             }
         }
 
-        return new LeadInFrameMeasure(background, (double)foreground / frame.Length, bandRows == 0 ? 0 : (double)transitions / bandRows);
+        return 255;
     }
 
     /// <summary>
-    /// Intersection over union of two foreground masks.
+    /// Decides where the scene starts.
     /// </summary>
-    /// <param name="a">One mask.</param>
-    /// <param name="b">The other mask, as long as <paramref name="a"/>.</param>
-    /// <returns>Between 0 and 1; 0 when both are empty.</returns>
-    internal static double Iou(ReadOnlySpan<bool> a, ReadOnlySpan<bool> b)
-    {
-        var both = 0;
-        var either = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            if (a[i] && b[i])
-            {
-                both++;
-            }
-
-            if (a[i] || b[i])
-            {
-                either++;
-            }
-        }
-
-        return either == 0 ? 0 : (double)both / either;
-    }
-
-    /// <summary>
-    /// Decides what the lead-in is.
-    /// </summary>
-    /// <param name="window">The decoded window, covering (A, B] with context before and after.</param>
-    /// <param name="leadInStart">Where the nominated lead-in starts, in media time; the text rule reads no frame before it.</param>
+    /// <param name="window">The decoded window, covering (A, B] with a margin before and after.</param>
     /// <param name="lastLighterKeyframe">A, in media time.</param>
     /// <param name="firstLevelKeyframe">B, in media time.</param>
     /// <param name="blackLevel">The scene's black level on the scan's own scale.</param>
     /// <param name="tolerance">How far above the level a background still counts as black.</param>
-    /// <returns>The decision.</returns>
-    internal static LeadInDecision Decide(LumaWindow window, double leadInStart, double lastLighterKeyframe, double firstLevelKeyframe, double blackLevel, double tolerance)
+    /// <returns>The frame to start on, or inconclusive.</returns>
+    internal static LeadInDecision Decide(LumaWindow window, double lastLighterKeyframe, double firstLevelKeyframe, double blackLevel, double tolerance)
     {
         var count = window.FrameCount;
         if (count < 2)
@@ -264,14 +170,10 @@ internal static class LeadInProbe
         }
 
         var times = window.Times;
-        var frameSize = window.Width * window.Height;
-        var scratch = new bool[frameSize];
-        var measures = new LeadInFrameMeasure[count];
         var atLevel = new bool[count];
         for (var i = 0; i < count; i++)
         {
-            measures[i] = Measure(window.Frame(i), window.Width, pictureRows, scratch);
-            atLevel[i] = measures[i].Background <= blackLevel + tolerance;
+            atLevel[i] = Background(window.Frame(i), window.Width, pictureRows) <= blackLevel + tolerance;
         }
 
         // L: the first frame after A and not after B whose background is at the level, whose
@@ -280,8 +182,7 @@ internal static class LeadInProbe
         // percentile over a background that was already black, and the first frame after A is not a
         // cut. A drop that gives way to picture again before B is a black beat inside the story, not
         // the start of the scene B opens.
-        var located = -1;
-        for (var i = 1; i < count && located < 0; i++)
+        for (var i = 1; i < count; i++)
         {
             if (times[i] > firstLevelKeyframe + TimeTolerance)
             {
@@ -302,104 +203,11 @@ internal static class LeadInProbe
             var (observedToB, heldToB) = Observe(times, atLevel, times[i], firstLevelKeyframe);
             if (held >= StabilityMinimumFraction * observed && heldToB >= StabilityMinimumFraction * observedToB)
             {
-                located = i;
+                return new LeadInDecision.TrimAt(times[i]);
             }
         }
 
-        if (located < 0)
-        {
-            // No crossing holds, so there is no frame to trim to. The background never left the
-            // level, as when the nomination read dim content in the 90th percentile over a black
-            // background, or it never settled at the level before B. The second before the last
-            // lighter keyframe still says whether the prefix was lettered pages, which keeps it;
-            // anything else is the policy's start.
-            var anchor = -1;
-            for (var i = 0; i < count && anchor < 0; i++)
-            {
-                if (times[i] >= lastLighterKeyframe - TimeTolerance)
-                {
-                    anchor = i;
-                }
-            }
-
-            var lettered = anchor < 0 ? null : LetteredBefore(anchor, leadInStart, times, measures);
-            return lettered switch
-            {
-                null => new LeadInDecision.Inconclusive("no background crossing, and less than three quarters of the second before the lighter keyframe was decoded"),
-                true => new LeadInDecision.Keep(),
-                false => new LeadInDecision.Inconclusive("no background crossing to the level between the nominated keyframes"),
-            };
-        }
-
-        // Continuity: the same foreground of lettering size on both sides of the change. A lit region
-        // beyond the size of a page is story whatever survives the drop.
-        if (measures[located - 1].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum
-            && measures[located].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum)
-        {
-            var before = new bool[frameSize];
-            var after = new bool[frameSize];
-            Measure(window.Frame(located - 1), window.Width, pictureRows, before);
-            Measure(window.Frame(located), window.Width, pictureRows, after);
-            if (Iou(before, after) >= ContinuityMinimumIou)
-            {
-                return new LeadInDecision.Keep();
-            }
-        }
-
-        return LetteredBefore(located, leadInStart, times, measures) switch
-        {
-            null => new LeadInDecision.Inconclusive("less than three quarters of the second before the level change was decoded"),
-            true => new LeadInDecision.Keep(),
-            false => new LeadInDecision.TrimAt(times[located]),
-        };
-    }
-
-    // The text rule over the second before frame `anchor`: null when less than three quarters of
-    // that second was decoded. Otherwise, frames inside the lead-in whose foreground is lettering
-    // size must cover at least a quarter second of it, and their duration-weighted median glyph
-    // transitions per band row must reach the threshold. When the lead-in starts inside that
-    // second, the frames before it are story before the black scene and do not count.
-    private static bool? LetteredBefore(int anchor, double leadInStart, IReadOnlyList<double> times, LeadInFrameMeasure[] measures)
-    {
-        var end = times[anchor];
-        var start = end - TextLookBackSeconds;
-        var inLeadIn = Math.Max(start, leadInStart);
-        double observed = 0;
-        var lettered = new List<(double Transitions, double Seconds)>();
-        for (var i = 0; i < anchor; i++)
-        {
-            observed += Overlap(times[i], times[i + 1], start, end);
-            var seconds = Overlap(times[i], times[i + 1], inLeadIn, end);
-            if (seconds > 0 && measures[i].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum)
-            {
-                lettered.Add((measures[i].TransitionsPerBandRow, seconds));
-            }
-        }
-
-        if (observed < TextMinimumObservedSeconds - TimeTolerance)
-        {
-            return null;
-        }
-
-        return lettered.Sum(sample => sample.Seconds) >= TextMinimumForegroundSeconds
-            && WeightedMedian(lettered) >= TransitionsMinimum;
-    }
-
-    // The 10th percentile of a luma histogram over the given number of pixels.
-    private static int Percentile10(ReadOnlySpan<int> histogram, int pixels)
-    {
-        var target = (pixels + 9) / 10;
-        var seen = 0;
-        for (var value = 0; value < histogram.Length; value++)
-        {
-            seen += histogram[value];
-            if (seen >= target)
-            {
-                return value;
-            }
-        }
-
-        return 255;
+        return new LeadInDecision.Inconclusive("no background crossing to the level between the nominated keyframes");
     }
 
     // Observed time inside [from, to): every frame's span up to the next timestamp, clipped to it,
@@ -411,7 +219,7 @@ internal static class LeadInProbe
         double held = 0;
         for (var i = 0; i < times.Count - 1; i++)
         {
-            var seconds = Overlap(times[i], times[i + 1], from, to);
+            var seconds = Math.Max(0, Math.Min(times[i + 1], to) - Math.Max(times[i], from));
             observed += seconds;
             if (atLevel[i])
             {
@@ -420,25 +228,5 @@ internal static class LeadInProbe
         }
 
         return (observed, held);
-    }
-
-    private static double Overlap(double start, double end, double from, double to)
-        => Math.Max(0, Math.Min(end, to) - Math.Max(start, from));
-
-    private static double WeightedMedian(List<(double Transitions, double Seconds)> samples)
-    {
-        samples.Sort((a, b) => a.Transitions.CompareTo(b.Transitions));
-        var half = samples.Sum(sample => sample.Seconds) / 2;
-        double seen = 0;
-        foreach (var (transitions, seconds) in samples)
-        {
-            seen += seconds;
-            if (seen >= half)
-            {
-                return transitions;
-            }
-        }
-
-        return samples[^1].Transitions;
     }
 }

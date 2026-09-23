@@ -24,7 +24,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // Luma a lead-in probe may hold at once: about 12 s of 640 by 360 frames at 24 fps.
+    // Luma a lead-in probe may hold at once. The probe decodes at a small width, a few megabytes a
+    // window, so the cap only stops a runaway decode.
     private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
 
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
@@ -301,8 +302,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "rawvideo", "-",
         ];
 
-        // Sized for 16:9 frames at 30 fps, the shape the cap was set for, so the capture fills one
-        // buffer instead of doubling its way there.
+        // Sized for 16:9 frames at 30 fps, so the capture usually fills one buffer instead of
+        // doubling its way there.
         var expectedBytes = (long)(width * (width * 9 / 16) * 30 * window.Duration);
         ProcessCapture capture;
         try

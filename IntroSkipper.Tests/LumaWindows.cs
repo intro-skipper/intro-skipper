@@ -28,24 +28,18 @@ internal static class LumaWindows
         return frame;
     }
 
-    /// <summary>A lit square of 8 by 8: 2.8 percent of the frame, two edges per row.</summary>
-    internal static byte[] Block(byte background) => Rectangle(Blank(background), x: 28, y: 14, width: 8, height: 8);
-
-    /// <summary>A lit square of 4 by 4: 0.7 percent of the frame, two edges per row.</summary>
+    /// <summary>A lit square of 4 by 4 in the middle of the frame.</summary>
     internal static byte[] Blob(byte background) => Rectangle(Blank(background), x: 30, y: 16, width: 4, height: 4);
 
-    /// <summary>
-    /// Four bands of three rows, each a run of two lit pixels every four across the middle: 24 edges
-    /// per row and 12.5 percent of the frame. Phase 2 lights the pixels phase 0 leaves dark.
-    /// </summary>
-    internal static byte[] TextRows(byte background, int phase)
+    /// <summary>Four bands of three rows, each a run of two lit pixels every four across the middle: rows of glyphs with black spacing between them.</summary>
+    internal static byte[] TextRows(byte background)
     {
         var frame = Blank(background);
         foreach (var band in new[] { 6, 12, 18, 24 })
         {
             for (var y = band; y < band + 3; y++)
             {
-                for (var x = 8 + phase; x < 56; x += 4)
+                for (var x = 8; x < 56; x += 4)
                 {
                     frame[(y * Width) + x] = 235;
                     frame[(y * Width) + x + 1] = 235;

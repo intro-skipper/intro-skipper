@@ -334,7 +334,7 @@ public class TestBlackFrames
         // lettering lifts a roll page's 90th percentile onto the text and is a roll. Pages dense
         // enough to lift the 90th percentile into the dark band read as dim content, so a roll that
         // opens on them starts after them. No frames are decoded here, so every lead-in takes the
-        // policy's start; the lead-in probe's own tests cover the frames that keep a lettered prefix.
+        // policy's keyframe start; the lead-in probe's own tests cover the frame it moves to.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -368,11 +368,12 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task DetectCreditsAsync_LeadInProbeKeep_LeavesTheSceneWhole()
+    public async Task DetectCreditsAsync_LeadInProbeTrim_StartsOnTheFrame()
     {
         // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30. The probe
-        // reads the window the rules need at the probe's width; the same lit block on both sides of
-        // the level change is a keep, and the scene stays as the scan built it, lead-in included.
+        // reads the window the rule needs at the probe's width; the lit object vanishes into blank
+        // black at 129, between the keyframes, and the scene starts there. The lead-in is a rejected
+        // range, so its card-like keyframes are content and the black-frame candidate is the only one.
         TimeRange? requested = null;
         var requestedWidth = 0;
         var ffmpeg = CreditsScan(
@@ -382,28 +383,8 @@ public class TestBlackFrames
             {
                 requested = window;
                 requestedWidth = width;
-                return LumaWindows.Window(window.Start, (130 - window.Start, () => LumaWindows.Block(21)), (window.End - 130, () => LumaWindows.Block(16)));
+                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
             });
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var result = await BlackFrameCredits(analyzer, episode);
-
-        Assert.Equal(120, result?.Start);
-        Assert.Equal((128 - LeadInProbe.LookBackPadding, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
-        Assert.Equal(LeadInProbe.Width, requestedWidth);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_LeadInProbeTrim_StartsOnTheFrame()
-    {
-        // The lit object vanishes into blank black at 129, between the keyframes: the scene starts
-        // there, and the lead-in is a rejected range, so its card-like keyframes are content and
-        // the black-frame candidate is the only one.
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16))));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
@@ -412,32 +393,8 @@ public class TestBlackFrames
         var credits = Assert.Single(candidates);
         Assert.Equal(SegmentSource.BlackFrame, credits.Source);
         Assert.Equal(129, credits.Segment.Start, 3);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_KeptLeadIn_FacesTheLetteringGateAsThePolicyTrimsIt()
-    {
-        // Flat dark story at 20 and 22 carries no lettering; lettering before the level change makes
-        // the probe keep the lead-in. The roll from 26 is lettered on 5 of its 9 pages, a roll to
-        // the gate, while the whole kept scene is lettered on only 6 of 12. The gate reads the scene
-        // as the policy trims it, so the kept scene stays credits.
-        KeyframeVisual[] visuals =
-        [
-            KeyframeVisuals.FlatDark(20),
-            KeyframeVisuals.FlatDark(22),
-            KeyframeVisuals.DarkGrey(24),
-            .. Times(26, 42, 2).Select((t, i) => i % 2 == 0 ? KeyframeVisuals.Black(t) : KeyframeVisuals.BlankBlack(t)),
-        ];
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 42, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: visuals,
-            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (125 - window.Start, () => LumaWindows.TextRows(24, phase: 0)), (window.End - 125, () => LumaWindows.Blank(16))));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var result = await BlackFrameCredits(analyzer, episode);
-
-        Assert.Equal(120, result?.Start);
+        Assert.Equal((128 - LeadInProbe.LookBackPadding, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
+        Assert.Equal(LeadInProbe.Width, requestedWidth);
     }
 
     [Fact]

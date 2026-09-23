@@ -20,10 +20,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// saturated is a dark tinted scene and does not count as black, a black scene starts after leading
 /// keyframes that show dim content rather than black, a dim last shot before the cut to the roll, and
 /// a black scene lettered on no more than half its pages is a gap between acts, not credits. The
-/// frames between the keyframes decide what a lead-in is (see <see cref="LeadInProbe"/>): the same
-/// foreground on both sides of the level change or lettered pages before it keep the prefix, anything
-/// else starts the scene on the frame the level changes, and what the probe cannot observe leaves
-/// the keyframe start. The card run is found against the black scenes those rules accepted: once they accept
+/// frames between the keyframes place the start after a lead-in (see <see cref="LeadInProbe"/>): on
+/// the frame where the background reaches the level, or on the first keyframe at the level when the
+/// probe cannot observe that frame. The card run is found against the black scenes those rules accepted: once they accept
 /// any scene, a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
@@ -162,7 +161,6 @@ internal sealed partial class KeyframeAnalyzer(
         // scene stays.
         var rejected = new List<TimeRange>();
         var trimmedScenes = new HashSet<CreditScene>();
-        var keptLeadIns = new Dictionary<CreditScene, CreditScene>();
         if (visuals.Count > 0)
         {
             for (var i = 0; i < scenes.Count; i++)
@@ -173,18 +171,9 @@ internal sealed partial class KeyframeAnalyzer(
                     continue;
                 }
 
-                // Keep leaves the scene as the scan built it, a trim starts it on the frame where the
-                // background reached the level, and what the probe could not observe falls back to
-                // the nomination's trim, the policy. A kept scene still faces the lettering gate as
-                // the policy trims it: the probe read the frames around the change, not the lead-in
-                // pages before them.
-                var decision = await ProbeLeadInAsync(episode, blackFrames, range, trimmed.StartTime, blackLevel, cancellationToken).ConfigureAwait(false);
-                if (decision is LeadInDecision.Keep)
-                {
-                    keptLeadIns[scenes[i]] = trimmed;
-                    continue;
-                }
-
+                // A trim starts the scene on the frame where the background reached the level, and
+                // what the probe could not observe falls back to the nomination's trim, the policy.
+                var decision = await ProbeLeadInAsync(episode, blackFrames, range.End, trimmed.StartTime, blackLevel, cancellationToken).ConfigureAwait(false);
                 rejected.Add(range);
                 scenes[i] = decision is LeadInDecision.TrimAt trim ? trimmed with { StartTime = trim.Time - episode.CreditsFingerprintStart } : trimmed;
                 trimmedScenes.Add(scenes[i]);
@@ -194,8 +183,8 @@ internal sealed partial class KeyframeAnalyzer(
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
-        rejected.AddRange(scenes.Where(scene => visuals.Count > 0 && !IsMostlyLettered(keptLeadIns.GetValueOrDefault(scene, scene), blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
-        scenes = [.. scenes.Where(scene => visuals.Count == 0 || IsMostlyLettered(keptLeadIns.GetValueOrDefault(scene, scene), blackFrames, minimum, visuals))];
+        rejected.AddRange(scenes.Where(scene => visuals.Count > 0 && !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
+        scenes = [.. scenes.Where(scene => visuals.Count == 0 || IsMostlyLettered(scene, blackFrames, minimum, visuals))];
         if (scenes.Count == 0)
         {
             return (null, [], rejected);
@@ -295,37 +284,31 @@ internal sealed partial class KeyframeAnalyzer(
 
     /// <summary>
     /// Runs the lead-in probe for a nominated boundary: decodes the frames between the last lighter
-    /// keyframe and the first at the level, with the margins the rules need, and decides. The
-    /// decision is inconclusive when the keyframes are too far apart or the window cannot be decoded.
+    /// keyframe and the first at the level, with the margins the rule needs, and places the start.
+    /// The decision is inconclusive when the window cannot be decoded.
     /// </summary>
     /// <param name="episode">The episode.</param>
     /// <param name="keyframes">The keyframe scan, relative to the credits fingerprint start.</param>
-    /// <param name="leadIn">The nominated lead-in, from the scene's start to A, relative to the credits fingerprint start.</param>
+    /// <param name="lastLighterKeyframe">A, relative to the credits fingerprint start.</param>
     /// <param name="firstLevelKeyframe">B, relative to the credits fingerprint start.</param>
     /// <param name="blackLevel">The scene's black level.</param>
     /// <param name="cancellationToken">Token used to cancel the decode.</param>
     /// <returns>The decision; a trim carries the media time of its frame.</returns>
-    private async Task<LeadInDecision> ProbeLeadInAsync(QueuedEpisode episode, List<BlackFrame> keyframes, TimeRange leadIn, double firstLevelKeyframe, double blackLevel, CancellationToken cancellationToken)
+    private async Task<LeadInDecision> ProbeLeadInAsync(QueuedEpisode episode, List<BlackFrame> keyframes, double lastLighterKeyframe, double firstLevelKeyframe, double blackLevel, CancellationToken cancellationToken)
     {
         var offset = episode.CreditsFingerprintStart;
-        var a = leadIn.End + offset;
+        var a = lastLighterKeyframe + offset;
         var b = firstLevelKeyframe + offset;
-        LeadInDecision decision;
-        if (LeadInProbe.ProbeWindow(a, b) is not { } window)
-        {
-            decision = new LeadInDecision.Inconclusive("the keyframes are too far apart to decode between");
-        }
-        else
-        {
-            // The decode seeks to the last scanned keyframe at or before the window. An MPEG-TS seek
-            // to any other time lands between keyframes and decodes from the next one, past the
-            // window's start, and a scanned keyframe also puts the frame times on the scan's timeline.
-            var seek = keyframes.LastOrDefault(frame => frame.Time + offset <= window.Start)?.Time + offset ?? window.Start;
-            var frames = await _ffmpegService.DecodeLumaWindowAsync(episode, window, seek, LeadInProbe.Width, cancellationToken).ConfigureAwait(false);
-            decision = frames is null
-                ? new LeadInDecision.Inconclusive("the window could not be decoded")
-                : LeadInProbe.Decide(frames, leadIn.Start + offset, a, b, blackLevel, BlackLevelTolerance);
-        }
+        var window = LeadInProbe.ProbeWindow(a, b);
+
+        // The decode seeks to the last scanned keyframe at or before the window. An MPEG-TS seek to
+        // any other time lands between keyframes and decodes from the next one, past the window's
+        // start, and a scanned keyframe also puts the frame times on the scan's timeline.
+        var seek = keyframes.LastOrDefault(frame => frame.Time + offset <= window.Start)?.Time + offset ?? window.Start;
+        var frames = await _ffmpegService.DecodeLumaWindowAsync(episode, window, seek, LeadInProbe.Width, cancellationToken).ConfigureAwait(false);
+        var decision = frames is null
+            ? new LeadInDecision.Inconclusive("the window could not be decoded")
+            : LeadInProbe.Decide(frames, a, b, blackLevel, BlackLevelTolerance);
 
         LogLeadInProbe(episode.Name, a, b, decision);
         return decision;
@@ -337,8 +320,8 @@ internal sealed partial class KeyframeAnalyzer(
     // dim the picture is; a dark scene there sits at 25 to 45 on the 90th percentile. A roll page
     // sits at the level on both, or lifts its 90th percentile onto the text when the lettering is
     // large. Pages dense with small lettering can land in between: inside a roll the rule never
-    // reaches them, since it reads leading keyframes only, and a roll that opens on them keeps its
-    // start when the lead-in probe reads them as lettered pages, and otherwise starts after them.
+    // reaches them, since it reads leading keyframes only, and a roll that opens on them starts after
+    // them, the accepted trade: nothing the scan keeps tells such a page from a dark scene behind bars.
     private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
     {
         var dimFloor = blackLevel + BlackLevelTolerance;
