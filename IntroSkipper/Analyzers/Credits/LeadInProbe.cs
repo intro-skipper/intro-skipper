@@ -75,10 +75,12 @@ internal static class LeadInProbe
             : new TimeRange(lastLighterKeyframe - LookBackPadding, firstLevelKeyframe + LookAheadPadding);
 
     /// <summary>
-    /// Finds the rows that carry picture. A row is picture when, in at least one frame of the window,
-    /// at least <see cref="PictureRowMinimumFraction"/> of its pixels rise above the level plus
-    /// tolerance; a row that never does is a letterbox bar. The fraction keeps a stray bright pixel,
-    /// noise or ringing at a bar's edge, from turning a bar back into picture.
+    /// Finds the rows that carry picture: everything between the first and the last row that, in
+    /// some frame of the window, has at least <see cref="PictureRowMinimumFraction"/> of its pixels
+    /// above the level plus tolerance. The bands outside are letterbox bars. Black rows inside, the
+    /// spacing between credit lines, stay picture, so a page's foreground is measured against the
+    /// whole page. The fraction keeps a stray bright pixel, noise or ringing at a bar's edge, from
+    /// turning a bar into picture.
     /// </summary>
     /// <param name="window">The decoded window.</param>
     /// <param name="blackLevel">The scene's black level on the scan's own scale.</param>
@@ -112,13 +114,21 @@ internal static class LeadInProbe
             }
         }
 
+        var first = Array.IndexOf(picture, true);
+        if (first >= 0)
+        {
+            Array.Fill(picture, true, first, Array.LastIndexOf(picture, true) - first + 1);
+        }
+
         return picture;
     }
 
     /// <summary>
     /// Measures one frame over its picture rows and writes its foreground mask. The background is
     /// the 10th percentile luma of the picture, the foreground every picture pixel at least the
-    /// lettering contrast above it; rows outside the picture are never foreground.
+    /// lettering contrast above it; rows outside the picture are never foreground. The foreground
+    /// fraction is of the whole frame, since a page's own margins and letterbox bars look the same
+    /// inside one window and the area thresholds were set on whole frames.
     /// </summary>
     /// <param name="frame">The frame's luma, row by row.</param>
     /// <param name="width">The frame width.</param>
@@ -194,7 +204,7 @@ internal static class LeadInProbe
             }
         }
 
-        return new LeadInFrameMeasure(background, (double)foreground / picturePixels, bandRows == 0 ? 0 : (double)transitions / bandRows);
+        return new LeadInFrameMeasure(background, (double)foreground / frame.Length, bandRows == 0 ? 0 : (double)transitions / bandRows);
     }
 
     /// <summary>
@@ -263,11 +273,14 @@ internal static class LeadInProbe
             atLevel[i] = measures[i].Background <= blackLevel + tolerance;
         }
 
-        // L: the first frame after A and not after B whose background is at the level and holds it.
+        // L: the first frame after A and not after B whose background is at the level and holds it,
+        // and whose predecessor was above it. Without that crossing nothing changed between the
+        // keyframes: the nomination came from a 90th percentile over a background that was already
+        // black, and the first frame after A is not a cut.
         var located = -1;
-        for (var i = 0; i < count && located < 0; i++)
+        for (var i = 1; i < count && located < 0; i++)
         {
-            if (times[i] <= lastLighterKeyframe + TimeTolerance || times[i] > firstLevelKeyframe + TimeTolerance || !atLevel[i])
+            if (times[i] <= lastLighterKeyframe + TimeTolerance || times[i] > firstLevelKeyframe + TimeTolerance || !atLevel[i] || atLevel[i - 1])
             {
                 continue;
             }
@@ -286,12 +299,14 @@ internal static class LeadInProbe
 
         if (located < 0)
         {
-            return new LeadInDecision.Inconclusive("no level change located between the nominated keyframes");
-        }
-
-        if (located == 0)
-        {
-            return new LeadInDecision.Inconclusive("the window starts at the level change");
+            // The background never left the level: the nomination read dim content in the 90th
+            // percentile over a black background, and there is no frame to trim to. The second
+            // before the last lighter keyframe, inside the prefix, still says whether that content
+            // was lettered pages, which keeps the prefix; anything else is the policy's start.
+            var anchor = Array.FindIndex(times.ToArray(), time => time >= lastLighterKeyframe - TimeTolerance);
+            return anchor > 0 && IsLetteredBefore(anchor, times, durations, measures)
+                ? new LeadInDecision.Keep()
+                : new LeadInDecision.Inconclusive("no background crossing to the level between the nominated keyframes");
         }
 
         // Continuity: the same foreground of lettering size on both sides of the change. A lit region
@@ -316,23 +331,29 @@ internal static class LeadInProbe
             return new LeadInDecision.Inconclusive("less than three quarters of the second before the level change was decoded");
         }
 
+        return IsLetteredBefore(located, times, durations, measures)
+            ? new LeadInDecision.Keep()
+            : new LeadInDecision.TrimAt(times[located]);
+    }
+
+    // The text rule: over the second before frame `anchor`, frames whose foreground is lettering
+    // size cover at least a quarter second and their duration-weighted median glyph transitions per
+    // band row reach the threshold.
+    private static bool IsLetteredBefore(int anchor, IReadOnlyList<double> times, double[] durations, LeadInFrameMeasure[] measures)
+    {
+        var lookBackStart = times[anchor] - TextLookBackSeconds;
         var lettered = new List<(double Transitions, double Seconds)>();
-        for (var i = 0; i < located; i++)
+        for (var i = 0; i < anchor; i++)
         {
-            var seconds = Overlap(times[i], durations[i], lookBackStart, times[located]);
+            var seconds = Overlap(times[i], durations[i], lookBackStart, times[anchor]);
             if (seconds > 0 && measures[i].ForegroundFraction is >= ForegroundMinimum and <= ForegroundMaximum)
             {
                 lettered.Add((measures[i].TransitionsPerBandRow, seconds));
             }
         }
 
-        if (lettered.Sum(sample => sample.Seconds) >= TextMinimumForegroundSeconds
-            && WeightedMedian(lettered) >= TransitionsMinimum)
-        {
-            return new LeadInDecision.Keep();
-        }
-
-        return new LeadInDecision.TrimAt(times[located]);
+        return lettered.Sum(sample => sample.Seconds) >= TextMinimumForegroundSeconds
+            && WeightedMedian(lettered) >= TransitionsMinimum;
     }
 
     // The 10th percentile of a luma histogram over the given number of pixels.

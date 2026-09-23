@@ -35,7 +35,8 @@ public class TestLeadInProbe
     public void Measure_ReadsThePictureRowsOnly()
     {
         // Bars over a quarter of the frame would put the 10th percentile at black; the picture rows
-        // alone put it at the picture's own background, and the foreground fraction is of the picture.
+        // alone put it at the picture's own background. The foreground fraction stays of the whole
+        // frame, as the area thresholds were set.
         var frame = Letterboxed(Blob(21), barRows: 9);
         var pictureRows = Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27).ToArray();
         var mask = new bool[Width * Height];
@@ -45,7 +46,7 @@ public class TestLeadInProbe
 
         Assert.Equal(16, whole.Background);
         Assert.Equal(21, picture.Background);
-        Assert.Equal(16.0 / (18 * Width), picture.ForegroundFraction, 6);
+        Assert.Equal(16.0 / (Width * Height), picture.ForegroundFraction, 6);
     }
 
     [Fact]
@@ -69,6 +70,44 @@ public class TestLeadInProbe
         var rows = LeadInProbe.PictureRows(window, Level, Tolerance);
 
         Assert.Equal(Enumerable.Range(0, Height).Select(y => y is >= 9 and < 27), rows);
+    }
+
+    [Fact]
+    public void PictureRows_KeepTheBlackSpacingBetweenLines()
+    {
+        // The rows between the text bands never rise above the level, yet they are the page, not
+        // bars: only the bands outside the first and last lit row leave the picture.
+        var window = Window(0, (1.0, () => Letterboxed(TextRows(16, phase: 0), barRows: 4)));
+
+        var rows = LeadInProbe.PictureRows(window, Level, Tolerance);
+
+        Assert.Equal(Enumerable.Range(0, Height).Select(y => y is >= 6 and < 27), rows);
+    }
+
+    [Fact]
+    public void Decide_BackgroundAlreadyAtTheLevel_IsInconclusive()
+    {
+        // A moving lit object over a black background: the 90th percentile nominated the boundary,
+        // but the background never crosses to the level in the window, so the first frame after A
+        // is not a cut and the policy start stands.
+        var window = Window(0, (1.0, () => Blob(16)), (1.5, () => Blank(16)));
+
+        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+
+        Assert.IsType<LeadInDecision.Inconclusive>(decision);
+    }
+
+    [Fact]
+    public void Decide_LetteredPagesWithoutACrossing_Keeps()
+    {
+        // Dense lettering on black nominated through the 90th percentile: the background never
+        // crosses, so there is no frame to trim to, but the second before the last lighter keyframe
+        // is rows of glyphs and the prefix is credits.
+        var window = Window(0, (1.0, () => TextRows(16, phase: 0)), (1.5, () => Blob(16)));
+
+        var decision = LeadInProbe.Decide(window, lastLighterKeyframe: 0.5, firstLevelKeyframe: 1.5, Level, Tolerance);
+
+        Assert.IsType<LeadInDecision.Keep>(decision);
     }
 
     [Fact]
