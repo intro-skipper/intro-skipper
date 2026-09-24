@@ -218,7 +218,8 @@ public partial class BaseItemAnalyzerTask(
         // Run settled-season reanalysis from scratch after no new episodes have been added
         // for the configured delay so segments first derived from a partial season are
         // recomputed against the full season.
-        // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
+        // Reuses the cached fingerprints and scans, so this re-runs the comparison; only the credits
+        // lead-in probe decodes its window again.
         var utcNow = DateTime.UtcNow;
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
 

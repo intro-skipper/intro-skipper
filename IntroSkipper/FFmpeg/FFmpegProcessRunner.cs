@@ -47,6 +47,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     /// <param name="processPath">Executable to start.</param>
     /// <param name="args">Arguments, one token each.</param>
     /// <param name="maximumStdoutBytes">Bytes of standard output kept before the process is killed.</param>
+    /// <param name="expectedStdoutBytes">Bytes of standard output the caller expects, to size the buffer once; clamped to <paramref name="maximumStdoutBytes"/>.</param>
     /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
     /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
     /// <returns>Both streams, the exit code and whether standard output was cut.</returns>
@@ -56,13 +57,17 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         string processPath,
         IReadOnlyList<string> args,
         long maximumStdoutBytes,
+        long expectedStdoutBytes,
         int timeout,
         CancellationToken cancellationToken = default)
     {
-        using var stdout = new MemoryStream();
+        using var stdout = new MemoryStream((int)Math.Clamp(expectedStdoutBytes, 0, maximumStdoutBytes));
         using var stderr = new MemoryStream();
         var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumStdoutBytes, timeout, cancellationToken).ConfigureAwait(false);
-        return new ProcessCapture(stdout.ToArray(), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
+
+        // A decode is tens of megabytes: hand out the stream's own buffer instead of copying it.
+        // Disposing a MemoryStream releases nothing, so the buffer stays valid after the return.
+        return new ProcessCapture(stdout.GetBuffer().AsMemory(0, (int)stdout.Length), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
     }
 
     private async Task<(int ExitCode, bool StdoutTruncated)> RunCoreAsync(

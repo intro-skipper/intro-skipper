@@ -329,12 +329,12 @@ public class TestBlackFrames
         // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
         // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
         // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
-        // levels starts at its darker part, the accepted trade. Behind letterbox bars a dark scene's
-        // darkest tenth is black like the roll's, and its 90th percentile gives it away, however long
-        // it runs; large lettering lifts a roll page's 90th percentile onto the text and is a roll.
-        // Pages dense enough to lift the 90th percentile into the dark band read as dim content, so
-        // a roll that opens on them starts after them: the accepted trade at keyframe level, where
-        // nothing else tells such a page from a dark scene behind bars.
+        // levels starts at its darker part. Behind letterbox bars a dark scene's darkest tenth is
+        // black like the roll's, and its 90th percentile gives it away, however long it runs; large
+        // lettering lifts a roll page's 90th percentile onto the text and is a roll. Pages dense
+        // enough to lift the 90th percentile into the dark band read as dim content, so a roll that
+        // opens on them starts after them. No frames are decoded here, so every lead-in takes the
+        // policy's keyframe start; the lead-in probe's own tests cover the frame it moves to.
         double[] times = [.. Times(20, 54, 0.5)];
         KeyframeVisual[] visuals = visualsKind switch
         {
@@ -368,11 +368,42 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeTrim_StartsOnTheFrame()
+    {
+        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30. The probe
+        // reads the window the rule needs at the probe's width; the lit object vanishes into blank
+        // black at 129, between the keyframes, and the scene starts there. The lead-in is a rejected
+        // range, so its card-like keyframes are content and the black-frame candidate is the only one.
+        TimeRange? requested = null;
+        var requestedWidth = 0;
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, width) =>
+            {
+                requested = window;
+                requestedWidth = width;
+                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
+            });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+
+        var credits = Assert.Single(candidates);
+        Assert.Equal(SegmentSource.BlackFrame, credits.Source);
+        Assert.Equal(129, credits.Segment.Start, 3);
+        Assert.Equal((128 - LeadInProbe.LookBackPadding, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
+        Assert.Equal(LeadInProbe.Width, requestedWidth);
+    }
+
+    [Fact]
     public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
     {
-        // Keyframes two seconds apart, a dark grey lead-in trimmed at 30. The boundary probe would
-        // read the gap before 30 with blackframe, which scores the lead-in black, and pull the
-        // start back into it; a trimmed scene does not probe.
+        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30 and no window
+        // decoded, so the policy trims at 30. The boundary probe would read the gap before 30 with
+        // blackframe, which scores the lead-in black, and pull the start back into it; a trimmed
+        // scene does not probe.
         BlackFrame[] frames = [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))];
         var ffmpeg = CreditsScan(frames, probeFrames: [new BlackFrame(100, 0.2, 5)], visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
@@ -1692,12 +1723,14 @@ public class TestBlackFrames
         BlackFrame[] creditsFrames,
         BlackFrame[]? probeFrames = null,
         BlackInterval[]? intervals = null,
-        KeyframeVisual[]? visuals = null) => new()
+        KeyframeVisual[]? visuals = null,
+        Func<QueuedEpisode, TimeRange, int, LumaWindow?>? lumaWindows = null) => new()
         {
             CreditsBlackFrames = (_, _) => creditsFrames,
             RangeBlackFrames = (_, _, _, _, _) => probeFrames ?? [],
             BlackIntervals = (_, _, _, _) => intervals ?? [],
             KeyframeVisuals = _ => visuals ?? [],
+            LumaWindows = lumaWindows ?? ((_, _, _) => null),
         };
 
     private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)
