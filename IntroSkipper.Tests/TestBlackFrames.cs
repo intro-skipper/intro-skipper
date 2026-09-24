@@ -371,9 +371,10 @@ public class TestBlackFrames
     public async Task DetectCreditsAsync_LeadInProbeTrim_StartsOnTheFrame()
     {
         // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30. The probe
-        // reads the window the rule needs at the probe's width; the lit object vanishes into blank
-        // black at 129, between the keyframes, and the scene starts there. The lead-in is a rejected
-        // range, so its card-like keyframes are content and the black-frame candidate is the only one.
+        // reads from the lighter keyframe to just past the level one at its width; the lit object
+        // vanishes into blank black at 129, between the keyframes, and the scene starts there. The
+        // lead-in is a rejected range, so its card-like keyframes are content and the black-frame
+        // candidate is the only one.
         TimeRange? requested = null;
         var requestedWidth = 0;
         var ffmpeg = CreditsScan(
@@ -385,7 +386,7 @@ public class TestBlackFrames
                 requestedWidth = width;
                 return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
             });
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
         var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
@@ -393,8 +394,31 @@ public class TestBlackFrames
         var credits = Assert.Single(candidates);
         Assert.Equal(SegmentSource.BlackFrame, credits.Source);
         Assert.Equal(129, credits.Segment.Start, 3);
-        Assert.Equal((128 - LeadInProbe.LookBackPadding, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
+        Assert.Equal((128, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
         Assert.Equal(LeadInProbe.Width, requestedWidth);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_WithoutBoundaryRefinement_DecodesNoLeadIn()
+    {
+        // Keyframe-only analysis: the lead-in still trims to the keyframe at 30, and nothing between
+        // the keyframes is decoded, though the frames there would move the start to 129.
+        var decoded = 0;
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, _) =>
+            {
+                decoded++;
+                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
+            });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(130, result?.Start);
+        Assert.Equal(0, decoded);
     }
 
     [Fact]

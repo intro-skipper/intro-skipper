@@ -49,7 +49,7 @@ public class TestLumaWindowDecode
             Assert.InRange(window.FrameCount, 11, 13);
             Assert.All(window.Times, time => Assert.InRange(time, 0.5, 1.0));
             Assert.Equal(window.Times.OrderBy(time => time), window.Times);
-            Assert.InRange(LeadInProbe.Background(window.Frame(0), window.Width, LumaWindows.AllRows(window.Height)), 20, 22);
+            Assert.All(window.Frame(0).ToArray(), value => Assert.InRange(value, 20, 22));
         }
         finally
         {

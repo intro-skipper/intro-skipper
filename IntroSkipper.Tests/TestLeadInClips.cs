@@ -19,12 +19,12 @@ using Xunit;
 public class TestLeadInClips
 {
     [FactSkipFFmpegTests]
-    public async Task MovingStoryOverBlack_KeepsThePolicyStart()
+    public async Task SubjectMovingOnAfterTheBackgroundDrops_KeepsTheKeyframeStart()
     {
-        // 4 to 18 s: a moving lit object over a black background; 18 to 19.5 s blank black; then
-        // lettering. The 90th percentile nominates the keyframes at 16 and 20 s, but the background
-        // is black throughout and never crosses, so the scene starts at the level keyframe rather
-        // than at the first frame after the lighter one.
+        // 4 to 17 s: a moving lit object over a dark grey background; 17 to 18 s the object keeps
+        // moving over black; 18 to 19.5 s blank black; then lettering. The keyframes at 16 and 20 s
+        // bound the lead-in. The lettering before 20 s is coded again at the keyframe and differs at
+        // the edges of its glyphs, so the start stays at 20 s, not at 17 s inside the story.
         var credits = await CreditsOf("video/moving-story.mp4");
 
         Assert.Equal(20, credits?.Start ?? -1, 2);
@@ -36,7 +36,7 @@ public class TestLeadInClips
         episode.Duration = 39;
         episode.CreditsFingerprintStart = 0;
         episode.CreditsFingerprintEnd = 39;
-        var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), new PluginConfiguration { RefineCreditsBoundary = false });
+        var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), new PluginConfiguration { RefineCreditsBoundary = true });
 
         var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false);
 

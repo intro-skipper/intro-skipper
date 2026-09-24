@@ -17,9 +17,6 @@ internal static class LumaWindows
     internal const int Height = 36;
     internal const double Fps = 24;
 
-    /// <summary>Every row carries picture.</summary>
-    internal static bool[] AllRows(int height) => [.. Enumerable.Repeat(true, height)];
-
     /// <summary>A frame of one value.</summary>
     internal static byte[] Blank(byte background)
     {
@@ -30,25 +27,6 @@ internal static class LumaWindows
 
     /// <summary>A lit square of 4 by 4 in the middle of the frame.</summary>
     internal static byte[] Blob(byte background) => Rectangle(Blank(background), x: 30, y: 16, width: 4, height: 4);
-
-    /// <summary>Four bands of three rows, each a run of two lit pixels every four across the middle: rows of glyphs with black spacing between them.</summary>
-    internal static byte[] TextRows(byte background)
-    {
-        var frame = Blank(background);
-        foreach (var band in new[] { 6, 12, 18, 24 })
-        {
-            for (var y = band; y < band + 3; y++)
-            {
-                for (var x = 8; x < 56; x += 4)
-                {
-                    frame[(y * Width) + x] = 235;
-                    frame[(y * Width) + x + 1] = 235;
-                }
-            }
-        }
-
-        return frame;
-    }
 
     /// <summary>Lights a rectangle at 235.</summary>
     internal static byte[] Rectangle(byte[] frame, int x, int y, int width, int height)
@@ -61,14 +39,6 @@ internal static class LumaWindows
             }
         }
 
-        return frame;
-    }
-
-    /// <summary>Letterbox bars: the top and bottom rows set to black whatever the picture holds.</summary>
-    internal static byte[] Letterboxed(byte[] frame, int barRows)
-    {
-        Array.Fill(frame, (byte)16, 0, barRows * Width);
-        Array.Fill(frame, (byte)16, (Height - barRows) * Width, barRows * Width);
         return frame;
     }
 
