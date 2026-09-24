@@ -113,8 +113,8 @@ public class TestLeadInProbe
     [InlineData(5, 1.25)]
     public void Decide_StabilityIsWeightedByTime(int excursionFrames, double expectedStart)
     {
-        // One frame above the level inside the half second after the change is under a tenth of the
-        // observed time and the change stands; five frames are not, and the change moves past them.
+        // One frame above the level is under a tenth of every half second it falls in and the change
+        // stands; five frames are not, and the change moves past them.
         var window = Window(0, (1.0, () => Blob(21)), (1 / Fps, () => Blank(16)), (excursionFrames / Fps, () => Blank(24)), (1.5, () => Blank(16)));
 
         var decision = Decide(window);
@@ -141,17 +141,17 @@ public class TestLeadInProbe
     }
 
     [Fact]
-    public void Decide_BlackBeatBeforeAFinalShot_TrimsWhereTheLevelHoldsToB()
+    public void Decide_FinalShotAfterALongBlackBeat_TrimsAtB()
     {
-        // The story drops to black for a beat after A, a final shot lifts it again, and the roll
-        // starts at B. The beat holds the level for half a second but not up to B, so the scene
-        // starts at B.
-        var window = Window(0, (1.0, () => Blob(23)), (0.625, () => Blank(16)), (1.375, () => Blob(26)), (0.75, () => TextRows(16)));
+        // The story drops to black for six and a half seconds after A, a final half-second shot
+        // lifts it again, and the roll starts at B. The shot is under a tenth of the time from the
+        // drop to B; it fails the half seconds it falls in, so the scene starts at B.
+        var window = Window(0, (1.0, () => Blob(23)), (6.5, () => Blank(16)), (0.5, () => Blob(26)), (0.75, () => TextRows(16)));
 
-        var decision = Decide(window, firstLevelKeyframe: 3.0);
+        var decision = Decide(window, firstLevelKeyframe: 8.0);
 
         var trim = Assert.IsType<LeadInDecision.TrimAt>(decision);
-        Assert.Equal(3.0, trim.Time, 6);
+        Assert.Equal(8.0, trim.Time, 6);
     }
 
     [Fact]
@@ -177,11 +177,13 @@ public class TestLeadInProbe
     }
 
     [Fact]
-    public void Decide_WithoutHalfASecondAfterTheChange_IsInconclusive()
+    public void Decide_DecodeEndingBeforeB_IsInconclusive()
     {
-        var window = Window(0, (1.0, () => Blob(21)), (0.3, () => Blank(16)));
+        // The level holds for as long as frames were decoded after the change, but they end six
+        // seconds before B: what happens up to B is unobserved.
+        var window = Window(0, (1.0, () => Blob(21)), (1.0, () => Blank(16)));
 
-        var decision = Decide(window);
+        var decision = Decide(window, firstLevelKeyframe: 8.0);
 
         Assert.IsType<LeadInDecision.Inconclusive>(decision);
     }

@@ -13,9 +13,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// Pure over a <see cref="LumaWindow"/>, so the rule is tested without ffmpeg. The keyframe scan
 /// nominates: A is the last keyframe lighter than the level, B the first at it, and the policy
 /// starts the scene at B. The probe looks for the level change L in (A, B]: the first frame at the
-/// level that follows a frame above it and holds the level for half a second and up to B. It then
-/// trims to L, which is never later than B. Without such an L it is inconclusive and the caller
-/// keeps B. It never keeps the lead-in: an overlay that stays on screen, a channel logo or a
+/// level that follows a frame above it and holds the level on nine tenths of every half second from
+/// there through B. It then trims to L, which is never later than B. Without such an L it is
+/// inconclusive and the caller keeps B. It never keeps the lead-in: an overlay that stays on screen, a channel logo or a
 /// burned-in subtitle, reads like a credit page carried across the cut, and a keep restores the whole
 /// lead-in, minutes of dark story on the measured letterboxed episodes.
 /// Every temporal rule is weighted by the frames' durations from their timestamps, clipped to the
@@ -31,13 +31,14 @@ internal static class LeadInProbe
     internal const int Width = 160;
 
     // The window starts just before A, so the lighter keyframe itself is decoded as the frame above
-    // the level before a cut right after it, and ends far enough after B for the half second of
-    // stability a change at B needs.
+    // the level before a cut right after it, and ends far enough after B for the half second that
+    // starts at B.
     internal const double LookBackPadding = 0.25;
     internal const double LookAheadPadding = 0.75;
 
-    // The level must hold for half a second after L and from L to B, on nine tenths of the observed
-    // time.
+    // Every half second that starts on a frame from L through B must be decoded and hold the level
+    // on nine tenths of its time. A one-frame flicker passes; a half-second shot fails the half
+    // seconds it falls in, however much black surrounds it.
     internal const double StabilitySeconds = 0.5;
     internal const double StabilityMinimumFraction = 0.9;
 
@@ -177,11 +178,12 @@ internal static class LeadInProbe
         }
 
         // L: the first frame after A and not after B whose background is at the level, whose
-        // predecessor was above it, and whose level holds for half a second and up to B. Without
-        // that crossing nothing changed between the keyframes: the nomination came from a 90th
-        // percentile over a background that was already black, and the first frame after A is not a
-        // cut. A drop that gives way to picture again before B is a black beat inside the story, not
-        // the start of the scene B opens.
+        // predecessor was above it, and from which every half second through B holds the level.
+        // Without that crossing nothing changed between the keyframes: the nomination came from a
+        // 90th percentile over a background that was already black, and the first frame after A is
+        // not a cut. A drop that gives way to picture again before B is a black beat inside the
+        // story, not the start of the scene B opens. A half second the frames do not cover leaves
+        // the time up to B unobserved, and no later crossing could cover it either.
         for (var i = 1; i < count; i++)
         {
             if (times[i] > firstLevelKeyframe + TimeTolerance)
@@ -194,14 +196,19 @@ internal static class LeadInProbe
                 continue;
             }
 
-            var (observed, held) = Observe(times, atLevel, times[i], times[i] + StabilitySeconds);
-            if (observed < StabilitySeconds - TimeTolerance)
+            var holds = true;
+            for (var k = i; holds && k < count && times[k] <= firstLevelKeyframe + TimeTolerance; k++)
             {
-                return new LeadInDecision.Inconclusive("the window ends before the level held for half a second");
+                var (observed, held) = Observe(times, atLevel, times[k], times[k] + StabilitySeconds);
+                if (observed < StabilitySeconds - TimeTolerance)
+                {
+                    return new LeadInDecision.Inconclusive("the decoded frames end before half a second past the first keyframe at the level");
+                }
+
+                holds = held >= StabilityMinimumFraction * observed;
             }
 
-            var (observedToB, heldToB) = Observe(times, atLevel, times[i], firstLevelKeyframe);
-            if (held >= StabilityMinimumFraction * observed && heldToB >= StabilityMinimumFraction * observedToB)
+            if (holds)
             {
                 return new LeadInDecision.TrimAt(times[i]);
             }
