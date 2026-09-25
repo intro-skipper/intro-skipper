@@ -96,6 +96,7 @@ internal sealed partial class ChapterAnalyzer(
             cancellationToken.ThrowIfCancellationRequested();
 
             var matches = FindChapterCandidates(episode, mode);
+            var matchesAreChapters = matches.Count > 0;
 
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
@@ -128,7 +129,7 @@ internal sealed partial class ChapterAnalyzer(
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, cancellationToken).ConfigureAwait(false));
+            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, cancellationToken, matchesAreChapters).ConfigureAwait(false));
         }
 
         return analysisQueue;
@@ -150,19 +151,24 @@ internal sealed partial class ChapterAnalyzer(
     /// <param name="matches">The unadjusted chapter matches.</param>
     /// <param name="timeAdjustmentHelper">Adjustment helper initialized for <paramref name="mode"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="enforceMinimumDuration">Whether to apply the mode's chapter minimum after adjustment; black-frame recap fallbacks use their own detection minimum.</param>
     /// <returns><see cref="EpisodeState.Analyzed"/> when at least one match survived adjustment, otherwise <see cref="EpisodeState.NoSegments"/>.</returns>
     internal async Task<EpisodeState> StoreMatchesAsync(
         QueuedEpisode episode,
         AnalysisMode mode,
         IReadOnlyList<Segment> matches,
         TimeAdjustmentHelper timeAdjustmentHelper,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool enforceMinimumDuration = true)
     {
+        var minimumDuration = enforceMinimumDuration ? GetBounds(mode, episode).Min : 0;
         var adjusted = new List<Segment>(matches.Count);
         foreach (var match in matches)
         {
             var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, false, cancellationToken).ConfigureAwait(false);
-            if (adjustedSegment.Valid)
+            // Offsets and boundary refinement can shorten an otherwise valid chapter.
+            // Recheck the minimum on the range that will actually be persisted.
+            if (adjustedSegment.Valid && adjustedSegment.Duration >= minimumDuration)
             {
                 adjusted.Add(adjustedSegment);
             }

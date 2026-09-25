@@ -92,6 +92,7 @@ public sealed class TestCreditsPass
     }
 
     [Theory]
+    [InlineData(40, 0)]
     [InlineData(60, 0)]
     [InlineData(0, 60)]
     public async Task AuthoritativeChapter_ConsumedByOffsets_ClearsStaleCreditsWithoutFallback(int startOffset, int endOffset)
