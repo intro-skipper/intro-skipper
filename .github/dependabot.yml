@@ -6,6 +6,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "Jellyfin.*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     groups:
       # Jellyfin.Controller, Jellyfin.Model, etc. ship together and must stay
       # on the same version; one grouped PR keeps them in lockstep.
