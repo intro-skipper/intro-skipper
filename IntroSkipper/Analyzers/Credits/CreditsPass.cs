@@ -218,7 +218,8 @@ internal sealed partial class CreditsPass(
             var adjustedSegment = await timeAdjustmentHelper
                 .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter ? false : null, cancellationToken)
                 .ConfigureAwait(false);
-            if (adjustedSegment.Valid && adjustedSegment.Duration >= _config.MinimumCreditsDuration)
+            if (adjustedSegment.Valid &&
+                (source == SegmentSource.Chapter && _config.FullLengthChapters || adjustedSegment.Duration >= _config.MinimumCreditsDuration))
             {
                 adjusted.Add(new AttributedSegment(adjustedSegment, source));
             }

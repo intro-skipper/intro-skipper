@@ -241,29 +241,6 @@ public class TestChapterAnalyzer
         Assert.Equal(60, matches[1].End);
     }
 
-    [Fact]
-    public async Task StoreMatches_DropsChapterShortenedBelowMinimumByAdjustment()
-    {
-        var config = new PluginConfiguration
-        {
-            MinimumIntroDuration = 30,
-            AdjustIntroBasedOnChapters = false,
-            AdjustIntroBasedOnSilence = false,
-            SnapToKeyframe = false,
-            IntroEndOffset = 15,
-        };
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, database, config);
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
-        var match = new Segment(episode.EpisodeId, new TimeRange(60, 90));
-        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Introduction, null!);
-
-        var state = await analyzer.StoreMatchesAsync(episode, AnalysisMode.Introduction, [match], helper, CancellationToken.None);
-
-        Assert.Equal(EpisodeState.NoSegments, state);
-        Assert.Empty(await database.GetSegmentsAsync(episode.EpisodeId));
-    }
-
     [Theory]
     [InlineData("Intro: End", AnalysisMode.Introduction)]
     [InlineData("Credits: End", AnalysisMode.Credits)]

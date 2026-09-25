@@ -161,7 +161,7 @@ internal sealed partial class ChapterAnalyzer(
         CancellationToken cancellationToken,
         bool enforceMinimumDuration = true)
     {
-        var minimumDuration = enforceMinimumDuration ? GetBounds(mode, episode).Min : 0;
+        var minimumDuration = enforceMinimumDuration && !_config.FullLengthChapters ? GetBounds(mode, episode).Min : 0;
         var adjusted = new List<Segment>(matches.Count);
         foreach (var match in matches)
         {
