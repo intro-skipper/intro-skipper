@@ -146,9 +146,8 @@ public sealed class TestLegacyAnalysisCompatibility
 
             Assert.Equal(0, ffmpeg.FingerprintCalls);
             Assert.Equal(0, ffmpeg.CreditsScanCalls);
-            Assert.Equal(0, ffmpeg.RangeScanCalls);
             Assert.Equal(0, ffmpeg.VisualScanCalls);
-            Assert.Equal(0, ffmpeg.IntervalScanCalls);
+            Assert.Empty(ffmpeg.Calls);
 
             var segment = Assert.Single(await database.GetSegmentsAsync(ids[0]));
             Assert.Equal(original.Id, segment.Id);
