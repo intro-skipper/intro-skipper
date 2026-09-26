@@ -14,9 +14,6 @@ internal static class CreditDetectionPolicy
     public const double DefaultMinimumBlackFrameDensity = 0.50;
     public const double MaximumIntervalToKeyframeGapSeconds = 2.0;
 
-    // Minimum overlap between a candidate scene and a blackdetect interval to count as interval support.
-    public const double MinimumIntervalOverlapSeconds = 0.25;
-
     // Minimum keyframe gap before a scene start for boundary probing to be worthwhile.
     public const double MinimumBoundaryProbeWindow = 0.50;
 

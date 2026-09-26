@@ -14,9 +14,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// and combining analyzer candidates for episodes without a chapter result.
 /// </summary>
 /// <remarks>
-/// With chapter enhancement enabled, chapter matches, the keyframe analyzer (a black roll from
+/// With chapter enhancement enabled, chapter matches, the keyframe analyzer (black rolls from
 /// black-frame evidence and card credits from keyframe visuals, over one keyframe scan) and the
-/// season-wide chromaprint comparison each contribute a candidate;
+/// season-wide chromaprint comparison each contribute candidates;
 /// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
 /// keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
 /// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
@@ -49,7 +49,7 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <remarks>
     /// Per-season BlackFrame and available Chromaprint actions bypass chapter matching; a
-    /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps both of its candidates.
+    /// BlackFrame action restricts the pass to the keyframe analyzer, which keeps all of its candidates.
     /// Chapter and unavailable Chromaprint actions follow the default chapter-first policy,
     /// including the enhancement option. An already-analyzed episode is reconsidered only
     /// when a new chromaprint candidate reaches outside its stored credits; authoritative
@@ -263,7 +263,7 @@ internal sealed partial class CreditsPass(
                 : [];
         }
 
-        return new KeyframeAnalyzer(_loggerFactory.CreateLogger<KeyframeAnalyzer>(), _ffmpegService, _config).DetectCreditsAsync;
+        return new KeyframeAnalyzer(_loggerFactory.CreateLogger<KeyframeAnalyzer>(), _ffmpegService, _cacheService, _config).DetectCreditsAsync;
     }
 
     /// <summary>

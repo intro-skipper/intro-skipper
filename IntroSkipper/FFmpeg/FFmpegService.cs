@@ -24,6 +24,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
+    // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
+    // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops
+    // a runaway decode or a file whose diagnostics never end.
+    private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
+
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
@@ -84,6 +89,8 @@ internal sealed partial class FFmpegService : IFFmpegService
                 : async cancellationToken => (await versionProbe(cancellationToken).ConfigureAwait(false), null),
             versionProbeTimeout ?? DefaultVersionProbeTimeout);
     }
+
+    private static string FFmpegPath => Plugin.Instance?.FFmpegPath ?? "ffmpeg";
 
     /// <inheritdoc/>
     public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
@@ -274,6 +281,72 @@ internal sealed partial class FFmpegService : IFFmpegService
     // One null output with its own filtergraph. Two of these on one input decode it once.
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
 
+    /// <inheritdoc/>
+    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    {
+        // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
+        // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
+        // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
+        // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
+        // frames it logged.
+        string[] args =
+        [
+            "-ss", FormatSeconds(window.Start),
+            "-t", FormatSeconds(window.Duration),
+            "-i", episode.Path,
+            "-an", "-dn", "-sn",
+            "-fps_mode", "passthrough",
+            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+            "-f", "rawvideo", "-",
+        ];
+
+        // Sized for 16:9 frames at 30 fps, so the capture usually fills one buffer instead of
+        // doubling its way there.
+        var expectedBytes = (long)(width * (width * 9 / 16) * 30 * window.Duration);
+        ProcessCapture capture;
+        try
+        {
+            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogLumaWindowFailed(ex, episode.Name);
+            return null;
+        }
+
+        if (capture.Truncated || capture.ExitCode != 0)
+        {
+            LogLumaWindowUnusable(episode.Name, capture.ExitCode, capture.Truncated);
+            return null;
+        }
+
+        var frames = FFmpegOutputParser.ParseShowInfo(capture.Stderr);
+        if (frames.Length == 0
+            || frames[0].Width <= 0
+            || frames[0].Height <= 0
+            || frames.Any(frame => frame.Width != frames[0].Width || frame.Height != frames[0].Height)
+            || capture.Stdout.Length != (long)frames.Length * frames[0].Width * frames[0].Height)
+        {
+            LogLumaWindowMismatch(episode.Name, frames.Length, capture.Stdout.Length);
+            return null;
+        }
+
+        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
+    }
+
+    // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
+    // value under 1e-5, such as a trim start a rounding error away from zero.
+    private static string FormatSeconds(double seconds) => seconds.ToString("0.######", CultureInfo.InvariantCulture);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} could not be decoded")]
+    private partial void LogLumaWindowFailed(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogLumaWindowUnusable(string episode, int exitCode, bool truncated);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: {FrameTimes} frame times for {Bytes} bytes of frames")]
+    private partial void LogLumaWindowMismatch(string episode, int frameTimes, long bytes);
+
     // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
     // requested duration) and the keyframe scan runs to end of file, so every writer of a
     // KeyframeVisual row clips here. Times are relative to the -ss seek, so an in-window frame
@@ -461,8 +534,18 @@ internal sealed partial class FFmpegService : IFFmpegService
         bool infoQuery,
         int timeout,
         CancellationToken cancellationToken)
+        => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
+
+    /// <summary>
+    /// Prefixes a run's arguments with the ones every ffmpeg run gets: no banner, the configured
+    /// thread count and the log level the caller reads its result at.
+    /// </summary>
+    /// <param name="args">The run's own arguments.</param>
+    /// <param name="logLevel">The ffmpeg log level.</param>
+    /// <param name="infoQuery"><see langword="true"/> for a version or help query, which takes no input and rejects <c>-threads</c>.</param>
+    private static List<string> ProcessArgs(IReadOnlyList<string> args, string logLevel, bool infoQuery = false)
     {
-        var processArgs = new List<string> { "-hide_banner" };
+        var processArgs = new List<string>(args.Count + 5) { "-hide_banner" };
         if (!infoQuery)
         {
             processArgs.Add("-threads");
@@ -470,10 +553,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
 
         processArgs.Add("-loglevel");
-        processArgs.Add(stderr ? "info" : "warning");
+        processArgs.Add(logLevel);
         processArgs.AddRange(args);
-
-        return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+        return processArgs;
     }
 
     /// <summary>
@@ -489,7 +571,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private static string GetFFprobePath()
     {
-        var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
+        var ffmpegPath = FFmpegPath;
         var extension = Path.GetExtension(ffmpegPath);
         var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
         var candidate = withoutExtension + "probe" + extension;

@@ -99,6 +99,23 @@ public interface IFFmpegService
     Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Decodes every frame of a window to its luma plane at a small width, for the credits lead-in probe.
+    /// </summary>
+    /// <remarks>
+    /// Not cached: the window is tens of megabytes, so the caller caches what it derives from it.
+    /// The frames stay on the source's own 8-bit scale, 16 to 235 on a limited-range source and 0
+    /// to 255 on a full-range one, as the keyframe scan's visuals read the same frames, so a level
+    /// from that scan compares directly.
+    /// Standard output is capped at 64 MiB.
+    /// </remarks>
+    /// <param name="episode">Media file to decode.</param>
+    /// <param name="window">Absolute media time range to decode. Its start must be a keyframe from the keyframe scan: the decode seeks there, so a demuxer that seeks by timestamp, such as MPEG-TS, decodes from that keyframe rather than the next one, and the frame times fall on the scan's timeline.</param>
+    /// <param name="width">Frame width to scale to; the height follows the aspect ratio.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>The frames with their times, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, its output crossed the byte cap, or the frame and timestamp counts disagree.</returns>
+    Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Detects key frames in a media file within a time range.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>

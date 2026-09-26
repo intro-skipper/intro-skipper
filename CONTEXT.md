@@ -27,7 +27,7 @@ One decode of the keyframes from an episode's credits start, reporting black-fra
 _Avoid_: Entropy scan
 
 **Keyframe analyzer**:
-The analyzer over one keyframe scan. It emits the black-frame candidate and the card run as two candidates.
+The analyzer over one keyframe scan. It emits a black-frame candidate for each accepted black scene whose refined range meets the minimum duration, and at most one card run.
 _Avoid_: Black-frame analyzer (for the class), card analyzer
 
 **Black-frame evidence**:

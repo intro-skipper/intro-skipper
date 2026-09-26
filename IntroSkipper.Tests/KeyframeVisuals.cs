@@ -11,7 +11,10 @@ using IntroSkipper.Data;
 internal static class KeyframeVisuals
 {
     /// <summary>A grey credit card with white text: uniform background, text far above it.</summary>
-    internal static KeyframeVisual Card(double time, double saturation = 30) => new(time, 16, 128, 128, 235, 0, saturation);
+    internal static KeyframeVisual Card(double time) => Card(time, 30);
+
+    /// <summary>A grey credit card with white text on a background of the given saturation.</summary>
+    internal static KeyframeVisual Card(double time, double saturation) => new(time, 16, 128, 128, 235, 0, saturation);
 
     /// <summary>A white card with black text.</summary>
     internal static KeyframeVisual WhiteCard(double time) => new(time, 0, 235, 235, 235, 0, 0);
@@ -28,7 +31,7 @@ internal static class KeyframeVisuals
     /// <summary>Busy content: luma spread across the range.</summary>
     internal static KeyframeVisual Content(double time) => new(time, 16, 60, 200, 235, 0, 108);
 
-    /// <summary>A dark detailed scene: black to the blackframe filter, luma spread wide within the dark range.</summary>
+    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is under the blackframe threshold and its brightest tenth is not, so the filter counts between a tenth and nine tenths of it black.</summary>
     internal static KeyframeVisual Dark(double time) => new(time, 0, 10, 50, 120, 0, 0);
 
     /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>
