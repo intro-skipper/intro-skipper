@@ -282,9 +282,9 @@ public sealed class TestCreditsPass
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ChapteredPreviewAfterTheCredits_IsNeitherExtendedNorMergedInto(bool enhanceChapters)
+    [InlineData(false, SegmentSource.Chapter)]
+    [InlineData(true, SegmentSource.Combined)]
+    public async Task ChapteredPreviewAfterTheCredits_IsNeitherExtendedNorMergedInto(bool enhanceChapters, SegmentSource source)
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 980));
         var (episodes, ffmpeg, database) = CreateSeason();
@@ -295,8 +295,8 @@ public sealed class TestCreditsPass
         await AnimePreviewDeriver.DeriveAsync(database, episodes, 15, CancellationToken.None);
 
         var rows = await database.GetSegmentsAsync(episodes[0].EpisodeId);
-        var credits = Assert.Single(rows, s => s.Type == AnalysisMode.Credits).ToSegment();
-        Assert.Equal((900, 980), (credits.Start, credits.End));
+        var credits = Assert.Single(rows, s => s.Type == AnalysisMode.Credits);
+        Assert.Equal((900, 980, source), (credits.ToSegment().Start, credits.ToSegment().End, credits.Source));
         var preview = Assert.Single(rows, s => s.Type == AnalysisMode.Preview).ToSegment();
         Assert.Equal((980, Duration), (preview.Start, preview.End));
 

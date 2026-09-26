@@ -6,146 +6,27 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Finds the card run in the keyframe visuals of one episode: credits on a near-uniform
-/// low-saturation card. Text on black, white, grey or a muted colour card shows a near-uniform
-/// background with text on it, which busy content and flat backgrounds with a subject in front
-/// never produce. Inside a black scene the black-frame rules accepted, a black keyframe that is not
-/// solid white and a card-like keyframe are both black cards: they extend a run and count toward its
-/// duration but never toward its density or cadence, so a black roll cannot carry stray flat shots
-/// before it into the credits or trim sparse white cards next to it. A black card-like keyframe
-/// outside every accepted scene is content. Solid white screens are always content, even inside an
-/// accepted scene.
+/// Finds the card run in one episode's pages, each read as its time and card kind: credits on a
+/// near-uniform low-saturation card. A black card extends a run and counts toward its duration but
+/// never toward its density, and the trim cadence reads black cards only when a run has fewer than
+/// two cards, so a black roll cannot carry stray flat shots before it into the credits or trim sparse
+/// white cards next to it. The keyframe analyzer sets the kinds (see
+/// <see cref="KeyframeAnalyzer.StampCardKinds"/>).
 /// </summary>
 internal static class CardRunFinder
 {
     private const double IsolatedCardTrimGapMultiplier = 2.5;
-
-    // A card's background holds at least 80 percent of the pixels within a few luma levels.
-    private const double BackgroundSpreadMaximum = 8;
-
-    // Something is drawn on the background, text usually, at least this far from it in luma. A fade
-    // or a bare wall has the spread but not the contrast.
-    internal const double TextContrastMinimum = 60;
-
-    // Vivid/saturated uniform frames are excluded on purpose: a solid-colour content frame (a fade,
-    // stylised transition, or saturated sky) is indistinguishable from a saturated colour card by
-    // spread and saturation alone, so admitting them would cost the card run finder's zero-false-positive
-    // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
-    private const double SaturationCreditMaximum = 96.0;
-    private const double LimitedRangeWhite = 235.0;
     private const double MinimumCardFraction = 0.5;
 
-    // A keyframe within this of a scene's bounds belongs to the scene. An interval-supported scene
-    // starts on blackdetect's clock, and its cut keyframe can sit just before that start on the
-    // keyframe scan's clock.
-    internal const double MembershipPad = 0.01;
-
-    // Black is unsaturated down to its darkest tenth. A black keyframe whose 10th percentile
-    // saturation is at or above this is a dark tinted scene, not a roll or a card, and is content in
-    // every path below. Coloured lettering on black leaves that tenth at zero.
-    internal const double BlackSaturationMaximum = 10;
-
-    private enum KeyframeKind
-    {
-        Content,
-        Card,
-        BlackCard,
-    }
-
     /// <summary>
-    /// Finds the latest sustained run of card keyframes that satisfies the minimum duration.
+    /// Finds the latest sustained run of card pages that satisfies the minimum duration.
     /// </summary>
-    /// <remarks>
-    /// The black scenes the black-frame rules accepted, which carry their interval and boundary
-    /// evidence, are the only black evidence used here. Each that meets the minimum duration is a
-    /// black-frame candidate; one that falls short is still accepted while another meets it, so its
-    /// pages stay black cards.
-    /// A black keyframe inside an accepted scene is a black card unless it is solid white, so a blank
-    /// black page between two roll pages does not break the roll. Solid white screens remain content.
-    /// A card-like keyframe inside an accepted scene is also a black card, so a vanity card between
-    /// two roll parts cannot give the roll a card density of its own: both extend the run and count
-    /// toward its duration, so short white cards and a short roll qualify together, but they are left
-    /// out of the density ratio and the trim cadence. Counted, a black roll's density carried scattered
-    /// flat shots before it into the run: measured on an anime epilogue, that admitted 67 seconds of
-    /// story. A black card-like keyframe outside every accepted scene is content, since the black-frame
-    /// rules rejected it, as it does a dark lead-in before the roll's transition or a black flash
-    /// before an interval-confirmed roll. A black keyframe whose visual is saturated is a dark
-    /// tinted scene and content in every case. With no candidate the visuals alone decide, as the old
-    /// fallback did, so black cards the black-frame rules could not confirm still count.
-    /// </remarks>
-    /// <param name="pages">The keyframe scan's pages, ordered by time. A page without a visual is invisible here, and a run is timed on the pages' black-frame times.</param>
-    /// <param name="blackMinimum">The black percentage at or above which a keyframe is black, normalized against the scan by the black-frame rules.</param>
+    /// <param name="pages">The pages that have a visual, ordered by time, each with its card kind. A run is timed on the pages' black-frame times.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
-    /// <param name="blackFrameScenes">The black scenes the black-frame rules accepted, relative to the credits fingerprint start; empty when they found no credits.</param>
-    /// <param name="rejectedScenes">Black scenes the black-frame rules accepted and the analyzer then rejected as gaps; their black keyframes are content in every path, the no-scene fallback included, so a rejected gap cannot come back as a card run.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframePage> pages, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange>? rejectedScenes = null)
-        => FindCreditRange(Classify(pages, blackMinimum, blackFrameScenes, rejectedScenes ?? []), minimumDuration);
-
-    /// <summary>
-    /// Classifies a keyframe as a credit card: a dominant near-uniform background, something drawn on
-    /// it far from the background in luma, and low saturation (not a vivid colour scene). Exposed as
-    /// <see langword="internal" /> so the classification boundary can be unit-tested directly.
-    /// </summary>
-    /// <param name="visual">The per-keyframe visual statistics.</param>
-    /// <returns><see langword="true" /> when the keyframe looks like a credit card.</returns>
-    internal static bool IsCreditCardKeyframe(KeyframeVisual visual)
-        => !IsSolidWhite(visual) &&
-           visual.LumaHigh - visual.LumaLow <= BackgroundSpreadMaximum &&
-           Math.Max(visual.LumaMax - visual.LumaHigh, visual.LumaLow - visual.LumaMin) >= TextContrastMinimum &&
-           visual.Saturation < SaturationCreditMaximum;
-
-    // A blank white screen has no foreground text. Keep it out explicitly so a future change to
-    // the contrast thresholds cannot turn a solid frame into a card candidate.
-    private static bool IsSolidWhite(KeyframeVisual visual)
-        => visual.LumaMin >= LimitedRangeWhite &&
-           visual.LumaLow >= LimitedRangeWhite &&
-           visual.LumaHigh >= LimitedRangeWhite &&
-           visual.LumaMax >= LimitedRangeWhite;
-
-    /// <summary>
-    /// Whether a keyframe shows lettering: something far above its darkest tenth, at any density and
-    /// colour. A blank page fails on contrast. A dim highlight on a dark keyframe passes, since no
-    /// luma percentile tells it from antialiased coloured text; a scene of such keyframes counts as a
-    /// roll, as it always has, and the keyframe analyzer asks for lettering on most of a scene's pages.
-    /// </summary>
-    /// <param name="visual">The per-keyframe visual statistics.</param>
-    /// <returns><see langword="true" /> when the keyframe shows lettering.</returns>
-    internal static bool IsLetteredPage(KeyframeVisual visual)
-        => visual.LumaMax - visual.LumaLow >= TextContrastMinimum;
-
-    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframePage> pages, int blackMinimum, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange> rejectedScenes)
+    public static TimeRange? FindCreditRange(IReadOnlyList<CardPage> pages, int minimumDuration)
     {
-        List<CardKeyframe> keyframes = [];
-        foreach (var (frame, visual) in pages)
-        {
-            if (visual is null)
-            {
-                continue;
-            }
-
-            var black = frame.Percentage >= blackMinimum;
-            var card = IsCreditCardKeyframe(visual);
-
-            // A solid white screen is content in every path, as a saturated or rejected black keyframe is.
-            var time = frame.Time;
-            var kind = IsSolidWhite(visual) || (black && (visual.SaturationLow >= BlackSaturationMaximum || rejectedScenes.Any(scene => InScene(scene, time)))) ? KeyframeKind.Content
-                : blackFrameScenes.Count == 0 ? (card ? KeyframeKind.Card : KeyframeKind.Content)
-                : (black || card) && blackFrameScenes.Any(scene => InScene(scene, time)) ? KeyframeKind.BlackCard
-                : card && !black ? KeyframeKind.Card
-                : KeyframeKind.Content;
-            keyframes.Add(new CardKeyframe(time, kind));
-        }
-
-        return keyframes;
-    }
-
-    private static bool InScene(TimeRange scene, double time)
-        => time >= scene.Start - MembershipPad && time <= scene.End + MembershipPad;
-
-    private static TimeRange? FindCreditRange(List<CardKeyframe> keyframes, int minimumDuration)
-    {
-        if (keyframes.Count == 0)
+        if (pages.Count == 0)
         {
             return null;
         }
@@ -157,36 +38,36 @@ internal static class CardRunFinder
         // between) as a single run regardless of GOP length.
         const double maximumInRunGap = CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
         TimeRange? best = null;
-        var runCards = new List<CardKeyframe>();
+        var runCards = new List<CardPage>();
         var nonCardSinceLastCard = false;
 
-        foreach (var keyframe in keyframes)
+        foreach (var page in pages)
         {
-            if (keyframe.Kind == KeyframeKind.Content)
+            if (page.Kind == CardKind.Content)
             {
                 nonCardSinceLastCard = true;
                 continue;
             }
 
             if (runCards.Count > 0 &&
-                keyframe.Time - runCards[^1].Time > maximumInRunGap &&
+                page.Time - runCards[^1].Time > maximumInRunGap &&
                 nonCardSinceLastCard)
             {
-                best = SelectLatestQualifyingRun(best, runCards, keyframes, minimumDuration);
+                best = SelectLatestQualifyingRun(best, runCards, pages, minimumDuration);
                 runCards.Clear();
             }
 
-            runCards.Add(keyframe);
+            runCards.Add(page);
             nonCardSinceLastCard = false;
         }
 
-        return SelectLatestQualifyingRun(best, runCards, keyframes, minimumDuration);
+        return SelectLatestQualifyingRun(best, runCards, pages, minimumDuration);
     }
 
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
-        List<CardKeyframe> runCards,
-        List<CardKeyframe> keyframes,
+        List<CardPage> runCards,
+        IReadOnlyList<CardPage> pages,
         int minimumDuration)
     {
         if (runCards.Count == 0)
@@ -207,7 +88,7 @@ internal static class CardRunFinder
         // them) would otherwise masquerade as a sustained card sequence. A genuinely sparse credit
         // run from a long-GOP source has no non-card keyframes between its cards, so its density
         // stays high and it is kept; only sparse cards interspersed with busy content are rejected.
-        if (!HasSufficientCardDensity(keyframes, runStart.Time, lastCard.Time))
+        if (!HasSufficientCardDensity(pages, runStart.Time, lastCard.Time))
         {
             return currentBest;
         }
@@ -219,19 +100,19 @@ internal static class CardRunFinder
     // only place intervening busy content (skipped during grouping) re-enters the qualification
     // decision. Black cards are neither cards nor content here, so a run that is a roll and nothing
     // else has no density and is left to the black-frame candidate.
-    private static bool HasSufficientCardDensity(List<CardKeyframe> keyframes, double startTime, double endTime)
+    private static bool HasSufficientCardDensity(IReadOnlyList<CardPage> pages, double startTime, double endTime)
     {
         var total = 0;
         var cards = 0;
-        foreach (var keyframe in keyframes)
+        foreach (var page in pages)
         {
-            if (keyframe.Time < startTime || keyframe.Time > endTime || keyframe.Kind == KeyframeKind.BlackCard)
+            if (page.Time < startTime || page.Time > endTime || page.Kind == CardKind.BlackCard)
             {
                 continue;
             }
 
             total++;
-            if (keyframe.Kind == KeyframeKind.Card)
+            if (page.Kind == CardKind.Card)
             {
                 cards++;
             }
@@ -245,7 +126,7 @@ internal static class CardRunFinder
     // When trimming leaves less than the minimum duration there is no dominant dense body, so the run
     // only qualifies (if at all) as a uniformly sparse credit run: keep its full span rather than
     // collapsing it to the brief dense edge.
-    private static (int Start, int End) TrimIsolatedEnds(List<CardKeyframe> runCards, int minimumDuration)
+    private static (int Start, int End) TrimIsolatedEnds(List<CardPage> runCards, int minimumDuration)
     {
         var start = 0;
         var end = runCards.Count - 1;
@@ -278,9 +159,9 @@ internal static class CardRunFinder
     // that would pull the median up and stop the trim from removing isolated edge cards. Measured over
     // the non-black cards when there are enough of them, so a dense roll's cadence does not trim
     // sparse white cards next to it.
-    private static double DenseCadenceGap(List<CardKeyframe> runCards)
+    private static double DenseCadenceGap(List<CardPage> runCards)
     {
-        var cards = runCards.Where(card => card.Kind == KeyframeKind.Card).ToList();
+        var cards = runCards.Where(card => card.Kind == CardKind.Card).ToList();
         if (cards.Count < 2)
         {
             cards = runCards;
@@ -295,6 +176,4 @@ internal static class CardRunFinder
         gaps.Sort();
         return gaps[gaps.Count / 4];
     }
-
-    private readonly record struct CardKeyframe(double Time, KeyframeKind Kind);
 }
