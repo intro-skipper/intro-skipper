@@ -25,9 +25,9 @@ using static IntroSkipper.Tests.StubFFmpegService;
 /// <summary>
 /// The credits pass over the stub ffmpeg: two 1000 second episodes whose credits window is
 /// the last 450 seconds. Each episode's keyframe scan has a keyframe every 2 seconds across the
-/// window. By default the pages from 950 to the end are a black roll, and each episode the pass
-/// analyzes issues one boundary probe over the gap from the keyframe at 948. The shared audio, when
-/// a test enables it, runs from about 748 to 983.
+/// window. By default the pages from 950 to the end are a black roll, and each episode the keyframe
+/// analyzer runs on issues one boundary probe over the gap from the keyframe at 948. The shared
+/// audio, when a test enables it, runs from about 748 to 983.
 /// </summary>
 public sealed class TestCreditsPass
 {
@@ -36,6 +36,9 @@ public sealed class TestCreditsPass
     private const double BlackStart = 950;
     private const int SharedAudioFirstPoint = 1600;
     private const int DefaultSharedAudioLastPoint = 3499;
+
+    // The boundary probe of the default roll, over the gap from the keyframe before it.
+    private static readonly RangeScan RollProbe = new(948, 950, 95, 28, AnalysisMode.Credits);
 
     [Theory]
     [InlineData(AnalyzerAction.Default, false)]
@@ -76,7 +79,7 @@ public sealed class TestCreditsPass
         Assert.Equal(2, ffmpeg.CreditsScanCalls);
         Assert.Equal(2, ffmpeg.VisualScanCalls);
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
     }
@@ -138,7 +141,7 @@ public sealed class TestCreditsPass
 
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
-        Assert.Equal([new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
         var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chapter, chapter.Source);
         Assert.Equal((900, 950), (chapter.ToSegment().Start, chapter.ToSegment().End));
@@ -166,7 +169,7 @@ public sealed class TestCreditsPass
         Assert.Equal(source, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
 
         // Only the black-frame action runs the keyframe analyzer.
-        Call[] probes = action == AnalyzerAction.BlackFrame ? [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)] : [];
+        Call[] probes = action == AnalyzerAction.BlackFrame ? [RollProbe, RollProbe] : [];
         Assert.Equal(probes, ffmpeg.Calls);
     }
 
@@ -213,7 +216,7 @@ public sealed class TestCreditsPass
 
         Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
         foreach (var episode in episodes)
         {
@@ -301,7 +304,7 @@ public sealed class TestCreditsPass
         Assert.Equal((980, Duration), (preview.Start, preview.End));
 
         // Without enhancement the credits chapter settles both episodes before any scan.
-        Call[] probes = enhanceChapters ? [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)] : [];
+        Call[] probes = enhanceChapters ? [RollProbe, RollProbe] : [];
         Assert.Equal(probes, ffmpeg.Calls);
     }
 
@@ -338,9 +341,9 @@ public sealed class TestCreditsPass
     }
 
     [Theory]
-    [InlineData(700.0, 720.0)]
-    [InlineData(650.0, 700.0)]
-    public async Task BlackCreditsSeparatedFromTheSharedAudio_AreKept(double blackStart, double blackEnd)
+    [InlineData(700.0, 720.0, 698.0)]
+    [InlineData(650.0, 700.0, 648.0)]
+    public async Task BlackCreditsSeparatedFromTheSharedAudio_AreKept(double blackStart, double blackEnd, double keyframeBefore)
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason([(blackStart, blackEnd, 95, KeyframeVisuals.Black)]);
@@ -354,7 +357,7 @@ public sealed class TestCreditsPass
         Assert.Equal(PointTime(SharedAudioFirstPoint), segments[1].ToSegment().Start, 0.5);
         Assert.Equal(PointTime(DefaultSharedAudioLastPoint), segments[1].ToSegment().End, 0.5);
         Assert.Equal(
-            [new RangeScan(blackStart - 2, blackStart, 95, 28, AnalysisMode.Credits), new RangeScan(blackStart - 2, blackStart, 95, 28, AnalysisMode.Credits)],
+            [new RangeScan(keyframeBefore, blackStart, 95, 28, AnalysisMode.Credits), new RangeScan(keyframeBefore, blackStart, 95, 28, AnalysisMode.Credits)],
             ffmpeg.Calls);
     }
 
@@ -372,7 +375,7 @@ public sealed class TestCreditsPass
         Assert.Equal(BlackStart, segment.ToSegment().Start);
         Assert.Equal(Duration, segment.ToSegment().End);
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -388,7 +391,7 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.BlackFrame, segment.Source);
         Assert.Equal(BlackStart, segment.ToSegment().Start);
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -408,7 +411,7 @@ public sealed class TestCreditsPass
             [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
             segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -426,7 +429,7 @@ public sealed class TestCreditsPass
             [(600, 660, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
             segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -443,7 +446,7 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
         Assert.Equal(SegmentSource.User, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
         Assert.Equal(EpisodeState.UserProvided, episodes[1].GetAnalyzed(AnalysisMode.Credits));
-        Assert.Equal([new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
     [Fact]
@@ -457,7 +460,7 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -476,7 +479,7 @@ public sealed class TestCreditsPass
         }
 
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -508,7 +511,7 @@ public sealed class TestCreditsPass
 
         // Both runs: two episodes in the first, only the new one in the second.
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -533,7 +536,7 @@ public sealed class TestCreditsPass
 
         // Both runs: two episodes in the first; in the second the recombined episode and the new one.
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe, RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -550,7 +553,7 @@ public sealed class TestCreditsPass
         Assert.True(episodes[0].NeedsAnalysis(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(failing));
         Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
-        Assert.Equal([new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
     [Fact]
@@ -558,7 +561,7 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(BlackStart - 60, BlackStart - 2, 0, t => KeyframeVisuals.Card(t)), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
+            [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -569,7 +572,7 @@ public sealed class TestCreditsPass
         }
 
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -577,7 +580,7 @@ public sealed class TestCreditsPass
     public async Task CardCreditsAlone_AreStoredUnderTheirOwnSource()
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason([(Duration - 60, Duration, 0, t => KeyframeVisuals.Card(t))]);
+        var (episodes, ffmpeg, database) = CreateSeason([(Duration - 60, Duration, 0, KeyframeVisuals.Card)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -590,7 +593,7 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(800, 830, 0, t => KeyframeVisuals.Card(t)), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
+            [(800, 830, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -599,7 +602,7 @@ public sealed class TestCreditsPass
             [(800, 830, SegmentSource.KeyframeVisuals), (BlackStart, Duration, SegmentSource.BlackFrame)],
             segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -611,7 +614,7 @@ public sealed class TestCreditsPass
         // count as cards.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(976, 986, 0, t => KeyframeVisuals.Card(t)), (988, Duration, 95, KeyframeVisuals.Black)]);
+            [(976, 986, 0, KeyframeVisuals.Card), (988, Duration, 95, KeyframeVisuals.Black)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -631,7 +634,7 @@ public sealed class TestCreditsPass
         // keyframe.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(900, 940, 90, KeyframeVisuals.Black), (942, 978, 100, KeyframeVisuals.Black), (980, Duration, 0, t => KeyframeVisuals.Card(t))]);
+            [(900, 940, 90, KeyframeVisuals.Black), (942, 978, 100, KeyframeVisuals.Black), (980, Duration, 0, KeyframeVisuals.Card)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -651,7 +654,7 @@ public sealed class TestCreditsPass
         // segment beside the roll. Each scene gets a boundary probe from the keyframe before it.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(560, 570, 0, t => KeyframeVisuals.Card(t)), (572, 590, 100, KeyframeVisuals.Black), (BlackStart, Duration, 100, KeyframeVisuals.Black)]);
+            [(560, 570, 0, KeyframeVisuals.Card), (572, 590, 100, KeyframeVisuals.Black), (BlackStart, Duration, 100, KeyframeVisuals.Black)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
@@ -662,9 +665,9 @@ public sealed class TestCreditsPass
         Assert.Equal(
             [
                 new RangeScan(570, 572, 95, 28, AnalysisMode.Credits),
-                new RangeScan(948, 950, 95, 28, AnalysisMode.Credits),
+                RollProbe,
                 new RangeScan(570, 572, 95, 28, AnalysisMode.Credits),
-                new RangeScan(948, 950, 95, 28, AnalysisMode.Credits),
+                RollProbe,
             ],
             ffmpeg.Calls);
     }
@@ -717,7 +720,7 @@ public sealed class TestCreditsPass
         // Scenes are probed in time order, and the probe that throws is each episode's last.
         Call[] episodeProbes = failingSceneStart == 800
             ? [new RangeScan(798, 800, 95, 28, AnalysisMode.Credits)]
-            : [new RangeScan(798, 800, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)];
+            : [new RangeScan(798, 800, 95, 28, AnalysisMode.Credits), RollProbe];
         Assert.Equal([.. episodeProbes, .. episodeProbes], ffmpeg.Calls);
     }
 
@@ -726,7 +729,7 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(BlackStart - 60, BlackStart - 2, 0, t => KeyframeVisuals.Card(t)), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
+            [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
         var config = new PluginConfiguration { DetectNonBlackCredits = false };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
@@ -734,7 +737,7 @@ public sealed class TestCreditsPass
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal((BlackStart, Duration, SegmentSource.BlackFrame), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -743,14 +746,14 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(BlackStart - 60, BlackStart - 2, 0, t => KeyframeVisuals.Card(t)), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
+            [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
 
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal((BlackStart - 60, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
         Assert.Equal(
-            [new RangeScan(948, 950, 95, 28, AnalysisMode.Credits), new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)],
+            [RollProbe, RollProbe],
             ffmpeg.Calls);
     }
 
@@ -759,7 +762,7 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
         var (episodes, ffmpeg, database) = CreateSeason(
-            [(BlackStart - 60, BlackStart - 2, 0, t => KeyframeVisuals.Card(t)), (BlackStart, Duration, 95, KeyframeVisuals.Black)],
+            [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)],
             rangeScan: (_, range, _, _, _) => range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : []);
         var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false, EnhanceChapterCredits = true };
 
@@ -771,6 +774,23 @@ public sealed class TestCreditsPass
         Assert.Equal((900, 950), (segments[0].ToSegment().Start, segments[0].ToSegment().End));
         Assert.InRange(segments[1].ToSegment().Start, BlackStart, BlackStart + 10); // legacy binary search precision
         Assert.Equal(Duration, segments[1].ToSegment().End);
+
+        // The legacy binary search, one analyzer per season: the second episode starts from where
+        // the first one's search settled.
+        Assert.Equal(
+        [
+            Probe(954, 955),
+            Probe(970, 972),
+            Probe(962.5, 964.5),
+            Probe(958.75, 960.75),
+            Probe(949.375, 951.375),
+            Probe(955.0625, 957.0625),
+            Probe(955.0625, 957.0625),
+            Probe(947.5625, 949.5625),
+            Probe(952.3125, 954.3125),
+        ], ffmpeg.Calls);
+
+        static RangeScan Probe(double start, double end) => new(start, end, 85, 28, AnalysisMode.Credits);
     }
 
     [Fact]
@@ -859,7 +879,7 @@ public sealed class TestCreditsPass
         Assert.All(chapterReads, id => Assert.Equal(episodes[1].EpisodeId, id));
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
-        Assert.Equal([new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
         Assert.Equal(storedId, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Id);
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
     }
@@ -891,7 +911,7 @@ public sealed class TestCreditsPass
         Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
-        Assert.Equal([new RangeScan(948, 950, 95, 28, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
@@ -920,7 +940,20 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.BlackFrame, fallback.Source);
         Assert.InRange(fallback.ToSegment().Start, BlackStart, BlackStart + 10);
         Assert.Equal(Duration, fallback.ToSegment().End);
-        Assert.Contains(ffmpeg.Calls, call => call is RangeScan);
+
+        // Only the unchaptered episode is searched: a probe of the chaptered one would be logged
+        // before its hook throws.
+        Assert.Equal(
+        [
+            Probe(954, 955),
+            Probe(970, 972),
+            Probe(962.5, 964.5),
+            Probe(958.75, 960.75),
+            Probe(949.375, 951.375),
+            Probe(955.0625, 957.0625),
+        ], ffmpeg.Calls);
+
+        static RangeScan Probe(double start, double end) => new(start, end, 85, 28, AnalysisMode.Credits);
     }
 
     [Fact]
@@ -966,11 +999,11 @@ public sealed class TestCreditsPass
 
     /// <summary>
     /// A two-episode season over the stub. Each episode's keyframe scan comes from one keyframe list
-    /// (see <see cref="ScanOf"/>); without <paramref name="spans"/> the pages from 950 to the end are a
-    /// 95 percent black roll with lettering. Range probes find nothing unless <paramref name="rangeScan"/>
-    /// says otherwise, blackdetect finds no intervals and lead-in decodes return nothing, so every probe
-    /// lands in the log with a known answer. Silence and keyframe lookups return nothing so end
-    /// adjustment leaves ends alone.
+    /// (see <see cref="ScanOf"/>). When <paramref name="spans"/> is null the pages from 950 to the end
+    /// are a 95 percent black roll with lettering; an empty list gives busy content only. Range probes
+    /// find nothing unless <paramref name="rangeScan"/> says otherwise and blackdetect finds no
+    /// intervals, so neither probe throws for want of a hook; a lead-in decode, which no fixture here
+    /// reaches, would. Silence and keyframe lookups return nothing so end adjustment leaves ends alone.
     /// </summary>
     private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IIntroSkipperDatabase Database) CreateSeason(
         (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[]? spans = null,
@@ -981,7 +1014,7 @@ public sealed class TestCreditsPass
     {
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
-        var pages = spans ?? [(BlackStart, Duration, 95, KeyframeVisuals.Black)];
+        var scanSpans = spans ?? [(BlackStart, Duration, 95, KeyframeVisuals.Black)];
 
         var ffmpeg = new StubFFmpegService
         {
@@ -990,11 +1023,10 @@ public sealed class TestCreditsPass
                 : SharedAudioFingerprint(episode, sharedAudioLastPoint),
             CreditsBlackFrames = (episode, _) => scanFailure?.Invoke(episode) is { } failure
                 ? throw failure
-                : ScanOf(episode, pages).Rows,
-            KeyframeVisuals = episode => ScanOf(episode, pages).Visuals,
+                : ScanOf(episode, scanSpans).Rows,
+            KeyframeVisuals = episode => ScanOf(episode, scanSpans).Visuals,
             RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
             BlackIntervals = (_, _, _, _) => [],
-            LumaWindows = (_, _, _) => null,
             Silence = (_, _, _) => [],
             KeyFrames = (_, _, _) => [],
         };

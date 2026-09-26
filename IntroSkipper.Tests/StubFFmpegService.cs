@@ -12,13 +12,13 @@ using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 
 /// <summary>
-/// <see cref="IFFmpegService"/> stand-in for analyzer tests. Every member records its call,
-/// honors cancellation, then runs the matching delegate hook; a member without a hook throws
-/// <see cref="NotSupportedException"/> so a test fails loudly when an analyzer reaches an
-/// operation it was not expected to use. Members are virtual for the rare case a hook is not
-/// enough. The probes, range scans, interval scans and luma decodes, go to <see cref="Calls"/>
-/// in the order they arrive, before the hook runs, so a probe whose hook throws is recorded too;
-/// the other members count their calls.
+/// <see cref="IFFmpegService"/> stand-in for analyzer tests. Each member runs a delegate hook; a
+/// member without a hook throws <see cref="NotSupportedException"/> so a test fails loudly when an
+/// analyzer reaches an operation it was not expected to use. Members are virtual for the rare case
+/// a hook is not enough. The probes (range scans, interval scans and luma decodes) are appended to
+/// <see cref="Calls"/> in arrival order before the hook runs, so a probe whose hook throws is
+/// recorded too. The version check, fingerprint, credits scan, visuals scan and audio probe count
+/// their calls.
 /// </summary>
 internal class StubFFmpegService : IFFmpegService
 {
@@ -143,7 +143,7 @@ internal class StubFFmpegService : IFFmpegService
     /// <summary>A probe the stub received. Times are copied out of the <see cref="TimeRange"/>, which compares by reference.</summary>
     internal abstract record Call;
 
-    /// <summary>A black-frame scan over a range, as the boundary probe and the legacy analyzer run it.</summary>
+    /// <summary>A black-frame scan over a range, as the boundary probe, recap detection and the legacy analyzer run it.</summary>
     internal sealed record RangeScan(double Start, double End, int Minimum, int Threshold, AnalysisMode Mode) : Call;
 
     /// <summary>A blackdetect interval scan over a range.</summary>

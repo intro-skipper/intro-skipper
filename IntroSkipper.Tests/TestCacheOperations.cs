@@ -11,6 +11,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -422,18 +423,19 @@ public sealed class TestCacheOperations
         episode.Path = "/does/not/exist.mkv";
         var shared = await service.DetectKeyframeVisualsAsync(episode);
 
-        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, shared.Select(visual => visual.Time));
+        Assert.Equal([5.0, 15.0, 25.0], shared.Select(visual => visual.Time));
         AssertEachVisualPairsWithOneRow(shared);
 
         episode.Path = path;
         scope.CacheDatabase.DeleteForItem(episode.EpisodeId);
+        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
         var separate = await service.DetectKeyframeVisualsAsync(episode);
 
-        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, separate.Select(visual => visual.Time));
+        Assert.Equal([5.0, 15.0, 25.0], separate.Select(visual => visual.Time));
         AssertEachVisualPairsWithOneRow(separate);
 
         void AssertEachVisualPairsWithOneRow(KeyframeVisual[] visuals)
-            => Assert.All(visuals, visual => Assert.Single(blackFrames, frame => Math.Abs(frame.Time - visual.Time) <= 0.01));
+            => Assert.All(visuals, visual => Assert.Single(blackFrames, frame => Math.Abs(frame.Time - visual.Time) <= CardRunFinder.KeyframeJoinTolerance));
     }
 
     [FactSkipFFmpegTests]
