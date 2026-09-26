@@ -245,9 +245,14 @@ internal sealed partial class KeyframeAnalyzer(
     /// nothing the scan keeps tells the two apart, and the later start skips less story. A keyframe
     /// without a visual ends the lead-in, since nothing says it is dim. A scene whose lifted keyframes
     /// are the majority sets its level from their darkest tenth and keeps its start; the 90th
-    /// percentile sets no level, so a dark majority behind bars is still a lead-in.
+    /// percentile sets no level, so a dark majority behind bars is still a lead-in. The black
+    /// keyframes are read from <see cref="CardRunFinder.KeyframeJoinTolerance"/> before the start. A
+    /// scene that a blackdetect interval confirmed starts on blackdetect's clock, and its cut keyframe
+    /// can sit just before that start on the scan's clock. The first keyframe read counts as the
+    /// scene's first, whether or not it is the start frame. Stopping on it leaves no lead-in, and a
+    /// lead-in starts at it when it is earlier than the scene's start.
     /// </summary>
-    /// <returns>The scene with its start moved and the lead-in from the old start to its last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
+    /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
     {
         var pages = new List<(BlackFrame Frame, KeyframeVisual? Visual)>();
@@ -268,14 +273,15 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
+        var firstPage = pages[0].Frame;
         var lastLeadInTime = scene.StartTime;
         foreach (var (frame, visual) in pages)
         {
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
-                return frame.Frame == scene.StartFrame
+                return frame.Frame == firstPage.Frame
                     ? (scene, null)
-                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(scene.StartTime, lastLeadInTime));
+                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
             }
 
             lastLeadInTime = frame.Time;
