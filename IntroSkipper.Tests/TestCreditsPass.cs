@@ -570,8 +570,9 @@ public sealed class TestCreditsPass
     public async Task MixedCardRunBeforeASeparateBlackRoll_IsStoredBesideIt()
     {
         // White cards 560 to 570, black cards 572 to 590, content, then the default roll. The
-        // black-frame rules accept both black scenes and the roll is the candidate; the earlier scene still
-        // lets the mixed run qualify as its own segment.
+        // black-frame rules accept both black scenes and each is a black-frame candidate. The earlier
+        // scene lets the mixed run qualify as a card run and lies inside it, so the two merge into one
+        // segment beside the roll.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
             creditsScan: (_, _) => [.. CreateDenseFrames(22, 40, 100), .. CreateDenseFrames(400, 449.5, 100)],
@@ -581,8 +582,54 @@ public sealed class TestCreditsPass
 
         var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
         Assert.Equal(
-            [(560, 590, SegmentSource.KeyframeVisuals), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            [(560, 590, SegmentSource.Combined), (BlackStart, Duration, SegmentSource.BlackFrame)],
             segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    [Fact]
+    public async Task CreditsSplitByAMidCreditsScene_AreStoredAsTwoSegments()
+    {
+        // Daredevil: Born Again S01E09 has 28 s of single credit cards on black, an 80 s dark
+        // mid-credits scene, then the rest of the roll to the end. The black-frame rules accept both
+        // parts and each is a candidate, so the scene between them plays. Every page of the parts is
+        // a black card, so the card run finder adds nothing.
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            creditsScan: (episode, _) => SplitRoll(episode).Rows,
+            keyframeVisuals: episode => SplitRoll(episode).Visuals);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(800, 828, SegmentSource.BlackFrame), (908, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+
+        static (BlackFrame[] Rows, KeyframeVisual[] Visuals) SplitRoll(QueuedEpisode episode)
+            => ScanOf(episode, (800, 828, 100, KeyframeVisuals.Black), (830, 906, 60, KeyframeVisuals.Dark), (908, Duration, 100, KeyframeVisuals.Black));
+    }
+
+    [Theory]
+    [InlineData(800.0)]
+    [InlineData(BlackStart)]
+    public async Task BoundaryProbeFailureOnAnyAcceptedScene_FailsTheEpisode(double failingSceneStart)
+    {
+        // A roll from 950 sits beside an accepted scene from 800 to 830, and both get the boundary
+        // probe. A probe that throws fails the episode whichever scene it belongs to, so nothing is
+        // written and the next scan retries.
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            creditsScan: (episode, _) => TwoScenes(episode).Rows,
+            rangeScan: (_, range, _, _, _) => range.End == failingSceneStart ? throw new InvalidOperationException("probe failed") : [],
+            keyframeVisuals: episode => TwoScenes(episode).Visuals);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+
+        static (BlackFrame[] Rows, KeyframeVisual[] Visuals) TwoScenes(QueuedEpisode episode)
+            => ScanOf(episode, (800, 830, 100, KeyframeVisuals.Black), (BlackStart, Duration, 100, KeyframeVisuals.Black));
     }
 
     [Fact]
@@ -866,6 +913,27 @@ public sealed class TestCreditsPass
 
     private static BlackFrame[] BlackFramesFrom(QueuedEpisode episode, double blackStart = BlackStart, double blackEnd = Duration - 0.5)
         => CreateDenseFrames(Math.Max(0, blackStart - episode.CreditsFingerprintStart), blackEnd - episode.CreditsFingerprintStart, 95);
+
+    /// <summary>
+    /// One keyframe scan across the credits window: a keyframe every two seconds with its black row
+    /// and its visual, relative to the credits window start like the scan reports them. A keyframe
+    /// inside one of the <paramref name="spans"/>, given in file time, takes that span's black
+    /// percentage and visual; any other keyframe is busy content, not black.
+    /// </summary>
+    private static (BlackFrame[] Rows, KeyframeVisual[] Visuals) ScanOf(QueuedEpisode episode, params (double From, double To, int Percentage, Func<double, KeyframeVisual> Visual)[] spans)
+    {
+        List<BlackFrame> rows = [];
+        List<KeyframeVisual> visuals = [];
+        for (var time = 0.0; time <= episode.Duration - episode.CreditsFingerprintStart; time += 2)
+        {
+            var fileTime = time + episode.CreditsFingerprintStart;
+            var index = Array.FindIndex(spans, span => fileTime >= span.From && fileTime <= span.To);
+            rows.Add(new BlackFrame(index < 0 ? 0 : spans[index].Percentage, time, rows.Count));
+            visuals.Add(index < 0 ? KeyframeVisuals.Content(time) : spans[index].Visual(time));
+        }
+
+        return ([.. rows], [.. visuals]);
+    }
 
     private static KeyframeVisual[] MixedRunVisuals(QueuedEpisode episode)
     {

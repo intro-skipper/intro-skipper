@@ -33,19 +33,23 @@ internal static class CreditSceneBuilder
     }
 
     /// <summary>
-    /// Promotes raw candidates that are supported by blackdetect intervals.
+    /// Promotes the raw runs that blackdetect intervals support.
     /// </summary>
     /// <remarks>
-    /// Interval-supported scenes are anchored to the supporting interval start and may extend to the
-    /// interval end so sparse keyframe samples do not truncate confirmed black ranges.
+    /// Blackdetect found each interval black throughout, so all the runs one interval supports are
+    /// one scene, however many keyframes between them the scan did not count as black. The scene is
+    /// anchored to the interval start and may extend to the interval end so sparse keyframe samples
+    /// do not truncate confirmed black ranges.
     /// </remarks>
     /// <param name="frames">The keyframe black-frame scan results.</param>
+    /// <param name="runs">The raw runs to promote, in time order (see <see cref="FindRawScenes"/>).</param>
     /// <param name="intervals">The blackdetect intervals relative to the credits fingerprint window.</param>
     /// <param name="minimum">The minimum black percentage that marks a frame as black.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
-    /// <returns>The interval-supported credit scenes.</returns>
+    /// <returns>One scene for each interval that supports a run and spans the minimum duration, in time order.</returns>
     public static List<CreditScene> DetectIntervalSupportedCreditScenes(
         List<BlackFrame> frames,
+        IReadOnlyList<CreditScene> runs,
         IReadOnlyList<BlackInterval> intervals,
         int minimum,
         int minimumDuration)
@@ -55,26 +59,24 @@ internal static class CreditSceneBuilder
             return [];
         }
 
-        var candidates = FindRawScenes(frames, minimum);
-        var scenes = new List<CreditScene>(candidates.Count);
-        foreach (var candidate in candidates)
+        List<CreditScene> scenes = [];
+        foreach (var supported in runs
+            .Select(run => (Run: run, Interval: FindSupportingInterval(run.StartTime, run.EndTime, intervals)))
+            .Where(candidate => candidate.Interval is not null)
+            .GroupBy(candidate => candidate.Interval!, candidate => candidate.Run))
         {
-            var interval = FindSupportingInterval(candidate.StartTime, candidate.EndTime, intervals);
-            if (interval is null)
-            {
-                continue;
-            }
-
-            var startTime = interval.Start;
-            var endTime = Math.Max(candidate.EndTime, interval.End);
+            var (first, last) = (supported.First(), supported.Last());
+            var startTime = supported.Key.Start;
+            var endTime = Math.Max(last.EndTime, supported.Key.End);
             if (!HasMinimumDuration(startTime, endTime, minimumDuration))
             {
                 continue;
             }
 
+            var span = new CreditScene(first.StartFrame, last.EndFrame, first.StartTime, last.EndTime);
             scenes.Add(new CreditScene(
-                FindStartFrame(frames, candidate, startTime, minimum),
-                FindEndFrame(frames, candidate, endTime, minimum),
+                FindStartFrame(frames, span, startTime, minimum),
+                FindEndFrame(frames, span, endTime, minimum),
                 startTime,
                 endTime));
         }
