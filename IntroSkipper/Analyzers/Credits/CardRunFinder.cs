@@ -56,8 +56,9 @@ internal static class CardRunFinder
     /// </summary>
     /// <remarks>
     /// The black scenes the black-frame rules accepted, which carry their interval and boundary
-    /// evidence, are the only black evidence used here. One of them is the black-frame candidate; the
-    /// others still count, since a card run next to a scene the rules did not pick is its own credits.
+    /// evidence, are the only black evidence used here. Each that meets the minimum duration is a
+    /// black-frame candidate; one that falls short is still accepted while another meets it, so its
+    /// pages stay black cards.
     /// A black keyframe inside an accepted scene is a black card unless it is solid white, so a blank
     /// black page between two roll pages does not break the roll. Solid white screens remain content.
     /// A card-like keyframe inside an accepted scene is also a black card, so a vanity card between

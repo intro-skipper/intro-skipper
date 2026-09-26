@@ -10,8 +10,9 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Detects credits from the keyframe scan: a black roll from black-frame evidence and card credits
-/// from keyframe visuals, each as its own candidate for the credits pass.
+/// Detects credits from the keyframe scan as candidates for the credits pass: black rolls from
+/// black-frame evidence, one for each accepted scene that meets the minimum duration, and at most one
+/// card run from keyframe visuals.
 /// </summary>
 /// <remarks>
 /// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
@@ -22,9 +23,11 @@ namespace IntroSkipper.Analyzers.Credits;
 /// a black scene lettered on no more than half its pages is a gap between acts, not credits. With
 /// boundary refinement on, the frames between the keyframes move the start after a lead-in back from
 /// the first keyframe at the level over the frames that look like it (see <see cref="LeadInProbe"/>);
-/// the probe decodes for the picked scene only and its start is cached under the two keyframes.
-/// The card run is found against the black scenes those rules accepted: once they accept any scene,
-/// a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
+/// the probe decodes for every trimmed scene and its start is cached under the two keyframes. Every
+/// accepted scene whose refined range meets the minimum duration is a black-frame candidate, so
+/// credits split by a mid-credits scene come out as separate parts. The card run is found against
+/// the black scenes those rules accepted: once they accept any scene, a black keyframe is a card
+/// only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -53,7 +56,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Zero, one or two candidates: the black-frame candidate under <see cref="SegmentSource.BlackFrame"/> and the card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scans and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
+    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scans and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -66,7 +69,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Zero, one or two candidates: the black-frame candidate under <see cref="SegmentSource.BlackFrame"/> and the card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
+    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
@@ -84,14 +87,9 @@ internal sealed partial class KeyframeAnalyzer(
             : (minimumPercentage, minimumPercentage);
         var (credits, scenes, rejected) = sceneFrames.Count > 0
             ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, visuals, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
-            : (null, [], []);
+            : ([], [], []);
 
-        var candidates = new List<AttributedSegment>(2);
-        if (credits is not null)
-        {
-            candidates.Add(new AttributedSegment(credits, SegmentSource.BlackFrame));
-        }
-
+        List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
         if (detectCardCredits)
         {
             var range = CardRunFinder.FindCreditRange(visuals, blackFrames, blackMinimum, minimumDuration, scenes, rejected);
@@ -117,41 +115,40 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>The credits candidate in file time and every black scene the rules accepted, relative to the credits fingerprint start, the picked one with its refined start, plus the scenes the lettering gate rejected as gaps; <see langword="null"/> and an empty accepted list when no accepted scene met the minimum duration.</returns>
-    private async Task<(Segment? Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    /// <returns>The black-frame candidates in file time, one for each accepted scene whose refined range meets the minimum duration; every black scene the rules accepted, relative to the credits fingerprint start and each with its refined start, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
+    private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
-        var blackIntervals = Array.Empty<BlackInterval>();
-
         if (scenes.Count == 0)
         {
             var candidates = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
             if (candidates.Count == 0)
             {
-                return (null, [], []);
+                return ([], [], []);
             }
 
-            blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
-            scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
+            var blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
+            scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, candidates, blackIntervals, minimum, minimumDuration);
             if (scenes.Count == 0)
             {
-                return (null, [], []);
+                return ([], [], []);
             }
         }
         else if (scenes.Any(scene => CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration)))
         {
-            // Probe all candidates for ranking. When any are confirmed, keep dense scenes unchanged
-            // and add interval-supported scenes that do not overlap them by frame range.
-            // If none are confirmed, keep the original candidate set.
-            blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
-            var supportedScenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
-            if (supportedScenes.Count > 0)
+            // Run the blackdetect interval probe over every scene. When it confirms any run, keep
+            // dense scenes unchanged and add the scenes the intervals make of the runs outside them.
+            // If it confirms none, keep the scenes as they are.
+            var blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
+            var runs = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
+            if (CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, runs, blackIntervals, minimum, minimumDuration).Count > 0)
             {
                 var denseScenes = scenes
                     .Where(scene => !CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration))
                     .ToList();
+                List<CreditScene> runsOutsideDenseScenes = [.. runs.Where(run => !denseScenes.Any(dense => run.StartFrame <= dense.EndFrame && run.EndFrame >= dense.StartFrame))];
                 scenes = [.. denseScenes
-                    .Concat(supportedScenes.Where(supported => !denseScenes.Any(dense => supported.StartFrame <= dense.EndFrame && supported.EndFrame >= dense.StartFrame)))
+                    .Concat(CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, runsOutsideDenseScenes, blackIntervals, minimum, minimumDuration))
                     .OrderBy(scene => scene.StartFrame)];
             }
         }
@@ -186,10 +183,16 @@ internal sealed partial class KeyframeAnalyzer(
         scenes = [.. scenes.Where(scene => visuals.Count == 0 || IsMostlyLettered(scene, blackFrames, minimum, visuals))];
         if (scenes.Count == 0)
         {
-            return (null, [], rejected);
+            return ([], [], rejected);
         }
 
-        foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
+        // Each accepted scene gets the lead-in or boundary probe that applies to it, and a boundary
+        // probe that throws propagates, so it fails the episode whichever scene it belongs to. Each
+        // scene whose refined range meets the minimum is a candidate, so credits split by a
+        // mid-credits scene come out as parts, and the credits pass decides whether they join.
+        List<Segment> credits = [];
+        List<TimeRange> accepted = [];
+        foreach (var scene in scenes)
         {
             // A trimmed scene starts at the first keyframe at the level, or where the lead-in probe
             // finds the frames before that keyframe already look like it. The gap before it is the
@@ -201,6 +204,10 @@ internal sealed partial class KeyframeAnalyzer(
                     ? await ProbeLeadInAsync(episode, lastLighterKeyframe, scene.StartTime, cancellationToken).ConfigureAwait(false)
                     : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
 
+            // Every accepted scene carries its refined start, so the frames a probe moved the start
+            // back over count as part of the roll for the card run.
+            accepted.Add(new TimeRange(refinedStartTime, scene.EndTime));
+
             var segment = new Segment(
                 episode.EpisodeId,
                 new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
@@ -208,15 +215,12 @@ internal sealed partial class KeyframeAnalyzer(
             if (segment.Duration >= minimumDuration)
             {
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
-
-                // The picked scene carries its refined start, so the transition the boundary probe
-                // confirmed counts as part of the roll for the card run.
-                List<TimeRange> accepted = [.. scenes.Select(accepted => new TimeRange(accepted == scene ? refinedStartTime : accepted.StartTime, accepted.EndTime))];
-                return (segment, accepted, rejected);
+                credits.Add(segment);
             }
         }
 
-        return (null, [], rejected);
+        // With no candidate the card run finder sees no accepted scene and falls back to the visuals.
+        return (credits, credits.Count > 0 ? accepted : [], rejected);
     }
 
     /// <summary>
@@ -522,46 +526,6 @@ internal sealed partial class KeyframeAnalyzer(
 
         merged.Add(current);
         return merged;
-    }
-
-    /// <summary>
-    /// Ranks credit candidates, preferring scenes with interval support and then later scenes.
-    /// </summary>
-    /// <param name="scenes">The detected candidate scenes.</param>
-    /// <param name="intervals">The blackdetect intervals available for scoring.</param>
-    /// <returns>The ranked candidate scenes.</returns>
-    internal static List<CreditScene> RankCreditCandidates(
-        IReadOnlyList<CreditScene> scenes,
-        IReadOnlyList<BlackInterval> intervals)
-    {
-        return [.. scenes
-            .Select((scene, index) => new
-            {
-                Scene = scene,
-                Index = index,
-                HasIntervalSupport = HasIntervalSupport(scene, intervals),
-            })
-            .OrderByDescending(candidate => candidate.HasIntervalSupport)
-            .ThenByDescending(candidate => candidate.Index)
-            .Select(candidate => candidate.Scene)];
-    }
-
-    /// <summary>
-    /// Determines whether a candidate scene overlaps a confirmed black interval.
-    /// </summary>
-    private static bool HasIntervalSupport(CreditScene scene, IReadOnlyList<BlackInterval> intervals)
-    {
-        foreach (var interval in intervals)
-        {
-            var overlapStart = Math.Max(scene.StartTime, interval.Start);
-            var overlapEnd = Math.Min(scene.EndTime, interval.End);
-            if (overlapEnd - overlapStart >= CreditDetectionPolicy.MinimumIntervalOverlapSeconds)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
