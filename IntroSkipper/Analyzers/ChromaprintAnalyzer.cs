@@ -285,10 +285,15 @@ internal sealed partial class ChromaprintAnalyzer(
     /// Returns the minimum shared-region duration for the given analysis mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="minimumIntroDuration">Configured minimum intro duration.</param>
+    /// <param name="configuration">Plugin configuration containing the mode-specific minimum duration.</param>
     /// <returns>Minimum region duration in seconds.</returns>
-    internal static double GetMinimumRegionDuration(AnalysisMode mode, int minimumIntroDuration)
-        => mode == AnalysisMode.Recap ? RecapCardMinimumDuration : minimumIntroDuration;
+    internal static double GetMinimumRegionDuration(AnalysisMode mode, PluginConfiguration configuration)
+        => mode switch
+        {
+            AnalysisMode.Recap => RecapCardMinimumDuration,
+            AnalysisMode.Credits => configuration.MinimumCreditsDuration,
+            _ => configuration.MinimumIntroDuration,
+        };
 
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
@@ -532,7 +537,7 @@ internal sealed partial class ChromaprintAnalyzer(
             (bestStart, bestEnd) = (runStart, runEnd);
         }
 
-        if (bestStart < 0 || (bestEnd - bestStart) * ChromaprintConstants.SampleDuration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))
+        if (bestStart < 0 || (bestEnd - bestStart) * ChromaprintConstants.SampleDuration < GetMinimumRegionDuration(_analysisMode, _config))
         {
             return (new TimeRange(), new TimeRange());
         }
