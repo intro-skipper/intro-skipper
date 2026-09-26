@@ -505,6 +505,46 @@ public class TestBlackFrames
         Assert.Empty(candidates);
     }
 
+    [Theory]
+    [InlineData("level", 40.0, true, false)]
+    [InlineData("no visual", 40.0, false, false)]
+    [InlineData("dim", 50.0, false, true)]
+    [InlineData("level before dim", 40.0, true, false)]
+    public async Task DetectCreditsAsync_PageJustBeforeAnIntervalStart_IsTheScenesFirstPage(string page, double blackFrameStart, bool pageIsBlackCard, bool leadIn)
+    {
+        // A sparse roll that a blackdetect interval confirms starts on blackdetect's clock, at 40.
+        // The page 5 ms before it is the cut keyframe on the scan's clock and the scene's first page,
+        // so each fixture gives the same candidates as its twin with the page at 40, except that a
+        // card run that starts on the page starts 5 ms earlier. A level page, or one without a
+        // visual, keeps the start at 40 and runs no boundary probe, since the gap from the page to 40
+        // is under the boundary probe's minimum window. A dim page is a lead-in. The scene starts at
+        // the level start frame at 50, and the lead-in probe decodes the frames between the two. A
+        // dim start frame after a level page stays in the scene. The card run covers the roll and
+        // the grey cards after it, and starts on the page when the scene keeps it as a black card.
+        var decoded = new List<TimeRange>();
+        var ffmpeg = PageBeforeTheRoll(page, 39.995, decoded);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+
+        var candidates = await analyzer.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+
+        List<(double Start, double End)> windows = leadIn ? [(39.995, 50 + LeadInProbe.LookAheadPadding)] : [];
+        Assert.Equal(Expected(39.995), candidates.Select(c => (c.Source, c.Segment.Start, c.Segment.End)));
+        Assert.Equal(windows, decoded.Select(window => (window.Start, window.End)));
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+
+        // The twin puts the page at blackdetect's start, where it is the start frame. Refinement is
+        // off because there a scene without a lead-in runs the boundary probe over the gap from the
+        // keyframe at 30.
+        var twin = CreateKeyframeAnalyzer(PageBeforeTheRoll(page, 40, []), new PluginConfiguration { RefineCreditsBoundary = false });
+        var twinCandidates = await twin.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+
+        Assert.Equal(Expected(40), twinCandidates.Select(c => (c.Source, c.Segment.Start, c.Segment.End)));
+
+        (SegmentSource Source, double Start, double End)[] Expected(double pageTime) =>
+            [(SegmentSource.BlackFrame, blackFrameStart, 80), (SegmentSource.KeyframeVisuals, pageIsBlackCard ? pageTime : 50, 120)];
+    }
+
     [Fact]
     public async Task DetectCreditsAsync_LighterTailStaysInTheScene()
     {
@@ -1806,6 +1846,42 @@ public class TestBlackFrames
             KeyframeVisuals = _ => visuals ?? [],
             LumaWindows = lumaWindows ?? ((_, _, _) => null),
         };
+
+    /// <summary>
+    /// Keyframes ten seconds apart from 0 to 120: content, then a roll that is black from the page at
+    /// <paramref name="pageTime"/> to 80, then grey cards. The roll is sparse, so the analyzer probes
+    /// it with blackdetect, and the interval from 40 to 80 makes it a scene that starts on
+    /// blackdetect's clock. <paramref name="page"/> gives the page a level visual, a dim one or none;
+    /// "level before dim" is a level page before a dim start frame at 50. The stub records each
+    /// lead-in decode window in <paramref name="decoded"/> and fails the decode, so a trimmed scene
+    /// starts at its level start frame.
+    /// </summary>
+    private static StubFFmpegService PageBeforeTheRoll(string page, double pageTime, List<TimeRange> decoded)
+    {
+        double[] times = [0, 10, 20, 30, pageTime, 50, 60, 70, 80, 90, 100, 110, 120];
+        var pageVisual = page switch
+        {
+            "no visual" => null,
+            "dim" => KeyframeVisuals.DarkGrey(pageTime),
+            _ => KeyframeVisuals.Black(pageTime),
+        };
+        KeyframeVisual?[] visuals = [.. times.Select(time => time == pageTime ? pageVisual : time switch
+        {
+            < 40 => KeyframeVisuals.Content(time),
+            50 when page == "level before dim" => KeyframeVisuals.DarkGrey(time),
+            <= 80 => KeyframeVisuals.Black(time),
+            _ => KeyframeVisuals.Card(time),
+        })];
+        return CreditsScan(
+            [.. times.Select((time, frame) => new BlackFrame(time >= pageTime && time <= 80 ? 100 : 0, time, frame))],
+            intervals: [new BlackInterval(40, 80)],
+            visuals: [.. visuals.OfType<KeyframeVisual>()],
+            lumaWindows: (_, window, _) =>
+            {
+                decoded.Add(window);
+                return null;
+            });
+    }
 
     private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)
     {
