@@ -145,8 +145,7 @@ public sealed class TestLegacyAnalysisCompatibility
             }
 
             Assert.Equal(0, ffmpeg.FingerprintCalls);
-            Assert.Equal(0, ffmpeg.CreditsScanCalls);
-            Assert.Equal(0, ffmpeg.VisualScanCalls);
+            Assert.Equal(0, ffmpeg.KeyframeScanCalls);
             Assert.Empty(ffmpeg.Calls);
 
             var segment = Assert.Single(await database.GetSegmentsAsync(ids[0]));
@@ -312,7 +311,7 @@ public sealed class TestLegacyAnalysisCompatibility
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
             Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(id, AnalysisMode.Preview)].ConfigHash);
             Assert.Equal(0, ffmpeg.FingerprintCalls);
-            Assert.Equal(0, ffmpeg.CreditsScanCalls);
+            Assert.Equal(0, ffmpeg.KeyframeScanCalls);
         }
         finally
         {

@@ -17,16 +17,15 @@ using IntroSkipper.FFmpeg;
 /// analyzer reaches an operation it was not expected to use. Members are virtual for the rare case
 /// a hook is not enough. The probes (range scans, interval scans and luma decodes) are appended to
 /// <see cref="Calls"/> in arrival order before the hook runs, so a probe whose hook throws is
-/// recorded too. The version check, fingerprint, credits scan, visuals scan and audio probe count
+/// recorded too. The version check, fingerprint, keyframe scan and audio probe count
 /// their calls.
 /// </summary>
 internal class StubFFmpegService : IFFmpegService
 {
     private readonly ConcurrentQueue<Call> _calls = new();
     private int _versionCheckCalls;
-    private int _creditsScanCalls;
+    private int _keyframeScanCalls;
     private int _fingerprintCalls;
-    private int _visualScanCalls;
     private int _probeCalls;
 
     public Func<bool>? VersionCheck { get; init; }
@@ -37,13 +36,11 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? RangeBlackFrames { get; init; }
 
-    public Func<QueuedEpisode, int, BlackFrame[]>? CreditsBlackFrames { get; init; }
+    public Func<QueuedEpisode, int, KeyframePage[]>? KeyframeScan { get; init; }
 
     public Func<QueuedEpisode, TimeRange, AnalysisMode, TimeRange[]>? Silence { get; init; }
 
     public Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? KeyFrames { get; init; }
-
-    public Func<QueuedEpisode, KeyframeVisual[]>? KeyframeVisuals { get; init; }
 
     public Func<QueuedEpisode, TimeRange, int, int, BlackInterval[]>? BlackIntervals { get; init; }
 
@@ -51,19 +48,17 @@ internal class StubFFmpegService : IFFmpegService
 
     public int VersionCheckCalls => Volatile.Read(ref _versionCheckCalls);
 
-    public int CreditsScanCalls => Volatile.Read(ref _creditsScanCalls);
+    public int KeyframeScanCalls => Volatile.Read(ref _keyframeScanCalls);
 
     public int FingerprintCalls => Volatile.Read(ref _fingerprintCalls);
-
-    public int VisualScanCalls => Volatile.Read(ref _visualScanCalls);
 
     public int ProbeCalls => Volatile.Read(ref _probeCalls);
 
     /// <summary>Gets the probes the stub received, in order: tests assert the whole log.</summary>
     public IReadOnlyList<Call> Calls => [.. _calls];
 
-    /// <summary>Gets the credits window start of the most recent credits black-frame scan.</summary>
-    public double? LastCreditsScanStart { get; private set; }
+    /// <summary>Gets the credits window start of the most recent keyframe scan.</summary>
+    public double? LastKeyframeScanStart { get; private set; }
 
     public virtual Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
@@ -95,19 +90,12 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(RangeBlackFrames)(episode, range, minimum, threshold, mode));
     }
 
-    public virtual Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public virtual Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _creditsScanCalls);
-        LastCreditsScanStart = episode.CreditsFingerprintStart;
+        Interlocked.Increment(ref _keyframeScanCalls);
+        LastKeyframeScanStart = episode.CreditsFingerprintStart;
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(CreditsBlackFrames)(episode, threshold));
-    }
-
-    public virtual Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
-    {
-        Interlocked.Increment(ref _visualScanCalls);
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(KeyframeVisuals)(episode));
+        return Task.FromResult(Hook(KeyframeScan)(episode, threshold));
     }
 
     public virtual Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
