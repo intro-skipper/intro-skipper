@@ -1503,116 +1503,109 @@ public class TestBlackFrames
         Assert.Equal(expected.Value.End, range.End);
     }
 
-    // Each row: keyframe visuals, the black-frame scan over the same keyframes, the black scenes the
+    // Each row: the keyframe scan, one black row and one visual per keyframe, the black scenes the
     // black-frame rules accepted, empty when they found no credits, expected (Start, End) or null.
-    public static TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[], (double Start, double End)?> BlackKeyframeCases
+    public static TheoryData<(BlackFrame[] Rows, KeyframeVisual[] Visuals), (double Start, double End)[], (double Start, double End)?> BlackKeyframeCases
     {
         get
         {
-            var data = new TheoryData<KeyframeVisual[], BlackFrame[], (double Start, double End)[], (double Start, double End)?>();
+            var data = new TheoryData<(BlackFrame[] Rows, KeyframeVisual[] Visuals), (double Start, double End)[], (double Start, double End)?>();
+
+            // Card has an optional saturation, so a span takes it as a lambda.
+            Func<double, KeyframeVisual?> card = t => KeyframeVisuals.Card(t);
 
             // Scattered flat shots in an epilogue before a roll (CITY THE ANIMATION E09), the measured
             // false positive. Under the percentile rule a flat background with a subject in front is
             // not a card at all, so the roll has no card density and stays the black-frame candidate's.
-            double[] flatShots = [22, 24, 34, 36, 54, 56, 62, 64];
-            KeyframeVisual[] epilogue =
-            [
-                .. Times(0, 66, 2).Select(t => flatShots.Contains(t) ? KeyframeVisuals.FlatWithSubject(t) : KeyframeVisuals.Content(t)),
-                .. Black(68, 118, 2),
-            ];
-            data.Add(epilogue, BlackScanOf(epilogue, black: (68, 118)), [(68, 118)], null);
+            var epilogue = Keyframes(
+                0,
+                118,
+                2,
+                (22, 24, 0, KeyframeVisuals.FlatWithSubject),
+                (34, 36, 0, KeyframeVisuals.FlatWithSubject),
+                (54, 56, 0, KeyframeVisuals.FlatWithSubject),
+                (62, 64, 0, KeyframeVisuals.FlatWithSubject),
+                (68, 118, 100, KeyframeVisuals.Black));
+            data.Add(Scan(epilogue), [(68, 118)], null);
 
-            // White cards then a roll: the black cards extend the run. The roll's black frames sit
-            // 0.4 ms off the visual times, as the two ffmpeg filters can print them.
-            KeyframeVisual[] cardsThenRoll = [.. Cards(0, 40, 2), .. Black(42, 80, 2)];
-            data.Add(cardsThenRoll, BlackScanOf(cardsThenRoll, black: (42, 80), offset: 0.0004), [(42, 80)], (0, 80));
+            // White cards then a roll: the black cards extend the run. The roll's black rows sit 0.4 ms
+            // after their visuals, as the two ffmpeg filters can print them.
+            var cardsThenRoll = Keyframes(0, 80, 2, (0, 40, 0, card), (42, 80, 100, KeyframeVisuals.Black));
+            data.Add(Scan(cardsThenRoll.Select(keyframe => keyframe.Percentage == 100 ? keyframe with { Time = keyframe.Time + 0.0004 } : keyframe)), [(42, 80)], (0, 80));
 
             // White, black, white: one run.
-            KeyframeVisual[] cardsAroundRoll = [.. Cards(0, 20, 2), .. Black(22, 60, 2), .. Cards(62, 80, 2)];
-            data.Add(cardsAroundRoll, BlackScanOf(cardsAroundRoll, black: (22, 60)), [(22, 60)], (0, 80));
+            data.Add(Scan(Keyframes(0, 80, 2, (0, 20, 0, card), (22, 60, 100, KeyframeVisuals.Black), (62, 80, 0, card))), [(22, 60)], (0, 80));
 
             // A blank black page in the middle of a roll inside an accepted scene: black is black there,
             // so the page is not content and the run covers the roll and the cards after it.
-            KeyframeVisual[] rollWithBlankPage = [.. Times(0, 18, 2).Select(t => t is 10 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t)), .. Cards(20, 40, 2)];
-            data.Add(rollWithBlankPage, BlackScanOf(rollWithBlankPage, black: (0, 18)), [(0, 18)], (0, 40));
+            data.Add(Scan(Keyframes(0, 40, 2, (10, 10, 100, KeyframeVisuals.BlankBlack), (0, 18, 100, KeyframeVisuals.Black), (20, 40, 0, card))), [(0, 18)], (0, 40));
 
             // A grey vanity card in the middle of a roll, inside the accepted scene that merged across
             // it: a black card like the roll pages around it, so the roll still has no card density.
-            KeyframeVisual[] rollWithVanityCard = [.. Times(0, 60, 2).Select(t => t is >= 28 and <= 32 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Black(t))];
-            BlackFrame[] rollWithVanityCardScan = [.. rollWithVanityCard.Select((visual, frame) => new BlackFrame(visual.Time is >= 28 and <= 32 ? 0 : 100, visual.Time, frame))];
-            data.Add(rollWithVanityCard, rollWithVanityCardScan, [(0, 60)], null);
+            data.Add(Scan(Keyframes(0, 60, 2, (28, 32, 0, card), (0, 60, 100, KeyframeVisuals.Black))), [(0, 60)], null);
 
             // Roll only: as an accepted black scene there is no card density and the roll is the
             // black-frame candidate's; with no candidate the visuals alone decide and it is recovered here.
-            KeyframeVisual[] rollOnly = [.. Black(0, 60, 2)];
-            data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [(0, 60)], null);
-            data.Add(rollOnly, BlackScanOf(rollOnly, black: (0, 60)), [], (0, 60));
+            var rollOnly = Scan(Keyframes(0, 60, 2, (0, 60, 100, KeyframeVisuals.Black)));
+            data.Add(rollOnly, [(0, 60)], null);
+            data.Add(rollOnly, [], (0, 60));
 
-            // Solid white frames are content even if the black-frame evidence misclassifies them;
-            // visual evidence must not let a white screen extend an accepted black scene.
-            KeyframeVisual[] whiteScreens = [.. Times(0, 60, 2).Select(t => KeyframeVisuals.WhiteScreen(t))];
-            data.Add(whiteScreens, BlackScanOf(whiteScreens, black: (0, 60)), [(0, 60)], null);
+            // Solid white frames on fully black rows inside an accepted scene. No scan pairs the two;
+            // the contradiction is deliberate. A white screen is content even when the black-frame
+            // evidence misclassifies it, so it must not extend an accepted black scene.
+            data.Add(Scan(Keyframes(0, 60, 2, (0, 60, 100, KeyframeVisuals.WhiteScreen))), [(0, 60)], null);
 
             // Short white cards then a short roll, each below the minimum on its own, qualify together.
-            KeyframeVisual[] shortCardsThenShortRoll = [.. Cards(0, 10, 2), .. Black(12, 24, 2)];
-            data.Add(shortCardsThenShortRoll, BlackScanOf(shortCardsThenShortRoll, black: (12, 24)), [], (0, 24));
+            data.Add(Scan(Keyframes(0, 24, 2, (0, 10, 0, card), (12, 24, 100, KeyframeVisuals.Black))), [], (0, 24));
 
             // Sparse black cards on a 21 s cadence that the black-frame rules could not confirm:
             // recovered as the old fallback did.
-            KeyframeVisual[] sparseRoll = [.. Black(0, 63, 21)];
-            data.Add(sparseRoll, BlackScanOf(sparseRoll, black: (0, 63)), [], (0, 63));
+            data.Add(Scan(Keyframes(0, 63, 21, (0, 63, 100, KeyframeVisuals.Black))), [], (0, 63));
 
-            // A dark lead-in at 90 percent black before a full-black roll: the accepted black scene
-            // starts at the roll, so the lead-in is content here too and the run starts at the roll.
-            KeyframeVisual[] darkLeadIn = [.. Times(0, 78, 2).Select(t => KeyframeVisuals.Black(t)), .. Cards(80, 100, 2)];
-            BlackFrame[] darkLeadInScan = [.. darkLeadIn.Select((visual, frame) => new BlackFrame(visual.Time <= 40 ? 90 : visual.Time <= 78 ? 100 : 0, visual.Time, frame))];
-            data.Add(darkLeadIn, darkLeadInScan, [(42, 78)], (42, 100));
+            // A dark grey lead-in at 90 percent black before a full-black roll. Its pages are black and
+            // pass the card test, but the accepted black scene starts at the roll, so the lead-in is
+            // content here too and the run starts at the roll.
+            data.Add(Scan(Keyframes(0, 100, 2, (0, 40, 90, KeyframeVisuals.DarkGrey), (42, 78, 100, KeyframeVisuals.Black), (80, 100, 0, card))), [(42, 78)], (42, 100));
 
             // Sparse white cards on a 12 s cadence then a dense roll: the trim cadence comes from the
             // white cards, so the roll cannot trim them away.
-            KeyframeVisual[] sparseCardsThenRoll = [.. Cards(0, 24, 12), .. Black(36, 80, 2)];
-            data.Add(sparseCardsThenRoll, BlackScanOf(sparseCardsThenRoll, black: (36, 80)), [(36, 80)], (0, 80));
+            data.Add(Scan([.. Keyframes(0, 24, 12, (0, 24, 0, card)), .. Keyframes(36, 80, 2, (36, 80, 100, KeyframeVisuals.Black))]), [(36, 80)], (0, 80));
 
-            // Dark detailed keyframes are black to the blackframe filter but spread wide in luma: outside
-            // an accepted scene they are content, not black cards. They stay in the density ratio, so
-            // 13 cards among 31 keyframes fail the floor.
-            KeyframeVisual[] darkScene = [.. Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Dark(t))];
-            BlackFrame[] darkScan = [.. darkScene.Select((visual, frame) => new BlackFrame(visual.Time % 10 is 2 or 6 ? 100 : 0, visual.Time, frame))];
-            data.Add(darkScene, darkScan, [], null);
+            // Dark detailed keyframes at 89 percent are black at the minimum of 85, but their luma spreads
+            // too wide for a card. With no accepted scene the visuals alone decide, so they are content
+            // and stay in the density ratio: 13 cards among 31 keyframes fail the floor.
+            data.Add(Scan(Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? new Keyframe(t, 0, KeyframeVisuals.Card(t)) : new Keyframe(t, 89, KeyframeVisuals.Dark(t)))), [], null);
 
             // One-keyframe black flashes before an interval-confirmed roll: the accepted black scene
             // starts at the roll, so the flashes are content and the run starts there too.
-            KeyframeVisual[] blackFlashes =
-            [
-                .. Times(0, 28, 2).Select(t => t is 0 or 10 or 20 ? KeyframeVisuals.Black(t) : KeyframeVisuals.Content(t)),
-                .. Black(30, 50, 2),
-                .. Cards(52, 80, 2),
-            ];
-            BlackFrame[] blackFlashesScan = [.. blackFlashes.Select((visual, frame) => new BlackFrame(visual.Time is 0 or 10 or 20 || visual.Time is >= 30 and <= 50 ? 100 : 0, visual.Time, frame))];
-            data.Add(blackFlashes, blackFlashesScan, [(30, 50)], (30, 80));
+            var blackFlashes = Keyframes(
+                0,
+                80,
+                2,
+                (0, 0, 100, KeyframeVisuals.Black),
+                (10, 10, 100, KeyframeVisuals.Black),
+                (20, 20, 100, KeyframeVisuals.Black),
+                (30, 50, 100, KeyframeVisuals.Black),
+                (52, 80, 0, card));
+            data.Add(Scan(blackFlashes), [(30, 50)], (30, 80));
 
             // Black card, white card, busy frame repeating, with no black-frame candidate: the visuals
             // alone decide, as the old fallback did, and two cards in three keep the run.
-            KeyframeVisual[] mixedCards = [.. Times(0, 60, 2).Select(t => t % 6 == 0 ? KeyframeVisuals.Black(t) : t % 6 == 2 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Content(t))];
-            BlackFrame[] mixedCardsScan = [.. mixedCards.Select((visual, frame) => new BlackFrame(visual.Time % 6 == 0 ? 100 : 0, visual.Time, frame))];
-            data.Add(mixedCards, mixedCardsScan, [], (0, 60));
+            data.Add(Scan(Times(0, 60, 2).Select(t => t % 6 == 0 ? new Keyframe(t, 100, KeyframeVisuals.Black(t)) : new Keyframe(t, 0, t % 6 == 2 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Content(t)))), [], (0, 60));
 
             // Saturated black keyframes flat enough to pass the card test: content, not cards, with
             // no scene to fall back on.
-            KeyframeVisual[] tintedFlat = [.. Times(0, 60, 2).Select(KeyframeVisuals.TintedFlat)];
-            data.Add(tintedFlat, BlackScanOf(tintedFlat, black: (0, 60)), [], null);
+            data.Add(Scan(Keyframes(0, 60, 2, (0, 60, 100, KeyframeVisuals.TintedFlat))), [], null);
 
             // Red lettering on black raises the mean saturation, not the background's: a card run
             // through the no-scene fallback like white lettering would be.
-            KeyframeVisual[] redText = [.. Times(0, 60, 2).Select(KeyframeVisuals.RedText)];
-            data.Add(redText, BlackScanOf(redText, black: (0, 60)), [], (0, 60));
+            data.Add(Scan(Keyframes(0, 60, 2, (0, 60, 100, KeyframeVisuals.RedText))), [], (0, 60));
 
             // White cards then a short roll, content, then a separate longer roll: the black-frame
-            // analyzer accepts both scenes and returns the later one. The earlier one still counts, so
-            // the mixed run qualifies on its own and the later roll stays that analyzer's.
-            KeyframeVisual[] mixedRunThenRoll = [.. Cards(0, 10, 2), .. Black(12, 30, 2), .. Busy(32, 98, 2), .. Black(100, 140, 2)];
-            BlackFrame[] mixedRunThenRollScan = [.. mixedRunThenRoll.Select((visual, frame) => new BlackFrame(visual.Time is >= 12 and <= 30 or >= 100 ? 100 : 0, visual.Time, frame))];
-            data.Add(mixedRunThenRoll, mixedRunThenRollScan, [(12, 30), (100, 140)], (0, 30));
+            // analyzer accepts both scenes and returns each as a candidate. The short roll's pages are
+            // black cards, so the white cards and the short roll make one run that qualifies on the
+            // white cards' density. The longer roll has no card density and stays that analyzer's.
+            data.Add(Scan(Keyframes(0, 140, 2, (0, 10, 0, card), (12, 30, 100, KeyframeVisuals.Black), (100, 140, 100, KeyframeVisuals.Black))), [(12, 30), (100, 140)], (0, 30));
 
             return data;
         }
@@ -1620,11 +1613,13 @@ public class TestBlackFrames
 
     [Theory]
     [MemberData(nameof(BlackKeyframeCases))]
-    public void TestCardRunFinder_BlackKeyframes(KeyframeVisual[] visuals, BlackFrame[] blackFrames, (double Start, double End)[] blackFrameScenes, (double Start, double End)? expected)
+    public void TestCardRunFinder_BlackKeyframes((BlackFrame[] Rows, KeyframeVisual[] Visuals) scan, (double Start, double End)[] blackFrameScenes, (double Start, double End)? expected)
     {
+        var (rows, visuals) = scan;
+
         var range = CardRunFinder.FindCreditRange(
             visuals,
-            blackFrames,
+            rows,
             blackMinimum: 85,
             minimumDuration: 15,
             [.. blackFrameScenes.Select(scene => new TimeRange(scene.Start, scene.End))]);
@@ -1879,16 +1874,6 @@ public class TestBlackFrames
 
     private static IEnumerable<KeyframeVisual> Black(double from, double to, double step)
         => Times(from, to, step).Select(t => KeyframeVisuals.Black(t));
-
-    /// <summary>
-    /// The black-frame scan over the same keyframes as <paramref name="visuals"/>: fully black inside
-    /// the <paramref name="black"/> span, not black at all elsewhere. Black keyframes are reported
-    /// <paramref name="offset"/> seconds after their visual.
-    /// </summary>
-    private static BlackFrame[] BlackScanOf(KeyframeVisual[] visuals, (double From, double To) black, double offset = 0)
-        => [.. visuals.Select((visual, frame) => visual.Time >= black.From && visual.Time <= black.To
-            ? new BlackFrame(100, visual.Time + offset, frame)
-            : new BlackFrame(0, visual.Time, frame))];
 
     /// <summary>
     /// Keyframes every <paramref name="step"/> seconds from 0 to <paramref name="end"/>, none of them
