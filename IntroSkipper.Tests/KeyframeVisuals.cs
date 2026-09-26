@@ -28,7 +28,7 @@ internal static class KeyframeVisuals
     /// <summary>Busy content: luma spread across the range.</summary>
     internal static KeyframeVisual Content(double time) => new(time, 16, 60, 200, 235, 0, 108);
 
-    /// <summary>A dark detailed scene: black to the blackframe filter, luma spread wide within the dark range.</summary>
+    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is black and its brightest is not, so the blackframe filter counts more than a tenth and at most nine tenths of it black.</summary>
     internal static KeyframeVisual Dark(double time) => new(time, 0, 10, 50, 120, 0, 0);
 
     /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>

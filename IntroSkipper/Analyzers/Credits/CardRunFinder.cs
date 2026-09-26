@@ -86,16 +86,6 @@ internal static class CardRunFinder
     }
 
     /// <summary>
-    /// Finds the latest sustained run of card keyframes that satisfies the minimum duration, with no
-    /// black-frame scan to tell black cards from other cards.
-    /// </summary>
-    /// <param name="visuals">The per-keyframe visual statistics, ordered by time.</param>
-    /// <param name="minimumDuration">The minimum credit duration.</param>
-    /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, int minimumDuration)
-        => FindCreditRange(Classify(visuals, [], [], []), minimumDuration);
-
-    /// <summary>
     /// Classifies a keyframe as a credit card: a dominant near-uniform background, something drawn on
     /// it far from the background in luma, and low saturation (not a vivid colour scene). Exposed as
     /// <see langword="internal" /> so the classification boundary can be unit-tested directly.

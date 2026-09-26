@@ -21,6 +21,7 @@ using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using static IntroSkipper.Tests.BlackFrameFixtures;
+using static IntroSkipper.Tests.StubFFmpegService;
 
 public class TestBlackFrames
 {
@@ -1294,27 +1295,16 @@ public class TestBlackFrames
     [Fact]
     public async Task TestDetectCreditsAsync_RefinesBoundaryByDefault()
     {
-        List<BlackFrame> frames =
-        [
-            .. CreateDenseFrames(startTime: 0, endTime: 8, percentage: 30),
-            .. CreateDenseFrames(startTime: 10, endTime: 30, percentage: 95, startFrame: 20),
-        ];
-
-        var ffmpeg = CreditsScan([.. frames], [new BlackFrame(95, 1.25, 0)]);
+        var ffmpeg = KeyframeScan(
+            [.. Keyframes(0, 8, 0.5, (0, 8, 30, KeyframeVisuals.Dark)), .. Keyframes(10, 30, 0.5, (10, 30, 95, KeyframeVisuals.Black))],
+            probeFrames: [new BlackFrame(95, 1.25, 0)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal(109.25, result.Start);
-        Assert.Equal(130, result.End);
-        Assert.Equal(1, ffmpeg.RangeScanCalls);
-        var probe = Assert.NotNull(ffmpeg.LastRangeScan);
-        Assert.Equal(108, probe.Range.Start);
-        Assert.Equal(110, probe.Range.End);
-        Assert.Equal(95, probe.Minimum);
-        Assert.Equal(32, probe.Threshold);
-        Assert.Equal(AnalysisMode.Credits, probe.Mode);
+        Assert.Equal([(SegmentSource.BlackFrame, 109.25, 130.0)], candidates);
+        Assert.Equal([new RangeScan(108, 110, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1522,80 +1512,82 @@ public class TestBlackFrames
         Assert.Equal(expected, CardRunFinder.IsCreditCardKeyframe(visual));
     }
 
-    // Each row: keyframe visuals, minimum credit duration, expected (Start, End) or null.
-    public static TheoryData<KeyframeVisual[], int, (double Start, double End)?> CardCreditsCases => new()
+    // Each row: keyframes none of which is black, minimum credit duration, expected (Start, End) or null.
+    public static TheoryData<(BlackFrame[] Rows, KeyframeVisual[] Visuals), int, (double Start, double End)?> CardCreditsCases => new()
     {
         // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
-        { Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54)), 15, (0, 20) },
+        { Scan(Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54))), 15, (0, 20) },
 
         // Leading over-extension: an isolated pre-credit card bridges into a dense block (4s GOP)
         // -> start anchored to the dense block, not the stray pre-card.
-        { Seq(88, 4, (36, 36), (52, 80)), 15, (52, 80) },
+        { Scan(Seq(88, 4, (36, 36), (52, 80))), 15, (52, 80) },
 
         // Clean dense card run -> unchanged.
-        { Seq(54, 2, (30, 54)), 15, (30, 54) },
+        { Scan(Seq(54, 2, (30, 54))), 15, (30, 54) },
 
         // Mid-body ident interlude (6s of non-card bracketed by dense cards) -> preserved.
-        { Seq(60, 2, (0, 28), (36, 60)), 15, (0, 60) },
+        { Scan(Seq(60, 2, (0, 28), (36, 60))), 15, (0, 60) },
 
         // Interlude near the end (cards resume densely after) -> preserved.
-        { Seq(60, 2, (0, 48), (56, 60)), 15, (0, 60) },
+        { Scan(Seq(60, 2, (0, 48), (56, 60))), 15, (0, 60) },
 
         // Sparse all-card credits (8s GOP) -> kept (100% density, trailing gap within scaled trim).
-        { Seq(40, 8, (0, 40)), 15, (0, 40) },
+        { Scan(Seq(40, 8, (0, 40))), 15, (0, 40) },
 
         // Uniform sparse long-GOP credits (12s cadence) -> kept; the trim keys off the run's own
         // cadence, so an all-card run is never discarded even when its gap exceeds the capped bridge.
-        { Seq(48, 12, (0, 48)), 15, (0, 48) },
+        { Scan(Seq(48, 12, (0, 48))), 15, (0, 48) },
 
         // All-card run whose 21s cadence exceeds the fixed bridge, with nothing non-card between
         // -> stays one run instead of splitting into one-frame runs that each miss the minimum.
-        { Seq(63, 21, (0, 63)), 60, (0, 63) },
+        { Scan(Seq(63, 21, (0, 63))), 60, (0, 63) },
 
         // Two real runs separated by a long gap -> latest selected.
-        { Seq(80, 2, (0, 20), (60, 80)), 15, (60, 80) },
+        { Scan(Seq(80, 2, (0, 20), (60, 80))), 15, (60, 80) },
 
         // An earlier dense run (0-20) must not capture or extend into a later long-GOP credit run
         // (60-96, 12s cadence): real content separates the groups, so the latest run is returned.
-        { [.. Cards(0, 20, 2), .. Busy(22, 58, 2), .. Cards(60, 96, 12)], 15, (60, 96) },
+        { Scan(NotBlack([.. Cards(0, 20, 2), .. Busy(22, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
 
         // Dense non-card content, then static cards on a 12s-keyframe source: grouping must key off the
         // card cadence, not the content cadence, or every 12s card gap splits the run.
-        { [.. Busy(0, 58, 2), .. Cards(60, 96, 12)], 15, (60, 96) },
+        { Scan(NotBlack([.. Busy(0, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
 
         // A substantial dense body followed by isolated cards every 8s out to the window edge -> the
         // trim anchors to the dense-body cadence and cuts the sparse tail back to the real block.
-        { [.. Cards(0, 20, 2), .. Cards(28, 196, 8)], 15, (0, 20) },
+        { Scan(NotBlack([.. Cards(0, 20, 2), .. Cards(28, 196, 8)])), 15, (0, 20) },
 
         // Sparse isolated cards bridged across busy 2s content (brief dense head, then a lone card
         // every 8s) -> rejected by the card-density floor: most keyframes in the span are busy
         // content, so this reads as normal content with occasional static shots, not a card sequence.
-        { Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54)), 15, null },
+        { Scan(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))), 15, null },
 
         // Two card-like keyframes 18s apart with busy keyframes between them -> not credits.
-        { Seq(18, 2, (0, 0), (18, 18)), 15, null },
+        { Scan(Seq(18, 2, (0, 0), (18, 18))), 15, null },
 
         // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
-        { Seq(44, 2, (0, 40), (44, 44)), 15, (0, 44) },
+        { Scan(Seq(44, 2, (0, 40), (44, 44))), 15, (0, 44) },
 
         // Only 10s of card -> below the minimum duration.
-        { Seq(40, 2, (30, 40)), 15, null },
+        { Scan(Seq(40, 2, (30, 40))), 15, null },
 
         // Dark (low luma) but detailed content spreads wide within the dark range, like a night scene -> not a card.
-        { [.. Times(0, 58, 2).Select(t => KeyframeVisuals.Dark(t))], 15, null },
+        { Scan(Times(0, 58, 2).Select(t => new Keyframe(t, 50, KeyframeVisuals.Dark(t)))), 15, null },
 
         // Uniform but vividly saturated frames are excluded on purpose (see CardRunFinder).
-        { CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200), 15, null },
+        { Scan(NotBlack(CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200))), 15, null },
 
         // All busy content -> null.
-        { Seq(60, 2), 15, null },
+        { Scan(Seq(60, 2)), 15, null },
     };
 
     [Theory]
     [MemberData(nameof(CardCreditsCases))]
-    public void TestCardRunFinder_FindCreditRange(KeyframeVisual[] visuals, int minimumDuration, (double Start, double End)? expected)
+    public void TestCardRunFinder_FindCreditRange((BlackFrame[] Rows, KeyframeVisual[] Visuals) scan, int minimumDuration, (double Start, double End)? expected)
     {
-        var range = CardRunFinder.FindCreditRange(visuals, minimumDuration);
+        var (rows, visuals) = scan;
+
+        var range = CardRunFinder.FindCreditRange(visuals, rows, blackMinimum: 85, minimumDuration, blackFrameScenes: []);
 
         if (expected is null)
         {
@@ -1851,6 +1843,13 @@ public class TestBlackFrames
         return await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Every candidate the keyframe analyzer returns with card detection on, by source, so a stray
+    /// card run fails a test as a wrong black-frame candidate does.
+    /// </summary>
+    private static async Task<List<(SegmentSource Source, double Start, double End)>> KeyframeCandidates(KeyframeAnalyzer analyzer, QueuedEpisode episode)
+        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
+
     private static async Task<List<Segment>> BlackFrameCredits(KeyframeAnalyzer analyzer, QueuedEpisode episode)
         => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false)).Where(c => c.Source == SegmentSource.BlackFrame).Select(c => c.Segment)];
 
@@ -1870,6 +1869,29 @@ public class TestBlackFrames
     private static KeyframeAnalyzer CreateKeyframeAnalyzer(IFFmpegService ffmpegService, PluginConfiguration? configuration = null, DetectionCacheService? cacheService = null)
     {
         return new(NullLogger<KeyframeAnalyzer>.Instance, ffmpegService, cacheService ?? DatabaseTestHelpers.CreateTempCacheService(), configuration ?? new PluginConfiguration());
+    }
+
+    /// <summary>
+    /// Creates a stub whose keyframe scan reports <paramref name="keyframes"/>, whose range probes
+    /// return <paramref name="probeFrames"/>, whose blackdetect scans return
+    /// <paramref name="intervals"/> and whose lead-in decodes return what
+    /// <paramref name="lumaWindows"/> returns, or fail.
+    /// </summary>
+    private static StubFFmpegService KeyframeScan(
+        IEnumerable<Keyframe> keyframes,
+        BlackFrame[]? probeFrames = null,
+        BlackInterval[]? intervals = null,
+        Func<QueuedEpisode, TimeRange, int, LumaWindow?>? lumaWindows = null)
+    {
+        var (rows, visuals) = Scan(keyframes);
+        return new()
+        {
+            CreditsBlackFrames = (_, _) => rows,
+            KeyframeVisuals = _ => visuals,
+            RangeBlackFrames = (_, _, _, _, _) => probeFrames ?? [],
+            BlackIntervals = (_, _, _, _) => intervals ?? [],
+            LumaWindows = lumaWindows ?? ((_, _, _) => null),
+        };
     }
 
     /// <summary>
@@ -1974,13 +1996,21 @@ public class TestBlackFrames
             : new BlackFrame(0, visual.Time, frame))];
 
     /// <summary>
-    /// Keyframes every <paramref name="step"/> seconds from 0 to <paramref name="end"/>; those inside
-    /// any of the <paramref name="cards"/> spans (inclusive) are credit cards, the rest busy content.
+    /// Keyframes every <paramref name="step"/> seconds from 0 to <paramref name="end"/>, none of them
+    /// black; those inside any of the <paramref name="cards"/> spans (inclusive) are credit cards, the
+    /// rest busy content.
     /// </summary>
-    private static KeyframeVisual[] Seq(double end, double step, params (double From, double To)[] cards)
-        => [.. Times(0, end, step).Select(t => cards.Any(c => t >= c.From - 1e-9 && t <= c.To + 1e-9)
+    private static Keyframe[] Seq(double end, double step, params (double From, double To)[] cards)
+        => NotBlack(Times(0, end, step).Select(t => cards.Any(c => t >= c.From - 1e-9 && t <= c.To + 1e-9)
             ? KeyframeVisuals.Card(t)
-            : KeyframeVisuals.Content(t))];
+            : KeyframeVisuals.Content(t)));
+
+    /// <summary>
+    /// Keyframes for <paramref name="visuals"/> that the blackframe filter does not count as black
+    /// at all, as cards and busy content are not.
+    /// </summary>
+    private static Keyframe[] NotBlack(IEnumerable<KeyframeVisual> visuals)
+        => [.. visuals.Select(visual => new Keyframe(visual.Time, 0, visual))];
 
     private static BlackFrame[] CreateStingerSplitFrames() =>
     [

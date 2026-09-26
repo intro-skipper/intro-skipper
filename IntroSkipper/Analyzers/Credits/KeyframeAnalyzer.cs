@@ -160,27 +160,24 @@ internal sealed partial class KeyframeAnalyzer(
         // scene is too short to be credits. A lighter section later in the scene stays.
         var rejected = new List<TimeRange>();
         var lastLighterKeyframes = new Dictionary<CreditScene, double>();
-        if (visuals.Count > 0)
+        for (var i = 0; i < scenes.Count; i++)
         {
-            for (var i = 0; i < scenes.Count; i++)
+            var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
+            if (leadIn is not { } range)
             {
-                var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
-                if (leadIn is not { } range)
-                {
-                    continue;
-                }
-
-                rejected.Add(range);
-                scenes[i] = trimmed;
-                lastLighterKeyframes[trimmed] = range.End;
+                continue;
             }
+
+            rejected.Add(range);
+            scenes[i] = trimmed;
+            lastLighterKeyframes[trimmed] = range.End;
         }
 
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
-        rejected.AddRange(scenes.Where(scene => visuals.Count > 0 && !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
-        scenes = [.. scenes.Where(scene => visuals.Count == 0 || IsMostlyLettered(scene, blackFrames, minimum, visuals))];
+        rejected.AddRange(scenes.Where(scene => !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
+        scenes = [.. scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, visuals))];
         if (scenes.Count == 0)
         {
             return ([], [], rejected);
@@ -229,14 +226,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// as a blue night cave, not a roll or a card.
     /// </summary>
     private static List<BlackFrame> WithoutTintedKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals)
-    {
-        if (visuals.Count == 0)
-        {
-            return blackFrames;
-        }
-
-        return [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? frame with { Percentage = 0 } : frame)];
-    }
+        => [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? frame with { Percentage = 0 } : frame)];
 
     /// <summary>
     /// Moves a scene's start past its dark grey lead-in: the leading black keyframes that show dim
