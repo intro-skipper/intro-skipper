@@ -150,6 +150,9 @@ internal static class ConfigHasher
 
             CacheEntryType.KeyframeVisual => $"cache|v3|{type}|{mode}",
 
+            // The probe's width, tolerance and rule are constants: bump the token when they change.
+            CacheEntryType.LeadIn => $"cache|v1|{type}",
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
 

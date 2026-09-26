@@ -32,29 +32,40 @@ public class TestFFmpegService
         Assert.Equal(expectedMilliseconds, FFmpegService.ScanTimeoutMilliseconds(seconds));
     }
 
+    // Long enough for the helper to record its pid before the runner kills it; PowerShell starts slowly.
+    private static readonly int HelperKillDelay = OperatingSystem.IsWindows() ? 2000 : 500;
+
     [Fact]
-    public async Task ProcessTimeout_KillsProcessWhileDrainingOutput()
+    public Task ProcessTimeout_KillsProcessWhileDrainingOutput()
+        => AssertKillsSleepingProcessAsync((runner, path, args) => Assert.ThrowsAsync<TimeoutException>(
+            () => runner.RunAsync(path, args, timeout: HelperKillDelay).WaitAsync(TimeSpan.FromSeconds(15))));
+
+    [Fact]
+    public Task RunCapturedAsync_Timeout_KillsProcess()
+        => AssertKillsSleepingProcessAsync((runner, path, args) => Assert.ThrowsAsync<TimeoutException>(
+            () => runner.RunCapturedAsync(path, args, long.MaxValue, 0, HelperKillDelay).WaitAsync(TimeSpan.FromSeconds(15))));
+
+    [Fact]
+    public Task RunCapturedAsync_Cancellation_KillsProcessWithoutTimeout()
+        => AssertKillsSleepingProcessAsync(async (runner, path, args) =>
+        {
+            using var cancellation = new CancellationTokenSource(HelperKillDelay);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => runner.RunCapturedAsync(path, args, long.MaxValue, 0, Timeout.Infinite, cancellation.Token).WaitAsync(TimeSpan.FromSeconds(15)));
+        });
+
+    // Runs a helper that records its pid and then sleeps for 30 s, and checks that the runner
+    // killed it rather than waiting for it to finish.
+    private static async Task AssertKillsSleepingProcessAsync(Func<FFmpegProcessRunner, string, string[], Task> run)
     {
         var pidFile = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests." + Guid.NewGuid().ToString("N") + ".pid");
-        var processPath = OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh";
-        string[] args;
-        int timeout;
-        if (OperatingSystem.IsWindows())
-        {
-            args = ["-NoProfile", "-NonInteractive", "-Command", $"Set-Content -LiteralPath '{pidFile}' -Value $PID; Start-Sleep -Seconds 30"];
-            timeout = 2000;
-        }
-        else
-        {
-            args = ["-c", $"echo $$ > '{pidFile}'; sleep 30"];
-            timeout = 500;
-        }
+        var (processPath, args) = OperatingSystem.IsWindows()
+            ? ("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", $"Set-Content -LiteralPath '{pidFile}' -Value $PID; Start-Sleep -Seconds 30" })
+            : ("/bin/sh", new[] { "-c", $"echo $$ > '{pidFile}'; sleep 30" });
 
         try
         {
-            await Assert.ThrowsAsync<TimeoutException>(() => new FFmpegProcessRunner(NullLogger.Instance)
-                .RunAsync(processPath, args, timeout: timeout)
-                .WaitAsync(TimeSpan.FromSeconds(15)));
+            await run(new FFmpegProcessRunner(NullLogger.Instance), processPath, args);
 
             var processId = int.Parse((await File.ReadAllTextAsync(pidFile)).Trim(), CultureInfo.InvariantCulture);
             try
