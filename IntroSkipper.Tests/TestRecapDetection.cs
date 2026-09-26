@@ -14,6 +14,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static IntroSkipper.Tests.StubFFmpegService;
 
 public class TestRecapDetection
 {
@@ -254,7 +255,8 @@ public class TestRecapDetection
         var recap = Assert.Single(await db.Database.GetSegmentsAsync(a.EpisodeId));
         Assert.Equal(28, TickConversions.ToSeconds(recap.StartTicks));
         Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
-        Assert.Equal(3, ffmpeg.RangeScanCalls);
+        var scan = new RangeScan(0, 120, 0, 28, AnalysisMode.Recap);
+        Assert.Equal([scan, scan, scan], ffmpeg.Calls);
 
         // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
         // with other episodes at the given seconds.
