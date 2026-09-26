@@ -1297,6 +1297,216 @@ public class TestBlackFrames
     private static IEnumerable<Keyframe> DarkSceneWithBlackPages(int every, int percentage)
         => Times(0, 49.5, 0.5).Select((t, i) => i % every == 0 ? new Keyframe(t, percentage, KeyframeVisuals.Black(t)) : new Keyframe(t, 30, KeyframeVisuals.Dark(t)));
 
+    [Fact]
+    public async Task DetectCreditsAsync_DimFirstPageBeforeAPageWithoutAVisual_IsTheLeadIn()
+    {
+        // The roll's first page is dim and its second page has no visual. A page without a visual
+        // ends the lead-in walk, since nothing says it is dim. So the dim page alone is the lead-in,
+        // and the scene starts on the page without a visual at 22, not on the first level page at
+        // 24. The lead-in decode between the two fails, so the start stays on that page.
+        var ffmpeg = KeyframeScan(Keyframes(0, 70, 2, (20, 20, 95, KeyframeVisuals.DarkGrey), (22, 22, 95, _ => null), (24, 54, 95, KeyframeVisuals.Black)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.BlackFrame, 122.0, 154.0)], candidates);
+        Assert.Equal([new LumaDecode(120, 122.25, 160)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_DenseTextWithoutAnAcceptedScene_IsContent()
+    {
+        // Grey cards run for 10 s, then dense lettering on black at 88 percent runs for 12 s. That is
+        // too short for a black scene and blackdetect confirms nothing, so no scene is accepted and
+        // the card finder falls back to the visuals. Dense text is lettered but not card-like, so
+        // the finder reads it as content, not as a card or a black card. The cards alone are under
+        // the minimum.
+        var ffmpeg = KeyframeScan(Keyframes(0, 70, 2, (30, 40, 0, t => KeyframeVisuals.Card(t)), (42, 54, 88, KeyframeVisuals.DenseText)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Empty(candidates);
+        Assert.Equal([new IntervalScan(127, 169, 32, 85)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_IntervalSupportedBlankScene_IsARejectedGap()
+    {
+        // A blank black gap between acts has keyframes ten seconds apart, and two of its five pages
+        // are lettered. The gap is sparse, so the analyzer probes it, and the interval from 35 makes
+        // it a scene that starts at blackdetect's start. The lettering gate still reads that scene
+        // and rejects it, so there is no black-frame candidate. Its lettered pages are black and
+        // inside the rejected range, so they are content and do not become a card run from 50 to 70.
+        var ffmpeg = KeyframeScan(
+            Keyframes(0, 120, 10, (50, 50, 100, KeyframeVisuals.Black), (70, 70, 100, KeyframeVisuals.Black), (40, 80, 100, KeyframeVisuals.BlankBlack)),
+            intervals: [new BlackInterval(35, 80)]);
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
+
+        Assert.Empty(candidates);
+        Assert.Equal([new IntervalScan(25, 95, 32, 85)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_DarkScanWithTintedPages_TakesItsFloorFromThem()
+    {
+        // In this dark scan the blackframe filter scores every page at 30 percent or more, except
+        // two dark tinted pages at 95. The analyzer counts tinted pages as zero before it normalizes
+        // the thresholds, so they alone pull the floor to 0 and keep the black minimum at the
+        // configured 85. Without them the floor would be 30 and the minimum 89. The roll of large
+        // lettering at 87 percent sits between the two, so only the tinted rows make it a scene. The
+        // boundary probe runs at its start page's 87.
+        var ffmpeg = KeyframeScan(Keyframes(0, 100, 2, (10, 12, 95, KeyframeVisuals.Tinted), (60, 90, 87, KeyframeVisuals.BigText), (0, 100, 50, KeyframeVisuals.Dark)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.BlackFrame, 160.0, 190.0)], candidates);
+        Assert.Equal([new RangeScan(158, 160, 87, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_TintedPageBeforeTheTransitionRow_IsNotTheStart()
+    {
+        // Letterboxed dark shots at 88 percent come first, then a flat tinted page at 100, then the
+        // roll. The black path reads the tinted page as not black, in the transition shift too. So
+        // the scene starts at the roll's first page at 32, and the boundary probe reads the gap from
+        // the tinted page. The card finder reads the tinted page's raw percentage, and a tinted page
+        // that is black is content, so the flat tinted page does not start a card run before the roll.
+        var ffmpeg = KeyframeScan(Keyframes(0, 80, 2, (20, 28, 88, KeyframeVisuals.LetterboxedDark), (30, 30, 100, KeyframeVisuals.TintedFlat), (32, 60, 100, KeyframeVisuals.Black)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.BlackFrame, 132.0, 160.0)], candidates);
+        Assert.Equal([new RangeScan(130, 132, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_SceneOnlyPastTheWindowEnd_LeavesNoCardFallback()
+    {
+        // The credits window ends 60 s in. The black rows run to the end of the file and have no
+        // visuals past the window. A roll that lies only there, from 82 to 110, is an accepted scene,
+        // since without visuals it has no lead-in and no lettering verdict. Inside the window, grey
+        // cards and then 12 s of black roll pages are too short for a black scene. Accepted is not
+        // empty, so the card finder does not fall back to the visuals. The black pages outside every
+        // accepted scene are content, the cards alone are under the minimum, and there is no card run.
+        var ffmpeg = KeyframeScan(Keyframes(
+            0,
+            120,
+            2,
+            (32, 40, 0, t => KeyframeVisuals.Card(t)),
+            (42, 54, 100, KeyframeVisuals.Black),
+            (82, 110, 100, _ => null),
+            (62, 120, 0, _ => null)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "episode.mkv",
+            Path = "episode.mkv",
+            Duration = 220,
+            CreditsFingerprintStart = 100,
+            CreditsFingerprintEnd = 160,
+        };
+
+        var candidates = await KeyframeCandidates(analyzer, episode);
+
+        Assert.Equal([(SegmentSource.BlackFrame, 182.0, 210.0)], candidates);
+        Assert.Equal([new RangeScan(180, 182, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_CardBelowTheBlackMinimumInARejectedGap_StaysACard()
+    {
+        // A blank black gap between acts holds a grey card at 38, below the black minimum, among its
+        // last pages. Grey cards follow from 42. The lettering gate rejects the gap. A rejected range
+        // makes only its black pages content, so the grey card stays a card and starts the card run.
+        // Without it the run would be 12 s, under the minimum.
+        var ffmpeg = KeyframeScan(Keyframes(0, 70, 2, (38, 38, 0, t => KeyframeVisuals.Card(t)), (20, 40, 100, KeyframeVisuals.BlankBlack), (42, 54, 0, t => KeyframeVisuals.Card(t))));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.KeyframeVisuals, 138.0, 154.0)], candidates);
+        Assert.Empty(ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_SceneUnderTheMinimumAfterProbing_LeavesTheCardFallback()
+    {
+        // The roll's first pages hold more lettering and are 92 percent black, and the pages after
+        // them are 100. The scene starts at the transition row at 20 and runs 14 s. The analyzer
+        // admits it because the 2 s gap before it could bring it to the minimum. The boundary probe
+        // finds no black there, so the scene fails the final duration check. With no candidate,
+        // accepted is empty and the card finder falls back to the visuals. Every roll page is then a
+        // card, including those before the transition row.
+        var ffmpeg = KeyframeScan(Keyframes(0, 60, 2, (10, 18, 92, KeyframeVisuals.Black), (20, 34, 100, KeyframeVisuals.Black)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.KeyframeVisuals, 110.0, 134.0)], candidates);
+        Assert.Equal([new RangeScan(118, 120, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_SceneTrimmedUnderTheMinimumBesideARoll_KeepsItsBlackCards()
+    {
+        // A dark grey lead-in and 10 s of roll come first, then grey cards, then a separate 30 s
+        // roll. The trim leaves the first scene under the minimum. It stays accepted because the
+        // later roll meets the minimum, so its pages are black cards. They extend the grey cards, 10 s
+        // on their own, into a card run from 26 to 48. The lead-in pages are content.
+        var ffmpeg = KeyframeScan(Keyframes(
+            0,
+            120,
+            2,
+            (20, 24, 95, KeyframeVisuals.DarkGrey),
+            (26, 36, 100, KeyframeVisuals.Black),
+            (38, 48, 0, t => KeyframeVisuals.Card(t)),
+            (80, 110, 100, KeyframeVisuals.Black)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.BlackFrame, 180.0, 210.0), (SegmentSource.KeyframeVisuals, 126.0, 148.0)], candidates);
+        Assert.Equal([new LumaDecode(124, 126.25, 160), new RangeScan(178, 180, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeWalksBackOverAPageNotCountedBlack_ItIsABlackCard()
+    {
+        // A dim shot cuts to the roll just after 22. The roll's pages have their background at luma
+        // 31, which the blackframe filter counts black at threshold 32. The page at 24 has its
+        // background two levels higher, at 33, so the filter does not count it black, and it is
+        // card-like. The lead-in probe matches pixels within two levels, so it walks back from the
+        // level page at 26 over that page to the frame after the cut. The page lies inside the
+        // refined scene and is a black card rather than a card before the roll, so there is no card
+        // run.
+        var ffmpeg = KeyframeScan(
+            Keyframes(
+                0,
+                70,
+                2,
+                (20, 22, 88, KeyframeVisuals.Dark),
+                (24, 24, 0, t => new KeyframeVisual(t, 33, 33, 33, 235, 0, 0)),
+                (26, 56, 92, t => new KeyframeVisual(t, 31, 31, 31, 235, 0, 0))),
+            lumaWindows: (_, window, _) => LumaWindows.Window(
+                window.Start,
+                (1 / LumaWindows.Fps, () => LumaWindows.Blob(21)),
+                (24 - window.Start - (1 / LumaWindows.Fps), () => LumaWindows.Blob(31)),
+                (2, () => LumaWindows.Blob(33)),
+                (window.End - 26, () => LumaWindows.Blob(31))));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
+
+        Assert.Equal([(SegmentSource.BlackFrame, 22 + (1 / 24.0), 56.0)], candidates);
+        Assert.Equal([new LumaDecode(22, 26.25, 160)], ffmpeg.Calls);
+    }
+
     // ── Card credits from keyframe visuals ───────────────────────────────
 
     [Fact]
