@@ -203,7 +203,28 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public async Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    {
+        // The black-frame scan goes first: on a cache miss its decode also writes the visuals row,
+        // so the visuals read after it is a cache hit. Run concurrently, a miss would decode twice.
+        var rows = await DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
+        var visuals = await DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+        return KeyframeJoin.Pages(rows, visuals);
+    }
+
+    /// <summary>
+    /// Finds the black percentage of every keyframe from the credits start to the end of the file.
+    /// </summary>
+    /// <remarks>
+    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
+    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode reads
+    /// that row instead of decoding again.
+    /// </remarks>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>A task that returns the black percentage of each keyframe.</returns>
+    internal Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
         // The keyframe scan: one decode from the credits start to end of file feeds two outputs
         // with a filtergraph each, so blackframe negotiates its input as it does alone (gray for
@@ -245,8 +266,20 @@ internal sealed partial class FFmpegService : IFFmpegService
             cancellationToken);
     }
 
-    /// <inheritdoc/>
-    public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits
+    /// fingerprint range.
+    /// </summary>
+    /// <remarks>
+    /// Normally served from the row the keyframe scan in
+    /// <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/> wrote. Decodes on
+    /// its own only for an episode whose black-frame row predates that shared write, or when caching
+    /// is off. Empty when the ffmpeg check found the visuals filters missing.
+    /// </remarks>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>A task that returns per-keyframe visual statistics relative to the credits fingerprint start.</returns>
+    internal Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         if (!_versionGate.CheckResult.KeyframeVisualsSupported)
         {

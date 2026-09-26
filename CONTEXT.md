@@ -23,8 +23,12 @@ One analyzer's proposed time range for an episode's credits before any combinati
 _Avoid_: Detection, hit, match
 
 **Keyframe scan**:
-One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together.
+One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together, one page per keyframe.
 _Avoid_: Entropy scan
+
+**Page**:
+One keyframe of the keyframe scan: its black-frame row and its keyframe visual, when it has one. Its time is the black-frame time.
+_Avoid_: Frame, row (for the pair)
 
 **Keyframe analyzer**:
 The analyzer over one keyframe scan. It emits a black-frame candidate for each accepted black scene whose refined range meets the minimum duration, and at most one card run.

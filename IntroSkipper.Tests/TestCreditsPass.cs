@@ -54,8 +54,7 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, action, ffmpegValid, CancellationToken.None);
 
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
-        Assert.Equal(0, ffmpeg.VisualScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
         foreach (var episode in episodes)
         {
             var row = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
@@ -76,8 +75,7 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(2, ffmpeg.FingerprintCalls);
-        Assert.Equal(2, ffmpeg.CreditsScanCalls);
-        Assert.Equal(2, ffmpeg.VisualScanCalls);
+        Assert.Equal(2, ffmpeg.KeyframeScanCalls);
         Assert.Equal(
             [RollProbe, RollProbe],
             ffmpeg.Calls);
@@ -97,7 +95,7 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.Chapter, row.Source);
         Assert.Equal((970, 975), (row.ToSegment().Start, row.ToSegment().End));
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
     }
 
     [Theory]
@@ -115,7 +113,7 @@ public sealed class TestCreditsPass
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Credits)));
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
     }
 
     [Theory]
@@ -139,8 +137,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, cache, new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(1, ffmpeg.CreditsScanCalls);
-        Assert.Equal(1, ffmpeg.VisualScanCalls);
+        Assert.Equal(1, ffmpeg.KeyframeScanCalls);
         Assert.Equal([RollProbe], ffmpeg.Calls);
         var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chapter, chapter.Source);
@@ -188,7 +185,7 @@ public sealed class TestCreditsPass
         Assert.Equal((700, 720), (row.ToSegment().Start, row.ToSegment().End));
         Assert.Equal(EpisodeState.UserProvided, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
     }
 
     [Fact]
@@ -214,7 +211,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(WindowStart, ffmpeg.LastCreditsScanStart);
+        Assert.Equal(WindowStart, ffmpeg.LastKeyframeScanStart);
         Assert.Equal(
             [RollProbe, RollProbe],
             ffmpeg.Calls);
@@ -498,11 +495,11 @@ public sealed class TestCreditsPass
 
         await CacheFingerprintsAsync(cache, ffmpeg, episodes);
         episodes.Add(Episode(episodes[0].SeasonId, 3));
-        var scansBefore = ffmpeg.CreditsScanCalls;
+        var scansBefore = ffmpeg.KeyframeScanCalls;
 
         await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(scansBefore + 1, ffmpeg.CreditsScanCalls);
+        Assert.Equal(scansBefore + 1, ffmpeg.KeyframeScanCalls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).Source);
         for (var i = 0; i < 2; i++)
         {
@@ -768,7 +765,7 @@ public sealed class TestCreditsPass
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
 
-        Assert.Equal(0, ffmpeg.VisualScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
         var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
         Assert.Equal([SegmentSource.Chapter, SegmentSource.BlackFrame], segments.Select(s => s.Source).ToList());
         Assert.Equal((900, 950), (segments[0].ToSegment().Start, segments[0].ToSegment().End));
@@ -850,7 +847,7 @@ public sealed class TestCreditsPass
 
         Assert.Equal(1, chapters.GetChaptersCallCount);
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
         Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(episodes[25].EpisodeId)).Source);
     }
 
@@ -877,8 +874,7 @@ public sealed class TestCreditsPass
 
         Assert.NotEmpty(chapterReads);
         Assert.All(chapterReads, id => Assert.Equal(episodes[1].EpisodeId, id));
-        Assert.Equal(1, ffmpeg.CreditsScanCalls);
-        Assert.Equal(1, ffmpeg.VisualScanCalls);
+        Assert.Equal(1, ffmpeg.KeyframeScanCalls);
         Assert.Equal([RollProbe], ffmpeg.Calls);
         Assert.Equal(storedId, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Id);
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
@@ -909,8 +905,7 @@ public sealed class TestCreditsPass
         Assert.Equal(chapterLookupFails ? EpisodeState.AnalysisFailed : EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
-        Assert.Equal(1, ffmpeg.CreditsScanCalls);
-        Assert.Equal(1, ffmpeg.VisualScanCalls);
+        Assert.Equal(1, ffmpeg.KeyframeScanCalls);
         Assert.Equal([RollProbe], ffmpeg.Calls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
@@ -1021,10 +1016,9 @@ public sealed class TestCreditsPass
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
                 ? throw failure
                 : SharedAudioFingerprint(episode, sharedAudioLastPoint),
-            CreditsBlackFrames = (episode, _) => scanFailure?.Invoke(episode) is { } failure
+            KeyframeScan = (episode, _) => scanFailure?.Invoke(episode) is { } failure
                 ? throw failure
-                : ScanOf(episode, scanSpans).Rows,
-            KeyframeVisuals = episode => ScanOf(episode, scanSpans).Visuals,
+                : ScanOf(episode, scanSpans),
             RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
             BlackIntervals = (_, _, _, _) => [],
             Silence = (_, _, _) => [],
@@ -1048,15 +1042,15 @@ public sealed class TestCreditsPass
     };
 
     /// <summary>
-    /// One episode's keyframe scan: a keyframe every two seconds across the credits window, with its
+    /// One episode's keyframe scan: a page every two seconds across the credits window, with its
     /// black row and its visual, relative to the credits window start like the scan reports them. A
     /// keyframe inside one of the <paramref name="spans"/>, given in file time, takes that span's
     /// black percentage and visual; any other keyframe is busy content, not black.
     /// </summary>
-    private static (BlackFrame[] Rows, KeyframeVisual[] Visuals) ScanOf(QueuedEpisode episode, (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
+    private static KeyframePage[] ScanOf(QueuedEpisode episode, (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
     {
         var start = episode.CreditsFingerprintStart;
-        return Scan(Keyframes(0, episode.Duration - start, 2, [.. spans.Select(span => (span.From - start, span.To - start, span.Percentage, span.Visual))]));
+        return Pages(Keyframes(0, episode.Duration - start, 2, [.. spans.Select(span => (span.From - start, span.To - start, span.Percentage, span.Visual))]));
     }
 
     /// <summary>

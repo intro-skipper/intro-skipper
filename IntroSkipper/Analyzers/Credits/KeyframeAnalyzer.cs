@@ -56,7 +56,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scans and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
+    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -72,27 +72,25 @@ internal sealed partial class KeyframeAnalyzer(
     /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
-        var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
-
-        // The keyframe scan that produced the black-frame row wrote the visuals row too, so this is
-        // normally a cache read. Empty on an ffmpeg without signalstats, which leaves the gates on
-        // black keyframes inert.
-        var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+        // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
+        // keyframes inert.
+        var pages = await _ffmpegService.ScanKeyframesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
 
         // Tinted keyframes are content to the black-frame rules, so they leave before the thresholds
-        // are normalized against the scan they will be applied to.
-        var sceneFrames = WithoutTintedKeyframes(blackFrames, visuals);
+        // are normalized against the scan they will be applied to. The black-frame rules read the
+        // pages' rows through this list, index-aligned with the pages.
+        var sceneFrames = WithoutTintedKeyframes(pages);
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
             ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
             : (minimumPercentage, minimumPercentage);
         var (credits, scenes, rejected) = sceneFrames.Count > 0
-            ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, visuals, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
+            ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, pages, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
             : ([], [], []);
 
         List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
         if (detectCardCredits)
         {
-            var range = CardRunFinder.FindCreditRange(visuals, blackFrames, blackMinimum, minimumDuration, scenes, rejected);
+            var range = CardRunFinder.FindCreditRange(pages, blackMinimum, minimumDuration, scenes, rejected);
             if (range is not null)
             {
                 candidates.Add(new AttributedSegment(
@@ -108,15 +106,15 @@ internal sealed partial class KeyframeAnalyzer(
     /// Detects credits from black-frame keyframe evidence, with optional blackdetect interval recovery and boundary refinement.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="blackFrames">The keyframe black-frame scan results.</param>
-    /// <param name="visuals">The keyframe visuals of the same scan, or empty when the ffmpeg build has no signalstats filter.</param>
+    /// <param name="blackFrames">The keyframe black-frame scan results, tinted keyframes at zero.</param>
+    /// <param name="pages">The keyframe scan's pages, index-aligned with <paramref name="blackFrames"/>.</param>
     /// <param name="minimum">The black percentage at or above which a keyframe is black, normalized against the scan.</param>
     /// <param name="sceneChange">The black percentage that marks the transition into credits, normalized against the scan.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>The black-frame candidates in file time, one for each accepted scene whose refined range meets the minimum duration; every black scene the rules accepted, relative to the credits fingerprint start and each with its refined start, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
-    private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframePage> pages, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
         if (scenes.Count == 0)
@@ -162,7 +160,7 @@ internal sealed partial class KeyframeAnalyzer(
         var lastLighterKeyframes = new Dictionary<CreditScene, double>();
         for (var i = 0; i < scenes.Count; i++)
         {
-            var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, visuals);
+            var (trimmed, leadIn) = StartAfterDarkGreyLeadIn(scenes[i], blackFrames, minimum, pages);
             if (leadIn is not { } range)
             {
                 continue;
@@ -176,8 +174,8 @@ internal sealed partial class KeyframeAnalyzer(
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
-        rejected.AddRange(scenes.Where(scene => !IsMostlyLettered(scene, blackFrames, minimum, visuals)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
-        scenes = [.. scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, visuals))];
+        rejected.AddRange(scenes.Where(scene => !IsMostlyLettered(scene, blackFrames, minimum, pages)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
+        scenes = [.. scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, pages))];
         if (scenes.Count == 0)
         {
             return ([], [], rejected);
@@ -221,12 +219,14 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
-    /// Drops the black percentage of keyframes whose visual is saturated. Black is unsaturated; a
+    /// Projects the pages onto their black-frame rows, one row per page in page order, with the
+    /// percentage of each keyframe whose visual is saturated set to zero. Black is unsaturated; a
     /// keyframe the blackframe filter counts as black at that saturation is a dark tinted scene, such
-    /// as a blue night cave, not a roll or a card.
+    /// as a blue night cave, not a roll or a card. The lead-in and lettering gates read page i beside
+    /// row i, so this maps and never filters.
     /// </summary>
-    private static List<BlackFrame> WithoutTintedKeyframes(List<BlackFrame> blackFrames, IReadOnlyList<KeyframeVisual> visuals)
-        => [.. blackFrames.Select(frame => VisualAt(visuals, frame.Time) is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? frame with { Percentage = 0 } : frame)];
+    private static List<BlackFrame> WithoutTintedKeyframes(IReadOnlyList<KeyframePage> pages)
+        => [.. pages.Select(page => page.Visual is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? page.Frame with { Percentage = 0 } : page.Frame)];
 
     /// <summary>
     /// Moves a scene's start past its dark grey lead-in: the leading black keyframes that show dim
@@ -240,36 +240,37 @@ internal sealed partial class KeyframeAnalyzer(
     /// without a visual ends the lead-in, since nothing says it is dim. A scene whose lifted keyframes
     /// are the majority sets its level from their darkest tenth and keeps its start; the 90th
     /// percentile sets no level, so a dark majority behind bars is still a lead-in. The black
-    /// keyframes are read from <see cref="CardRunFinder.KeyframeJoinTolerance"/> before the start. A
+    /// keyframes are read from <see cref="CardRunFinder.MembershipPad"/> before the start. A
     /// scene that a blackdetect interval confirmed starts on blackdetect's clock, and its cut keyframe
     /// can sit just before that start on the scan's clock. The first keyframe read counts as the
     /// scene's first, whether or not it is the start frame. Stopping on it leaves no lead-in, and a
     /// lead-in starts at it when it is earlier than the scene's start.
     /// </summary>
     /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
-    private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
+    private static (CreditScene Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
-        var pages = new List<(BlackFrame Frame, KeyframeVisual? Visual)>();
-        foreach (var frame in blackFrames)
+        List<(BlackFrame Frame, KeyframeVisual? Visual)> scenePages = [];
+        for (var i = 0; i < blackFrames.Count; i++)
         {
+            var frame = blackFrames[i];
             if (frame.Percentage >= minimum
-                && frame.Time >= scene.StartTime - CardRunFinder.KeyframeJoinTolerance
-                && frame.Time <= scene.EndTime + CardRunFinder.KeyframeJoinTolerance)
+                && frame.Time >= scene.StartTime - CardRunFinder.MembershipPad
+                && frame.Time <= scene.EndTime + CardRunFinder.MembershipPad)
             {
-                pages.Add((frame, VisualAt(visuals, frame.Time)));
+                scenePages.Add((frame, pages[i].Visual));
             }
         }
 
-        List<double> levels = [.. pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.LumaLow).Order()];
+        List<double> levels = [.. scenePages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.LumaLow).Order()];
         if (levels.Count == 0)
         {
             return (scene, null);
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
-        var firstPage = pages[0].Frame;
+        var firstPage = scenePages[0].Frame;
         var lastLeadInTime = scene.StartTime;
-        foreach (var (frame, visual) in pages)
+        foreach (var (frame, visual) in scenePages)
         {
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
@@ -334,50 +335,29 @@ internal sealed partial class KeyframeAnalyzer(
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
     // not black, such as the dark scene after a cut, and those must not vouch for it. A scene none of
     // whose black keyframes has a visual carries no evidence either way and stays.
-    private static bool IsMostlyLettered(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframeVisual> visuals)
+    private static bool IsMostlyLettered(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
-        var pages = 0;
+        var withVisual = 0;
         var lettered = 0;
-        foreach (var frame in blackFrames)
+        for (var i = 0; i < blackFrames.Count; i++)
         {
+            var frame = blackFrames[i];
             if (frame.Percentage < minimum
-                || frame.Time < scene.StartTime - CardRunFinder.KeyframeJoinTolerance
-                || frame.Time > scene.EndTime + CardRunFinder.KeyframeJoinTolerance
-                || VisualAt(visuals, frame.Time) is not { } visual)
+                || frame.Time < scene.StartTime - CardRunFinder.MembershipPad
+                || frame.Time > scene.EndTime + CardRunFinder.MembershipPad
+                || pages[i].Visual is not { } visual)
             {
                 continue;
             }
 
-            pages++;
+            withVisual++;
             if (CardRunFinder.IsLetteredPage(visual))
             {
                 lettered++;
             }
         }
 
-        return pages == 0 || lettered * 2 > pages;
-    }
-
-    // The blackframe and metadata filters format the same pts differently, so the two lists can sit
-    // under a millisecond apart; visuals are ordered by time.
-    private static KeyframeVisual? VisualAt(IReadOnlyList<KeyframeVisual> visuals, double time)
-    {
-        var low = 0;
-        var high = visuals.Count;
-        while (low < high)
-        {
-            var mid = low + ((high - low) / 2);
-            if (visuals[mid].Time < time - CardRunFinder.KeyframeJoinTolerance)
-            {
-                low = mid + 1;
-            }
-            else
-            {
-                high = mid;
-            }
-        }
-
-        return low < visuals.Count && visuals[low].Time - time <= CardRunFinder.KeyframeJoinTolerance ? visuals[low] : null;
+        return withVisual == 0 || lettered * 2 > withVisual;
     }
 
     /// <summary>

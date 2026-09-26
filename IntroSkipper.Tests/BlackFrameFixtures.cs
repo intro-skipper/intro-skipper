@@ -33,16 +33,13 @@ internal static class BlackFrameFixtures
         })];
 
     /// <summary>
-    /// The two lists the keyframe scan reports for <paramref name="keyframes"/>: one black row per
-    /// keyframe with frame numbers by index, and the visuals of the keyframes that have one.
+    /// The pages the keyframe scan reports for <paramref name="keyframes"/>: one per keyframe, its
+    /// black-frame row numbered by index and its visual, when it has one.
     /// </summary>
     /// <param name="keyframes">The keyframes, in time order.</param>
-    /// <returns>The black rows and the visuals.</returns>
-    internal static (BlackFrame[] Rows, KeyframeVisual[] Visuals) Scan(IEnumerable<Keyframe> keyframes)
-    {
-        List<Keyframe> list = [.. keyframes];
-        return ([.. list.Select((keyframe, frame) => new BlackFrame(keyframe.Percentage, keyframe.Time, frame))], [.. list.Select(keyframe => keyframe.Visual).OfType<KeyframeVisual>()]);
-    }
+    /// <returns>The pages.</returns>
+    internal static KeyframePage[] Pages(IEnumerable<Keyframe> keyframes)
+        => [.. keyframes.Select((keyframe, frame) => new KeyframePage(new BlackFrame(keyframe.Percentage, keyframe.Time, frame), keyframe.Visual))];
 
     /// <summary>
     /// Creates a dense run of keyframes at the given black percentage.
@@ -66,7 +63,8 @@ internal static class BlackFrameFixtures
 
     /// <summary>
     /// One keyframe of the keyframe scan: its black-frame row's time and percentage, and its
-    /// visual. The visual carries its own time, so a fixture can put the two clocks apart.
+    /// visual. The visual carries its own time, which only the service's join reads, so a fixture that
+    /// puts the two clocks apart pins that the analyzer reads the black-frame time.
     /// </summary>
     /// <param name="Time">The black-frame row's time.</param>
     /// <param name="Percentage">The black-frame row's percentage.</param>

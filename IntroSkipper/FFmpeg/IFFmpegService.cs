@@ -61,31 +61,21 @@ public interface IFFmpegService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds the black level of every keyframe from the credits start to the end of the file.
+    /// Scans the keyframes from the credits start to the end of the file: one page per keyframe,
+    /// with its black percentage and, inside the credits window, its luma percentiles and saturation.
     /// </summary>
     /// <remarks>
-    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
-    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode
-    /// reads that row instead of decoding again.
+    /// One keyframe decode writes two cache rows, the black-frame row and the visuals row. This reads
+    /// each row, or decodes it on a miss, and pairs them into pages, so no caller joins them. A
+    /// page's time is its black-frame time. A page has no visual when it lies past the credits
+    /// window, when no visual lies within 10 ms of its row, or when the ffmpeg check found the
+    /// signalstats filter missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns the black level of each keyframe.</returns>
-    Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits fingerprint range.
-    /// </summary>
-    /// <remarks>
-    /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>
-    /// wrote. Decodes on its own only for an episode whose black-frame row predates that shared
-    /// write, or when caching is off. Empty when the ffmpeg check found the visuals filters missing.
-    /// </remarks>
-    /// <param name="episode">Media file to analyze.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns per-keyframe visual statistics relative to the credits fingerprint start.</returns>
-    Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
+    /// <returns>A task that returns one page per keyframe, in time order, relative to the credits fingerprint start.</returns>
+    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds continuous black intervals in a bounded credits range.

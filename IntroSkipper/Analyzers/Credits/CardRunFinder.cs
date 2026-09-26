@@ -35,9 +35,10 @@ internal static class CardRunFinder
     private const double LimitedRangeWhite = 235.0;
     private const double MinimumCardFraction = 0.5;
 
-    // The blackframe and metadata filters format the same pts differently, so the same keyframe
-    // can sit under a millisecond apart in the two lists.
-    internal const double KeyframeJoinTolerance = 0.01;
+    // A keyframe within this of a scene's bounds belongs to the scene. An interval-supported scene
+    // starts on blackdetect's clock, and its cut keyframe can sit just before that start on the
+    // keyframe scan's clock.
+    internal const double MembershipPad = 0.01;
 
     // Black is unsaturated down to its darkest tenth. A black keyframe whose 10th percentile
     // saturation is at or above this is a dark tinted scene, not a roll or a card, and is content in
@@ -72,18 +73,14 @@ internal static class CardRunFinder
     /// tinted scene and content in every case. With no candidate the visuals alone decide, as the old
     /// fallback did, so black cards the black-frame rules could not confirm still count.
     /// </remarks>
-    /// <param name="visuals">The per-keyframe visual statistics, ordered by time.</param>
-    /// <param name="blackFrames">The black-frame scan over the same keyframes, ordered by time.</param>
+    /// <param name="pages">The keyframe scan's pages, ordered by time. A page without a visual is invisible here, and a run is timed on the pages' black-frame times.</param>
     /// <param name="blackMinimum">The black percentage at or above which a keyframe is black, normalized against the scan by the black-frame rules.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <param name="blackFrameScenes">The black scenes the black-frame rules accepted, relative to the credits fingerprint start; empty when they found no credits.</param>
     /// <param name="rejectedScenes">Black scenes the black-frame rules accepted and the analyzer then rejected as gaps; their black keyframes are content in every path, the no-scene fallback included, so a rejected gap cannot come back as a card run.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
-    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, IReadOnlyList<BlackFrame> blackFrames, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange>? rejectedScenes = null)
-    {
-        List<double> blackTimes = [.. blackFrames.Where(frame => frame.Percentage >= blackMinimum).Select(frame => frame.Time)];
-        return FindCreditRange(Classify(visuals, blackTimes, blackFrameScenes, rejectedScenes ?? []), minimumDuration);
-    }
+    public static TimeRange? FindCreditRange(IReadOnlyList<KeyframePage> pages, int blackMinimum, int minimumDuration, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange>? rejectedScenes = null)
+        => FindCreditRange(Classify(pages, blackMinimum, blackFrameScenes, rejectedScenes ?? []), minimumDuration);
 
     /// <summary>
     /// Classifies a keyframe as a credit card: a dominant near-uniform background, something drawn on
@@ -117,37 +114,34 @@ internal static class CardRunFinder
     internal static bool IsLetteredPage(KeyframeVisual visual)
         => visual.LumaMax - visual.LumaLow >= TextContrastMinimum;
 
-    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframeVisual> visuals, List<double> blackTimes, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange> rejectedScenes)
+    private static List<CardKeyframe> Classify(IReadOnlyList<KeyframePage> pages, int blackMinimum, IReadOnlyList<TimeRange> blackFrameScenes, IReadOnlyList<TimeRange> rejectedScenes)
     {
-        var keyframes = new List<CardKeyframe>(visuals.Count);
-        var next = 0;
-        foreach (var visual in visuals)
+        List<CardKeyframe> keyframes = [];
+        foreach (var (frame, visual) in pages)
         {
-            while (next < blackTimes.Count && blackTimes[next] < visual.Time - KeyframeJoinTolerance)
+            if (visual is null)
             {
-                next++;
+                continue;
             }
 
-            var black = next < blackTimes.Count && blackTimes[next] - visual.Time <= KeyframeJoinTolerance;
+            var black = frame.Percentage >= blackMinimum;
             var card = IsCreditCardKeyframe(visual);
 
-            // Scene bounds come from black-frame times, so a black keyframe is placed by its matched
-            // black-frame time, with the join tolerance on the bounds for the rounding between the two.
             // A solid white screen is content in every path, as a saturated or rejected black keyframe is.
-            var time = black ? blackTimes[next] : visual.Time;
+            var time = frame.Time;
             var kind = IsSolidWhite(visual) || (black && (visual.SaturationLow >= BlackSaturationMaximum || rejectedScenes.Any(scene => InScene(scene, time)))) ? KeyframeKind.Content
                 : blackFrameScenes.Count == 0 ? (card ? KeyframeKind.Card : KeyframeKind.Content)
                 : (black || card) && blackFrameScenes.Any(scene => InScene(scene, time)) ? KeyframeKind.BlackCard
                 : card && !black ? KeyframeKind.Card
                 : KeyframeKind.Content;
-            keyframes.Add(new CardKeyframe(visual.Time, kind));
+            keyframes.Add(new CardKeyframe(time, kind));
         }
 
         return keyframes;
     }
 
     private static bool InScene(TimeRange scene, double time)
-        => time >= scene.Start - KeyframeJoinTolerance && time <= scene.End + KeyframeJoinTolerance;
+        => time >= scene.Start - MembershipPad && time <= scene.End + MembershipPad;
 
     private static TimeRange? FindCreditRange(List<CardKeyframe> keyframes, int minimumDuration)
     {
