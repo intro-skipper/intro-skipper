@@ -25,9 +25,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// the first keyframe at the level over the frames that look like it (see <see cref="LeadInProbe"/>);
 /// the probe decodes for every trimmed scene and its start is cached under the two keyframes. Every
 /// accepted scene whose refined range meets the minimum duration is a black-frame candidate, so
-/// credits split by a mid-credits scene come out as separate parts. The card run is found against
-/// the black scenes those rules accepted: once they accept any scene, a black keyframe is a card
-/// only inside one (see <see cref="CardRunFinder"/>).
+/// credits split by a mid-credits scene come out as separate parts. The card run is found over each
+/// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
+/// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
+/// <see cref="StampCardKinds"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
@@ -90,7 +91,7 @@ internal sealed partial class KeyframeAnalyzer(
         List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
         if (detectCardCredits)
         {
-            var range = CardRunFinder.FindCreditRange(pages, blackMinimum, minimumDuration, scenes, rejected);
+            var range = CardRunFinder.FindCreditRange(StampCardKinds(pages, blackMinimum, scenes, rejected), minimumDuration);
             if (range is not null)
             {
                 candidates.Add(new AttributedSegment(
@@ -100,6 +101,69 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         return candidates;
+    }
+
+    /// <summary>
+    /// Stamps each page that has a visual with its card kind, from the black scenes the black-frame
+    /// rules accepted and rejected. The rules apply in order, with membership by
+    /// <see cref="InScene"/> on the page's time:
+    /// <list type="number">
+    /// <item><description>A solid white page, or a tinted page that is black by the raw percentage, is content.</description></item>
+    /// <item><description>A page that is black by the raw percentage and in a rejected range is content.</description></item>
+    /// <item><description>When accepted is empty, a card-like page is a card and any other page is content.</description></item>
+    /// <item><description>A black or card-like page in an accepted scene is a black card.</description></item>
+    /// <item><description>A card-like page that is not black is a card.</description></item>
+    /// <item><description>Any other page is content.</description></item>
+    /// </list>
+    /// </summary>
+    /// <remarks>
+    /// The accepted and rejected ranges are the only scene evidence the kinds read, and the
+    /// accepted scenes carry their interval and boundary evidence. A scene that falls short of the
+    /// minimum duration is still accepted while another meets it, so its pages stay black cards.
+    /// Each scene starts at its refined start. The lead-in probe matches pixels, not percentages,
+    /// so it can walk back over a page the blackframe filter did not count as black, and that page
+    /// is a black card inside the scene rather than a card before it.
+    /// Inside an accepted scene a blank black page between two roll pages is a black card, so it
+    /// does not break the roll. A card-like page inside an accepted scene is a black card too, so a
+    /// vanity card between two roll parts cannot give the roll a card density of its own. Both
+    /// extend the run and count toward its duration, so short white cards and a short roll qualify
+    /// together, but neither counts toward its density. Counting black cards toward density let a
+    /// black roll carry scattered flat shots before it into the run, which admitted 67 seconds of
+    /// story on an anime epilogue. Once any scene is accepted, a black page outside every accepted
+    /// scene is content, since the black-frame rules turned it down, as they do a dark lead-in
+    /// before the roll's transition or a black flash before an interval-confirmed roll. A rejected
+    /// range turns only black pages into content. A card-like page below the black threshold there
+    /// is a card, or a black card when an accepted scene also holds it. With no accepted scene the
+    /// visuals alone decide, as the old fallback did, so black cards the black-frame rules could
+    /// not confirm still count unless they were rejected.
+    /// </remarks>
+    /// <param name="pages">The keyframe scan's pages, ordered by time, with their raw black percentages. A page without a visual gets no kind.</param>
+    /// <param name="blackMinimum">The black percentage at or above which a page is black, normalized against the scan by the black-frame rules.</param>
+    /// <param name="accepted">Every black scene the black-frame rules accepted, each with its refined start, relative to the credits fingerprint start; empty when no scene met the minimum duration.</param>
+    /// <param name="rejected">The lead-ins and the scenes the lettering gate rejected as gaps, relative to the credits fingerprint start.</param>
+    /// <returns>One card page for each page that has a visual, in page order.</returns>
+    internal static List<CardPage> StampCardKinds(IReadOnlyList<KeyframePage> pages, int blackMinimum, IReadOnlyList<TimeRange> accepted, IReadOnlyList<TimeRange> rejected)
+    {
+        List<CardPage> kinds = [];
+        foreach (var (frame, visual) in pages)
+        {
+            if (visual is null)
+            {
+                continue;
+            }
+
+            var time = frame.Time;
+            var black = frame.Percentage >= blackMinimum;
+            var cardLike = visual.IsCardLike();
+            var kind = visual.IsSolidWhite() || (black && (visual.IsTinted() || rejected.Any(range => InScene(range.Start, range.End, time)))) ? CardKind.Content
+                : accepted.Count == 0 ? (cardLike ? CardKind.Card : CardKind.Content)
+                : (black || cardLike) && accepted.Any(scene => InScene(scene.Start, scene.End, time)) ? CardKind.BlackCard
+                : cardLike && !black ? CardKind.Card
+                : CardKind.Content;
+            kinds.Add(new CardPage(time, kind));
+        }
+
+        return kinds;
     }
 
     /// <summary>
@@ -153,9 +217,9 @@ internal sealed partial class KeyframeAnalyzer(
 
         // A dim last shot before the cut to the roll is black to the blackframe filter, and by the
         // statistics the scan keeps it is the same shape as a credit page on a lifted black. The
-        // scene starts after such a lead-in, and the lead-in is a rejected range to the card run
-        // finder, so its card-like keyframes cannot come back as a card run when what is left of the
-        // scene is too short to be credits. A lighter section later in the scene stays.
+        // scene starts after such a lead-in, and the lead-in is a rejected range to the card kinds, so
+        // its card-like keyframes cannot come back as a card run when what is left of the scene is too
+        // short to be credits. A lighter section later in the scene stays.
         var rejected = new List<TimeRange>();
         var lastLighterKeyframes = new Dictionary<CreditScene, double>();
         for (var i = 0; i < scenes.Count; i++)
@@ -214,19 +278,17 @@ internal sealed partial class KeyframeAnalyzer(
             }
         }
 
-        // With no candidate the card run finder sees no accepted scene and falls back to the visuals.
+        // With no candidate no scene is accepted, and the card kinds fall back to the visuals.
         return (credits, credits.Count > 0 ? accepted : [], rejected);
     }
 
     /// <summary>
     /// Projects the pages onto their black-frame rows, one row per page in page order, with the
-    /// percentage of each keyframe whose visual is saturated set to zero. Black is unsaturated; a
-    /// keyframe the blackframe filter counts as black at that saturation is a dark tinted scene, such
-    /// as a blue night cave, not a roll or a card. The lead-in and lettering gates read page i beside
-    /// row i, so this maps and never filters.
+    /// percentage of each tinted keyframe set to zero (see <see cref="KeyframeVisualTraits.IsTinted"/>).
+    /// The lead-in and lettering gates read page i beside row i, so this maps and never filters.
     /// </summary>
     private static List<BlackFrame> WithoutTintedKeyframes(IReadOnlyList<KeyframePage> pages)
-        => [.. pages.Select(page => page.Visual is { SaturationLow: >= CardRunFinder.BlackSaturationMaximum } ? page.Frame with { Percentage = 0 } : page.Frame)];
+        => [.. pages.Select(page => page.Visual?.IsTinted() is true ? page.Frame with { Percentage = 0 } : page.Frame)];
 
     /// <summary>
     /// Moves a scene's start past its dark grey lead-in: the leading black keyframes that show dim
@@ -240,7 +302,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// without a visual ends the lead-in, since nothing says it is dim. A scene whose lifted keyframes
     /// are the majority sets its level from their darkest tenth and keeps its start; the 90th
     /// percentile sets no level, so a dark majority behind bars is still a lead-in. The black
-    /// keyframes are read from <see cref="CardRunFinder.MembershipPad"/> before the start. A
+    /// keyframes are read from 10 ms before the start (see <see cref="InScene"/>). A
     /// scene that a blackdetect interval confirmed starts on blackdetect's clock, and its cut keyframe
     /// can sit just before that start on the scan's clock. The first keyframe read counts as the
     /// scene's first, whether or not it is the start frame. Stopping on it leaves no lead-in, and a
@@ -253,9 +315,7 @@ internal sealed partial class KeyframeAnalyzer(
         for (var i = 0; i < blackFrames.Count; i++)
         {
             var frame = blackFrames[i];
-            if (frame.Percentage >= minimum
-                && frame.Time >= scene.StartTime - CardRunFinder.MembershipPad
-                && frame.Time <= scene.EndTime + CardRunFinder.MembershipPad)
+            if (frame.Percentage >= minimum && InScene(scene.StartTime, scene.EndTime, frame.Time))
             {
                 scenePages.Add((frame, pages[i].Visual));
             }
@@ -329,7 +389,7 @@ internal sealed partial class KeyframeAnalyzer(
     {
         var dimFloor = blackLevel + BlackLevelTolerance;
         return visual.LumaLow > dimFloor
-            || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + CardRunFinder.TextContrastMinimum);
+            || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + KeyframeVisualTraits.TextContrastMinimum);
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
@@ -343,21 +403,30 @@ internal sealed partial class KeyframeAnalyzer(
         {
             var frame = blackFrames[i];
             if (frame.Percentage < minimum
-                || frame.Time < scene.StartTime - CardRunFinder.MembershipPad
-                || frame.Time > scene.EndTime + CardRunFinder.MembershipPad
+                || !InScene(scene.StartTime, scene.EndTime, frame.Time)
                 || pages[i].Visual is not { } visual)
             {
                 continue;
             }
 
             withVisual++;
-            if (CardRunFinder.IsLetteredPage(visual))
+            if (visual.IsLettered())
             {
                 lettered++;
             }
         }
 
         return withVisual == 0 || lettered * 2 > withVisual;
+    }
+
+    // Whether a keyframe at the time belongs to the scene from start to end. The lead-in and
+    // lettering gates and the card kinds all use it. A keyframe within the pad of a scene's bounds
+    // belongs to the scene: an interval-supported scene starts on blackdetect's clock, and its cut
+    // keyframe can sit just before that start on the keyframe scan's clock.
+    private static bool InScene(double start, double end, double time)
+    {
+        const double pad = 0.01;
+        return time >= start - pad && time <= end + pad;
     }
 
     /// <summary>

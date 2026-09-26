@@ -46,6 +46,10 @@ _Avoid_: Entropy data, visual stats, card evidence
 Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe that is not solid white and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits. Solid white screens are always content, even inside an accepted scene.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
 
+**Card kind**:
+What a page is to the card run: content, card or black card. The keyframe analyzer sets it after probing.
+_Avoid_: Keyframe kind, page type
+
 ### Analysis
 
 **File version**:
