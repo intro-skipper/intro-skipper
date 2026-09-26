@@ -1958,9 +1958,6 @@ public class TestBlackFrames
     private static async Task<List<(SegmentSource Source, double Start, double End)>> KeyframeCandidates(KeyframeAnalyzer analyzer, QueuedEpisode episode)
         => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
 
-    private static async Task<List<Segment>> BlackFrameCredits(KeyframeAnalyzer analyzer, QueuedEpisode episode)
-        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false)).Where(c => c.Source == SegmentSource.BlackFrame).Select(c => c.Segment)];
-
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {
         return new()
@@ -2001,25 +1998,6 @@ public class TestBlackFrames
             LumaWindows = lumaWindows ?? ((_, _, _) => null),
         };
     }
-
-    /// <summary>
-    /// Creates a stub whose keyframe credits scan returns <paramref name="creditsFrames"/>, whose
-    /// range probes return <paramref name="probeFrames"/>, and whose blackdetect scans return
-    /// <paramref name="intervals"/>.
-    /// </summary>
-    private static StubFFmpegService CreditsScan(
-        BlackFrame[] creditsFrames,
-        BlackFrame[]? probeFrames = null,
-        BlackInterval[]? intervals = null,
-        KeyframeVisual[]? visuals = null,
-        Func<QueuedEpisode, TimeRange, int, LumaWindow?>? lumaWindows = null) => new()
-        {
-            CreditsBlackFrames = (_, _) => creditsFrames,
-            RangeBlackFrames = (_, _, _, _, _) => probeFrames ?? [],
-            BlackIntervals = (_, _, _, _) => intervals ?? [],
-            KeyframeVisuals = _ => visuals ?? [],
-            LumaWindows = lumaWindows ?? ((_, _, _) => null),
-        };
 
     /// <summary>
     /// Keyframes ten seconds apart from 0 to 120: content, then a roll that is black from the page at
@@ -2102,16 +2080,7 @@ public class TestBlackFrames
     private static Keyframe[] NotBlack(IEnumerable<KeyframeVisual> visuals)
         => [.. visuals.Select(visual => new Keyframe(visual.Time, 0, visual))];
 
-    private static BlackFrame[] CreateStingerSplitFrames() =>
-    [
-        .. CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95),
-        .. CreateDenseFrames(startTime: 20.5, endTime: 89.5, percentage: 30, startFrame: 41),
-        .. CreateDenseFrames(startTime: 90, endTime: 120, percentage: 95, startFrame: 180),
-    ];
-
     private static int LowDensityPercentage(int i) => i % 3 == 0 ? 90 : 30;
-
-    private static BlackFrame[] CreateLowDensitySingleCandidateFrames() => CreateFrames(100, LowDensityPercentage);
 
     /// <summary>
     /// Keyframes 0.5s apart with a per-index black percentage.

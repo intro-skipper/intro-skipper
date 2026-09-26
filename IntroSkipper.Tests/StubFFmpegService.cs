@@ -12,23 +12,21 @@ using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 
 /// <summary>
-/// <see cref="IFFmpegService"/> stand-in for analyzer tests. Every member counts its calls,
+/// <see cref="IFFmpegService"/> stand-in for analyzer tests. Every member records its call,
 /// honors cancellation, then runs the matching delegate hook; a member without a hook throws
 /// <see cref="NotSupportedException"/> so a test fails loudly when an analyzer reaches an
 /// operation it was not expected to use. Members are virtual for the rare case a hook is not
-/// enough. The probes, range scans, interval scans and luma decodes, are also recorded in
-/// <see cref="Calls"/> in the order they arrive, before the hook runs, so a probe whose hook
-/// throws is recorded too.
+/// enough. The probes, range scans, interval scans and luma decodes, go to <see cref="Calls"/>
+/// in the order they arrive, before the hook runs, so a probe whose hook throws is recorded too;
+/// the other members count their calls.
 /// </summary>
 internal class StubFFmpegService : IFFmpegService
 {
     private readonly ConcurrentQueue<Call> _calls = new();
     private int _versionCheckCalls;
-    private int _rangeScanCalls;
     private int _creditsScanCalls;
     private int _fingerprintCalls;
     private int _visualScanCalls;
-    private int _intervalScanCalls;
     private int _probeCalls;
 
     public Func<bool>? VersionCheck { get; init; }
@@ -53,26 +51,16 @@ internal class StubFFmpegService : IFFmpegService
 
     public int VersionCheckCalls => Volatile.Read(ref _versionCheckCalls);
 
-    public int RangeScanCalls => Volatile.Read(ref _rangeScanCalls);
-
     public int CreditsScanCalls => Volatile.Read(ref _creditsScanCalls);
 
     public int FingerprintCalls => Volatile.Read(ref _fingerprintCalls);
 
     public int VisualScanCalls => Volatile.Read(ref _visualScanCalls);
 
-    public int IntervalScanCalls => Volatile.Read(ref _intervalScanCalls);
-
     public int ProbeCalls => Volatile.Read(ref _probeCalls);
 
     /// <summary>Gets the probes the stub received, in order: tests assert the whole log.</summary>
     public IReadOnlyList<Call> Calls => [.. _calls];
-
-    /// <summary>Gets the arguments of the most recent range black-frame scan.</summary>
-    public (TimeRange Range, int Minimum, int Threshold, AnalysisMode Mode)? LastRangeScan { get; private set; }
-
-    /// <summary>Gets the range of the most recent blackdetect interval scan.</summary>
-    public TimeRange? LastIntervalRange { get; private set; }
 
     /// <summary>Gets the credits window start of the most recent credits black-frame scan.</summary>
     public double? LastCreditsScanStart { get; private set; }
@@ -102,9 +90,7 @@ internal class StubFFmpegService : IFFmpegService
         AnalysisMode mode,
         CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _rangeScanCalls);
         _calls.Enqueue(new RangeScan(range.Start, range.End, minimum, threshold, mode));
-        LastRangeScan = (range, minimum, threshold, mode);
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(RangeBlackFrames)(episode, range, minimum, threshold, mode));
     }
@@ -126,9 +112,7 @@ internal class StubFFmpegService : IFFmpegService
 
     public virtual Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _intervalScanCalls);
         _calls.Enqueue(new IntervalScan(range.Start, range.End, threshold, minimum));
-        LastIntervalRange = range;
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(BlackIntervals)(episode, range, threshold, minimum));
     }
