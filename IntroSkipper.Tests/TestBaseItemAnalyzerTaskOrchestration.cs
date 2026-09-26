@@ -127,6 +127,65 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     }
 
     /// <summary>
+    /// A season that throws is skipped, not the pass: the other seasons in scope are still
+    /// analyzed and recorded, and the failed one is left unrecorded for the next pass.
+    /// </summary>
+    [Fact]
+    public async Task AnalyzeItemsAsync_SkipsASeasonThatThrows_AndAnalyzesTheRest()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = true,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+            ProbeAudioDuration = true,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var brokenPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        var soundPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(brokenPath, string.Empty);
+        await File.WriteAllTextAsync(soundPath, string.Empty);
+        try
+        {
+            var broken = JellyfinItems.Movie(Guid.NewGuid(), name: "Broken", path: brokenPath);
+            var sound = JellyfinItems.Movie(Guid.NewGuid(), name: "Sound", path: soundPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], [broken, sound]);
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            var ffmpeg = new StubFFmpegService
+            {
+                VersionCheck = () => false,
+                AudioDuration = path => path == brokenPath ? throw new IOException("probe failed") : 1300,
+                CreditsBlackFrames = (_, _) => [],
+                KeyframeVisuals = _ => [],
+                RangeBlackFrames = (_, _, _, _, _) => [],
+                Silence = (_, _, _) => [],
+            };
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                ffmpeg,
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
+
+            var brokenSnapshot = await database.GetSeasonQueueSnapshotAsync(broken.Id, [broken.Id]);
+            Assert.Empty(brokenSnapshot.AnalysisRecords);
+            var soundSnapshot = await database.GetSeasonQueueSnapshotAsync(sound.Id, [sound.Id]);
+            Assert.Contains((sound.Id, AnalysisMode.Credits), soundSnapshot.AnalysisRecords.Keys);
+        }
+        finally
+        {
+            File.Delete(brokenPath);
+            File.Delete(soundPath);
+        }
+    }
+
+    /// <summary>
     /// The credits window is set when the season enters the credits pass, for the settled
     /// sibling too since its cached fingerprints are keyed by the same window, and the
     /// audio duration is probed only when the setting is on.
