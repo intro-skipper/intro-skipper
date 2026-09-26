@@ -335,38 +335,45 @@ public class TestBlackFrames
         // lettering lifts a roll page's 90th percentile onto the text and is a roll. Pages dense
         // enough to lift the 90th percentile into the dark band read as dim content, so a roll that
         // opens on them starts after them. No frames are decoded here, so every lead-in takes the
-        // policy's keyframe start; the lead-in probe's own tests cover the frame it moves to.
-        double[] times = [.. Times(20, 54, 0.5)];
-        KeyframeVisual[] visuals = visualsKind switch
+        // policy's keyframe start; the lead-in probe's own tests cover the frame it moves to. A page
+        // whose 90th percentile reaches the threshold of 32 is at most nine tenths black, so dense and
+        // large lettering and the pages behind bars sit at 89, black at the floor of 30 that a scan
+        // of the roll alone keeps. No fixture gives a card run: an accepted roll's pages are black
+        // cards, and the pages of a rejected or tinted one are content.
+        Keyframe[] keyframes = visualsKind switch
         {
-            "black" => [.. times.Select(KeyframeVisuals.Black)],
-            "tinted" => [.. times.Select(KeyframeVisuals.Tinted)],
-            "blank" => [.. times.Select(KeyframeVisuals.BlankBlack)],
-            "one page" => [.. times.Select(t => t == 30 ? KeyframeVisuals.Black(t) : KeyframeVisuals.BlankBlack(t))],
-            "most pages" => [.. times.Select((t, i) => i % 3 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))],
-            "half the pages" => [.. times.Select((t, i) => i % 2 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))],
-            "cut then highlight" => [.. times.Select(t => t <= 37 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.DarkHighlight(t))],
-            "dense text" => [.. times.Select(KeyframeVisuals.DenseText)],
-            "red text" => [.. times.Select(KeyframeVisuals.RedText)],
-            "dense red text" => [.. times.Select(KeyframeVisuals.DenseRedText)],
-            "dark highlight" => [.. times.Select(KeyframeVisuals.DarkHighlight)],
-            "dark grey lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            "lifted blacks" => [.. times.Select(KeyframeVisuals.LiftedBlack)],
-            "mixed black levels" => [.. times.Select(t => t < 34 ? KeyframeVisuals.LiftedBlack(t) : KeyframeVisuals.Black(t))],
-            "letterboxed dark lead-in" => [.. times.Select(t => t < 30 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
-            "letterboxed dark majority" => [.. times.Select(t => t < 38 ? KeyframeVisuals.LetterboxedDark(t) : KeyframeVisuals.Black(t))],
-            "big text" => [.. times.Select(KeyframeVisuals.BigText)],
-            "dense first pages" => [.. times.Select(t => t < 24 ? KeyframeVisuals.DenseText(t) : KeyframeVisuals.Black(t))],
-            _ => [],
+            "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
+            "tinted" => Roll((20, 54, 95, KeyframeVisuals.Tinted)),
+            "blank" => Roll((20, 54, 95, KeyframeVisuals.BlankBlack)),
+            "one page" => Roll((30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
+            "most pages" => Roll((20, 54, 95, t => (t - 20) % 1.5 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
+            "half the pages" => Roll((20, 54, 95, t => (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
+            "none" => Roll((20, 54, 95, _ => null)),
+            "dense text" => Roll((20, 54, 89, KeyframeVisuals.DenseText)),
+            "red text" => Roll((20, 54, 95, KeyframeVisuals.RedText)),
+            "dense red text" => Roll((20, 54, 89, KeyframeVisuals.DenseRedText)),
+            "dark highlight" => Roll((20, 54, 95, KeyframeVisuals.DarkHighlight)),
+            "cut then highlight" => Roll((20, 37, 95, KeyframeVisuals.BlankBlack), (37.5, 54, 95, KeyframeVisuals.DarkHighlight)),
+            "dark grey lead-in" => Roll((20, 29.5, 95, KeyframeVisuals.DarkGrey), (30, 54, 95, KeyframeVisuals.Black)),
+            "lifted blacks" => Roll((20, 54, 95, KeyframeVisuals.LiftedBlack)),
+            "mixed black levels" => Roll((20, 33.5, 95, KeyframeVisuals.LiftedBlack), (34, 54, 95, KeyframeVisuals.Black)),
+            "letterboxed dark lead-in" => Roll((20, 29.5, 89, KeyframeVisuals.LetterboxedDark), (30, 54, 95, KeyframeVisuals.Black)),
+            "letterboxed dark majority" => Roll((20, 37.5, 89, KeyframeVisuals.LetterboxedDark), (38, 54, 95, KeyframeVisuals.Black)),
+            "big text" => Roll((20, 54, 89, KeyframeVisuals.BigText)),
+            "dense first pages" => Roll((20, 23.5, 89, KeyframeVisuals.DenseText), (24, 54, 95, KeyframeVisuals.Black)),
+            _ => throw new ArgumentOutOfRangeException(nameof(visualsKind)),
         };
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);
+        var ffmpeg = KeyframeScan(keyframes);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = await BlackFrameCredits(analyzer, episode);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        double[] starts = expectedStart is { } start ? [start] : [];
-        Assert.Equal(starts, result.Select(credits => credits.Start));
+        (SegmentSource, double, double)[] expected = expectedStart is { } start ? [(SegmentSource.BlackFrame, start, 154)] : [];
+        Assert.Equal(expected, candidates);
+
+        static Keyframe[] Roll(params (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
+            => Keyframes(20, 54, 0.5, spans);
     }
 
     [Fact]
@@ -377,53 +384,36 @@ public class TestBlackFrames
         // vanishes into blank black at 129, between the keyframes, and the scene starts there. The
         // lead-in is a rejected range, so its card-like keyframes are content and the black-frame
         // candidate is the only one.
-        TimeRange? requested = null;
-        var requestedWidth = 0;
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            lumaWindows: (_, window, width) =>
-            {
-                requested = window;
-                requestedWidth = width;
-                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
-            });
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 54, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 54, 95, KeyframeVisuals.Black)),
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16))));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        var credits = Assert.Single(candidates);
-        Assert.Equal(SegmentSource.BlackFrame, credits.Source);
-        Assert.Equal(129, credits.Segment.Start, 3);
-        Assert.Equal((128, 130 + LeadInProbe.LookAheadPadding), (requested?.Start, requested?.End));
-        Assert.Equal(LeadInProbe.Width, requestedWidth);
+        Assert.Equal([(SegmentSource.BlackFrame, 129.0, 154.0)], candidates);
+        Assert.Equal([new LumaDecode(128, 130.25, 160)], ffmpeg.Calls);
     }
 
     [Fact]
     public async Task DetectCreditsAsync_LeadInProbeDecodesEachTrimmedScene()
     {
-        // Two black scenes with a dark grey lead-in each, too far apart to merge. Every trimmed
-        // scene gets the lead-in probe, so both windows are decoded. In the later window the lit
-        // object vanishes at 165 and starts the scene there. The earlier window shows the lit object
-        // throughout, the keyframe's own frame included, so every frame matches the keyframe and its
-        // scene starts on the first frame after the lighter keyframe at 120.
-        List<TimeRange> decoded = [];
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 94, 2).Select((t, i) => new BlackFrame(t is >= 42 and <= 62 ? 0 : 95, t, i * 48))],
-            visuals: [.. Times(20, 94, 2).Select(t => t is < 22 or (>= 64 and < 66) ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            lumaWindows: (_, window, _) =>
-            {
-                decoded.Add(window);
-                return LumaWindows.Window(window.Start, (165 - window.Start, () => LumaWindows.Blob(21)), (window.End - 165, () => LumaWindows.Blank(16)));
-            });
+        // Two black scenes with a dark grey lead-in each and content between them, too far apart to
+        // merge. Every trimmed scene gets the lead-in probe, so both windows are decoded. In the later
+        // window the lit object vanishes at 165 and starts the scene there. The earlier window shows
+        // the lit object throughout, the keyframe's own frame included, so every frame matches the
+        // keyframe and its scene starts on the first frame after the lighter keyframe at 120.
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 94, 2, (20, 20, 95, KeyframeVisuals.DarkGrey), (22, 40, 95, KeyframeVisuals.Black), (64, 64, 95, KeyframeVisuals.DarkGrey), (66, 94, 95, KeyframeVisuals.Black)),
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (165 - window.Start, () => LumaWindows.Blob(21)), (window.End - 165, () => LumaWindows.Blank(16))));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = await BlackFrameCredits(analyzer, episode);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal([(120.042, 140.0), (165.0, 194.0)], result.Select(credits => (Math.Round(credits.Start, 3), credits.End)));
-        Assert.Equal([120.0, 164.0], decoded.Select(window => window.Start));
+        Assert.Equal([(SegmentSource.BlackFrame, 120.042, 140.0), (SegmentSource.BlackFrame, 165.0, 194.0)], candidates.Select(c => (c.Source, Math.Round(c.Start, 3), c.End)));
+        Assert.Equal([new LumaDecode(120, 122.25, 160), new LumaDecode(164, 166.25, 160)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -431,25 +421,19 @@ public class TestBlackFrames
     {
         // The start the probe locates is a function of the file between the two keyframes, so a
         // second analysis of the episode reads it from the detection cache instead of decoding.
-        var decoded = 0;
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            lumaWindows: (_, window, _) =>
-            {
-                decoded++;
-                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
-            });
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 54, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 54, 95, KeyframeVisuals.Black)),
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16))));
         var cache = DatabaseTestHelpers.CreateTempCacheService();
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true }, cache);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var first = Assert.Single(await BlackFrameCredits(analyzer, episode));
-        var second = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var first = await KeyframeCandidates(analyzer, episode);
+        var second = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal(129, first.Start, 3);
-        Assert.Equal(129, second.Start, 3);
-        Assert.Equal(1, decoded);
+        Assert.Equal([(SegmentSource.BlackFrame, 129.0, 154.0)], first);
+        Assert.Equal(first, second);
+        Assert.Equal([new LumaDecode(128, 130.25, 160)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -457,40 +441,35 @@ public class TestBlackFrames
     {
         // Keyframe-only analysis: the lead-in still trims to the keyframe at 30, and nothing between
         // the keyframes is decoded, though the frames there would move the start to 129.
-        var decoded = 0;
-        var ffmpeg = CreditsScan(
-            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
-            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
-            lumaWindows: (_, window, _) =>
-            {
-                decoded++;
-                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
-            });
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 54, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 54, 95, KeyframeVisuals.Black)),
+            lumaWindows: (_, window, _) => LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16))));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal(130, result.Start);
-        Assert.Equal(0, decoded);
+        Assert.Equal([(SegmentSource.BlackFrame, 130.0, 154.0)], candidates);
+        Assert.Empty(ffmpeg.Calls);
     }
 
     [Fact]
     public async Task DetectCreditsAsync_TrimmedSceneKeepsItsKeyframeStart()
     {
-        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30 and no window
-        // decoded, so the policy trims at 30. The boundary probe would read the gap before 30 with
-        // blackframe, which scores the lead-in black, and pull the start back into it; a trimmed
-        // scene does not probe.
-        BlackFrame[] frames = [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))];
-        var ffmpeg = CreditsScan(frames, probeFrames: [new BlackFrame(100, 0.2, 5)], visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        // Keyframes two seconds apart, a dark grey lead-in nominated between 28 and 30 and a lead-in
+        // decode that fails, so the policy trims at 30. The boundary probe would read the gap before
+        // 30 with blackframe, which scores the lead-in black, and pull the start back into it; a
+        // trimmed scene does not probe.
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 54, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 54, 95, KeyframeVisuals.Black)),
+            probeFrames: [new BlackFrame(100, 0.2, 5)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal(130, result.Start);
-        Assert.Equal(0, ffmpeg.RangeScanCalls);
+        Assert.Equal([(SegmentSource.BlackFrame, 130.0, 154.0)], candidates);
+        Assert.Equal([new LumaDecode(128, 130.25, 160)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -499,12 +478,11 @@ public class TestBlackFrames
         // A card-like dark grey lead-in of 12 s before 13 s of roll: the trim leaves the scene under
         // the minimum, so there is no accepted scene and the card finder's visual-only fallback runs.
         // The lead-in must be content there, or it returns as a card run over lead-in and roll.
-        double[] times = [.. Times(20, 45, 0.5)];
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 45, percentage: 95), visuals: [.. times.Select(t => t < 32 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))]);
+        var ffmpeg = KeyframeScan(Keyframes(20, 45, 0.5, (20, 31.5, 95, KeyframeVisuals.DarkGrey), (32, 45, 95, KeyframeVisuals.Black)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
     }
@@ -520,33 +498,36 @@ public class TestBlackFrames
         // A sparse roll that a blackdetect interval confirms starts on blackdetect's clock, at 40.
         // The page 5 ms before it is the cut keyframe on the scan's clock and the scene's first page,
         // so each fixture gives the same candidates as its twin with the page at 40, except that a
-        // card run that starts on the page starts 5 ms earlier. A level page, or one without a
-        // visual, keeps the start at 40 and runs no boundary probe, since the gap from the page to 40
-        // is under the boundary probe's minimum window. A dim page is a lead-in. The scene starts at
-        // the level start frame at 50, and the lead-in probe decodes the frames between the two. A
-        // dim start frame after a level page stays in the scene. With a content keyframe in the
-        // page's place, the walk starts on the start frame at 50, and the scene keeps 40 and runs no
-        // probe. The card run covers the roll and the grey cards after it, and starts on the page
-        // when the scene keeps it as a black card.
-        List<TimeRange> decoded = [];
-        var ffmpeg = PageBeforeTheRoll(page, 39.995, decoded);
+        // card run that starts on the page starts 5 ms earlier. The interval probe covers the roll
+        // from its first black page, padded by the minimum. A level page, or one without a visual,
+        // keeps the start at 40 and runs no boundary probe, since the gap from the page to 40 is
+        // under the boundary probe's minimum window. A dim page is a lead-in. The scene starts at the
+        // level start frame at 50, and the lead-in probe decodes the frames between the two. A dim
+        // start frame after a level page stays in the scene. With a content keyframe in the page's
+        // place, the walk starts on the start frame at 50, and the scene keeps 40 and runs no probe.
+        // The card run covers the roll and the grey cards after it, and starts on the page when the
+        // scene keeps it as a black card.
+        var ffmpeg = PageBeforeTheRoll(page, 39.995);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
 
-        var candidates = await analyzer.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
-        List<(double Start, double End)> windows = leadIn ? [(39.995, 50 + LeadInProbe.LookAheadPadding)] : [];
-        Assert.Equal(Expected(39.995), candidates.Select(c => (c.Source, c.Segment.Start, c.Segment.End)));
-        Assert.Equal(windows, decoded.Select(window => (window.Start, window.End)));
-        Assert.Equal(0, ffmpeg.RangeScanCalls);
-        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        var firstBlackPage = page == "content" ? 50 : 39.995;
+        Call[] probes = leadIn
+            ? [new IntervalScan(firstBlackPage - 15, 95, 32, 85), new LumaDecode(39.995, 50.25, 160)]
+            : [new IntervalScan(firstBlackPage - 15, 95, 32, 85)];
+        Assert.Equal(Expected(39.995), candidates);
+        Assert.Equal(probes, ffmpeg.Calls);
 
         // The twin puts the page at blackdetect's start, where it is the start frame. Refinement is
         // off because there a scene without a lead-in runs the boundary probe over the gap from the
         // keyframe at 30.
-        var twin = CreateKeyframeAnalyzer(PageBeforeTheRoll(page, 40, []), new PluginConfiguration { RefineCreditsBoundary = false });
-        var twinCandidates = await twin.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+        var twinFfmpeg = PageBeforeTheRoll(page, 40);
+        var twin = CreateKeyframeAnalyzer(twinFfmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var twinCandidates = await KeyframeCandidates(twin, CreateQueuedCreditsEpisode());
 
-        Assert.Equal(Expected(40), twinCandidates.Select(c => (c.Source, c.Segment.Start, c.Segment.End)));
+        Assert.Equal(Expected(40), twinCandidates);
+        Assert.Equal([new IntervalScan(page == "content" ? 35 : 25, 95, 32, 85)], twinFfmpeg.Calls);
 
         (SegmentSource Source, double Start, double End)[] Expected(double pageTime) =>
             [(SegmentSource.BlackFrame, blackFrameStart, 80), (SegmentSource.KeyframeVisuals, pageIsBlackCard ? pageTime : 50, 120)];
@@ -557,28 +538,28 @@ public class TestBlackFrames
     {
         // The black-level rule is confined to the leading boundary: a roll whose last pages sit on a
         // lifted black keeps them, since only a lead-in is ambiguous with story.
-        double[] times = [.. Times(20, 54, 0.5)];
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: [.. times.Select(t => t < 40 ? KeyframeVisuals.Black(t) : KeyframeVisuals.LiftedBlack(t))]);
+        var ffmpeg = KeyframeScan(Keyframes(20, 54, 0.5, (20, 39.5, 95, KeyframeVisuals.Black), (40, 54, 95, KeyframeVisuals.LiftedBlack)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal((120.0, 154.0), (result.Start, result.End));
+        Assert.Equal([(SegmentSource.BlackFrame, 120.0, 154.0)], candidates);
     }
 
     [Fact]
     public async Task DetectCreditsAsync_SceneWithoutVisualEvidenceIsKept()
     {
-        // Visuals that match none of the roll's keyframes by time: the lettering gate has nothing to
-        // judge and must leave the black-frame result alone rather than reject the roll on a zero count.
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: [.. Times(20.3, 54.3, 0.5).Select(KeyframeVisuals.BlankBlack)]);
+        // A roll whose keyframes the visuals decode did not report, after content keyframes it did.
+        // The gates find no visual on any of the roll's pages and must leave the black-frame result
+        // alone rather than reject the roll on a zero count.
+        var ffmpeg = KeyframeScan(Keyframes(0, 54, 0.5, (20, 54, 95, _ => null)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal(120, result.Start);
+        Assert.Equal([(SegmentSource.BlackFrame, 120.0, 154.0)], candidates);
     }
 
     [Fact]
@@ -588,13 +569,18 @@ public class TestBlackFrames
         // scene's bounds come from the black-frame times, so its lettered endpoints, whose visuals
         // land a fraction of a millisecond outside those bounds, must still be rejected pages and
         // not become a card run of their own.
-        BlackFrame[] frames = [new(95, 20.000019, 40), new(95, 25, 50), new(95, 30, 60), new(95, 35.000099, 70)];
-        KeyframeVisual[] visuals = [KeyframeVisuals.Black(20), KeyframeVisuals.BlankBlack(25), KeyframeVisuals.BlankBlack(30), KeyframeVisuals.Black(35.0001)];
-        var ffmpeg = CreditsScan(frames, visuals: visuals);
+        Keyframe[] keyframes =
+        [
+            new(20.000019, 95, KeyframeVisuals.Black(20)),
+            new(25, 95, KeyframeVisuals.BlankBlack(25)),
+            new(30, 95, KeyframeVisuals.BlankBlack(30)),
+            new(35.000099, 95, KeyframeVisuals.Black(35.0001)),
+        ];
+        var ffmpeg = KeyframeScan(keyframes);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
     }
@@ -607,18 +593,17 @@ public class TestBlackFrames
     {
         // The lettering gate rejects the scene; its black pages must not reach the card finder's
         // no-scene fallback and come back as a card run.
-        double[] times = [.. Times(20, 54, 0.5)];
-        KeyframeVisual[] visuals = visualsKind switch
+        var keyframes = visualsKind switch
         {
-            "one page" => [.. times.Select(t => t == 30 ? KeyframeVisuals.Black(t) : KeyframeVisuals.BlankBlack(t))],
-            "half the pages" => [.. times.Select((t, i) => i % 2 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))],
-            _ => [.. times.Select(t => t <= 37 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.DarkHighlight(t))],
+            "one page" => Keyframes(20, 54, 0.5, (30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
+            "half the pages" => Keyframes(20, 54, 0.5, (20, 54, 95, t => (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
+            _ => Keyframes(20, 54, 0.5, (20, 37, 95, KeyframeVisuals.BlankBlack), (37.5, 54, 95, KeyframeVisuals.DarkHighlight)),
         };
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: visuals);
+        var ffmpeg = KeyframeScan(keyframes);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
     }
@@ -648,12 +633,11 @@ public class TestBlackFrames
     {
         // Saturated black keyframes flat enough to pass the card test on luma alone: not a black
         // scene, and not a card run through the no-scene fallback either.
-        double[] times = [.. Times(20, 54, 0.5)];
-        var ffmpeg = CreditsScan(CreateDenseFrames(startTime: 20, endTime: 54, percentage: 95), visuals: [.. times.Select(KeyframeVisuals.TintedFlat)]);
+        var ffmpeg = KeyframeScan(Keyframes(20, 54, 0.5, (20, 54, 95, KeyframeVisuals.TintedFlat)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
     }
@@ -661,91 +645,69 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_MultipleSparseScenesRequireBlackIntervalSupport()
     {
-        // Two sparse scenes clear the keyframe density gate because the source has only a few
-        // keyframes in each run. The large gap separates the runs; only the first scene has a
+        // Two sparse scenes, each after a content keyframe, clear the keyframe density gate because
+        // the source has only a few keyframes in each run. The large gap separates the runs; the
+        // interval probe runs over each scene padded by the minimum, and only the first scene has a
         // confirmed blackdetect interval and should remain a credits candidate.
-        BlackFrame[] frames =
+        Keyframe[] keyframes =
         [
-            new(10, 0, 0),
-            new(96, 10, 1),
-            new(96, 20, 2),
-            new(96, 30, 3),
-            new(10, 100, 4),
-            new(96, 110, 5),
-            new(96, 120, 6),
-            new(96, 130, 7),
+            new(0, 10, KeyframeVisuals.Content(0)),
+            .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
+            new(100, 10, KeyframeVisuals.Content(100)),
+            .. Keyframes(110, 130, 10, (110, 130, 96, KeyframeVisuals.Black)),
         ];
-        var ffmpeg = CreditsScan(frames, intervals: [new BlackInterval(10, 30)]);
+        var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(10, 30)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode();
 
-        var result = Assert.Single(await BlackFrameCredits(analyzer, episode));
+        var candidates = await KeyframeCandidates(analyzer, episode);
 
-        Assert.Equal((10, 30), (result.Start, result.End));
+        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0)], candidates);
+        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
     }
 
     [Fact]
     public async Task DetectCreditsAsync_UnconfirmedProbePreservesKeyframeScenes()
     {
-        BlackFrame[] frames =
+        // The same two sparse scenes and an interval that confirms neither: the probe changes
+        // nothing, and both scenes are candidates.
+        Keyframe[] keyframes =
         [
-            new(10, 0, 0),
-            new(96, 10, 1),
-            new(96, 20, 2),
-            new(96, 30, 3),
-            new(10, 100, 4),
-            new(96, 110, 5),
-            new(96, 120, 6),
-            new(96, 130, 7),
+            new(0, 10, KeyframeVisuals.Content(0)),
+            .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
+            new(100, 10, KeyframeVisuals.Content(100)),
+            .. Keyframes(110, 130, 10, (110, 130, 96, KeyframeVisuals.Black)),
         ];
-        var ffmpeg = CreditsScan(frames, intervals: [new BlackInterval(0, 1)]);
+        var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(0, 1)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
 
-        var result = await BlackFrameCredits(analyzer, CreateQueuedCreditsEpisode());
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
-        Assert.Equal([(10.0, 30.0), (110.0, 130.0)], result.Select(credits => (credits.Start, credits.End)));
+        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 110.0, 130.0)], candidates);
+        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
     }
 
     [Fact]
     public async Task DetectCreditsAsync_SparseProbePreservesDenseSceneAndItsCardRun()
     {
-        KeyframeVisual[] visuals =
+        // A sparse scene that an interval confirms, then grey cards and a dense roll. The probe
+        // promotes the sparse scene and keeps the dense one as it is, so both are candidates, and
+        // the card run covers the cards and the roll after them.
+        Keyframe[] keyframes =
         [
-            KeyframeVisuals.Content(0),
-            .. Black(10, 30, 10),
-            KeyframeVisuals.Content(60),
-            .. Cards(90, 98, 2),
-            .. Black(100, 130, 2),
+            new(0, 0, KeyframeVisuals.Content(0)),
+            .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
+            new(60, 0, KeyframeVisuals.Content(60)),
+            .. Keyframes(90, 98, 2, (90, 98, 0, t => KeyframeVisuals.Card(t))),
+            .. Keyframes(100, 130, 2, (100, 130, 96, KeyframeVisuals.Black)),
         ];
-        BlackFrame[] frames = [.. visuals.Select((visual, frame) => new BlackFrame(visual.Time is >= 10 and <= 30 or >= 100 ? 96 : 0, visual.Time, frame))];
-        var ffmpeg = new StubFFmpegService
-        {
-            CreditsBlackFrames = (_, _) => frames,
-            KeyframeVisuals = _ => visuals,
-            BlackIntervals = (_, _, _, _) => [new BlackInterval(10, 30)],
-            RangeBlackFrames = (_, _, _, _, _) => [],
-        };
+        var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(10, 30)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
 
-        var candidates = await analyzer.DetectCreditsAsync(CreateQueuedCreditsEpisode(), 85, 32, 15, detectCardCredits: true);
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
-        Assert.Collection(
-            candidates,
-            blackFrame =>
-            {
-                Assert.Equal(SegmentSource.BlackFrame, blackFrame.Source);
-                Assert.Equal((10, 30), (blackFrame.Segment.Start, blackFrame.Segment.End));
-            },
-            blackFrame =>
-            {
-                Assert.Equal(SegmentSource.BlackFrame, blackFrame.Source);
-                Assert.Equal((100, 130), (blackFrame.Segment.Start, blackFrame.Segment.End));
-            },
-            card =>
-            {
-                Assert.Equal(SegmentSource.KeyframeVisuals, card.Source);
-                Assert.Equal((90, 130), (card.Segment.Start, card.Segment.End));
-            });
+        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 100.0, 130.0), (SegmentSource.KeyframeVisuals, 90.0, 130.0)], candidates);
+        Assert.Equal([new IntervalScan(0, 45, 32, 85), new IntervalScan(85, 145, 32, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1919,13 +1881,11 @@ public class TestBlackFrames
     /// it with blackdetect, and the interval from 40 to 80 makes it a scene that starts on
     /// blackdetect's clock. <paramref name="page"/> gives the page a level visual, a dim one or none;
     /// "level before dim" is a level page before a dim start frame at 50; "content" makes the page a
-    /// content keyframe, so the roll's first black page is the start frame at 50. The stub records
-    /// each lead-in decode window in <paramref name="decoded"/> and fails the decode, so a trimmed
-    /// scene starts at its level start frame.
+    /// content keyframe, so the roll's first black page is the start frame at 50. The lead-in decode
+    /// fails, so a trimmed scene starts at its level start frame.
     /// </summary>
-    private static StubFFmpegService PageBeforeTheRoll(string page, double pageTime, List<TimeRange> decoded)
+    private static StubFFmpegService PageBeforeTheRoll(string page, double pageTime)
     {
-        double[] times = [0, 10, 20, 30, pageTime, 50, 60, 70, 80, 90, 100, 110, 120];
         var pageVisual = page switch
         {
             "no visual" => null,
@@ -1934,22 +1894,16 @@ public class TestBlackFrames
             _ => KeyframeVisuals.Black(pageTime),
         };
         var rollStart = page == "content" ? 50 : pageTime;
-        KeyframeVisual?[] visuals = [.. times.Select(time => time == pageTime ? pageVisual : time switch
-        {
-            < 40 => KeyframeVisuals.Content(time),
-            50 when page == "level before dim" => KeyframeVisuals.DarkGrey(time),
-            <= 80 => KeyframeVisuals.Black(time),
-            _ => KeyframeVisuals.Card(time),
-        })];
-        return CreditsScan(
-            [.. times.Select((time, frame) => new BlackFrame(time >= rollStart && time <= 80 ? 100 : 0, time, frame))],
-            intervals: [new BlackInterval(40, 80)],
-            visuals: [.. visuals.OfType<KeyframeVisual>()],
-            lumaWindows: (_, window, _) =>
+        double[] times = [0, 10, 20, 30, pageTime, 50, 60, 70, 80, 90, 100, 110, 120];
+        return KeyframeScan(
+            times.Select(time => new Keyframe(time, time >= rollStart && time <= 80 ? 100 : 0, time == pageTime ? pageVisual : time switch
             {
-                decoded.Add(window);
-                return null;
-            });
+                < 40 => KeyframeVisuals.Content(time),
+                50 when page == "level before dim" => KeyframeVisuals.DarkGrey(time),
+                <= 80 => KeyframeVisuals.Black(time),
+                _ => KeyframeVisuals.Card(time),
+            })),
+            intervals: [new BlackInterval(40, 80)]);
     }
 
     private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)
