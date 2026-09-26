@@ -40,42 +40,43 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     }
 
     /// <summary>
-    /// Runs a process to completion and returns both output streams and the exit code. Standard
-    /// output is capped: the moment it crosses <paramref name="maximumStdoutBytes"/> the process is
-    /// killed and the capture says so, so a decode that writes more than expected cannot fill memory.
+    /// Runs a process to completion and returns both output streams and the exit code. Each stream
+    /// is capped: the moment either crosses <paramref name="maximumBytesPerStream"/> the process is
+    /// killed and the capture says so, so neither a decode that writes more than expected nor a
+    /// process that only logs can fill memory, whatever <paramref name="timeout"/> allows.
     /// </summary>
     /// <param name="processPath">Executable to start.</param>
     /// <param name="args">Arguments, one token each.</param>
-    /// <param name="maximumStdoutBytes">Bytes of standard output kept before the process is killed.</param>
-    /// <param name="expectedStdoutBytes">Bytes of standard output the caller expects, to size the buffer once; clamped to <paramref name="maximumStdoutBytes"/>.</param>
-    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
+    /// <param name="maximumBytesPerStream">Bytes of each output stream kept before the process is killed.</param>
+    /// <param name="expectedStdoutBytes">Bytes of standard output the caller expects, to size the buffer once; clamped to <paramref name="maximumBytesPerStream"/>.</param>
+    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it, or <see cref="Timeout.Infinite"/>.</param>
     /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
-    /// <returns>Both streams, the exit code and whether standard output was cut.</returns>
+    /// <returns>Both streams, the exit code and whether a stream was cut.</returns>
     /// <exception cref="TimeoutException">The process did not exit within <paramref name="timeout"/> and was killed.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was canceled; the process has been killed.</exception>
     public async Task<ProcessCapture> RunCapturedAsync(
         string processPath,
         IReadOnlyList<string> args,
-        long maximumStdoutBytes,
+        long maximumBytesPerStream,
         long expectedStdoutBytes,
         int timeout,
         CancellationToken cancellationToken = default)
     {
-        using var stdout = new MemoryStream((int)Math.Clamp(expectedStdoutBytes, 0, maximumStdoutBytes));
+        using var stdout = new MemoryStream((int)Math.Clamp(expectedStdoutBytes, 0, maximumBytesPerStream));
         using var stderr = new MemoryStream();
-        var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumStdoutBytes, timeout, cancellationToken).ConfigureAwait(false);
+        var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumBytesPerStream, timeout, cancellationToken).ConfigureAwait(false);
 
         // A decode is tens of megabytes: hand out the stream's own buffer instead of copying it.
         // Disposing a MemoryStream releases nothing, so the buffer stays valid after the return.
         return new ProcessCapture(stdout.GetBuffer().AsMemory(0, (int)stdout.Length), Encoding.UTF8.GetString(stderr.GetBuffer(), 0, (int)stderr.Length), exitCode, truncated);
     }
 
-    private async Task<(int ExitCode, bool StdoutTruncated)> RunCoreAsync(
+    private async Task<(int ExitCode, bool Truncated)> RunCoreAsync(
         string processPath,
         IReadOnlyList<string> args,
         Stream? stdoutSink,
         Stream? stderrSink,
-        long maximumStdoutBytes,
+        long maximumBytesPerStream,
         int timeout,
         CancellationToken cancellationToken)
     {
@@ -117,8 +118,8 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
 
             // Draining must not use the caller token: on cancellation or timeout the process is
             // killed first, then its remaining output is drained so the pipes cannot deadlock.
-            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stdoutSink, maximumStdoutBytes, () => KillProcessTree(process));
-            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderrSink, long.MaxValue, static () => { });
+            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stdoutSink, maximumBytesPerStream, () => KillProcessTree(process));
+            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderrSink, maximumBytesPerStream, () => KillProcessTree(process));
 
             using var timeoutCts = new CancellationTokenSource(timeout);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -140,7 +141,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-            var truncated = await stdoutTask.ConfigureAwait(false);
+            var truncated = await stdoutTask.ConfigureAwait(false) | await stderrTask.ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
             if (timedOut)
@@ -167,7 +168,8 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     }
 
     // Reads the stream to its end. Bytes go to the destination until the limit is crossed; then
-    // onLimit runs once and the rest is read and dropped so the process can still exit.
+    // onLimit runs once and the rest is read and dropped so the process can still exit. A stream
+    // without a destination is dropped uncounted.
     private static async Task<bool> DrainAsync(Stream stream, Stream? destination, long limit, Action onLimit)
     {
         var buffer = new byte[64 * 1024];

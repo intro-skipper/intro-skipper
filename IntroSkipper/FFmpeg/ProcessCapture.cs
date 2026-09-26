@@ -6,8 +6,8 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Both output streams and the exit code of a finished process.
 /// </summary>
-/// <param name="Stdout">Standard output, cut at the byte limit when <paramref name="StdoutTruncated"/> is set.</param>
-/// <param name="Stderr">Standard error as text.</param>
+/// <param name="Stdout">Standard output, cut at the byte limit when <paramref name="Truncated"/> is set.</param>
+/// <param name="Stderr">Standard error as text, cut at the byte limit when <paramref name="Truncated"/> is set.</param>
 /// <param name="ExitCode">The exit code; nonzero when the process failed or was killed.</param>
-/// <param name="StdoutTruncated">Whether standard output crossed the byte limit and the process was killed for it.</param>
-internal sealed record ProcessCapture(ReadOnlyMemory<byte> Stdout, string Stderr, int ExitCode, bool StdoutTruncated);
+/// <param name="Truncated">Whether a stream crossed the byte limit and the process was killed for it.</param>
+internal sealed record ProcessCapture(ReadOnlyMemory<byte> Stdout, string Stderr, int ExitCode, bool Truncated);

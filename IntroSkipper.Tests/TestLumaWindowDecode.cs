@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Data;
@@ -75,12 +76,28 @@ public class TestLumaWindowDecode
         var capture = await new FFmpegProcessRunner(NullLogger.Instance).RunCapturedAsync(
             "ffmpeg",
             ["-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=64x36:r=24:d=60", "-f", "rawvideo", "-"],
-            maximumStdoutBytes: 10_000,
+            maximumBytesPerStream: 10_000,
             expectedStdoutBytes: 10_000,
             timeout: 30_000);
 
-        Assert.True(capture.StdoutTruncated);
+        Assert.True(capture.Truncated);
         Assert.True(capture.Stdout.Length <= 10_000);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task RunCapturedAsync_StopsAtTheByteCapOnStderr()
+    {
+        // A file that logs without producing frames: showinfo prints a line per frame to stderr and
+        // the null muxer writes nothing. The cap must kill ffmpeg on stderr alone, with no timeout.
+        var capture = await new FFmpegProcessRunner(NullLogger.Instance).RunCapturedAsync(
+            "ffmpeg",
+            ["-nostdin", "-hide_banner", "-loglevel", "info", "-f", "lavfi", "-i", "color=c=black:s=64x36:r=1000:d=60", "-vf", "showinfo", "-f", "null", "-"],
+            maximumBytesPerStream: 10_000,
+            expectedStdoutBytes: 0,
+            timeout: Timeout.Infinite);
+
+        Assert.True(capture.Truncated);
+        Assert.True(capture.Stderr.Length <= 10_000);
     }
 
     private static async Task<string> GreyClipAsync(string colour, int seconds)

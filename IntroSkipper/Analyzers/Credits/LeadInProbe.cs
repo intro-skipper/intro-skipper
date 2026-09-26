@@ -14,8 +14,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// Pure over a <see cref="LumaWindow"/>, so the rule is tested without ffmpeg. The keyframe scan
 /// nominates: A is the last keyframe lighter than the level, B the first at it, and the policy
 /// starts the scene at B. The probe walks back from B's frame while the frame before matches it and
-/// starts the scene at the earliest match after A. B is already the start, so frames that look like
-/// it add no story. Anything else between the keyframes stops the walk: a subject still moving over
+/// starts the scene at the earliest match after A. A match says only that the downscaled luma looks
+/// like B's: a change of colour, detail lost to the scaling, or speech over black are outside what
+/// the probe sees. Anything else between the keyframes stops the walk: a subject still moving over
 /// a background that has gone black, a last shot, a page that scrolls or fades in. The scene then
 /// starts after it, or at B. A frame matches when every pixel is within the black level tolerance
 /// of B's: on the measured episodes the frames between the cut and B match exactly, and a page an
