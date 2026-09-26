@@ -510,6 +510,7 @@ public class TestBlackFrames
     [InlineData("no visual", 40.0, false, false)]
     [InlineData("dim", 50.0, false, true)]
     [InlineData("level before dim", 40.0, true, false)]
+    [InlineData("content", 40.0, false, false)]
     public async Task DetectCreditsAsync_PageJustBeforeAnIntervalStart_IsTheScenesFirstPage(string page, double blackFrameStart, bool pageIsBlackCard, bool leadIn)
     {
         // A sparse roll that a blackdetect interval confirms starts on blackdetect's clock, at 40.
@@ -519,9 +520,11 @@ public class TestBlackFrames
         // visual, keeps the start at 40 and runs no boundary probe, since the gap from the page to 40
         // is under the boundary probe's minimum window. A dim page is a lead-in. The scene starts at
         // the level start frame at 50, and the lead-in probe decodes the frames between the two. A
-        // dim start frame after a level page stays in the scene. The card run covers the roll and
-        // the grey cards after it, and starts on the page when the scene keeps it as a black card.
-        var decoded = new List<TimeRange>();
+        // dim start frame after a level page stays in the scene. With a content keyframe in the
+        // page's place, the walk starts on the start frame at 50, and the scene keeps 40 and runs no
+        // probe. The card run covers the roll and the grey cards after it, and starts on the page
+        // when the scene keeps it as a black card.
+        List<TimeRange> decoded = [];
         var ffmpeg = PageBeforeTheRoll(page, 39.995, decoded);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
 
@@ -1852,9 +1855,10 @@ public class TestBlackFrames
     /// <paramref name="pageTime"/> to 80, then grey cards. The roll is sparse, so the analyzer probes
     /// it with blackdetect, and the interval from 40 to 80 makes it a scene that starts on
     /// blackdetect's clock. <paramref name="page"/> gives the page a level visual, a dim one or none;
-    /// "level before dim" is a level page before a dim start frame at 50. The stub records each
-    /// lead-in decode window in <paramref name="decoded"/> and fails the decode, so a trimmed scene
-    /// starts at its level start frame.
+    /// "level before dim" is a level page before a dim start frame at 50; "content" makes the page a
+    /// content keyframe, so the roll's first black page is the start frame at 50. The stub records
+    /// each lead-in decode window in <paramref name="decoded"/> and fails the decode, so a trimmed
+    /// scene starts at its level start frame.
     /// </summary>
     private static StubFFmpegService PageBeforeTheRoll(string page, double pageTime, List<TimeRange> decoded)
     {
@@ -1863,8 +1867,10 @@ public class TestBlackFrames
         {
             "no visual" => null,
             "dim" => KeyframeVisuals.DarkGrey(pageTime),
+            "content" => KeyframeVisuals.Content(pageTime),
             _ => KeyframeVisuals.Black(pageTime),
         };
+        var rollStart = page == "content" ? 50 : pageTime;
         KeyframeVisual?[] visuals = [.. times.Select(time => time == pageTime ? pageVisual : time switch
         {
             < 40 => KeyframeVisuals.Content(time),
@@ -1873,7 +1879,7 @@ public class TestBlackFrames
             _ => KeyframeVisuals.Card(time),
         })];
         return CreditsScan(
-            [.. times.Select((time, frame) => new BlackFrame(time >= pageTime && time <= 80 ? 100 : 0, time, frame))],
+            [.. times.Select((time, frame) => new BlackFrame(time >= rollStart && time <= 80 ? 100 : 0, time, frame))],
             intervals: [new BlackInterval(40, 80)],
             visuals: [.. visuals.OfType<KeyframeVisual>()],
             lumaWindows: (_, window, _) =>
