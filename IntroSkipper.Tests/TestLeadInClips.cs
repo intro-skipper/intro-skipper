@@ -61,7 +61,7 @@ public class TestLeadInClips
         episode.Duration = 39;
         episode.CreditsFingerprintStart = fingerprintStart;
         episode.CreditsFingerprintEnd = 39;
-        var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), new PluginConfiguration { RefineCreditsBoundary = true });
+        var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), new PluginConfiguration { RefineCreditsBoundary = true });
 
         var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false);
 

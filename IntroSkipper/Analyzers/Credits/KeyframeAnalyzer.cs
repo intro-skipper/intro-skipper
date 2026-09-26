@@ -21,16 +21,19 @@ namespace IntroSkipper.Analyzers.Credits;
 /// keyframes that show dim content rather than black, a dim last shot before the cut to the roll, and
 /// a black scene lettered on no more than half its pages is a gap between acts, not credits. With
 /// boundary refinement on, the frames between the keyframes move the start after a lead-in back from
-/// the first keyframe at the level over the frames that look like it (see <see cref="LeadInProbe"/>).
+/// the first keyframe at the level over the frames that look like it (see <see cref="LeadInProbe"/>);
+/// the probe decodes for the picked scene only and its start is cached under the two keyframes.
 /// The card run is found against the black scenes those rules accepted: once they accept any scene,
 /// a black keyframe is a card only inside one (see <see cref="CardRunFinder"/>).
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="cacheService">Detection cache, for the lead-in probe's start.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 internal sealed partial class KeyframeAnalyzer(
     ILogger<KeyframeAnalyzer> logger,
     IFFmpegService ffmpegService,
+    DetectionCacheService cacheService,
     PluginConfiguration? configuration = null)
 {
     // Black sits at 16 on the limited-range scale the scan is pinned to; a scene whose black keyframes
@@ -42,6 +45,7 @@ internal sealed partial class KeyframeAnalyzer(
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly DetectionCacheService _cacheService = cacheService;
 
     /// <summary>
     /// Detects one episode's credits with the configured thresholds, without adjusting times or
@@ -158,7 +162,7 @@ internal sealed partial class KeyframeAnalyzer(
         // finder, so its card-like keyframes cannot come back as a card run when what is left of the
         // scene is too short to be credits. A lighter section later in the scene stays.
         var rejected = new List<TimeRange>();
-        var trimmedScenes = new HashSet<CreditScene>();
+        var lastLighterKeyframes = new Dictionary<CreditScene, double>();
         if (visuals.Count > 0)
         {
             for (var i = 0; i < scenes.Count; i++)
@@ -169,14 +173,9 @@ internal sealed partial class KeyframeAnalyzer(
                     continue;
                 }
 
-                // The scene starts at the first keyframe at the level, or with boundary refinement
-                // on, where the probe finds the frames before that keyframe already look like it.
-                var start = _config.RefineCreditsBoundary
-                    ? await ProbeLeadInAsync(episode, blackFrames, range.End, trimmed.StartTime, cancellationToken).ConfigureAwait(false)
-                    : null;
                 rejected.Add(range);
-                scenes[i] = start is { } time ? trimmed with { StartTime = time - episode.CreditsFingerprintStart } : trimmed;
-                trimmedScenes.Add(scenes[i]);
+                scenes[i] = trimmed;
+                lastLighterKeyframes[trimmed] = range.End;
             }
         }
 
@@ -192,12 +191,15 @@ internal sealed partial class KeyframeAnalyzer(
 
         foreach (var scene in RankCreditCandidates(scenes, blackIntervals))
         {
-            // A trimmed scene keeps the start the lead-in rules set, the keyframe or the frame the
-            // probe located. The gap before it is the lead-in, black to the blackframe filter, so the
-            // boundary probe could only move the start back into it.
-            var refinedStartTime = _config.RefineCreditsBoundary && !trimmedScenes.Contains(scene)
-                ? await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
-                : scene.StartTime;
+            // A trimmed scene starts at the first keyframe at the level, or where the lead-in probe
+            // finds the frames before that keyframe already look like it. The gap before it is the
+            // lead-in, black to the blackframe filter, so the boundary probe could only move the
+            // start back into it.
+            var refinedStartTime = !_config.RefineCreditsBoundary
+                ? scene.StartTime
+                : lastLighterKeyframes.TryGetValue(scene, out var lastLighterKeyframe)
+                    ? await ProbeLeadInAsync(episode, lastLighterKeyframe, scene.StartTime, cancellationToken).ConfigureAwait(false)
+                    : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
 
             var segment = new Segment(
                 episode.EpisodeId,
@@ -284,30 +286,34 @@ internal sealed partial class KeyframeAnalyzer(
 
     /// <summary>
     /// Runs the lead-in probe for a nominated boundary: decodes the frames from the last lighter
-    /// keyframe to just past the first at the level and places the start.
+    /// keyframe to just past the first at the level and places the start. The start is a function
+    /// of the file between the two keyframes, so it is cached under them; a failed decode is not.
     /// </summary>
     /// <param name="episode">The episode.</param>
-    /// <param name="keyframes">The keyframe scan, relative to the credits fingerprint start.</param>
     /// <param name="lastLighterKeyframe">A, relative to the credits fingerprint start.</param>
     /// <param name="firstLevelKeyframe">B, relative to the credits fingerprint start.</param>
     /// <param name="cancellationToken">Token used to cancel the decode.</param>
-    /// <returns>The media time the scene starts at, or <see langword="null"/> to keep the start at B, including when the window cannot be decoded.</returns>
-    private async Task<double?> ProbeLeadInAsync(QueuedEpisode episode, List<BlackFrame> keyframes, double lastLighterKeyframe, double firstLevelKeyframe, CancellationToken cancellationToken)
+    /// <returns>The scene start relative to the credits fingerprint start: the located frame, or B when the frames before it do not match it or the window cannot be decoded.</returns>
+    private async Task<double> ProbeLeadInAsync(QueuedEpisode episode, double lastLighterKeyframe, double firstLevelKeyframe, CancellationToken cancellationToken)
     {
         var offset = episode.CreditsFingerprintStart;
         var a = lastLighterKeyframe + offset;
         var b = firstLevelKeyframe + offset;
-        var window = LeadInProbe.ProbeWindow(a, b);
 
-        // The decode seeks to the last scanned keyframe at or before the window. An MPEG-TS seek to
-        // any other time lands between keyframes and decodes from the next one, past the window's
-        // start, and a scanned keyframe also puts the frame times on the scan's timeline.
-        var seek = keyframes.LastOrDefault(frame => frame.Time + offset <= window.Start)?.Time + offset ?? window.Start;
-        var frames = await _ffmpegService.DecodeLumaWindowAsync(episode, window, seek, LeadInProbe.Width, cancellationToken).ConfigureAwait(false);
-        var start = frames is null ? null : LeadInProbe.Start(frames, a, b, BlackLevelTolerance);
+        double? start = null;
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.LeadIn, a, b, out double[] cached))
+        {
+            start = cached.Length > 0 ? cached[0] : null;
+        }
+        else if (await _ffmpegService.DecodeLumaWindowAsync(episode, LeadInProbe.ProbeWindow(a, b), LeadInProbe.Width, cancellationToken).ConfigureAwait(false) is { } frames)
+        {
+            start = LeadInProbe.Start(frames, a, b, BlackLevelTolerance);
+            double[] located = start is { } time ? [time] : [];
+            _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.LeadIn, a, b, located);
+        }
 
         LogLeadInProbe(episode.Name, a, b, start ?? b);
-        return start;
+        return (start ?? b) - offset;
     }
 
     // Dim content on a black keyframe: a background above the scene's black level, or a 90th

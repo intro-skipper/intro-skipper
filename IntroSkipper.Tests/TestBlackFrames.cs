@@ -399,6 +399,56 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeDecodesOnlyThePickedScene()
+    {
+        // Two black scenes with a dark grey lead-in each, too far apart to merge. The later scene
+        // ranks first and meets the minimum, so only its window is decoded, and the lit object
+        // vanishing at 165 starts it there.
+        var decoded = new List<TimeRange>();
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 94, 2).Select((t, i) => new BlackFrame(t is >= 42 and <= 62 ? 0 : 95, t, i * 48))],
+            visuals: [.. Times(20, 94, 2).Select(t => t is < 22 or (>= 64 and < 66) ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, _) =>
+            {
+                decoded.Add(window);
+                return LumaWindows.Window(window.Start, (165 - window.Start, () => LumaWindows.Blob(21)), (window.End - 165, () => LumaWindows.Blank(16)));
+            });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(165, result?.Start ?? -1, 3);
+        Assert.Equal(164, Assert.Single(decoded).Start);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_LeadInProbeStartIsCached()
+    {
+        // The start the probe locates is a function of the file between the two keyframes, so a
+        // second analysis of the episode reads it from the detection cache instead of decoding.
+        var decoded = 0;
+        var ffmpeg = CreditsScan(
+            [.. Times(20, 54, 2).Select((t, i) => new BlackFrame(95, t, i * 48))],
+            visuals: [.. Times(20, 54, 2).Select(t => t < 30 ? KeyframeVisuals.DarkGrey(t) : KeyframeVisuals.Black(t))],
+            lumaWindows: (_, window, _) =>
+            {
+                decoded++;
+                return LumaWindows.Window(window.Start, (129 - window.Start, () => LumaWindows.Blob(21)), (window.End - 129, () => LumaWindows.Blank(16)));
+            });
+        var cache = DatabaseTestHelpers.CreateTempCacheService();
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true }, cache);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var first = await BlackFrameCredits(analyzer, episode);
+        var second = await BlackFrameCredits(analyzer, episode);
+
+        Assert.Equal(129, first?.Start ?? -1, 3);
+        Assert.Equal(129, second?.Start ?? -1, 3);
+        Assert.Equal(1, decoded);
+    }
+
+    [Fact]
     public async Task DetectCreditsAsync_WithoutBoundaryRefinement_DecodesNoLeadIn()
     {
         // Keyframe-only analysis: the lead-in still trims to the keyframe at 30, and nothing between
@@ -1733,9 +1783,9 @@ public class TestBlackFrames
         };
     }
 
-    private static KeyframeAnalyzer CreateKeyframeAnalyzer(IFFmpegService ffmpegService, PluginConfiguration? configuration = null)
+    private static KeyframeAnalyzer CreateKeyframeAnalyzer(IFFmpegService ffmpegService, PluginConfiguration? configuration = null, DetectionCacheService? cacheService = null)
     {
-        return new(NullLogger<KeyframeAnalyzer>.Instance, ffmpegService, configuration ?? new PluginConfiguration());
+        return new(NullLogger<KeyframeAnalyzer>.Instance, ffmpegService, cacheService ?? DatabaseTestHelpers.CreateTempCacheService(), configuration ?? new PluginConfiguration());
     }
 
     /// <summary>

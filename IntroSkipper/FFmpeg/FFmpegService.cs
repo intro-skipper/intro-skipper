@@ -90,6 +90,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             versionProbeTimeout ?? DefaultVersionProbeTimeout);
     }
 
+    private static string FFmpegPath => Plugin.Instance?.FFmpegPath ?? "ffmpeg";
+
     /// <inheritdoc/>
     public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
         => _versionGate.CheckAsync(cancellationToken);
@@ -280,26 +282,21 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
 
     /// <inheritdoc/>
-    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, double keyframe, int width, CancellationToken cancellationToken = default)
+    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
     {
         // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
         // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
         // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
         // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
-        // frames it logged. Decoding starts at the keyframe, and trim drops the frames before the
-        // window ahead of the scaler.
-        var seek = Math.Min(keyframe, window.Start);
+        // frames it logged.
         string[] args =
         [
-            "-hide_banner", "-nostdin",
-            "-threads", (Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture),
-            "-loglevel", "info",
-            "-ss", FormatSeconds(seek),
-            "-t", FormatSeconds(window.End - seek),
+            "-ss", FormatSeconds(window.Start),
+            "-t", FormatSeconds(window.Duration),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough",
-            "-vf", $"trim=start={FormatSeconds(window.Start - seek)},scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
             "-f", "rawvideo", "-",
         ];
 
@@ -309,7 +306,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         ProcessCapture capture;
         try
         {
-            capture = await _processRunner.RunCapturedAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", args, LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
@@ -325,6 +322,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         var frames = FFmpegOutputParser.ParseShowInfo(capture.Stderr);
         if (frames.Length == 0
+            || frames[0].Width <= 0
+            || frames[0].Height <= 0
             || frames.Any(frame => frame.Width != frames[0].Width || frame.Height != frames[0].Height)
             || capture.Stdout.Length != (long)frames.Length * frames[0].Width * frames[0].Height)
         {
@@ -332,7 +331,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             return null;
         }
 
-        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => seek + frame.Time)]);
+        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
     }
 
     // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
@@ -535,8 +534,18 @@ internal sealed partial class FFmpegService : IFFmpegService
         bool infoQuery,
         int timeout,
         CancellationToken cancellationToken)
+        => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
+
+    /// <summary>
+    /// Prefixes a run's arguments with the ones every ffmpeg run gets: no banner, the configured
+    /// thread count and the log level the caller reads its result at.
+    /// </summary>
+    /// <param name="args">The run's own arguments.</param>
+    /// <param name="logLevel">The ffmpeg log level.</param>
+    /// <param name="infoQuery"><see langword="true"/> for a version or help query, which takes no input and rejects <c>-threads</c>.</param>
+    private static List<string> ProcessArgs(IReadOnlyList<string> args, string logLevel, bool infoQuery = false)
     {
-        var processArgs = new List<string> { "-hide_banner" };
+        var processArgs = new List<string>(args.Count + 5) { "-hide_banner" };
         if (!infoQuery)
         {
             processArgs.Add("-threads");
@@ -544,10 +553,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
 
         processArgs.Add("-loglevel");
-        processArgs.Add(stderr ? "info" : "warning");
+        processArgs.Add(logLevel);
         processArgs.AddRange(args);
-
-        return _processRunner.RunAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+        return processArgs;
     }
 
     /// <summary>
@@ -563,7 +571,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private static string GetFFprobePath()
     {
-        var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
+        var ffmpegPath = FFmpegPath;
         var extension = Path.GetExtension(ffmpegPath);
         var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
         var candidate = withoutExtension + "probe" + extension;

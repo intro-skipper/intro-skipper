@@ -36,13 +36,13 @@ public class TestLumaWindowDecode
     {
         // RGB 0x060606 lands at luma 21 on the limited-range scale the clip is encoded on; the
         // decode must read it as 21, not stretched toward 0 as a grey conversion would. Every FFV1
-        // frame is a keyframe, so the decode seeks to 0 and trims to the window.
+        // frame is a keyframe, so the seek lands on the window start.
         var path = await GreyClipAsync("0x060606", seconds: 2);
         try
         {
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "grey", Path = path, Duration = 2 };
 
-            var window = await FfmpegTestHelpers.CreateFFmpegService().DecodeLumaWindowAsync(episode, new TimeRange(0.5, 1.0), keyframe: 0, width: 32);
+            var window = await FfmpegTestHelpers.CreateFFmpegService().DecodeLumaWindowAsync(episode, new TimeRange(0.5, 1.0), width: 32);
 
             Assert.NotNull(window);
             Assert.Equal(32, window.Width);
@@ -63,7 +63,7 @@ public class TestLumaWindowDecode
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "missing", Path = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".mkv"), Duration = 2 };
 
-        var window = await FfmpegTestHelpers.CreateFFmpegService().DecodeLumaWindowAsync(episode, new TimeRange(0, 1), keyframe: 0, width: 32);
+        var window = await FfmpegTestHelpers.CreateFFmpegService().DecodeLumaWindowAsync(episode, new TimeRange(0, 1), width: 32);
 
         Assert.Null(window);
     }

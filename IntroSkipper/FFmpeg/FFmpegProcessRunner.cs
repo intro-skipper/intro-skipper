@@ -62,7 +62,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         int timeout,
         CancellationToken cancellationToken = default)
     {
-        using var stdout = new MemoryStream((int)Math.Clamp(expectedStdoutBytes, 0, maximumBytesPerStream));
+        using var stdout = new MemoryStream((int)Math.Clamp(expectedStdoutBytes, 0, Math.Min(maximumBytesPerStream, int.MaxValue)));
         using var stderr = new MemoryStream();
         var (exitCode, truncated) = await RunCoreAsync(processPath, args, stdout, stderr, maximumBytesPerStream, timeout, cancellationToken).ConfigureAwait(false);
 

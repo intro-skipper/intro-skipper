@@ -126,7 +126,7 @@ internal class StubFFmpegService : IFFmpegService
     public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
-    public virtual Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, double keyframe, int width, CancellationToken cancellationToken = default)
+    public virtual Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(LumaWindows)(episode, window, width));

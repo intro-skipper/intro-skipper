@@ -260,7 +260,7 @@ internal sealed partial class CreditsPass(
                 : [];
         }
 
-        return new KeyframeAnalyzer(_loggerFactory.CreateLogger<KeyframeAnalyzer>(), _ffmpegService, _config).DetectCreditsAsync;
+        return new KeyframeAnalyzer(_loggerFactory.CreateLogger<KeyframeAnalyzer>(), _ffmpegService, _cacheService, _config).DetectCreditsAsync;
     }
 
     /// <summary>
