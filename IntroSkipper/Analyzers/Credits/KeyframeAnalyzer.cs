@@ -528,7 +528,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="fingerprintStart">The absolute start of the credits fingerprint window.</param>
     /// <param name="fingerprintEnd">The absolute end of the credits fingerprint window.</param>
     /// <returns>The merged probe ranges clamped to the fingerprint window.</returns>
-    internal static List<TimeRange> BuildIntervalProbeRanges(
+    private static List<TimeRange> BuildIntervalProbeRanges(
         IReadOnlyList<CreditScene> candidates,
         int minimumDuration,
         double fingerprintStart,

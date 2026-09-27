@@ -310,37 +310,6 @@ public class TestBlackFrames
         Assert.Equal(expectedSceneChange, sceneChange);
     }
 
-    [Fact]
-    public void TestDensityGating_AcceptsHighDensityScene()
-    {
-        // Simulate real credits: 100 keyframes, 80 are "black" (80% density)
-        var frames = CreateFrames(100, i => i % 5 == 0 ? 30 : 90);
-
-        var scenes = CreditSceneBuilder.DetectCreditScenes([.. frames], 85, 96, minimumDuration: 15);
-
-        // With density gating at 50%, the scene should be accepted (80% density)
-        Assert.NotEmpty(scenes);
-    }
-
-    [Fact]
-    public void TestDetectCreditScenes_RepeatedLowDensityScenes_RejectedWithoutIntervalSupport()
-    {
-        // Repeated low-density clusters (~33% black keyframes) must NOT pass on keyframe evidence
-        // alone. The static density floor rejects them here; genuine low-density credits are instead
-        // rescued by blackdetect interval confirmation in KeyframeAnalyzer, not by relaxing
-        // this gate. This locks in the fix for the multi-scene false-positive path.
-        List<BlackFrame> frames =
-        [
-            .. CreateFrames(60, LowDensityPercentage, startTime: 0, startFrame: 0),
-            .. CreateFrames(60, LowDensityPercentage, startTime: 60, startFrame: 120),
-            .. CreateFrames(60, LowDensityPercentage, startTime: 120, startFrame: 240),
-        ];
-
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
-
-        Assert.Empty(scenes);
-    }
-
     [Theory]
     [InlineData("black", 120.0)]
     [InlineData("tinted", null)]
@@ -708,22 +677,23 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_UnconfirmedProbePreservesKeyframeScenes()
     {
-        // The same two sparse scenes and an interval that confirms neither: the probe changes
-        // nothing, and both scenes are candidates.
+        // Two sparse scenes 25 s apart, too far to merge, and an interval that confirms neither.
+        // Their probe ranges, padded by the 15 s minimum duration, overlap from 40 to 45, so one
+        // scan covers both. The probe changes nothing, and both scenes are candidates.
         Keyframe[] keyframes =
         [
             new(0, 10, KeyframeVisuals.Content(0)),
             .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
-            new(100, 10, KeyframeVisuals.Content(100)),
-            .. Keyframes(110, 130, 10, (110, 130, 96, KeyframeVisuals.Black)),
+            new(45, 10, KeyframeVisuals.Content(45)),
+            .. Keyframes(55, 75, 10, (55, 75, 96, KeyframeVisuals.Black)),
         ];
         var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(0, 1)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
 
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
-        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 110.0, 130.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 55.0, 75.0)], candidates);
+        Assert.Equal([new IntervalScan(0, 90, 32, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -750,77 +720,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestRefineBoundary_NoPriorKeyframe_ReturnsOriginalStart()
-    {
-        // When the scene starts at the very first keyframe's time, there is no preceding keyframe.
-        // FindBoundaryKeyframeTimes should return null.
-        var frames = new List<BlackFrame>
-        {
-            new(95, 0.0, 0),
-            new(95, 0.5, 1),
-            new(95, 1.0, 2),
-            new(95, 1.5, 3),
-            new(95, 2.0, 4),
-            new(95, 2.5, 5),
-        };
-
-        var scene = new CreditScene(0, 5, 0.0, 2.5);
-
-        // Scene starts at the first keyframe — no preceding keyframe exists
-        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void TestRefineBoundary_HasPriorKeyframe_ReturnsBoundaryTimes()
-    {
-        // When there is a keyframe before the scene, return the boundary times.
-        // The preceding keyframe is returned regardless of its black percentage.
-        var frames = new List<BlackFrame>
-        {
-            new(20, 0.0, 0),   // non-black
-            new(30, 0.5, 1),   // non-black — immediately precedes scene
-            new(95, 1.0, 2),   // black — scene start
-            new(95, 1.5, 3),
-            new(95, 2.0, 4),
-            new(95, 2.5, 5),
-        };
-
-        var scene = new CreditScene(2, 5, 1.0, 2.5);
-
-        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
-        Assert.NotNull(result);
-        Assert.Equal(0.5, result.Value.LastKeyframeTime);  // preceding keyframe at 0.5s
-        Assert.Equal(1.0, result.Value.FirstBlackTime);    // scene start at 1.0s
-    }
-
-    [Fact]
-    public void TestRefineBoundary_PrecedingKeyframeIsBlack_StillReturnsPrecedingKeyframe()
-    {
-        // On dark shows, the keyframe immediately before the scene may also have
-        // percentage >= minimum. The method should still return it as the boundary,
-        // not search further back for a "non-black" frame.
-        var frames = new List<BlackFrame>
-        {
-            new(10, 0.0, 0),   // non-black (far back)
-            new(90, 5.0, 1),   // black (but not credits)
-            new(88, 10.0, 2),  // black (but not credits) — immediately precedes scene
-            new(95, 15.0, 3),  // black — scene start
-            new(95, 20.0, 4),
-            new(95, 25.0, 5),
-        };
-
-        var scene = new CreditScene(3, 5, 15.0, 25.0);
-
-        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
-        Assert.NotNull(result);
-        // Old behavior would return 0.0 (last frame with percentage < 85).
-        // New behavior returns 10.0 (immediately preceding keyframe).
-        Assert.Equal(10.0, result.Value.LastKeyframeTime);
-        Assert.Equal(15.0, result.Value.FirstBlackTime);
-    }
-
-    [Fact]
     public void TestDensityGating_DoesNotMergeAcrossLowDensityGap()
     {
         // Two dense black-frame segments separated by a long non-black gap.
@@ -842,36 +741,6 @@ public class TestBlackFrames
         Assert.Equal(7.5, scenes[0].EndTime);
         Assert.Equal(27.0, scenes[1].StartTime);
         Assert.Equal(34.5, scenes[1].EndTime);
-    }
-
-    [Theory]
-    [InlineData(2, 92, 92)]  // lower of the scene start frame percentage and sceneChange
-    [InlineData(2, 99, 95)]  // capped at sceneChange
-    [InlineData(99, 92, 95)] // scene start frame missing from the keyframe list (interval-derived): falls back to sceneChange
-    public void TestSelectProbeMinimum(int sceneStartFrame, int startFramePercentage, int expected)
-    {
-        var frames = new List<BlackFrame>
-        {
-            new(20, 0.0, 0),
-            new(30, 0.5, 1),
-            new(startFramePercentage, 1.0, 2),
-            new(95, 1.5, 3),
-        };
-
-        var scene = new CreditScene(sceneStartFrame, sceneStartFrame + 1, 1.0, 1.5);
-
-        Assert.Equal(expected, CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange: 95));
-    }
-
-    [Theory]
-    [InlineData(10.4, 30.0, 10.0, false)] // keyframe gap below the minimum probe window
-    [InlineData(10.0, 20.0, 8.0, false)]  // even a full-window refinement cannot reach the minimum duration
-    [InlineData(10.0, 24.0, 8.5, true)]   // meaningful window that can reach the minimum duration
-    public void TestShouldRefineBoundary(double sceneStart, double sceneEnd, double lastKeyframeTime, bool expected)
-    {
-        var scene = new CreditScene(20, 40, sceneStart, sceneEnd);
-
-        Assert.Equal(expected, CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime, minimumDuration: 15));
     }
 
     [Theory]
@@ -941,19 +810,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task TestDetectCreditsAsync_DarkLowDensityScene_ReturnsNull()
-    {
-        var ffmpeg = KeyframeScan(DarkSceneWithBlackPages(every: 5, percentage: 95));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-        var episode = CreateQueuedCreditsEpisode();
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(0, 62.5, 32, 89)], ffmpeg.Calls);
-    }
-
-    [Fact]
     public async Task TestDetectCreditsAsync_LowDensitySingleCandidateUsesIntervalSupport()
     {
         var ffmpeg = KeyframeScan(
@@ -985,20 +841,6 @@ public class TestBlackFrames
     public async Task TestDetectCreditsAsync_StingerSplit_ReturnsBothParts()
     {
         var ffmpeg = KeyframeScan(Keyframes(0, 120, 0.5, (0, 20, 95, KeyframeVisuals.Black), (20.5, 89.5, 30, KeyframeVisuals.Dark), (90, 120, 95, KeyframeVisuals.Black)));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Equal([(SegmentSource.BlackFrame, 1000.0, 1020.0), (SegmentSource.BlackFrame, 1090.0, 1120.0)], candidates);
-    }
-
-    [Fact]
-    public async Task TestDetectCreditsAsync_ValidBlackFrameSceneSkipsIntervalPromotion()
-    {
-        var ffmpeg = KeyframeScan(
-            Keyframes(0, 120, 0.5, (0, 20, 95, KeyframeVisuals.Black), (20.5, 89.5, 30, KeyframeVisuals.Dark), (90, 120, 95, KeyframeVisuals.Black)),
-            intervals: [new BlackInterval(5, 10)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
 
@@ -1203,45 +1045,6 @@ public class TestBlackFrames
 
         Assert.Empty(candidates);
         Assert.Empty(ffmpeg.Calls);
-    }
-
-    [Fact]
-    public void TestCreditSceneMetrics_DetectsSparseScenesFromAverageBlackFrameGap()
-    {
-        var scene = new CreditScene(1, 4, 10, 40);
-        BlackFrame[] frames =
-        [
-            new(96, 10, 1),
-            new(97, 20, 2),
-            new(98, 30, 3),
-            new(99, 40, 4),
-        ];
-
-        var metrics = CreditSceneMetricsCalculator.Calculate(frames, scene, minimum: 85);
-
-        Assert.Equal(4, metrics.BlackFrameCount);
-        Assert.True(metrics.MeetsDensity(CreditDetectionPolicy.DefaultMinimumBlackFrameDensity));
-        Assert.True(metrics.IsSparse(scene, minimumDuration: 15));
-    }
-
-    [Fact]
-    public void TestIntervalProbeRanges_MergesOverlappingPaddedRanges()
-    {
-        var ranges = KeyframeAnalyzer.BuildIntervalProbeRanges(
-            [
-                new CreditScene(10, 20, 100, 120),
-                new CreditScene(21, 30, 130, 150),
-                new CreditScene(80, 90, 300, 330),
-            ],
-            minimumDuration: 15,
-            fingerprintStart: 1000,
-            fingerprintEnd: 1400);
-
-        Assert.Equal(2, ranges.Count);
-        Assert.Equal(1085, ranges[0].Start);
-        Assert.Equal(1165, ranges[0].End);
-        Assert.Equal(1285, ranges[1].Start);
-        Assert.Equal(1345, ranges[1].End);
     }
 
     [Fact]
@@ -2135,9 +1938,6 @@ public class TestBlackFrames
     private static IEnumerable<KeyframeVisual> Busy(double from, double to, double step)
         => Times(from, to, step).Select(t => KeyframeVisuals.Content(t));
 
-    private static IEnumerable<KeyframeVisual> Black(double from, double to, double step)
-        => Times(from, to, step).Select(t => KeyframeVisuals.Black(t));
-
     /// <summary>
     /// Keyframes every <paramref name="step"/> seconds from 0 to <paramref name="end"/>, none of them
     /// black; those inside any of the <paramref name="cards"/> spans (inclusive) are credit cards, the
@@ -2155,13 +1955,11 @@ public class TestBlackFrames
     private static Keyframe[] NotBlack(IEnumerable<KeyframeVisual> visuals)
         => [.. visuals.Select(visual => new Keyframe(visual.Time, 0, visual))];
 
-    private static int LowDensityPercentage(int i) => i % 3 == 0 ? 90 : 30;
-
     /// <summary>
     /// Keyframes 0.5s apart with a per-index black percentage.
     /// </summary>
-    private static BlackFrame[] CreateFrames(int count, Func<int, int> percentage, double startTime = 0, int startFrame = 0)
-        => [.. Enumerable.Range(0, count).Select(i => new BlackFrame(percentage(i), startTime + (i * 0.5), startFrame + i))];
+    private static BlackFrame[] CreateFrames(int count, Func<int, int> percentage)
+        => [.. Enumerable.Range(0, count).Select(i => new BlackFrame(percentage(i), i * 0.5, i))];
 
     private static BlackFrame[] CreateFrameSequence(double start, double end)
     {

@@ -31,7 +31,7 @@ internal static class LeadInProbe
 
     // The window runs from A to a quarter second past B, so the frame at B is decoded at any frame
     // rate.
-    internal const double LookAheadPadding = 0.25;
+    private const double LookAheadPadding = 0.25;
 
     // Frame times sit on the keyframe scan's timeline when the decode seeks to one of its keyframes;
     // this absorbs the rounding of the times the two ffmpeg runs print.

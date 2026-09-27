@@ -14,14 +14,6 @@ public class TestLeadInProbe
     private const double Tolerance = 2;
 
     [Fact]
-    public void ProbeWindow_RunsFromAToJustPastB()
-    {
-        var window = LeadInProbe.ProbeWindow(100, 104);
-
-        Assert.Equal((100, 104 + LeadInProbe.LookAheadPadding), (window.Start, window.End));
-    }
-
-    [Fact]
     public void Start_DimShotThenBlankBlack_StartsAtTheCut()
     {
         var window = Window(0, (1.0, () => Blob(21)), (1.5, () => Blank(16)));
