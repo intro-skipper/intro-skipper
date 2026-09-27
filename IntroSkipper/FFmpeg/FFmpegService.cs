@@ -273,8 +273,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <remarks>
     /// Normally served from the row the keyframe scan in
     /// <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/> wrote. Decodes on
-    /// its own only for an episode whose black-frame row predates that shared write, or when caching
-    /// is off. Empty when the ffmpeg check found the visuals filters missing.
+    /// its own only for an episode whose black-frame row predates that shared write, or when the
+    /// detection cache database cannot be opened. Empty when the ffmpeg check found the visuals
+    /// filters missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
@@ -287,8 +288,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
 
         // Normally a cache hit on the row the keyframe scan wrote. The decode below runs only for
-        // an episode whose black-frame row predates that shared write, or with caching off. -to
-        // stops decoding near the window end; ParseKeyframeVisualsInWindow does the bounding.
+        // an episode whose black-frame row predates that shared write, or when the detection cache
+        // database cannot be opened. -to stops decoding near the window end;
+        // ParseKeyframeVisualsInWindow does the bounding.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
         string[] args =
@@ -445,7 +447,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         string[] args =
         [
@@ -458,7 +460,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken);
+        // -to is an output option, so its trim runs after showinfo has already logged the next
+        // keyframe or two past the window. Cached rows hold that unclipped listing, so the clip
+        // runs on every read.
+        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken).ConfigureAwait(false);
+        return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }
 
     /// <summary>
