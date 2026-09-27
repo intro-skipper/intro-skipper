@@ -90,6 +90,19 @@ public class TestBlackFrames
     }
 
     [FactSkipFFmpegTests]
+    public async Task TestDetectKeyFrames_ClipsScanToSearchRange()
+    {
+        // credits.mp4 has a keyframe every 10 s. ffmpeg also lists the one at 110 before -to
+        // trims it, and a snap must never land there.
+        var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(
+            FfmpegTestHelpers.QueueFile("video/credits.mp4"),
+            new(95, 102),
+            AnalysisMode.Introduction);
+
+        Assert.Equal([100], actual);
+    }
+
+    [FactSkipFFmpegTests]
     public async Task TestDetectKeyframeVisuals_ClipsScanToCreditsWindow()
     {
         // Real FFmpeg: -skip_frame nokey + -to does NOT reliably bound the scan (it emits keyframes
