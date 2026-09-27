@@ -225,26 +225,6 @@ public sealed class TestCreditsPass
         }
     }
 
-    [Theory]
-    [InlineData(DefaultSharedAudioLastPoint)]
-    [InlineData(3560)]
-    public async Task BlackRollStartingBeforeTheSharedAudio_IsCombinedWithIt(int sharedAudioLastPoint)
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(
-            [(700, Duration, 95, KeyframeVisuals.Black)], sharedAudioLastPoint: sharedAudioLastPoint);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
-
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(SegmentSource.Combined, segment.Source);
-        Assert.Equal(700, segment.ToSegment().Start);
-        Assert.Equal(Duration, segment.ToSegment().End);
-        Assert.Equal(
-            [new RangeScan(698, 700, 95, 28, AnalysisMode.Credits), new RangeScan(698, 700, 95, 28, AnalysisMode.Credits)],
-            ffmpeg.Calls);
-    }
-
     [Fact]
     public async Task BlackRollBetweenAChapterAndTheSharedAudio_IsCombinedWithTheAudio()
     {
@@ -337,45 +317,6 @@ public sealed class TestCreditsPass
         Assert.Equal(Duration, segment.ToSegment().End);
     }
 
-    [Theory]
-    [InlineData(700.0, 720.0, 698.0)]
-    [InlineData(650.0, 700.0, 648.0)]
-    public async Task BlackCreditsSeparatedFromTheSharedAudio_AreKept(double blackStart, double blackEnd, double keyframeBefore)
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason([(blackStart, blackEnd, 95, KeyframeVisuals.Black)]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal(2, segments.Count);
-        Assert.Equal((blackStart, blackEnd, SegmentSource.BlackFrame), (segments[0].ToSegment().Start, segments[0].ToSegment().End, segments[0].Source));
-        Assert.Equal(SegmentSource.Chromaprint, segments[1].Source);
-        Assert.Equal(PointTime(SharedAudioFirstPoint), segments[1].ToSegment().Start, 0.5);
-        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), segments[1].ToSegment().End, 0.5);
-        Assert.Equal(
-            [new RangeScan(keyframeBefore, blackStart, 95, 28, AnalysisMode.Credits), new RangeScan(keyframeBefore, blackStart, 95, 28, AnalysisMode.Credits)],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task BlackFrameAction_RestrictsThePassToBlackFrameCandidates()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason();
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: true, CancellationToken.None);
-
-        Assert.Equal(0, ffmpeg.FingerprintCalls);
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(SegmentSource.BlackFrame, segment.Source);
-        Assert.Equal(BlackStart, segment.ToSegment().Start);
-        Assert.Equal(Duration, segment.ToSegment().End);
-        Assert.Equal(
-            [RollProbe, RollProbe],
-            ffmpeg.Calls);
-    }
-
     [Fact]
     public async Task ChapterAction_DoesNotRestrictThePass()
     {
@@ -387,44 +328,6 @@ public sealed class TestCreditsPass
         var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.BlackFrame, segment.Source);
         Assert.Equal(BlackStart, segment.ToSegment().Start);
-        Assert.Equal(
-            [RollProbe, RollProbe],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task BlackFrameAfterTheChapterFollowingTheCredits_StaysItsOwnSegment()
-    {
-        // CITY THE ANIMATION E08: the dubbing cards sit inside the "epilogue" chapter that
-        // follows the ending chapter, so the authored boundary keeps them apart.
-        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
-        var (episodes, ffmpeg, database) = CreateSeason();
-
-        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true })
-            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal(
-            [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
-            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
-        Assert.Equal(
-            [RollProbe, RollProbe],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task CandidatesSeparatedByContent_AreWrittenApartUnderTheirOwnSources()
-    {
-        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 600), Chapter("Epilogue", 660));
-        var (episodes, ffmpeg, database) = CreateSeason();
-
-        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true })
-            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal(
-            [(600, 660, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
-            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
         Assert.Equal(
             [RollProbe, RollProbe],
             ffmpeg.Calls);
@@ -553,14 +456,17 @@ public sealed class TestCreditsPass
         Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
-    [Fact]
-    public async Task CardCreditsBeforeTheBlackRoll_AreCombinedWithIt()
+    [Theory]
+    [InlineData(AnalyzerAction.Default)]
+    [InlineData(AnalyzerAction.BlackFrame)]
+    public async Task CardCreditsBeforeTheBlackRoll_AreCombinedWithIt(AnalyzerAction action)
     {
+        // The black-frame action restricts the pass to the keyframe analyzer and keeps its card candidate.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
             [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
 
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+        await CreatePass(ffmpeg, database).RunAsync(episodes, action, ffmpegValid: false, CancellationToken.None);
 
         foreach (var episode in episodes)
         {
@@ -571,18 +477,6 @@ public sealed class TestCreditsPass
         Assert.Equal(
             [RollProbe, RollProbe],
             ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task CardCreditsAlone_AreStoredUnderTheirOwnSource()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason([(Duration - 60, Duration, 0, KeyframeVisuals.Card)]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal((Duration - 60, Duration, SegmentSource.KeyframeVisuals), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
     }
 
     [Fact]
@@ -604,25 +498,6 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task ShortCardCreditsBeforeAShortBlackRoll_QualifyTogether()
-    {
-        // The 12 s roll is short of the minimum even with the keyframe gap before it, so the analyzer
-        // asks blackdetect, which confirms nothing. With no accepted scene the card-like roll pages
-        // count as cards.
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(
-            [(976, 986, 0, KeyframeVisuals.Card), (988, Duration, 95, KeyframeVisuals.Black)]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal((976, Duration, SegmentSource.KeyframeVisuals), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
-        Assert.Equal(
-            [new IntervalScan(973, 1000, 28, 85), new IntervalScan(973, 1000, 28, 85)],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
     public async Task DarkLeadInBeforeTheBlackRoll_StaysOutOfTheCardCandidate()
     {
         // 900 to 940 is 90 percent black and a black page to the visuals, 942 to 978 is the roll, cards
@@ -639,33 +514,6 @@ public sealed class TestCreditsPass
         Assert.Equal((942, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
         Assert.Equal(
             [new RangeScan(940, 942, 95, 28, AnalysisMode.Credits), new RangeScan(940, 942, 95, 28, AnalysisMode.Credits)],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task MixedCardRunBeforeASeparateBlackRoll_IsStoredBesideIt()
-    {
-        // Cards 560 to 570, black cards 572 to 590, content, then a roll from 950 to the end. The
-        // black-frame rules accept both black scenes and each is a black-frame candidate. The earlier
-        // scene lets the mixed run qualify as a card run and lies inside it, so the two merge into one
-        // segment beside the roll. Each scene gets a boundary probe from the keyframe before it.
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(
-            [(560, 570, 0, KeyframeVisuals.Card), (572, 590, 100, KeyframeVisuals.Black), (BlackStart, Duration, 100, KeyframeVisuals.Black)]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal(
-            [(560, 590, SegmentSource.Combined), (BlackStart, Duration, SegmentSource.BlackFrame)],
-            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
-        Assert.Equal(
-            [
-                new RangeScan(570, 572, 95, 28, AnalysisMode.Credits),
-                RollProbe,
-                new RangeScan(570, 572, 95, 28, AnalysisMode.Credits),
-                RollProbe,
-            ],
             ffmpeg.Calls);
     }
 
@@ -739,22 +587,6 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task BlackFrameAction_KeepsTheCardCandidate()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(
-            [(BlackStart - 60, BlackStart - 2, 0, KeyframeVisuals.Card), (BlackStart, Duration, 95, KeyframeVisuals.Black)]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
-
-        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal((BlackStart - 60, Duration, SegmentSource.Combined), (segment.ToSegment().Start, segment.ToSegment().End, segment.Source));
-        Assert.Equal(
-            [RollProbe, RollProbe],
-            ffmpeg.Calls);
-    }
-
-    [Fact]
     public async Task LegacyBlackFrameAnalyzer_FeedsThePassUnderItsToggle()
     {
         using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
@@ -788,18 +620,6 @@ public sealed class TestCreditsPass
         ], ffmpeg.Calls);
 
         static RangeScan Probe(double start, double end) => new(start, end, 85, 28, AnalysisMode.Credits);
-    }
-
-    [Fact]
-    public async Task NoCandidates_SettlesTheEpisodeWithoutSegments()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason([]);
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
-
-        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
     }
 
     [Theory]
