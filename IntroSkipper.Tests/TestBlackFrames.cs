@@ -677,22 +677,23 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_UnconfirmedProbePreservesKeyframeScenes()
     {
-        // The same two sparse scenes and an interval that confirms neither: the probe changes
-        // nothing, and both scenes are candidates.
+        // Two sparse scenes 25 s apart, too far to merge, and an interval that confirms neither.
+        // Their probe ranges, padded by the 15 s minimum duration, overlap from 40 to 45, so one
+        // scan covers both. The probe changes nothing, and both scenes are candidates.
         Keyframe[] keyframes =
         [
             new(0, 10, KeyframeVisuals.Content(0)),
             .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
-            new(100, 10, KeyframeVisuals.Content(100)),
-            .. Keyframes(110, 130, 10, (110, 130, 96, KeyframeVisuals.Black)),
+            new(45, 10, KeyframeVisuals.Content(45)),
+            .. Keyframes(55, 75, 10, (55, 75, 96, KeyframeVisuals.Black)),
         ];
         var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(0, 1)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
 
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
-        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 110.0, 130.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 55.0, 75.0)], candidates);
+        Assert.Equal([new IntervalScan(0, 90, 32, 86)], ffmpeg.Calls);
     }
 
     [Fact]
