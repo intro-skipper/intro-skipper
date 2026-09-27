@@ -44,8 +44,8 @@ internal static class KeyframeVisualTraits
     /// <summary>
     /// Whether a keyframe shows lettering: something far above its darkest tenth, at any density and
     /// colour. A blank page fails on contrast. A dim highlight on a dark keyframe passes, since no
-    /// luma percentile tells it from antialiased coloured text; a scene of such keyframes counts as a
-    /// roll, as it always has, and the keyframe analyzer asks for lettering on most of a scene's pages.
+    /// luma percentile tells it from antialiased coloured text; the keyframe analyzer asks for
+    /// lettering on most of a scene's pages.
     /// </summary>
     /// <param name="visual">The keyframe's visual.</param>
     /// <returns><see langword="true"/> when the keyframe shows lettering.</returns>

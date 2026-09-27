@@ -331,10 +331,10 @@ public class TestBlackFrames
     [InlineData("most pages", 120.0)]
     [InlineData("half the pages", null)]
     [InlineData("none", 120.0)]
-    [InlineData("dense text", 120.0)]
+    [InlineData("dense text", null)]
     [InlineData("red text", 120.0)]
     [InlineData("dense red text", 120.0)]
-    [InlineData("dark highlight", 120.0)]
+    [InlineData("dark highlight", null)]
     [InlineData("cut then highlight", null)]
     [InlineData("dark grey lead-in", 130.0)]
     [InlineData("lifted blacks", 120.0)]
@@ -348,24 +348,25 @@ public class TestBlackFrames
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
         // pages are a dark tinted scene, not black at all; blank pages are a gap between acts, not
         // credits, until lettering shows on more than half of them; no visuals at all leave the
-        // black-frame result alone. Dense lettering and coloured lettering are rolls like any other.
-        // A dark scene with one lit spot on every page is a roll as it always was; a cut followed by
-        // such a keyframe is lettered on half its pages and is not. A dark grey lead-in, black to the
-        // blackframe filter with its darkest tenth above the roll's, is not part of the roll; a roll
-        // with lifted blacks sets the scene's black level and is a roll; a roll authored at two black
-        // levels starts at its darker part. Behind letterbox bars a dark scene's darkest tenth is
-        // black like the roll's, and its 90th percentile gives it away, however long it runs; large
-        // lettering lifts a roll page's 90th percentile onto the text and is a roll. Pages dense
-        // enough to lift the 90th percentile into the dark band read as dim content, so a roll that
-        // opens on them starts after them. No frames are decoded here, so every lead-in takes the
-        // policy's keyframe start; the lead-in probe's own tests cover the frame it moves to. A page
-        // whose 90th percentile reaches the threshold of 32 is at most nine tenths black, so dense and
-        // large lettering and the pages behind bars sit at 89. That is still black here: a scan of the
-        // roll alone has no zero rows, so its floor stays at 30, its black minimum at 89 and its
-        // scene-change threshold at 96, above the roll's 95, so the lead-in trim and not the
-        // transition shift starts a roll after its dim pages. No fixture gives a card run: an accepted
-        // roll's pages are black cards, the pages of a rejected or tinted roll are content, and pages
-        // without a visual are invisible to the card finder.
+        // black-frame result alone. Coloured lettering is a roll like any other. A dark scene with
+        // one lit spot on every page is dim on every page, so it is lead-in to its end and not a
+        // roll; a cut followed by such keyframes is lettered on half its pages and is not one
+        // either. A dark grey lead-in, black to the blackframe filter with its darkest tenth above
+        // the roll's, is not part of the roll; a roll with lifted blacks sets the scene's black
+        // level and is a roll; a roll authored at two black levels starts at its darker part.
+        // Behind letterbox bars a dark scene's darkest tenth is black like the roll's, and its 90th
+        // percentile gives it away, however long it runs; large lettering lifts a roll page's 90th
+        // percentile onto the text and is a roll. Pages dense enough to lift the 90th percentile
+        // into the dark band read as dim content, so a roll that opens on them starts after them
+        // and a roll of nothing else is rejected. No frames are decoded here, so every lead-in
+        // takes the policy's keyframe start; the lead-in probe's own tests cover the frame it moves
+        // to. A page whose 90th percentile reaches the threshold of 32 is at most nine tenths
+        // black, so dense and large lettering and the pages behind bars sit at 89. That is still
+        // black here: a scan of the roll alone has no zero rows, so its floor stays at 30, its
+        // black minimum at 89 and its scene-change threshold at 96, above the roll's 95, so the
+        // lead-in trim and not the transition shift starts a roll after its dim pages. No fixture
+        // gives a card run: an accepted roll's pages are black cards, the pages of a rejected or
+        // tinted roll are content, and pages without a visual are invisible to the card finder.
         Keyframe[] keyframes = visualsKind switch
         {
             "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
@@ -610,14 +611,17 @@ public class TestBlackFrames
     [InlineData("one page")]
     [InlineData("half the pages")]
     [InlineData("cut then highlight")]
+    [InlineData("dark room")]
     public async Task DetectCreditsAsync_RejectedGapDoesNotComeBackAsCards(string visualsKind)
     {
-        // The lettering gate rejects the scene; its black pages must not become cards through the card
-        // kinds' no-scene fallback and come back as a card run.
+        // The lettering gate rejects the scene, or the lead-in rule rejects a scene dim on every page;
+        // its black pages must not become cards through the card kinds' no-scene fallback and come back
+        // as a card run. The dark room's pages are card-like, so they would.
         var keyframes = visualsKind switch
         {
             "one page" => Keyframes(20, 54, 0.5, (30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
             "half the pages" => Keyframes(20, 54, 0.5, (20, 54, 95, t => (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
+            "dark room" => Keyframes(20, 54, 0.5, (20, 54, 95, KeyframeVisuals.DarkRoom)),
             _ => Keyframes(20, 54, 0.5, (20, 37, 95, KeyframeVisuals.BlankBlack), (37.5, 54, 95, KeyframeVisuals.DarkHighlight)),
         };
         var ffmpeg = KeyframeScan(keyframes);
