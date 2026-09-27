@@ -273,9 +273,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <remarks>
     /// Normally served from the row the keyframe scan in
     /// <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/> wrote. Decodes on
-    /// its own only for an episode whose black-frame row predates that shared write, or when the
-    /// detection cache database cannot be opened. Empty when the ffmpeg check found the visuals
-    /// filters missing.
+    /// its own when that row is missing or unreadable, such as for an episode whose black-frame row
+    /// predates that shared write. Empty when the ffmpeg check found the visuals filters missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
@@ -287,10 +286,10 @@ internal sealed partial class FFmpegService : IFFmpegService
             return Task.FromResult(Array.Empty<KeyframeVisual>());
         }
 
-        // Normally a cache hit on the row the keyframe scan wrote. The decode below runs only for
-        // an episode whose black-frame row predates that shared write, or when the detection cache
-        // database cannot be opened. -to stops decoding near the window end;
-        // ParseKeyframeVisualsInWindow does the bounding.
+        // Normally a cache hit on the row the keyframe scan wrote. The decode below runs when that
+        // row is missing or unreadable, such as for an episode whose black-frame row predates that
+        // shared write. -to stops decoding near the window end; ParseKeyframeVisualsInWindow does
+        // the bounding.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
         string[] args =
