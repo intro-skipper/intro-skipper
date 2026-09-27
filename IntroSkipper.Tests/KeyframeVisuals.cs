@@ -64,6 +64,9 @@ internal static class KeyframeVisuals
     /// <summary>The first keyframe of a dark scene after a cut: black to the blackframe filter, one lit spot, no lettering.</summary>
     internal static KeyframeVisual DarkHighlight(double time) => new(time, 9, 9, 19, 104, 1, 2);
 
+    /// <summary>A dim room at night without bars: black to the blackframe filter, its 90th percentile a few levels above its lifted darkest tenth, a lit candle on the flat dark, so it is card-like and lettered.</summary>
+    internal static KeyframeVisual DarkRoom(double time) => new(time, 19, 20, 28, 141, 1, 2.5);
+
     /// <summary>A flat colour background with a subject in front: the 90th percentile leaves the background.</summary>
     internal static KeyframeVisual FlatWithSubject(double time) => new(time, 54, 126, 226, 231, 0, 45);
 }
