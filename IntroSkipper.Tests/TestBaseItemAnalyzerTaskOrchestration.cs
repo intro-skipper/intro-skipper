@@ -158,8 +158,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             {
                 VersionCheck = () => false,
                 AudioDuration = path => path == brokenPath ? throw new IOException("probe failed") : 1300,
-                CreditsBlackFrames = (_, _) => [],
-                KeyframeVisuals = _ => [],
+                KeyframeScan = (_, _) => [],
                 RangeBlackFrames = (_, _, _, _, _) => [],
                 Silence = (_, _, _) => [],
             };
