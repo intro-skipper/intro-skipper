@@ -181,11 +181,23 @@ internal sealed partial class ChromaprintAnalyzer(
 
                 // Ignore this comparison result if:
                 // - one of the intros isn't valid, or
-                // - the introduction exceeds the configured limit
+                // - the introduction exceeds the maximum for this mode
                 if (
                     !remainingIntro.Valid ||
                     remainingIntro.Duration > maxDuration)
                 {
+                    // A valid shared region can still exceed the maximum; log it so an overlong
+                    // opening is not mistaken for a failed match.
+                    if (remainingIntro.Valid)
+                    {
+                        LogSharedRegionTooLong(
+                            currentEpisode.EpisodeId,
+                            remainingEpisode.EpisodeId,
+                            _analysisMode,
+                            remainingIntro.Duration,
+                            maxDuration);
+                    }
+
                     continue;
                 }
 
@@ -583,6 +595,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
+    private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
 }
 
 /// <summary>
