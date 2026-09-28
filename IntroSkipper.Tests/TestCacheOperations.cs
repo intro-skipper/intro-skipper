@@ -396,6 +396,11 @@ public sealed class TestCacheOperations
     /// One keyframe scan serves both rows. After the black-frame scan of a fresh episode the
     /// keyframe visuals row for the credits window exists, and the visuals read is served from
     /// it: the path is broken before that read, so a second decode would fail instead.
+    /// With the item's cache rows deleted, the visuals read then decodes the window on its own.
+    /// Visuals from either decode pair with exactly one black-frame row within the service's join
+    /// tolerance, and ScanKeyframesAsync returns one page per black-frame row with the three visuals
+    /// on theirs. The pairing runs from visual to row, since the black-frame scan runs to end of file
+    /// and its rows past the window end have no visual.
     /// credits.mp4 has a keyframe every 10 s; the window [5, 35] holds three.
     /// </summary>
     [FactSkipFFmpegTests]
@@ -406,6 +411,7 @@ public sealed class TestCacheOperations
         episode.Duration = 330;
         episode.CreditsFingerprintStart = 5;
         episode.CreditsFingerprintEnd = 35;
+        var path = episode.Path;
         var service = scope.CreateFFmpegService();
 
         var blackFrames = await service.DetectBlackFramesAsync(episode, 32);
@@ -415,10 +421,50 @@ public sealed class TestCacheOperations
         Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
 
         episode.Path = "/does/not/exist.mkv";
-        var visuals = await service.DetectKeyframeVisualsAsync(episode);
-        double[] times = [.. visuals.Select(visual => visual.Time)];
+        var shared = await service.DetectKeyframeVisualsAsync(episode);
 
-        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, times);
+        Assert.Equal([5.0, 15.0, 25.0], shared.Select(visual => visual.Time));
+        AssertEachVisualPairsWithOneRow(shared);
+
+        episode.Path = path;
+        scope.CacheDatabase.DeleteForItem(episode.EpisodeId);
+        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
+        var separate = await service.DetectKeyframeVisualsAsync(episode);
+
+        Assert.Equal([5.0, 15.0, 25.0], separate.Select(visual => visual.Time));
+        AssertEachVisualPairsWithOneRow(separate);
+
+        // The service pairs the two rows into pages: one per black-frame row, the window's three with
+        // visuals, each on the row of its own keyframe.
+        var pages = await service.ScanKeyframesAsync(episode, 32);
+
+        Assert.Equal(blackFrames, pages.Select(page => page.Frame));
+        Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
+        Assert.All(pages, page => Assert.True(page.Visual is null || Math.Abs(page.Visual.Time - page.Frame.Time) <= 0.001));
+
+        void AssertEachVisualPairsWithOneRow(KeyframeVisual[] visuals)
+            => Assert.All(visuals, visual => Assert.Single(blackFrames, frame => Math.Abs(frame.Time - visual.Time) <= KeyframeJoin.Tolerance));
+    }
+
+    /// <summary>
+    /// A keyframe scan of a fresh episode decodes once: the black-frame scan runs first and writes
+    /// the visuals row, so the visuals read after it is a cache hit.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task ScanKeyframesAsync_DecodesOnceOnAColdCache()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        episode.Duration = 330;
+        episode.CreditsFingerprintStart = 5;
+        episode.CreditsFingerprintEnd = 35;
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger);
+
+        var pages = await service.ScanKeyframesAsync(episode, 32);
+
+        Assert.Equal($"BlackFrame scan [5, 0] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+        Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
     }
 
     [FactSkipFFmpegTests]

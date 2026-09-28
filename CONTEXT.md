@@ -23,11 +23,15 @@ One analyzer's proposed time range for an episode's credits before any combinati
 _Avoid_: Detection, hit, match
 
 **Keyframe scan**:
-One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together.
+One decode of the keyframes from an episode's credits start, reporting black-frame evidence and keyframe visuals together, one page per keyframe.
 _Avoid_: Entropy scan
 
+**Page**:
+One keyframe of the keyframe scan: its black-frame row and its keyframe visual, when it has one. Its time is the black-frame time.
+_Avoid_: Frame, row (for the pair)
+
 **Keyframe analyzer**:
-The analyzer over one keyframe scan. It emits the black-frame candidate and the card run as two candidates.
+The analyzer over one keyframe scan. It emits a black-frame candidate for each accepted black scene whose refined range meets the minimum duration, and at most one card run.
 _Avoid_: Black-frame analyzer (for the class), card analyzer
 
 **Black-frame evidence**:
@@ -41,6 +45,10 @@ _Avoid_: Entropy data, visual stats, card evidence
 **Card credits**:
 Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe that is not solid white and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits. Solid white screens are always content, even inside an accepted scene.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
+
+**Card kind**:
+What a page is to the card run: content, card or black card. The keyframe analyzer sets it after probing.
+_Avoid_: Keyframe kind, page type
 
 ### Analysis
 

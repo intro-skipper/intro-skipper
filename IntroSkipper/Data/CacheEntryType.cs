@@ -39,4 +39,9 @@ public enum CacheEntryType
     /// Per-keyframe visual statistics (luma percentiles and saturation) for card credits detection.
     /// </summary>
     KeyframeVisual,
+
+    /// <summary>
+    /// Where the credits lead-in probe starts a black scene, keyed by the two keyframes that bound its window.
+    /// </summary>
+    LeadIn,
 }

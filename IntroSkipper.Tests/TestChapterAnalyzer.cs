@@ -18,6 +18,7 @@ using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static IntroSkipper.Tests.StubFFmpegService;
 
 public class TestChapterAnalyzer
 {
@@ -103,12 +104,7 @@ public class TestChapterAnalyzer
         Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
         Assert.NotNull(recap);
         Assert.Equal(80, recap.End);
-        var scan = Assert.NotNull(ffmpeg.LastRangeScan);
-        Assert.Equal(0, scan.Minimum);
-        Assert.Equal(32, scan.Threshold);
-        Assert.Equal(AnalysisMode.Recap, scan.Mode);
-        Assert.Equal(0, scan.Range.Start);
-        Assert.Equal(120, scan.Range.End);
+        Assert.Equal([new RangeScan(0, 120, 0, 32, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -122,14 +118,16 @@ public class TestChapterAnalyzer
             .Select(i => new BlackFrame(i % 4, i * 0.5, i))
             .Append(new BlackFrame(87, 42.0, 1008))];
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+        var ffmpeg = RecapScan(scan);
 
-        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
         var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
         var frame = Assert.Single(blackFrames);
         Assert.Equal(87, frame.Percentage);
         Assert.NotNull(recap);
         Assert.Equal(42.0, recap.End);
+        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -143,11 +141,13 @@ public class TestChapterAnalyzer
             .Select(i => new BlackFrame(45, i * 0.5, i))
             .Append(new BlackFrame(87, 42.0, 1008))];
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+        var ffmpeg = RecapScan(scan);
 
-        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(RecapScan(scan), episode, 120, config, CancellationToken.None);
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
 
         Assert.Empty(blackFrames);
         Assert.Null(RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
+        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
     }
 
     [Fact]

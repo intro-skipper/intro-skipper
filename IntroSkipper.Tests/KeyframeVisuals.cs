@@ -11,7 +11,10 @@ using IntroSkipper.Data;
 internal static class KeyframeVisuals
 {
     /// <summary>A grey credit card with white text: uniform background, text far above it.</summary>
-    internal static KeyframeVisual Card(double time, double saturation = 30) => new(time, 16, 128, 128, 235, 0, saturation);
+    internal static KeyframeVisual Card(double time) => Card(time, 30);
+
+    /// <summary>A grey credit card with white text on a background of the given saturation.</summary>
+    internal static KeyframeVisual Card(double time, double saturation) => new(time, 16, 128, 128, 235, 0, saturation);
 
     /// <summary>A white card with black text.</summary>
     internal static KeyframeVisual WhiteCard(double time) => new(time, 0, 235, 235, 235, 0, 0);
@@ -28,7 +31,7 @@ internal static class KeyframeVisuals
     /// <summary>Busy content: luma spread across the range.</summary>
     internal static KeyframeVisual Content(double time) => new(time, 16, 60, 200, 235, 0, 108);
 
-    /// <summary>A dark detailed scene: black to the blackframe filter, luma spread wide within the dark range.</summary>
+    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is under the blackframe threshold and its brightest tenth is not, so the filter counts between a tenth and nine tenths of it black.</summary>
     internal static KeyframeVisual Dark(double time) => new(time, 0, 10, 50, 120, 0, 0);
 
     /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>
@@ -43,6 +46,12 @@ internal static class KeyframeVisuals
     /// <summary>A black roll page on a source with lifted blacks: the darkest tenth at 20 rather than 16.</summary>
     internal static KeyframeVisual LiftedBlack(double time) => new(time, 18, 20, 20, 235, 0, 0);
 
+    /// <summary>A dark scene behind letterbox bars: the bars pin the darkest tenth at black, the picture sits above it, a lit face on top.</summary>
+    internal static KeyframeVisual LetterboxedDark(double time) => new(time, 16, 16, 32, 200, 1, 3);
+
+    /// <summary>A black roll page with large lettering: the 90th percentile lands on the text.</summary>
+    internal static KeyframeVisual BigText(double time) => new(time, 16, 16, 100, 240, 0, 0);
+
     /// <summary>Dense white lettering on black: too much text for the card test, still a text page.</summary>
     internal static KeyframeVisual DenseText(double time) => new(time, 16, 16, 74, 244, 0, 0);
 
@@ -54,6 +63,9 @@ internal static class KeyframeVisuals
 
     /// <summary>The first keyframe of a dark scene after a cut: black to the blackframe filter, one lit spot, no lettering.</summary>
     internal static KeyframeVisual DarkHighlight(double time) => new(time, 9, 9, 19, 104, 1, 2);
+
+    /// <summary>A dim room at night without bars: black to the blackframe filter, its 90th percentile a few levels above its lifted darkest tenth, a lit candle on the flat dark, so it is card-like and lettered.</summary>
+    internal static KeyframeVisual DarkRoom(double time) => new(time, 19, 20, 28, 141, 1, 2.5);
 
     /// <summary>A flat colour background with a subject in front: the 90th percentile leaves the background.</summary>
     internal static KeyframeVisual FlatWithSubject(double time) => new(time, 54, 126, 226, 231, 0, 45);
