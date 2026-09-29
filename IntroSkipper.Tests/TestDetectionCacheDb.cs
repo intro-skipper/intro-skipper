@@ -41,6 +41,22 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     }
 
     [Fact]
+    public void Upsert_KeepsDifferentScanVariantsForTheSameRange()
+    {
+        var cacheDatabase = _cache.Database;
+        var itemId = Guid.NewGuid();
+
+        cacheDatabase.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 0, 30, Encoding.UTF8.GetBytes("[1]"), "keyframe-hash", "vp9-keyframes");
+        cacheDatabase.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 0, 30, Encoding.UTF8.GetBytes("[2]"), "full-frame-hash");
+
+        var keyframes = cacheDatabase.FindEntry(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 0, 30, "vp9-keyframes");
+        var fullFrame = cacheDatabase.FindEntry(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 0, 30);
+
+        Assert.Equal("[1]", Encoding.UTF8.GetString(keyframes!.Data));
+        Assert.Equal("[2]", Encoding.UTF8.GetString(fullFrame!.Data));
+    }
+
+    [Fact]
     public void TryInitialize_RecoversFromCorruptCacheFile_ByDeleteAndRecreate()
     {
         // Garbage bytes with no SQLite header: opening the file succeeds, but the

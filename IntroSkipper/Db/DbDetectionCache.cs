@@ -24,7 +24,8 @@ public class DbDetectionCache
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
     /// <param name="configHash">Configuration hash that produced this cache entry.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0, string configHash = "")
+    /// <param name="cacheVariant">The scan variant that distinguishes otherwise identical rows.</param>
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0, string configHash = "", string cacheVariant = "")
     {
         ItemId = itemId;
         Mode = mode;
@@ -33,6 +34,7 @@ public class DbDetectionCache
         Start = start;
         End = end;
         ConfigHash = configHash;
+        CacheVariant = cacheVariant;
     }
 
     /// <summary>
@@ -93,4 +95,9 @@ public class DbDetectionCache
     /// Gets or sets the configuration hash that produced this cache entry.
     /// </summary>
     public string ConfigHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the scan variant used as part of the cache key.
+    /// </summary>
+    public string CacheVariant { get; set; } = string.Empty;
 }

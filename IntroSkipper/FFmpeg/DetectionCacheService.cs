@@ -58,7 +58,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             // NOTE: Start/End are compared with == which is safe only because the exact same
             // double values that were written are used for lookup (no intermediate arithmetic).
             // If a future caller computes start/end differently, the lookup will silently miss.
-            var entry = _cacheDatabase.FindEntry(itemId, mode, type, start, end);
+            var databaseVariant = cacheVariant ?? string.Empty;
+            var entry = _cacheDatabase.FindEntry(itemId, mode, type, start, end, databaseVariant);
 
             if (entry is null)
             {
@@ -122,7 +123,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash);
+            _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash, cacheVariant ?? string.Empty);
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {

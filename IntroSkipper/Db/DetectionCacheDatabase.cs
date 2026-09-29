@@ -55,7 +55,7 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
-    public DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
+    public DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string cacheVariant = "")
     {
         if (!TryInitialize())
         {
@@ -65,25 +65,25 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache
             .AsNoTracking()
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end && e.CacheVariant == cacheVariant);
     }
 
     /// <inheritdoc/>
-    public void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash)
+    public void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash, string cacheVariant = "")
     {
         if (!TryInitialize())
         {
             return;
         }
 
-        // ON CONFLICT targets the unique (ItemId, Mode, Type, Start, End) index, so the
-        // existing BLOB is never read back just to be replaced.
+        // ON CONFLICT targets the unique key including CacheVariant, so the existing BLOB
+        // is never read back just to be replaced.
         using var db = _contextFactory.CreateDbContext();
         db.Database.ExecuteSql(
             $"""
-            INSERT INTO "DetectionCache" ("ItemId", "Mode", "Type", "Start", "End", "Data", "ConfigHash")
-            VALUES ({itemId}, {(int)mode}, {(int)type}, {start}, {end}, {data}, {configHash})
-            ON CONFLICT("ItemId", "Mode", "Type", "Start", "End") DO UPDATE SET
+            INSERT INTO "DetectionCache" ("ItemId", "Mode", "Type", "Start", "End", "Data", "ConfigHash", "CacheVariant")
+            VALUES ({itemId}, {(int)mode}, {(int)type}, {start}, {end}, {data}, {configHash}, {cacheVariant})
+            ON CONFLICT("ItemId", "Mode", "Type", "Start", "End", "CacheVariant") DO UPDATE SET
                 "Data" = excluded."Data",
                 "ConfigHash" = excluded."ConfigHash"
             """);

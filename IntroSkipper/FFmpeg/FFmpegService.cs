@@ -64,7 +64,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly DetectionCacheService _cacheService;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
-    private readonly ConcurrentDictionary<string, Task<bool>> _vp9Probes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _vp9Probes = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -639,8 +639,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         var cacheKey = episode.EpisodeId.ToString("N")
             + "|" + episode.Path
             + "|" + File.GetLastWriteTimeUtc(episode.Path).Ticks;
-        var probe = _vp9Probes.GetOrAdd(cacheKey, _ => ProbeVp9Async(episode.Path));
-        return await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var candidate = new Lazy<Task<bool>>(
+            () => ProbeVp9Async(episode.Path),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        var probe = _vp9Probes.GetOrAdd(cacheKey, candidate);
+        return await probe.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<bool> ProbeVp9Async(string filePath)
