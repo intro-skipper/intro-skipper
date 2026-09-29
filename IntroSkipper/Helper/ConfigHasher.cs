@@ -14,8 +14,8 @@ namespace IntroSkipper.Helper;
 /// </summary>
 internal static class ConfigHasher
 {
-    /// <summary>Cache variant for black-frame scans that pass only keyframes to FFmpeg.</summary>
-    public const string KeyframeOnlyCacheVariant = "keyframes-only";
+    /// <summary>Cache variant for scans that use VP9 packet keyframes.</summary>
+    public const string Vp9KeyframeCacheVariant = "vp9-keyframes";
 
     /// <summary>
     /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
@@ -141,19 +141,19 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            // Credits v3 switches the keyframe selector to FFmpeg's packet key flag and separates
-            // the new selector from rows produced by earlier credits scans.
+            // Credits v4 restores the original frame handling for non-VP9 sources and applies the
+            // packet key selector only to VP9 scans.
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v{(mode == AnalysisMode.Credits ? 3 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
+                $"cache|v{(mode == AnalysisMode.Credits ? 4 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            // Keyframe v2 additionally filters showinfo through FFmpeg's packet key flag.
-            CacheEntryType.Keyframe => $"cache|v2|{type}",
+            // Keyframe v3 applies the packet key selector only to VP9 sources.
+            CacheEntryType.Keyframe => $"cache|v3|{type}",
 
-            // Credits v5 switches the visual selector to FFmpeg's packet key flag.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 5 : 3)}|{type}|{mode}",
+            // Credits v6 applies the packet key selector only to VP9 sources.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 6 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
             CacheEntryType.LeadIn => $"cache|v1|{type}",

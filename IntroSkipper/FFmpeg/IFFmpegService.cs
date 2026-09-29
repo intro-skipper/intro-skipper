@@ -50,7 +50,7 @@ public interface IFFmpegService
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
-    /// <param name="keyframesOnly">Whether to pass only I-frames to the blackframe filter; omitted for credits scans, boundary probes pass false.</param>
+    /// <param name="keyframesOnly">Whether to apply the VP9 packet-keyframe filter; other codecs retain standard frame handling. Omitted for credits scans, boundary probes pass false.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns frames that are mostly black.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(

@@ -199,11 +199,25 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
         }
 
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            acceptedHashes.Add(ConfigHasher.DetectionCache(
+                config,
+                CacheEntryType.Keyframe,
+                mode,
+                ConfigHasher.Vp9KeyframeCacheVariant));
+        }
+
         acceptedHashes.Add(ConfigHasher.DetectionCache(
             config,
             CacheEntryType.BlackFrame,
             AnalysisMode.Credits,
-            ConfigHasher.KeyframeOnlyCacheVariant));
+            ConfigHasher.Vp9KeyframeCacheVariant));
+        acceptedHashes.Add(ConfigHasher.DetectionCache(
+            config,
+            CacheEntryType.KeyframeVisual,
+            AnalysisMode.Credits,
+            ConfigHasher.Vp9KeyframeCacheVariant));
 
         return await _cacheDatabase
             .DeleteEntriesWithUnknownConfigHashAsync(acceptedHashes, ConfigHasher.StreamScopedDetectionCacheHashPrefix, cancellationToken)
