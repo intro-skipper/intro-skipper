@@ -46,10 +46,9 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when
-    /// blackframe reads it as gray, and not black once converted to limited-range yuv420p,
-    /// where the same luma lands at 33. The visual filter chain must not change what blackframe
-    /// sees; FFmpeg versions emit two or three frames for this synthetic clip.
+    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when read
+    /// as gray, but not after conversion to limited-range yuv420p (luma 33). FFmpeg emits two or
+    /// three frames for this synthetic clip.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
@@ -86,9 +85,8 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// The VP9 decoder ignores <c>-skip_frame nokey</c> and hands all 150 frames of the VP9 stream
-    /// to showinfo, so the listing must select packet keyframes itself. The VP9 stream sits behind
-    /// a non-default FFV1 stream: ffmpeg scans the default stream, so the codec check must too.
+    /// VP9 ignores <c>-skip_frame nokey</c>, so the listing must select packet keyframes. The VP9
+    /// stream follows a non-default FFV1 stream to verify the codec probe matches ffmpeg's choice.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectKeyFramesAsync_ListsOnlyKeyframesOfVp9Sources()

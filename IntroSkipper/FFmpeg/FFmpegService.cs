@@ -25,7 +25,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // VP9/WebM may ignore -skip_frame nokey, so gate its expensive filters on packet keyframes.
+    // VP9/WebM may ignore -skip_frame nokey; filter expensive scans by packet keyframe.
     private const string KeyframeSelect = "select=eq(key\\,1)";
 
     // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
@@ -231,13 +231,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <returns>A task that returns the black percentage of each keyframe.</returns>
     internal async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        // The keyframe scan: one decode from the credits start to end of file feeds two outputs
-        // with a filtergraph each, so blackframe negotiates its input as it does alone (gray for
-        // gray sources, yuv420p for 10-bit ones) while format=yuv420p pins signalstats to the
-        // 8-bit limited-range scale its thresholds are tuned for. One graph with both chains
-        // hands blackframe yuv420p on gray sources, where luma 20 lands at 33 and stops counting
-        // as black. The blackframe filter logs its own lines and metadata=print logs the
-        // signalstats lines, so each parser reads its part of the same stderr.
+        // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps source
+        // negotiation, while signalstats uses the 8-bit limited-range yuv420p scale.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, end);
         var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
@@ -469,9 +464,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        // -to is an output option, so its trim runs after showinfo has already logged the next
-        // keyframe or two past the window. Cached rows hold that unclipped listing, so the clip
-        // runs on every read.
+        // -to runs after showinfo, so the parser clips keyframes logged past the requested window.
         var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }
@@ -584,15 +577,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         CancellationToken cancellationToken)
         => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
 
-    // The codec is probed once per queued episode: every analysis pass resolves fresh episodes, so
-    // a replaced file or a failed probe is retried on the next pass, and entries go away with their
-    // episodes.
+    // Cache one probe per queued episode; new queue objects re-probe replacement files.
     private Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
         => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.Path)).WaitAsync(cancellationToken);
 
-    // The scans leave the video stream to ffmpeg, which prefers the default-flagged stream over the
-    // first one, so the probe asks ffmpeg for that pick instead of reading v:0. It opens the file
-    // without decoding and logs the pick as "Stream #0:1 -> #0:0 (vp9 (native) -> ...)".
+    // Match ffmpeg's default video stream rather than v:0, without decoding.
     private async Task<bool> ProbeVp9Async(string filePath)
     {
         try
