@@ -141,9 +141,10 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            // Credits v2 adds an explicit keyframe filter for VP9/WebM, so v1 rows must not be reused.
+            // Credits v3 switches the keyframe selector to FFmpeg's packet key flag and separates
+            // the new selector from rows produced by earlier credits scans.
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
+                $"cache|v{(mode == AnalysisMode.Credits ? 3 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
@@ -151,8 +152,8 @@ internal static class ConfigHasher
             // Keyframe v2 additionally filters showinfo through FFmpeg's packet key flag.
             CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Credits v4 adds the same explicit keyframe filter to visual statistics.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
+            // Credits v5 switches the visual selector to FFmpeg's packet key flag.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 5 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
             CacheEntryType.LeadIn => $"cache|v1|{type}",
