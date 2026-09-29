@@ -293,7 +293,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // The visuals row is keyed by the credits window, as the standalone visuals scan writes
         // it; the black-frame row keeps its end-of-file key.
-        return RunCachedScanAsync(
+        return await RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.BlackFrame,
@@ -310,7 +310,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return FFmpegOutputParser.ParseBlackFrames(raw);
             },
             cacheVariant,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -351,7 +351,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             .. OutputArgs(useKeyframeSelect ? WithKeyframeSelect(KeyframeVisualFilters) : KeyframeVisualFilters),
         ];
 
-        return RunCachedScanAsync(
+        return await RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.KeyframeVisual,
@@ -360,7 +360,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             args,
             raw => ParseKeyframeVisualsInWindow(raw, range),
             cacheVariant,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
     }
 
     // One null output with its own filtergraph. Two of these on one input decode it once.
@@ -636,7 +636,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private async Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        var cacheKey = episode.EpisodeId.ToString("N") + "|" + episode.Path;
+        var cacheKey = episode.EpisodeId.ToString("N")
+            + "|" + episode.Path
+            + "|" + File.GetLastWriteTimeUtc(episode.Path).Ticks;
         var probe = _vp9Probes.GetOrAdd(cacheKey, _ => ProbeVp9Async(episode.Path));
         return await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
