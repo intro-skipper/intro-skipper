@@ -61,31 +61,21 @@ public interface IFFmpegService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds the black level of every keyframe from the credits start to the end of the file.
+    /// Scans the keyframes from the credits start to the end of the file: one page per keyframe,
+    /// with its black percentage and, inside the credits window, its luma percentiles and saturation.
     /// </summary>
     /// <remarks>
-    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
-    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode
-    /// reads that row instead of decoding again.
+    /// One keyframe decode writes two cache rows, the black-frame row and the visuals row. This reads
+    /// each row, or decodes it on a miss, and pairs them into pages, so no caller joins them. A
+    /// page's time is its black-frame time. A page has no visual when it lies past the credits
+    /// window, when no visual lies within 10 ms of its row, or when the ffmpeg check found the
+    /// signalstats filter missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns the black level of each keyframe.</returns>
-    Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits fingerprint range.
-    /// </summary>
-    /// <remarks>
-    /// Normally served from the row the keyframe scan in <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/>
-    /// wrote. Decodes on its own only for an episode whose black-frame row predates that shared
-    /// write, or when caching is off. Empty when the ffmpeg check found the visuals filters missing.
-    /// </remarks>
-    /// <param name="episode">Media file to analyze.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns per-keyframe visual statistics relative to the credits fingerprint start.</returns>
-    Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
+    /// <returns>A task that returns one page per keyframe, in time order, relative to the credits fingerprint start.</returns>
+    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds continuous black intervals in a bounded credits range.
@@ -97,6 +87,23 @@ public interface IFFmpegService
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns continuous black intervals relative to the credits fingerprint start.</returns>
     Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Decodes every frame of a window to its luma plane at a small width, for the credits lead-in probe.
+    /// </summary>
+    /// <remarks>
+    /// Not cached: the window is tens of megabytes, so the caller caches what it derives from it.
+    /// The frames stay on the source's own 8-bit scale, 16 to 235 on a limited-range source and 0
+    /// to 255 on a full-range one, as the keyframe scan's visuals read the same frames, so a level
+    /// from that scan compares directly.
+    /// Standard output is capped at 64 MiB.
+    /// </remarks>
+    /// <param name="episode">Media file to decode.</param>
+    /// <param name="window">Absolute media time range to decode. Its start must be a keyframe from the keyframe scan: the decode seeks there, so a demuxer that seeks by timestamp, such as MPEG-TS, decodes from that keyframe rather than the next one, and the frame times fall on the scan's timeline.</param>
+    /// <param name="width">Frame width to scale to; the height follows the aspect ratio.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>The frames with their times, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, its output crossed the byte cap, or the frame and timestamp counts disagree.</returns>
+    Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Detects key frames in a media file within a time range.

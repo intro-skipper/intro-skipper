@@ -31,7 +31,8 @@ namespace IntroSkipper.Manager;
 /// season when that season resolves with episodes of its own, otherwise it stays in
 /// Specials. An episode Jellyfin has not attached to a season yet joins the season its
 /// numbered siblings resolved to, or waits: the series refresh that attaches it saves the
-/// episode, which queues it again. A movie is a season of one keyed by its own id. Items
+/// episode, which queues it again. An item Jellyfin has not probed yet waits the same way
+/// for the refresh that probes it. A movie is a season of one keyed by its own id. Items
 /// of a library the plugin is disabled for are unknown to every key lookup. Stateless:
 /// one instance serves every pass, the watcher and the dashboard.
 /// </summary>
@@ -75,14 +76,23 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         switch (FindItem(key))
         {
             case Movie movie:
-                return new DisplayedSeason(key, [key], ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? []);
+                return new DisplayedSeason(
+                    key,
+                    [key],
+                    ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? [],
+                    [new DisplayedEpisode(movie.Id, movie.Name)]);
             case Season season when FindSeries(season.SeriesId) is { } series:
                 {
                     var (shown, placed) = PlaceEpisodes(series, policy, includeExcluded: false);
+                    var shownEpisodes = shown
+                        .Where(episode => IsShownIn(episode, season))
+                        .Select(episode => new DisplayedEpisode(episode.Id, episode.Name))
+                        .ToList();
                     return new DisplayedSeason(
                         series.Id,
-                        [.. shown.Where(episode => IsShownIn(episode, season)).Select(episode => episode.Id)],
-                        QueueEpisodes(series, placed.Where(item => IsShownIn(item.Episode, season))));
+                        [.. shownEpisodes.Select(episode => episode.EpisodeId)],
+                        QueueEpisodes(series, placed.Where(item => IsShownIn(item.Episode, season))),
+                        shownEpisodes);
                 }
 
             default:
@@ -297,6 +307,14 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
     }
 
+    // Whether Jellyfin has probed the item's file. A library scan creates an item, and
+    // raises ItemAdded, before the metadata refresh that probes its runtime and chapters,
+    // and on a large library that refresh can come minutes later. Analyzed in between, the
+    // item has no duration to fingerprint and no chapters to match, and a mode that fails
+    // nothing records it as analyzed with nothing found. The refresh saves the item, which
+    // queues it again.
+    private static bool IsProbed(BaseItem item) => item.RunTimeTicks is > 0;
+
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
 
@@ -359,6 +377,12 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             if (string.IsNullOrEmpty(episode.Path))
             {
                 LogNotQueuingEpisodeNoPath(_logger, episode.Name, series.Name, episode.Id);
+                continue;
+            }
+
+            if (!IsProbed(episode))
+            {
+                LogWaitingForProbe(_logger, episode.Name, series.Name, episode.Id);
                 continue;
             }
 
@@ -451,6 +475,12 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             return null;
         }
 
+        if (!IsProbed(movie))
+        {
+            LogWaitingForProbe(_logger, movie.Name, movie.Name, movie.Id);
+            return null;
+        }
+
         var decision = policy.EvaluateMovie(movie.Name, movie.Path);
         if (decision.IsExcluded && !includeExcluded)
         {
@@ -535,6 +565,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing episode \"{Name}\" from series \"{Series}\" ({Id}) yet: Jellyfin has not attached it to a season")]
     private static partial void LogWaitingForSeason(ILogger logger, string name, string series, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing \"{Name}\" from \"{Series}\" ({Id}) yet: Jellyfin has not probed its runtime")]
+    private static partial void LogWaitingForProbe(ILogger logger, string name, string series, Guid id);
 
     // An episode kept for analysis, with the key and number of the season it is analyzed in.
     private readonly record struct PlacedEpisode(Episode Episode, ExclusionDecision Decision, Guid Key, int SeasonNumber);

@@ -41,7 +41,12 @@ public enum CacheEntryType
     KeyframeVisual,
 
     /// <summary>
+    /// Where the credits lead-in probe starts a black scene, keyed by the two keyframes that bound its window.
+    /// </summary>
+    LeadIn = 6,
+
+    /// <summary>
     /// Successfully probed duration for a shortcut target, keyed by its file identity.
     /// </summary>
-    ShortcutDuration,
+    ShortcutDuration = 7,
 }

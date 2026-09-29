@@ -83,7 +83,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        return season.Episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
+        return season.ShownEpisodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
 
     /// <summary>
