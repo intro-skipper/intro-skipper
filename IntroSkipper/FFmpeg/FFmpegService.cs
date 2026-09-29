@@ -24,6 +24,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
+    // VP9/WebM may ignore -skip_frame nokey, so gate the expensive filters on the key flag too.
+    private const string KeyframeSelect = "select=eq(key\\,1)";
+
     // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
     // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops
     // a runaway decode or a file whose diagnostics never end.
@@ -241,8 +244,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-skip_frame", "nokey",
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
-            .. OutputArgs($"blackframe=amount=0:threshold={threshold}"),
-            .. withVisuals ? OutputArgs(KeyframeVisualFilters) : [],
+            .. OutputArgs(WithKeyframeSelect($"blackframe=amount=0:threshold={threshold}")),
+            .. withVisuals ? OutputArgs(WithKeyframeSelect(KeyframeVisualFilters)) : [],
         ];
 
         // The visuals row is keyed by the credits window, as the standalone visuals scan writes
@@ -298,7 +301,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            .. OutputArgs(KeyframeVisualFilters),
+            .. OutputArgs(WithKeyframeSelect(KeyframeVisualFilters)),
         ];
 
         return RunCachedScanAsync(
@@ -314,6 +317,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // One null output with its own filtergraph. Two of these on one input decode it once.
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
+
+    private static string WithKeyframeSelect(string filters) => $"{KeyframeSelect},{filters}";
 
     /// <inheritdoc/>
     public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
