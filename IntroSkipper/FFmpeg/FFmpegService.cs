@@ -590,29 +590,22 @@ internal sealed partial class FFmpegService : IFFmpegService
     private Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
         => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.Path)).WaitAsync(cancellationToken);
 
+    // The scans leave the video stream to ffmpeg, which prefers the default-flagged stream over the
+    // first one, so the probe asks ffmpeg for that pick instead of reading v:0. It opens the file
+    // without decoding and logs the pick as "Stream #0:1 -> #0:0 (vp9 (native) -> ...)".
     private async Task<bool> ProbeVp9Async(string filePath)
     {
         try
         {
-            string[] args =
-            [
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name",
-                "-of", "default=nw=1:nk=1",
-                filePath,
-            ];
-
-            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
-                GetFFprobePath(),
+            string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
+            var output = Encoding.UTF8.GetString(await GetOutputAsync(
                 args,
-                stderr: false,
+                stderr: true,
+                infoQuery: false,
                 timeout: 10 * 1000,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false));
+                CancellationToken.None).ConfigureAwait(false));
 
-            return output
-                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-                .Any(codec => string.Equals(codec.Trim(), "vp9", StringComparison.OrdinalIgnoreCase));
+            return output.Contains(" -> #0:0 (vp9 (", StringComparison.Ordinal);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {

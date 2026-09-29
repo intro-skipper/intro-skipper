@@ -90,16 +90,25 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// The VP9 decoder ignores <c>-skip_frame nokey</c> and hands all 150 frames of this clip to
-    /// showinfo, so the listing must select packet keyframes itself.
+    /// The VP9 decoder ignores <c>-skip_frame nokey</c> and hands all 150 frames of the VP9 stream
+    /// to showinfo, so the listing must select packet keyframes itself. The VP9 stream sits behind
+    /// a non-default FFV1 stream: ffmpeg scans the default stream, so the codec check must too.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectKeyFramesAsync_ListsOnlyKeyframesOfVp9Sources()
     {
-        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-vp9.webm");
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-vp9.mkv");
         await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
             "ffmpeg",
-            ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x64:r=25:d=6", "-c:v", "libvpx-vp9", "-g", "50", "-keyint_min", "50", "-deadline", "realtime", path]);
+            [
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=6",
+                "-f", "lavfi", "-i", "testsrc2=s=64x64:r=25:d=6",
+                "-map", "0", "-map", "1",
+                "-c:v:0", "ffv1", "-disposition:v:0", "0",
+                "-c:v:1", "libvpx-vp9", "-g:v:1", "50", "-keyint_min:v:1", "50", "-deadline:v:1", "realtime", "-disposition:v:1", "default",
+                path,
+            ]);
         try
         {
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "vp9", Path = path, Duration = 6 };
