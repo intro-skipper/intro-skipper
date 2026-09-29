@@ -24,8 +24,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // VP9/WebM may ignore -skip_frame nokey, so gate the expensive filters on I-frames too.
-    private const string KeyframeSelect = "select=eq(pict_type\\,I)";
+    // VP9/WebM may ignore -skip_frame nokey, so gate the expensive filters on keyframes too.
+    private const string KeyframeSelect = "select=eq(key\\,1)";
 
     // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
     // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops
@@ -45,6 +45,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         ("-muxers", "chromaprint", "muxer list", "The installed version of ffmpeg does not support chromaprint", "chromaprint_not_supported"),
         ("-h muxer=chromaprint", "binary raw fingerprint", "chromaprint options", "The installed version of ffmpeg does not support raw binary fingerprints", "fp_format_not_supported"),
         ("-h filter=silencedetect", "noise tolerance", "silencedetect options", "The installed version of ffmpeg does not support the silencedetect filter", "silencedetect_not_supported"),
+        ("-h filter=select", "Filter select", "select options", "The installed version of ffmpeg does not support the select filter", "select_not_supported"),
     ];
 
     // Probed after the requirements. This filter only feeds keyframe visuals, so a build
@@ -175,7 +176,7 @@ internal sealed partial class FFmpegService : IFFmpegService
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), null, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -192,8 +193,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
+        var useKeyframesOnly = keyframesOnly ?? mode == AnalysisMode.Credits;
         var filter = $"blackframe=amount={amount}:threshold={threshold}";
-        if (keyframesOnly ?? mode == AnalysisMode.Credits)
+        if (useKeyframesOnly)
         {
             filter = WithKeyframeSelect(filter);
         }
@@ -208,7 +210,17 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
+        var cacheVariant = useKeyframesOnly ? ConfigHasher.KeyframeOnlyCacheVariant : null;
+        var allFrames = await RunCachedScanAsync(
+            episode,
+            mode,
+            CacheEntryType.BlackFrame,
+            range.Start,
+            range.End,
+            args,
+            FFmpegOutputParser.ParseBlackFrames,
+            cacheVariant,
+            cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
@@ -273,6 +285,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
                 return FFmpegOutputParser.ParseBlackFrames(raw);
             },
+            null,
             cancellationToken);
     }
 
@@ -319,6 +332,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.End,
             args,
             raw => ParseKeyframeVisualsInWindow(raw, range),
+            null,
             cancellationToken);
     }
 
@@ -433,6 +447,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                     ? intervals
                     : [.. intervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
             },
+            null,
             cancellationToken);
     }
 
@@ -467,14 +482,15 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", "showinfo",
+            "-vf", WithKeyframeSelect("showinfo"),
             "-f", "null", "-",
         ];
 
         // -to is an output option, so its trim runs after showinfo has already logged the next
         // keyframe or two past the window. Cached rows hold that unclipped listing, so the clip
-        // runs on every read.
-        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken).ConfigureAwait(false);
+        // runs on every read. The select filter keeps the parser aligned with the packet key flag
+        // used by the credits black-frame scans.
+        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), null, cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }
 
@@ -489,6 +505,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
     /// <param name="args">ffmpeg arguments.</param>
     /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
+    /// <param name="cacheVariant">Optional cache variant for scans with a different filter graph.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
     private async Task<T[]> RunCachedScanAsync<T>(
@@ -499,11 +516,12 @@ internal sealed partial class FFmpegService : IFFmpegService
         double end,
         IReadOnlyList<string> args,
         Func<string, T[]> parse,
+        string? cacheVariant,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached))
+        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached, cacheVariant))
         {
             return cached;
         }
@@ -513,7 +531,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
+        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result, cacheVariant);
 
         return result;
     }

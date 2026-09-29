@@ -46,6 +46,7 @@ public sealed class TestConfigHasher
         Case("BlackFrame cache changes with threshold", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold64, CacheEntryType.BlackFrame, AnalysisMode.Credits), false);
         Case("BlackFrame cache changes with mode", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Introduction), Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), false);
         Case("BlackFrame cache ignores minimum percentage", Cache(percentage85, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(percentage95, CacheEntryType.BlackFrame, AnalysisMode.Credits), true);
+        Case("BlackFrame cache separates keyframe-only scans", Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits, ConfigHasher.KeyframeOnlyCacheVariant), false);
         Case("BlackInterval cache changes with threshold", Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), Cache(threshold64, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("BlackInterval cache changes with mode", Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Introduction), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("BlackInterval cache differs from BlackFrame", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);

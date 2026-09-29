@@ -49,8 +49,7 @@ public class TestBlackFrames
     /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when
     /// blackframe reads it as gray, and not black once converted to limited-range yuv420p,
     /// where the same luma lands at 33. The keyframe scan's visuals filters must not change
-    /// what blackframe sees, regardless of whether a given FFmpeg build emits two or three
-    /// 1 fps keyframes for this synthetic clip.
+    /// what blackframe sees.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
@@ -798,7 +797,7 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task LegacyBlackFrameAnalyzer_UsesKeyframeOnlyRangeScans()
+    public async Task LegacyBlackFrameAnalyzer_UsesFullFrameRangeScans()
     {
         var ffmpeg = new StubFFmpegService
         {
@@ -815,7 +814,7 @@ public class TestBlackFrames
         await analyzer.AnalyzeMediaFileAsync(episode, initialStart: 30, minimumBlackPercentage: 85, threshold: 32);
 
         Assert.NotEmpty(ffmpeg.KeyframesOnlyRangeScans);
-        Assert.All(ffmpeg.KeyframesOnlyRangeScans, value => Assert.True(value));
+        Assert.All(ffmpeg.KeyframesOnlyRangeScans, value => Assert.False(value));
     }
 
     [Fact]

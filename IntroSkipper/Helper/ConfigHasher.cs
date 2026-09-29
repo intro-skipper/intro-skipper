@@ -14,6 +14,9 @@ namespace IntroSkipper.Helper;
 /// </summary>
 internal static class ConfigHasher
 {
+    /// <summary>Cache variant for black-frame scans that pass only keyframes to FFmpeg.</summary>
+    public const string KeyframeOnlyCacheVariant = "keyframes-only";
+
     /// <summary>
     /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
     /// Frozen: rows carrying it are already on disk.
@@ -105,19 +108,17 @@ internal static class ConfigHasher
     public static string DetectionCache(PluginConfiguration config, CacheEntryType type, AnalysisMode mode)
         => DetectionCache(config, type, mode, null);
 
-    /// <summary>
-    /// Computes a hash for a detection cache row, optionally keyed by the effective audio stream selection.
-    /// </summary>
+    /// <summary>Computes a hash for a detection cache row, optionally keyed by a cache variant.</summary>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="type">Cache entry type.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="audioStreamIdentity">Effective audio stream identity for Chromaprint entries.</param>
+    /// <param name="cacheVariant">Effective audio stream identity for Chromaprint entries, or a scan variant for other entries.</param>
     /// <returns>A compact hash for settings-sensitive scans, or a stream-scoped fingerprint key for Chromaprint entries.</returns>
     public static string DetectionCache(
         PluginConfiguration config,
         CacheEntryType type,
         AnalysisMode mode,
-        string? audioStreamIdentity)
+        string? cacheVariant)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -127,9 +128,9 @@ internal static class ConfigHasher
         // key, and the effective audio stream is the only remaining input to the bytes.
         if (type == CacheEntryType.Chromaprint)
         {
-            var streamIdentity = string.IsNullOrWhiteSpace(audioStreamIdentity)
+            var streamIdentity = string.IsNullOrWhiteSpace(cacheVariant)
                 ? DefaultAudioStreamCacheVariant
-                : audioStreamIdentity;
+                : cacheVariant;
             var fingerprintHash = ComputeHash(Invariant(
                 $"fingerprint|v1|{type}|{mode}|audioStream={streamIdentity}"));
             return StreamScopedDetectionCacheHashPrefix + FormattableString.Invariant($"{streamIdentity}|{fingerprintHash}");
@@ -147,7 +148,8 @@ internal static class ConfigHasher
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            CacheEntryType.Keyframe => $"cache|v1|{type}",
+            // Keyframe v2 additionally filters showinfo through FFmpeg's packet key flag.
+            CacheEntryType.Keyframe => $"cache|v2|{type}",
 
             // Credits v4 adds the same explicit keyframe filter to visual statistics.
             CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
@@ -157,6 +159,11 @@ internal static class ConfigHasher
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
+
+        if (!string.IsNullOrWhiteSpace(cacheVariant))
+        {
+            input += FormattableString.Invariant($"|variant={cacheVariant}");
+        }
 
         var hash = ComputeHash(input);
         return hash;
