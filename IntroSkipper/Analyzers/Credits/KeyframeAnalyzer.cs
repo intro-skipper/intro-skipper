@@ -514,7 +514,8 @@ internal sealed partial class KeyframeAnalyzer(
             firstBlackTime + episode.CreditsFingerprintStart);
 
         var probeFrames = await _ffmpegService
-            .DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken)
+            // Keep inter-keyframe frames for boundary refinement.
+            .DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken, keyframesOnly: false)
             .ConfigureAwait(false);
 
         if (probeFrames.Length == 0)

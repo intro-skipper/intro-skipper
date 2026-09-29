@@ -51,6 +51,7 @@ public interface IFFmpegService
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <param name="keyframesOnly">Whether to pass only I-frames to the blackframe filter; omitted for credits scans, boundary probes pass false.</param>
     /// <returns>A task that returns frames that are mostly black.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
@@ -58,7 +59,8 @@ public interface IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool? keyframesOnly = null);
 
     /// <summary>
     /// Scans the keyframes from the credits start to the end of the file: one page per keyframe,

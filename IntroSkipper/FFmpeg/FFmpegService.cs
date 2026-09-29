@@ -185,19 +185,26 @@ internal sealed partial class FFmpegService : IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool? keyframesOnly = null)
     {
         // Recap scans report every frame (amount=0) so adaptive threshold normalization can
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
+        var filter = $"blackframe=amount={amount}:threshold={threshold}";
+        if (keyframesOnly ?? mode == AnalysisMode.Credits)
+        {
+            filter = WithKeyframeSelect(filter);
+        }
+
         string[] args =
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount={amount}:threshold={threshold}",
+            "-vf", filter,
             "-f", "null", "-",
         ];
 

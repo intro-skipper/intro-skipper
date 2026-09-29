@@ -128,7 +128,7 @@ internal sealed partial class BlackFrameAnalyzer(
             var timeRange = new TimeRange(scanTime, scanTime + 2);
 
             // Detect black frames in the current time range
-            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken, keyframesOnly: true).ConfigureAwait(false);
 
             LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
 
@@ -223,7 +223,8 @@ internal sealed partial class BlackFrameAnalyzer(
             percentage,
             threshold,
             AnalysisMode.Credits,
-            cancellationToken).ConfigureAwait(false)).Length > 0;
+            cancellationToken,
+            keyframesOnly: true).ConfigureAwait(false)).Length > 0;
 
         if (!hasBlackFramesAtStart)
         {
@@ -247,7 +248,8 @@ internal sealed partial class BlackFrameAnalyzer(
                 percentage,
                 threshold,
                 AnalysisMode.Credits,
-                cancellationToken).ConfigureAwait(false)).Length > 0;
+                cancellationToken,
+                keyframesOnly: true).ConfigureAwait(false)).Length > 0;
 
             if (!hasBlackFramesBefore)
             {
@@ -287,7 +289,7 @@ internal sealed partial class BlackFrameAnalyzer(
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, percentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, percentage, threshold, AnalysisMode.Credits, cancellationToken, keyframesOnly: true).ConfigureAwait(false);
 
             LogSearchScanning(_logger, scanTime, searchStart, blackFrames.Length);
 
