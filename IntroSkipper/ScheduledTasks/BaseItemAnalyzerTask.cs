@@ -279,20 +279,6 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        if (shortcutsOnly)
-        {
-            // Classification is deliberately completed before any remote probe. A settled
-            // shortcut may still be selected by the rotating cursor, but it must not spend
-            // a rate-limited request or consume analysis work.
-            analysisTargets = analysisTargets
-                .Where(episode => modes.Any(mode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
-                .ToArray();
-            if (analysisTargets.Length == 0)
-            {
-                return;
-            }
-        }
-
         // A replaced file makes the old automatic segments and fingerprints wrong for every
         // mode, not only the ones this run covers. The fingerprints go first: the records
         // are the only evidence the file changed, so if the reset does not commit the
@@ -317,8 +303,29 @@ public partial class BaseItemAnalyzerTask(
             }
         }
 
+        var previewFromCreditsEnd = ShouldDerivePreview(analysisTargets[0], Config);
+        if (!previewFromCreditsEnd)
+        {
+            await _database.ClearCreditsDerivedPreviewsAsync(
+                analysisTargets.Select(episode => episode.EpisodeId),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (shortcutsOnly)
         {
+            // Classification is deliberately completed before any remote probe. A settled
+            // shortcut may still be selected by the rotating cursor, but it must not spend
+            // a rate-limited request or consume analysis work. Do this after file-change
+            // invalidation so a replaced shortcut is reset even when every enabled mode is
+            // currently UserProvided.
+            analysisTargets = analysisTargets
+                .Where(episode => modes.Any(mode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+                .ToArray();
+            if (analysisTargets.Length == 0)
+            {
+                return;
+            }
+
             await PrepareShortcutDurationsAsync(
                 analysisTargets,
                 changedFiles.ToHashSet(),
@@ -331,7 +338,6 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var first = analysisTargets[0];
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
 
         // Run settled-season reanalysis from scratch after no new episodes have been added
         // for the configured delay so segments first derived from a partial season are
@@ -340,11 +346,6 @@ public partial class BaseItemAnalyzerTask(
         // lead-in probe decodes its window again.
         var utcNow = DateTime.UtcNow;
         var episodeIds = analysisTargets.Select(e => e.EpisodeId).ToArray();
-
-        if (!previewFromCreditsEnd)
-        {
-            await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-        }
 
         // One season-state read serves both the settle decision and every mode's
         // analyzer action below.
