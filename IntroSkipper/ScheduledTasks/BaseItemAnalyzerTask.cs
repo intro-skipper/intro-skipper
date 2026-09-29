@@ -148,27 +148,10 @@ public partial class BaseItemAnalyzerTask(
         int shortcutBatchSize)
     {
         var yielded = 0;
-        List<ResolvedSeason> resolvedSeasons = [];
-        for (var i = 0; i < owners.Count; i++)
-        {
-            progress.Report(100.0 * i / owners.Count);
-            if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
-            {
-                continue;
-            }
-
-            foreach (var season in seasons)
-            {
-                if (scope is null || scope.Contains(season.Key) || season.Episodes.Any(episode => scope.Contains(episode.EpisodeId)))
-                {
-                    resolvedSeasons.Add(season);
-                }
-            }
-        }
 
         if (!shortcutsOnly)
         {
-            foreach (var season in resolvedSeasons)
+            foreach (var season in ResolveSeasonsInScope(owners, scope, progress))
             {
                 yielded++;
                 yield return season;
@@ -176,6 +159,9 @@ public partial class BaseItemAnalyzerTask(
         }
         else
         {
+            // Shortcut batching needs the whole resolved set for its rotating cursor and
+            // selected-id projection; ordinary runs stream directly from resolution above.
+            var resolvedSeasons = ResolveSeasonsInScope(owners, scope, progress).ToArray();
             var shortcuts = resolvedSeasons
                 .SelectMany(season => season.Episodes.Where(episode => episode.IsShortcut))
                 .ToArray();
@@ -224,6 +210,29 @@ public partial class BaseItemAnalyzerTask(
         if (scope is not null && yielded == 0)
         {
             LogNothingInScope(_logger, scope.Count);
+        }
+    }
+
+    private IEnumerable<ResolvedSeason> ResolveSeasonsInScope(
+        IReadOnlyList<BaseItem> owners,
+        HashSet<Guid>? scope,
+        IProgress<double> progress)
+    {
+        for (var i = 0; i < owners.Count; i++)
+        {
+            progress.Report(100.0 * i / owners.Count);
+            if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
+            {
+                continue;
+            }
+
+            foreach (var season in seasons)
+            {
+                if (scope is null || scope.Contains(season.Key) || season.Episodes.Any(episode => scope.Contains(episode.EpisodeId)))
+                {
+                    yield return season;
+                }
+            }
         }
     }
 
