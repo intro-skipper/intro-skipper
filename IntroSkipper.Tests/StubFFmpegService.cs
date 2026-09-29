@@ -23,7 +23,6 @@ using IntroSkipper.FFmpeg;
 internal class StubFFmpegService : IFFmpegService
 {
     private readonly ConcurrentQueue<Call> _calls = new();
-    private readonly ConcurrentQueue<bool> _keyframesOnlyRangeScans = new();
     private int _versionCheckCalls;
     private int _keyframeScanCalls;
     private int _fingerprintCalls;
@@ -58,8 +57,6 @@ internal class StubFFmpegService : IFFmpegService
     /// <summary>Gets the probes the stub received, in order: tests assert the whole log.</summary>
     public IReadOnlyList<Call> Calls => [.. _calls];
 
-    public IReadOnlyList<bool> KeyframesOnlyRangeScans => [.. _keyframesOnlyRangeScans];
-
     /// <summary>Gets the credits window start of the most recent keyframe scan.</summary>
     public double? LastKeyframeScanStart { get; private set; }
 
@@ -86,11 +83,9 @@ internal class StubFFmpegService : IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        bool? keyframesOnly = null,
         CancellationToken cancellationToken = default)
     {
         _calls.Enqueue(new RangeScan(range.Start, range.End, minimum, threshold, mode));
-        _keyframesOnlyRangeScans.Enqueue(keyframesOnly ?? mode == AnalysisMode.Credits);
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(RangeBlackFrames)(episode, range, minimum, threshold, mode));
     }

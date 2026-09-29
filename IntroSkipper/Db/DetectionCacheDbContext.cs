@@ -39,8 +39,8 @@ public class DetectionCacheDbContext : DbContext
             entity.Property(e => e.Id)
                   .ValueGeneratedOnAdd();
 
-            // Composite unique index: one cache entry per scan variant and range.
-            entity.HasIndex(e => new { e.ItemId, e.Mode, e.Type, e.Start, e.End, e.CacheVariant })
+            // Composite unique index: one cache entry per (ItemId, Mode, Type, Start, End).
+            entity.HasIndex(e => new { e.ItemId, e.Mode, e.Type, e.Start, e.End })
                   .HasDatabaseName("IX_DetectionCache_Unique")
                   .IsUnique();
 
@@ -58,10 +58,6 @@ public class DetectionCacheDbContext : DbContext
                   .IsRequired();
 
             entity.Property(e => e.ConfigHash)
-                  .HasDefaultValue(string.Empty)
-                  .IsRequired();
-
-            entity.Property(e => e.CacheVariant)
                   .HasDefaultValue(string.Empty)
                   .IsRequired();
         });

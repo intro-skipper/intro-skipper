@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -55,16 +55,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         ("signalstats", "signalstats options"),
     ];
 
-    private static readonly (string Filter, string BundleName)[] KeyframeSelectFilterProbes =
-    [
-        ("select", "select options"),
-    ];
-
     private readonly ILogger<FFmpegService> _logger;
     private readonly DetectionCacheService _cacheService;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
-    private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _vp9Probes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConditionalWeakTable<QueuedEpisode, Task<bool>> _vp9Probes = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -137,17 +132,6 @@ internal sealed partial class FFmpegService : IFFmpegService
                 }
             }
 
-            var keyframeSelectSupported = true;
-            foreach (var (filter, bundleName) in KeyframeSelectFilterProbes)
-            {
-                var output = await ProbeAsync("-h filter=" + filter, bundleName).ConfigureAwait(false);
-                if (!output.Contains("Filter " + filter, StringComparison.OrdinalIgnoreCase))
-                {
-                    LogKeyframeSelectUnsupported(_logger, filter);
-                    keyframeSelectSupported = false;
-                }
-            }
-
             var visualsSupported = true;
             foreach (var (filter, bundleName) in KeyframeVisualFilterProbes)
             {
@@ -159,7 +143,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 }
             }
 
-            return (true, new FFmpegCheckResult("okay", [.. outputs], visualsSupported, keyframeSelectSupported));
+            return (true, new FFmpegCheckResult("okay", [.. outputs], visualsSupported));
         }
         catch (OperationCanceledException)
         {
@@ -193,7 +177,7 @@ internal sealed partial class FFmpegService : IFFmpegService
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), null, cancellationToken);
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -203,45 +187,23 @@ internal sealed partial class FFmpegService : IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        bool? keyframesOnly = null,
         CancellationToken cancellationToken = default)
     {
         // Recap scans report every frame (amount=0) so adaptive threshold normalization can
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
-        var wantsKeyframesOnly = keyframesOnly ?? mode == AnalysisMode.Credits;
-        var isVp9 = wantsKeyframesOnly && await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
-        var useKeyframesOnly = isVp9
-            && _versionGate.CheckResult.KeyframeSelectSupported
-            && wantsKeyframesOnly;
-        var filter = $"blackframe=amount={amount}:threshold={threshold}";
-        if (useKeyframesOnly)
-        {
-            filter = WithKeyframeSelect(filter);
-        }
-
         string[] args =
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", filter,
+            "-vf", $"blackframe=amount={amount}:threshold={threshold}",
             "-f", "null", "-",
         ];
 
-        var cacheVariant = useKeyframesOnly ? ConfigHasher.Vp9KeyframeCacheVariant : null;
-        var allFrames = await RunCachedScanAsync(
-            episode,
-            mode,
-            CacheEntryType.BlackFrame,
-            range.Start,
-            range.End,
-            args,
-            FFmpegOutputParser.ParseBlackFrames,
-            cacheVariant,
-            cancellationToken).ConfigureAwait(false);
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
@@ -278,10 +240,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         // signalstats lines, so each parser reads its part of the same stderr.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, end);
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false)
-            && _versionGate.CheckResult.KeyframeSelectSupported;
+        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
         var withVisuals = _versionGate.CheckResult.KeyframeVisualsSupported;
-        var cacheVariant = useKeyframeSelect ? ConfigHasher.Vp9KeyframeCacheVariant : null;
         string[] args =
         [
             "-skip_frame", "nokey",
@@ -304,12 +264,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             {
                 if (withVisuals)
                 {
-                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window), cacheVariant);
+                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window));
                 }
 
                 return FFmpegOutputParser.ParseBlackFrames(raw);
             },
-            cacheVariant,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -339,9 +298,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         // the bounding.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false)
-            && _versionGate.CheckResult.KeyframeSelectSupported;
-        var cacheVariant = useKeyframeSelect ? ConfigHasher.Vp9KeyframeCacheVariant : null;
+        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
         string[] args =
         [
             "-skip_frame", "nokey",
@@ -359,7 +316,6 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.End,
             args,
             raw => ParseKeyframeVisualsInWindow(raw, range),
-            cacheVariant,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -474,7 +430,6 @@ internal sealed partial class FFmpegService : IFFmpegService
                     ? intervals
                     : [.. intervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
             },
-            null,
             cancellationToken);
     }
 
@@ -502,9 +457,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false)
-            && _versionGate.CheckResult.KeyframeSelectSupported;
-        var cacheVariant = useKeyframeSelect ? ConfigHasher.Vp9KeyframeCacheVariant : null;
+        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
         string[] args =
         [
             "-skip_frame", "nokey",
@@ -518,9 +471,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // -to is an output option, so its trim runs after showinfo has already logged the next
         // keyframe or two past the window. Cached rows hold that unclipped listing, so the clip
-        // runs on every read. VP9 additionally filters through the packet key flag used by the
-        // credits black-frame scans.
-        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cacheVariant, cancellationToken).ConfigureAwait(false);
+        // runs on every read.
+        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }
 
@@ -535,7 +487,6 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
     /// <param name="args">ffmpeg arguments.</param>
     /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
-    /// <param name="cacheVariant">Optional cache variant for scans with a different filter graph.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
     private async Task<T[]> RunCachedScanAsync<T>(
@@ -546,12 +497,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         double end,
         IReadOnlyList<string> args,
         Func<string, T[]> parse,
-        string? cacheVariant,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached, cacheVariant))
+        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached))
         {
             return cached;
         }
@@ -561,7 +511,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result, cacheVariant);
+        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
 
         return result;
     }
@@ -634,17 +584,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         CancellationToken cancellationToken)
         => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
 
-    private async Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
-    {
-        var cacheKey = episode.EpisodeId.ToString("N")
-            + "|" + episode.Path
-            + "|" + File.GetLastWriteTimeUtc(episode.Path).Ticks;
-        var candidate = new Lazy<Task<bool>>(
-            () => ProbeVp9Async(episode.Path),
-            LazyThreadSafetyMode.ExecutionAndPublication);
-        var probe = _vp9Probes.GetOrAdd(cacheKey, candidate);
-        return await probe.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
+    // The codec is probed once per queued episode: every analysis pass resolves fresh episodes, so
+    // a replaced file or a failed probe is retried on the next pass, and entries go away with their
+    // episodes.
+    private Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
+        => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.Path)).WaitAsync(cancellationToken);
 
     private async Task<bool> ProbeVp9Async(string filePath)
     {
@@ -928,9 +872,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; VP9 scans will use standard frame handling")]
-    private static partial void LogKeyframeSelectUnsupported(ILogger logger, string filter);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not determine the video codec for \"{Path}\"; using standard frame handling")]
     private static partial void LogVideoCodecProbeFailed(ILogger logger, Exception ex, string path);

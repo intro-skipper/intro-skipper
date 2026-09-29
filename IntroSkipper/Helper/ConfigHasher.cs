@@ -14,9 +14,6 @@ namespace IntroSkipper.Helper;
 /// </summary>
 internal static class ConfigHasher
 {
-    /// <summary>Cache variant for scans that use VP9 packet keyframes.</summary>
-    public const string Vp9KeyframeCacheVariant = "vp9-keyframes";
-
     /// <summary>
     /// Prefix marking a detection cache hash that is scoped to an effective audio stream.
     /// Frozen: rows carrying it are already on disk.
@@ -108,17 +105,19 @@ internal static class ConfigHasher
     public static string DetectionCache(PluginConfiguration config, CacheEntryType type, AnalysisMode mode)
         => DetectionCache(config, type, mode, null);
 
-    /// <summary>Computes a hash for a detection cache row, optionally keyed by a cache variant.</summary>
+    /// <summary>
+    /// Computes a hash for a detection cache row, optionally keyed by the effective audio stream selection.
+    /// </summary>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="type">Cache entry type.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="cacheVariant">Effective audio stream identity for Chromaprint entries, or a scan variant for other entries.</param>
+    /// <param name="audioStreamIdentity">Effective audio stream identity for Chromaprint entries.</param>
     /// <returns>A compact hash for settings-sensitive scans, or a stream-scoped fingerprint key for Chromaprint entries.</returns>
     public static string DetectionCache(
         PluginConfiguration config,
         CacheEntryType type,
         AnalysisMode mode,
-        string? cacheVariant)
+        string? audioStreamIdentity)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -128,9 +127,9 @@ internal static class ConfigHasher
         // key, and the effective audio stream is the only remaining input to the bytes.
         if (type == CacheEntryType.Chromaprint)
         {
-            var streamIdentity = string.IsNullOrWhiteSpace(cacheVariant)
+            var streamIdentity = string.IsNullOrWhiteSpace(audioStreamIdentity)
                 ? DefaultAudioStreamCacheVariant
-                : cacheVariant;
+                : audioStreamIdentity;
             var fingerprintHash = ComputeHash(Invariant(
                 $"fingerprint|v1|{type}|{mode}|audioStream={streamIdentity}"));
             return StreamScopedDetectionCacheHashPrefix + FormattableString.Invariant($"{streamIdentity}|{fingerprintHash}");
@@ -141,18 +140,17 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            // Credits v4 restores the original frame handling for non-VP9 sources and applies the
-            // packet key selector only to VP9 scans.
+            // Credits v4: the keyframe scan selects packet keyframes on VP9.
             CacheEntryType.BlackFrame => Invariant(
                 $"cache|v{(mode == AnalysisMode.Credits ? 4 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            // Keyframe v3 applies the packet key selector only to VP9 sources.
+            // v3: keyframe listings select packet keyframes on VP9.
             CacheEntryType.Keyframe => $"cache|v3|{type}",
 
-            // Credits v6 applies the packet key selector only to VP9 sources.
+            // Credits v6: keyframe visuals select packet keyframes on VP9.
             CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 6 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
@@ -160,11 +158,6 @@ internal static class ConfigHasher
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
-
-        if (!string.IsNullOrWhiteSpace(cacheVariant))
-        {
-            input += FormattableString.Invariant($"|variant={cacheVariant}");
-        }
 
         var hash = ComputeHash(input);
         return hash;

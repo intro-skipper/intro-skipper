@@ -36,9 +36,8 @@ public interface IDetectionCacheDatabase
     /// <param name="type">Cache entry type.</param>
     /// <param name="start">Start of the analyzed range.</param>
     /// <param name="end">End of the analyzed range.</param>
-    /// <param name="cacheVariant">Scan variant used as part of the cache key.</param>
     /// <returns>The matching entry, or <see langword="null"/>.</returns>
-    DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string cacheVariant = "");
+    DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end);
 
     /// <summary>
     /// Inserts or updates the cache entry for the given key in one statement.
@@ -50,8 +49,7 @@ public interface IDetectionCacheDatabase
     /// <param name="end">End of the analyzed range.</param>
     /// <param name="data">Compressed detection data.</param>
     /// <param name="configHash">Configuration hash that produced the data.</param>
-    /// <param name="cacheVariant">Scan variant used as part of the cache key.</param>
-    void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash, string cacheVariant = "");
+    void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash);
 
     /// <summary>
     /// Deletes all cache entries for an item. Synchronous for the library-removed

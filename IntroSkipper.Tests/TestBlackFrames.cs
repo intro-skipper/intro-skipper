@@ -49,7 +49,8 @@ public class TestBlackFrames
     /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when
     /// blackframe reads it as gray, and not black once converted to limited-range yuv420p,
     /// where the same luma lands at 33. The keyframe scan's visuals filters must not change
-    /// what blackframe sees.
+    /// what blackframe sees, regardless of whether a given FFmpeg build emits two or three
+    /// 1 fps keyframes for this synthetic clip.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
@@ -86,6 +87,31 @@ public class TestBlackFrames
             AnalysisMode.Introduction);
 
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
+    }
+
+    /// <summary>
+    /// The VP9 decoder ignores <c>-skip_frame nokey</c> and hands all 150 frames of this clip to
+    /// showinfo, so the listing must select packet keyframes itself.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectKeyFramesAsync_ListsOnlyKeyframesOfVp9Sources()
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-vp9.webm");
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x64:r=25:d=6", "-c:v", "libvpx-vp9", "-g", "50", "-keyint_min", "50", "-deadline", "realtime", path]);
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "vp9", Path = path, Duration = 6 };
+
+            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction);
+
+            Assert.Equal([0, 2, 4], actual);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [FactSkipFFmpegTests]
@@ -797,27 +823,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task LegacyBlackFrameAnalyzer_UsesFullFrameRangeScans()
-    {
-        var ffmpeg = new StubFFmpegService
-        {
-            RangeBlackFrames = (_, _, _, _, _) => [],
-        };
-        var analyzer = new BlackFrameAnalyzer(
-            NullLogger<BlackFrameAnalyzer>.Instance,
-            ffmpeg,
-            new PluginConfiguration());
-        var episode = CreateQueuedCreditsEpisode();
-        episode.Duration = 100;
-        episode.CreditsFingerprintStart = 50;
-
-        await analyzer.AnalyzeMediaFileAsync(episode, initialStart: 30, minimumBlackPercentage: 85, threshold: 32);
-
-        Assert.NotEmpty(ffmpeg.KeyframesOnlyRangeScans);
-        Assert.All(ffmpeg.KeyframesOnlyRangeScans, value => Assert.False(value));
-    }
-
-    [Fact]
     public async Task DetectCreditsAsync_ReturnsBlackFrameAndCardCandidates()
     {
         // Keyframes every 2 s, the cadence of the card visuals: grey cards to 18, then a black roll
@@ -830,7 +835,6 @@ public class TestBlackFrames
 
         Assert.Equal([(SegmentSource.BlackFrame, 120.0, 154.0), (SegmentSource.KeyframeVisuals, 100.0, 154.0)], candidates);
         Assert.Equal([new RangeScan(118, 120, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
-        Assert.Equal([false], ffmpeg.KeyframesOnlyRangeScans);
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
     }
 

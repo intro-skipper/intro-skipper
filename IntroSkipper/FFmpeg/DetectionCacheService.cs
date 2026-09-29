@@ -38,7 +38,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <param name="start">The start position used as a cache key component.</param>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="result">When this method returns, contains the cached result array, or an empty array if the cache was missed. This parameter is treated as uninitialized.</param>
-    /// <param name="cacheVariant">Optional effective stream identity or scan variant.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
     /// <param name="legacyConfigHash">Pre-stream-selection hash to accept as well, when the caller knows the row's stream is still the effective one.</param>
     /// <returns><see langword="true"/> if a valid cache entry was found; otherwise, <see langword="false"/>.</returns>
     public bool TryRead<T>(
@@ -58,8 +58,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             // NOTE: Start/End are compared with == which is safe only because the exact same
             // double values that were written are used for lookup (no intermediate arithmetic).
             // If a future caller computes start/end differently, the lookup will silently miss.
-            var databaseVariant = cacheVariant ?? string.Empty;
-            var entry = _cacheDatabase.FindEntry(itemId, mode, type, start, end, databaseVariant);
+            var entry = _cacheDatabase.FindEntry(itemId, mode, type, start, end);
 
             if (entry is null)
             {
@@ -108,7 +107,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <param name="start">The start position used as a cache key component.</param>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="items">The result array to cache.</param>
-    /// <param name="cacheVariant">Optional effective stream identity or scan variant.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
     public void Write<T>(
         Guid itemId,
         AnalysisMode mode,
@@ -123,7 +122,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash, cacheVariant ?? string.Empty);
+            _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash);
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
@@ -199,26 +198,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
             acceptedHashes.Add(ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, mode));
         }
-
-        foreach (var mode in Enum.GetValues<AnalysisMode>())
-        {
-            acceptedHashes.Add(ConfigHasher.DetectionCache(
-                config,
-                CacheEntryType.Keyframe,
-                mode,
-                ConfigHasher.Vp9KeyframeCacheVariant));
-        }
-
-        acceptedHashes.Add(ConfigHasher.DetectionCache(
-            config,
-            CacheEntryType.BlackFrame,
-            AnalysisMode.Credits,
-            ConfigHasher.Vp9KeyframeCacheVariant));
-        acceptedHashes.Add(ConfigHasher.DetectionCache(
-            config,
-            CacheEntryType.KeyframeVisual,
-            AnalysisMode.Credits,
-            ConfigHasher.Vp9KeyframeCacheVariant));
 
         return await _cacheDatabase
             .DeleteEntriesWithUnknownConfigHashAsync(acceptedHashes, ConfigHasher.StreamScopedDetectionCacheHashPrefix, cancellationToken)
