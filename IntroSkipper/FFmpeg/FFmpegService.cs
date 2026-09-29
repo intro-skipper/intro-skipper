@@ -185,8 +185,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        CancellationToken cancellationToken = default,
-        bool? keyframesOnly = null)
+        bool? keyframesOnly = null,
+        CancellationToken cancellationToken = default)
     {
         // Recap scans report every frame (amount=0) so adaptive threshold normalization can
         // observe the content's full darkness distribution; other modes keep the amount=50

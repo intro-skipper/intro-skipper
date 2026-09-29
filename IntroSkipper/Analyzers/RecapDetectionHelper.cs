@@ -76,7 +76,7 @@ internal static class RecapDetectionHelper
             0,
             config.BlackFrameThreshold,
             AnalysisMode.Recap,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         if (blackFrames.Length == 0)
         {
             return [];

@@ -515,7 +515,7 @@ internal sealed partial class KeyframeAnalyzer(
 
         var probeFrames = await _ffmpegService
             // Keep inter-keyframe frames for boundary refinement.
-            .DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken, keyframesOnly: false)
+            .DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, keyframesOnly: false, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         if (probeFrames.Length == 0)

@@ -86,8 +86,8 @@ internal class StubFFmpegService : IFFmpegService
         int minimum,
         int threshold,
         AnalysisMode mode,
-        CancellationToken cancellationToken = default,
-        bool? keyframesOnly = null)
+        bool? keyframesOnly = null,
+        CancellationToken cancellationToken = default)
     {
         _calls.Enqueue(new RangeScan(range.Start, range.End, minimum, threshold, mode));
         _keyframesOnlyRangeScans.Enqueue(keyframesOnly ?? mode == AnalysisMode.Credits);
