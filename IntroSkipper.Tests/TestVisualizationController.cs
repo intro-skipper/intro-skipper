@@ -510,6 +510,29 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
+    public void GetSeasonEpisodes_IncludesAnUnprobedEpisodeWhileItWaitsForAnalysis()
+    {
+        using var scope = CreateScope(new PluginConfiguration());
+        var seasonId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var probedId = Guid.NewGuid();
+        var unprobedId = Guid.NewGuid();
+        var probed = JellyfinItems.Episode(probedId, seriesId, seasonId, name: "Probed");
+        var unprobed = JellyfinItems.Episode(unprobedId, seriesId, seasonId, name: "Waiting", episodeNumber: 2);
+        unprobed.RunTimeTicks = null;
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            JellyfinItems.WithParents(probed, unprobed));
+        var controller = CreateController(scope.CacheDbPath, library);
+
+        var result = controller.GetSeasonEpisodes(seriesId, seasonId);
+
+        Assert.Equal(
+            [new EpisodeVisualization(probedId, "Probed"), new EpisodeVisualization(unprobedId, "Waiting")],
+            result.Value);
+    }
+
+    [Fact]
     public void GetSeasonEpisodes_ReturnsNotFound_WhenSeasonIsUnknownOrSeriesDoesNotMatch()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());

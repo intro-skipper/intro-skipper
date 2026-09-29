@@ -23,6 +23,13 @@ internal sealed record ResolvedSeason(Guid Key, Guid SeriesId, IReadOnlyList<Que
 internal sealed record LibraryResolution(IReadOnlyList<ResolvedSeason> Seasons, int Failures);
 
 /// <summary>
+/// An episode Jellyfin shows under a season, whether or not it is currently eligible for analysis.
+/// </summary>
+/// <param name="EpisodeId">The episode id.</param>
+/// <param name="Name">The episode name.</param>
+internal sealed record DisplayedEpisode(Guid EpisodeId, string Name);
+
+/// <summary>
 /// One season as the dashboard shows it: a movie, or the episodes Jellyfin shows under a
 /// season, which with specials shown within seasons lists an in-season special under its
 /// host season as well as under Season 0. The shown items include the ones analysis skips
@@ -33,4 +40,9 @@ internal sealed record LibraryResolution(IReadOnlyList<ResolvedSeason> Seasons, 
 /// <param name="SeriesId">The id of the series the season belongs to; a movie's own id for a movie.</param>
 /// <param name="ItemIds">Every item shown, eligible for analysis or not.</param>
 /// <param name="Episodes">The shown episodes eligible for analysis; empty for a known season with nothing to analyze.</param>
-internal sealed record DisplayedSeason(Guid SeriesId, IReadOnlyList<Guid> ItemIds, IReadOnlyList<QueuedEpisode> Episodes);
+/// <param name="ShownEpisodes">Every episode Jellyfin shows under the season, including episodes not yet eligible for analysis.</param>
+internal sealed record DisplayedSeason(
+    Guid SeriesId,
+    IReadOnlyList<Guid> ItemIds,
+    IReadOnlyList<QueuedEpisode> Episodes,
+    IReadOnlyList<DisplayedEpisode> ShownEpisodes);

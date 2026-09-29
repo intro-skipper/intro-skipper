@@ -200,6 +200,7 @@ public sealed class TestSeasonResolver
         Assert.NotNull(displayed);
         Assert.Equal([probed.Id, unprobed.Id], displayed.ItemIds);
         Assert.Equal([probed.Id], displayed.Episodes.Select(episode => episode.EpisodeId));
+        Assert.Equal([probed.Id, unprobed.Id], displayed.ShownEpisodes.Select(episode => episode.EpisodeId));
     }
 
     [Fact]

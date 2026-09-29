@@ -72,14 +72,23 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         switch (FindItem(key))
         {
             case Movie movie:
-                return new DisplayedSeason(key, [key], ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? []);
+                return new DisplayedSeason(
+                    key,
+                    [key],
+                    ResolveMovie(movie, policy, includeExcluded: false)?.Episodes ?? [],
+                    [new DisplayedEpisode(movie.Id, movie.Name)]);
             case Season season when FindSeries(season.SeriesId) is { } series:
                 {
                     var (shown, placed) = PlaceEpisodes(series, policy, includeExcluded: false);
+                    var shownEpisodes = shown
+                        .Where(episode => IsShownIn(episode, season))
+                        .Select(episode => new DisplayedEpisode(episode.Id, episode.Name))
+                        .ToList();
                     return new DisplayedSeason(
                         series.Id,
-                        [.. shown.Where(episode => IsShownIn(episode, season)).Select(episode => episode.Id)],
-                        QueueEpisodes(series, placed.Where(item => IsShownIn(item.Episode, season))));
+                        [.. shownEpisodes.Select(episode => episode.EpisodeId)],
+                        QueueEpisodes(series, placed.Where(item => IsShownIn(item.Episode, season))),
+                        shownEpisodes);
                 }
 
             default:
