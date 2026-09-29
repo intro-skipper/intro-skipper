@@ -106,7 +106,7 @@ internal static class ConfigHasher
         => DetectionCache(config, type, mode, null);
 
     /// <summary>
-    /// Computes a hash for a detection cache row, optionally keyed by the effective audio stream selection.
+    /// Computes a detection cache hash, optionally scoped to audio stream selection.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="type">Cache entry type.</param>
@@ -140,15 +140,18 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
+            // Credits v2: VP9 black-frame scans select packet keyframes.
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
+                $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            CacheEntryType.Keyframe => $"cache|v1|{type}",
+            // v2: VP9 keyframe listings select packet keyframes.
+            CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            CacheEntryType.KeyframeVisual => $"cache|v3|{type}|{mode}",
+            // Credits v4: VP9 visual scans select packet keyframes.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
             CacheEntryType.LeadIn => $"cache|v1|{type}",

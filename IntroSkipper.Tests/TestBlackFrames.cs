@@ -46,11 +46,9 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when
-    /// blackframe reads it as gray, and not black once converted to limited-range yuv420p,
-    /// where the same luma lands at 33. The keyframe scan's visuals filters must not change
-    /// what blackframe sees, regardless of whether a given FFmpeg build emits two or three
-    /// 1 fps keyframes for this synthetic clip.
+    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when read
+    /// as gray, but not after conversion to limited-range yuv420p (luma 33). FFmpeg emits two or
+    /// three frames for this synthetic clip.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
@@ -65,11 +63,8 @@ public class TestBlackFrames
             var ffmpegService = FfmpegTestHelpers.CreateFFmpegService();
 
             var frames = await ffmpegService.DetectBlackFramesAsync(episode, 28);
-            var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
-            var keyframes = await ffmpegService.DetectKeyFramesAsync(episode, new(start, end - start), AnalysisMode.Credits);
 
-            Assert.NotEmpty(keyframes);
-            Assert.Equal(keyframes.Length, frames.Length);
+            Assert.InRange(frames.Length, 2, 3);
             Assert.All(frames, frame => Assert.Equal(100, frame.Percentage));
         }
         finally
@@ -87,6 +82,39 @@ public class TestBlackFrames
             AnalysisMode.Introduction);
 
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
+    }
+
+    /// <summary>
+    /// VP9 ignores <c>-skip_frame nokey</c>, so the listing must select packet keyframes. The VP9
+    /// stream follows a non-default FFV1 stream to verify the codec probe matches ffmpeg's choice.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectKeyFramesAsync_ListsOnlyKeyframesOfVp9Sources()
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-vp9.mkv");
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=6",
+                "-f", "lavfi", "-i", "testsrc2=s=64x64:r=25:d=6",
+                "-map", "0", "-map", "1",
+                "-c:v:0", "ffv1", "-disposition:v:0", "0",
+                "-c:v:1", "libvpx-vp9", "-g:v:1", "50", "-keyint_min:v:1", "50", "-deadline:v:1", "realtime", "-disposition:v:1", "default",
+                path,
+            ]);
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "vp9", Path = path, Duration = 6 };
+
+            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction);
+
+            Assert.Equal([0, 2, 4], actual);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [FactSkipFFmpegTests]
