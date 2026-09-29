@@ -142,6 +142,14 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
+        // A shortcut fingerprint is only reusable when the duration cache proves that the
+        // current resolved-target identity has been seen. This prevents a comparison-pending
+        // target from reusing a Chromaprint row produced for an older resolved target.
+        if (episode.IsShortcut && !TryReadShortcutDuration(episode, out _))
+        {
+            return false;
+        }
+
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
 
@@ -212,6 +220,31 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         duration = values[0];
         return true;
+    }
+
+    /// <summary>
+    /// Checks whether a shortcut has a cached duration for an older resolved-target identity.
+    /// </summary>
+    /// <param name="episode">The shortcut episode.</param>
+    /// <returns><see langword="true"/> when an older shortcut identity is cached.</returns>
+    public bool HasShortcutDurationForDifferentIdentity(QueuedEpisode episode)
+    {
+        if (!episode.IsShortcut || episode.FileVersion is not { } fileVersion)
+        {
+            return false;
+        }
+
+        try
+        {
+            return _cacheDatabase
+                .FindEntries(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.ShortcutDuration)
+                .Any(entry => entry.Start != fileVersion);
+        }
+        catch (DbException ex)
+        {
+            LogDetectionCacheReadError(_logger, ex, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.ShortcutDuration);
+            return false;
+        }
     }
 
     /// <summary>

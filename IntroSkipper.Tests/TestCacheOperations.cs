@@ -99,6 +99,36 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void ShortcutFingerprintCache_RequiresTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+            IntroFingerprintEnd = 600,
+        };
+
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            EntrypointTestHelpers.EmptyJsonArray,
+            0,
+            600);
+
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+        Assert.True(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode

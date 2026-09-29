@@ -349,7 +349,7 @@ public partial class BaseItemAnalyzerTask(
         // One season-state read serves both the settle decision and every mode's
         // analyzer action below.
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
-        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        if (!shortcutsOnly && SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
@@ -575,9 +575,20 @@ public partial class BaseItemAnalyzerTask(
 
         foreach (var candidate in targets.Where(target => target.IsShortcut))
         {
+            var hasCurrentCachedDuration = _cacheService.TryReadShortcutDuration(candidate, out var cachedDuration);
+            var hasPreviousCachedDuration = !hasCurrentCachedDuration
+                && _cacheService.HasShortcutDurationForDifferentIdentity(candidate);
+
+            // A missing current duration can mean this target has never been processed, or
+            // that its resolved target changed. In both cases discard old detection rows
+            // before a new duration/fingerprint is admitted under the current identity.
+            if (!hasCurrentCachedDuration)
+            {
+                _cacheDatabase.DeleteForItem(candidate.EpisodeId);
+            }
+
             double? duration = null;
-            if (!forceProbeIds.Contains(candidate.EpisodeId)
-                && _cacheService.TryReadShortcutDuration(candidate, out var cachedDuration))
+            if (!forceProbeIds.Contains(candidate.EpisodeId) && hasCurrentCachedDuration)
             {
                 duration = cachedDuration;
             }
@@ -585,6 +596,7 @@ public partial class BaseItemAnalyzerTask(
             duration ??= CachedShortcutDuration(snapshot, candidate);
             if (duration is null
                 && !forceProbeIds.Contains(candidate.EpisodeId)
+                && !hasPreviousCachedDuration
                 && !HasPreviousShortcutIdentity(snapshot, candidate)
                 && candidate.Duration > 0)
             {

@@ -331,7 +331,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         [
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough",
             "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
@@ -617,7 +617,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // Cache one probe per queued episode; new queue objects re-probe replacement files.
     private Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
-        => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.Path)).WaitAsync(cancellationToken);
+        => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.AnalysisPath)).WaitAsync(cancellationToken);
 
     // Match ffmpeg's default video stream rather than v:0, without decoding.
     private async Task<bool> ProbeVp9Async(string filePath)
