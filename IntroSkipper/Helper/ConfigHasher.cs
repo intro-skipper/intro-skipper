@@ -140,18 +140,18 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            // Credits v4: VP9 black-frame scans select packet keyframes.
+            // Credits v2: VP9 black-frame scans select packet keyframes.
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v{(mode == AnalysisMode.Credits ? 4 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
+                $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
-            // v3: VP9 keyframe listings select packet keyframes.
-            CacheEntryType.Keyframe => $"cache|v3|{type}",
+            // v2: VP9 keyframe listings select packet keyframes.
+            CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Credits v6: VP9 visual scans select packet keyframes.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 6 : 3)}|{type}|{mode}",
+            // Credits v4: VP9 visual scans select packet keyframes.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
             CacheEntryType.LeadIn => $"cache|v1|{type}",
