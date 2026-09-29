@@ -49,6 +49,8 @@ public sealed class TestConfigHasher
         Case("BlackInterval cache changes with threshold", Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), Cache(threshold64, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("BlackInterval cache changes with mode", Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Introduction), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("BlackInterval cache differs from BlackFrame", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
+        Case("Credits BlackFrame cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits), "3C80558124EB7712", false);
+        Case("Credits KeyframeVisual cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "587D32B8BFB41219", false);
 
         // BlackFrameMinimumPercentage is passed to blackdetect as pic_th and is baked into the
         // cached intervals, so changing it must invalidate the BlackInterval detection cache.

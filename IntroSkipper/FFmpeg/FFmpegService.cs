@@ -24,8 +24,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // credit-card thresholds are tuned for (10-bit sources report every stat about 4x higher).
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
-    // VP9/WebM may ignore -skip_frame nokey, so gate the expensive filters on the key flag too.
-    private const string KeyframeSelect = "select=eq(key\\,1)";
+    // VP9/WebM may ignore -skip_frame nokey, so gate the expensive filters on I-frames too.
+    private const string KeyframeSelect = "select=eq(pict_type\\,I)";
 
     // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
     // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops

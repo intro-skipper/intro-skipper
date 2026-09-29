@@ -140,15 +140,17 @@ internal static class ConfigHasher
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
+            // Credits v2 adds an explicit keyframe filter for VP9/WebM, so v1 rows must not be reused.
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
+                $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
 
-            CacheEntryType.KeyframeVisual => $"cache|v3|{type}|{mode}",
+            // Credits v4 adds the same explicit keyframe filter to visual statistics.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
 
             // The probe's width, tolerance and rule are constants: bump the token when they change.
             CacheEntryType.LeadIn => $"cache|v1|{type}",
