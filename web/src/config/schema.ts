@@ -423,7 +423,7 @@ export const configSchema = {
         kind: "number",
         label: "Maximum degree of parallelism",
         min: 1,
-        description: "Maximum number of simultaneous async episode analysis operations.",
+        description: "Maximum number of seasons analyzed concurrently; episodes within each season run sequentially.",
     },
     ProcessPriority: {
         kind: "select",
@@ -437,15 +437,15 @@ export const configSchema = {
             { value: "RealTime", label: "Highest" },
         ],
         description:
-            "Sets the relative priority of the analysis FFmpeg process to other parallel operations.",
+            "Priority of analysis FFmpeg processes. Below Normal reduces contention; Realtime may starve other work.",
     },
     ProcessThreads: {
         kind: "number",
-        label: "FFmpeg Threads",
+        label: "FFmpeg codec threads",
         min: 0,
         max: 16,
         description:
-            "Number of simultaneous processes to use for FFmpeg operations. Setting 0 (default) uses the maximum threads available.",
+            "Codec threads per FFmpeg process. 0 lets FFmpeg choose. Lower values reduce CPU use but may slow scans; use Maximum degree of parallelism to limit process count.",
     },
     ScanTimeoutSeconds: {
         kind: "number",
