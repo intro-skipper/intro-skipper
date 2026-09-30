@@ -147,10 +147,10 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
     {
         private const int RusageChildren = -1;
 
-        // Null off Linux or when the call fails.
+        // Null off 64-bit Linux, whose struct layout Rusage mirrors, or when the call fails.
         public static double? Seconds()
         {
-            if (!OperatingSystem.IsLinux() || getrusage(RusageChildren, out var usage) != 0)
+            if (!OperatingSystem.IsLinux() || !Environment.Is64BitProcess || getrusage(RusageChildren, out var usage) != 0)
             {
                 return null;
             }

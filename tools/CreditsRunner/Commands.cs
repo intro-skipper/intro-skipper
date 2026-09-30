@@ -42,6 +42,12 @@ internal static class Commands
             throw new ArgumentException($"missing file or no duration: {string.Join(", ", bad)}");
         }
 
+        // The results are written after the whole run, over whatever --out names.
+        if (files.Select(file => file.Path).Append(manifestPath).Contains(outPath, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("--out must not name the manifest or a corpus file");
+        }
+
         if (options.Optional("ffmpeg") is { } ffmpegDirectory)
         {
             Environment.SetEnvironmentVariable("PATH", Path.GetFullPath(ffmpegDirectory) + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
