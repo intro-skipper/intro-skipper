@@ -3,13 +3,20 @@
 
 using CreditsRunner;
 
+using var stop = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    stop.Cancel();
+};
+
 try
 {
     return args switch
     {
-        ["run", .. var rest] => await Commands.RunAsync(Options.Parse(rest), Console.Out).ConfigureAwait(false),
-        ["score", .. var rest] => Commands.Score(Options.Parse(rest), Console.Out),
-        ["diff", .. var rest] => Commands.Diff(Options.Parse(rest), Console.Out),
+        ["run", .. var rest] => await Commands.RunAsync(rest, Console.Out, stop.Token).ConfigureAwait(false),
+        ["score", .. var rest] => Commands.Score(rest, Console.Out),
+        ["diff", .. var rest] => Commands.Diff(rest, Console.Out),
         _ => Commands.Usage(Console.Error),
     };
 }
@@ -17,4 +24,9 @@ catch (Exception e) when (e is ArgumentException or IOException or System.Text.J
 {
     await Console.Error.WriteLineAsync(e.Message).ConfigureAwait(false);
     return 2;
+}
+catch (OperationCanceledException) when (stop.IsCancellationRequested)
+{
+    await Console.Error.WriteLineAsync("cancelled").ConfigureAwait(false);
+    return 130;
 }

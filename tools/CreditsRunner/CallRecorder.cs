@@ -27,30 +27,15 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
     private readonly List<CallTiming> _calls = [];
     private int _processes;
 
-    /// <summary>
-    /// Gets the calls recorded so far, in order.
-    /// </summary>
     public IReadOnlyList<CallTiming> Calls => _calls;
 
-    /// <summary>
-    /// Wraps a service so that every call through the wrapper is recorded.
-    /// </summary>
-    /// <param name="service">The service the analyzer should call.</param>
-    /// <returns>The recording wrapper.</returns>
     public IFFmpegService Wrap(IFFmpegService service) => RecordingProxy.Create(service, this);
 
     /// <summary>
-    /// Takes a reading to measure a span of work against.
+    /// Takes a reading that <see cref="Measure"/> later measures the work since.
     /// </summary>
-    /// <returns>The reading.</returns>
     public Mark Begin() => new(Stopwatch.GetTimestamp(), Volatile.Read(ref _processes), ChildCpu.Seconds());
 
-    /// <summary>
-    /// Measures the work since a reading.
-    /// </summary>
-    /// <param name="trigger">What the work was.</param>
-    /// <param name="mark">The reading from <see cref="Begin"/>.</param>
-    /// <returns>The processes started, wall-clock and child CPU time since the reading.</returns>
     public CallTiming Measure(string trigger, Mark mark)
     {
         var cpu = ChildCpu.Seconds();
@@ -75,12 +60,6 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
 
     private void Record(string trigger, Mark mark) => _calls.Add(Measure(trigger, mark));
 
-    /// <summary>
-    /// A reading taken before a span of work.
-    /// </summary>
-    /// <param name="Timestamp">The stopwatch timestamp.</param>
-    /// <param name="Processes">The ffmpeg processes started before it.</param>
-    /// <param name="Cpu">The CPU time of reaped child processes before it, or <see langword="null"/> off Linux.</param>
     internal readonly record struct Mark(long Timestamp, int Processes, double? Cpu);
 
     /// <summary>
@@ -96,12 +75,6 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
         private IFFmpegService _target = null!;
         private CallRecorder _recorder = null!;
 
-        /// <summary>
-        /// Creates a proxy over a service.
-        /// </summary>
-        /// <param name="target">The real service.</param>
-        /// <param name="recorder">The recorder to report to.</param>
-        /// <returns>The proxy.</returns>
         public static IFFmpegService Create(IFFmpegService target, CallRecorder recorder)
         {
             var proxy = Create<IFFmpegService, RecordingProxy>();
@@ -174,10 +147,7 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
     {
         private const int RusageChildren = -1;
 
-        /// <summary>
-        /// Gets the user plus system seconds of every reaped child so far.
-        /// </summary>
-        /// <returns>The seconds, or <see langword="null"/> off Linux or when the call fails.</returns>
+        // Null off Linux or when the call fails.
         public static double? Seconds()
         {
             if (!OperatingSystem.IsLinux() || getrusage(RusageChildren, out var usage) != 0)

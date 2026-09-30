@@ -35,36 +35,35 @@ namespace CreditsRunner;
 internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter progress)
 {
     /// <summary>
-    /// Runs every file.
+    /// Runs every file, whose paths must exist.
     /// </summary>
-    /// <param name="files">The files, with absolute paths.</param>
-    /// <param name="cancellationToken">Stops the run.</param>
-    /// <returns>The results, with one entry per file.</returns>
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> files, CancellationToken cancellationToken)
     {
         List<EpisodeResult> episodes = [];
         var ffmpeg = string.Empty;
         foreach (var file in files)
         {
-            var passes = new List<Pass>();
             if (repeats > 1)
             {
-                passes.Add(await RunPassAsync(file, cancellationToken).ConfigureAwait(false));
+                _ = await RunPassAsync(file, cancellationToken).ConfigureAwait(false);
             }
 
+            var timed = new List<Pass>();
             for (var i = 0; i < repeats; i++)
             {
-                passes.Add(await RunPassAsync(file, cancellationToken).ConfigureAwait(false));
+                timed.Add(await RunPassAsync(file, cancellationToken).ConfigureAwait(false));
             }
 
-            ffmpeg = passes[0].Ffmpeg;
-            var episode = Summarize(file, passes[0], passes.Count > repeats ? passes[1..] : passes);
+            ffmpeg = timed[0].Ffmpeg;
+            var episode = Summarize(file, timed);
             episodes.Add(episode);
             await progress.WriteLineAsync($"{file.Id}: {Describe(episode)}").ConfigureAwait(false);
         }
 
+        // The informational version ends in +commit when the build knows it.
+        var version = typeof(KeyframeAnalyzer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
         return new RunResults(
-            typeof(KeyframeAnalyzer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown",
+            version[(version.IndexOf('+', StringComparison.Ordinal) + 1)..],
             ffmpeg,
             CpuModel(),
             RuntimeInformation.OSDescription,
@@ -76,9 +75,6 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
     /// <summary>
     /// Sets the credits window the way the analysis pass does.
     /// </summary>
-    /// <param name="file">The corpus file.</param>
-    /// <param name="config">The configuration.</param>
-    /// <returns>The episode to analyze.</returns>
     internal static QueuedEpisode Queue(CorpusFile file, PluginConfiguration config) => new()
     {
         EpisodeId = Guid.NewGuid(),
@@ -89,8 +85,10 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         CreditsFingerprintEnd = file.Duration,
     };
 
-    private static EpisodeResult Summarize(CorpusFile file, Pass first, IReadOnlyList<Pass> timed)
+    // The first timed pass is the reference; the others only vote on times and determinism.
+    private static EpisodeResult Summarize(CorpusFile file, IReadOnlyList<Pass> timed)
     {
+        var first = timed[0];
         var sameCalls = timed.All(pass => pass.Calls.Select(call => call.Trigger).SequenceEqual(first.Calls.Select(call => call.Trigger)));
         var nondeterministic = !sameCalls || timed.Any(pass => pass.Failure != first.Failure || !pass.Combined.SequenceEqual(first.Combined));
         var calls = sameCalls
@@ -117,7 +115,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
 
     private static string Describe(EpisodeResult episode)
         => (episode.Failure
-            ?? (episode.Combined.Count == 0 ? "no credits" : string.Join(", ", episode.Combined.Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Start:F2}-{c.End:F2} {c.Source}")))))
+            ?? (episode.Combined.Count == 0 ? "no credits" : string.Join(", ", episode.Combined)))
             + string.Create(CultureInfo.InvariantCulture, $" ({episode.WallSeconds:F1} s, {episode.Calls.Sum(call => call.Processes)} ffmpeg)");
 
     private static double Median(IEnumerable<double> values)

@@ -2,34 +2,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Globalization;
+using System.Text.Json;
 using IntroSkipper.Configuration;
 
 namespace CreditsRunner;
 
 /// <summary>
-/// The three commands: run the analyzer over a corpus, score a run against labels, and diff two runs.
+/// The three commands: run the analyzer over a corpus, score a run against labels, and diff two
+/// runs. A bad argument or input file throws <see cref="ArgumentException"/> before any work starts.
 /// </summary>
 internal static class Commands
 {
-    /// <summary>
-    /// Runs the analyzer over every file in a manifest and writes the results.
-    /// </summary>
-    /// <param name="options"><c>--manifest</c>, <c>--out</c>, and optionally <c>--repeat</c>, <c>--minimum-credits-duration</c> and <c>--ffmpeg</c>, a directory put first on PATH.</param>
-    /// <param name="output">Where progress goes.</param>
-    /// <returns>The exit code.</returns>
-    public static async Task<int> RunAsync(Options options, TextWriter output)
+    public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter output, CancellationToken cancellationToken)
     {
+        var options = Options.Parse(args, "manifest", "out", "repeat", "minimum-credits-duration", "ffmpeg");
         var manifestPath = Path.GetFullPath(options.Required("manifest"));
-        var outPath = options.Required("out");
+        var outPath = Path.GetFullPath(options.Required("out"));
         var repeats = options.Int("repeat") ?? 1;
         if (repeats < 1)
         {
             throw new ArgumentException("--repeat must be at least 1");
-        }
-
-        if (options.Optional("ffmpeg") is { } ffmpegDirectory)
-        {
-            Environment.SetEnvironmentVariable("PATH", Path.GetFullPath(ffmpegDirectory) + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
         }
 
         var config = new PluginConfiguration();
@@ -38,34 +30,35 @@ internal static class Commands
             config.MinimumCreditsDuration = minimumDuration;
         }
 
+        // A missing file would scan as a file without credits, so the run refuses it, as the
+        // analysis pass skips it.
         var directory = Path.GetDirectoryName(manifestPath)!;
         var files = Json.Read<Manifest>(manifestPath).Files
             .Select(file => file with { Path = Path.GetFullPath(file.Path, directory) })
             .ToList();
-
-        using var stop = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
+        var bad = files.Where(file => !File.Exists(file.Path) || file.Duration <= 0).Select(file => file.Id).ToList();
+        if (bad.Count > 0)
         {
-            e.Cancel = true;
-            stop.Cancel();
-        };
+            throw new ArgumentException($"missing file or no duration: {string.Join(", ", bad)}");
+        }
 
-        var results = await new Runner(config, repeats, output).RunAsync(files, stop.Token).ConfigureAwait(false);
+        if (options.Optional("ffmpeg") is { } ffmpegDirectory)
+        {
+            Environment.SetEnvironmentVariable("PATH", Path.GetFullPath(ffmpegDirectory) + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+        var results = await new Runner(config, repeats, output).RunAsync(files, cancellationToken).ConfigureAwait(false);
         Json.Write(outPath, results);
         return 0;
     }
 
-    /// <summary>
-    /// Scores a run against labels and prints a line per file and the totals.
-    /// </summary>
-    /// <param name="options"><c>--results</c> and <c>--labels</c>.</param>
-    /// <param name="output">Where the report goes.</param>
-    /// <returns>The exit code.</returns>
-    public static int Score(Options options, TextWriter output)
+    public static int Score(IReadOnlyList<string> args, TextWriter output)
     {
+        var options = Options.Parse(args, "results", "labels");
         var results = Json.Read<RunResults>(options.Required("results"));
         var labels = Labels(options);
-        output.WriteLine($"{results.Plugin} | {results.Ffmpeg} | {results.Cpu}");
+        output.WriteLine($"{results.Commit} | {results.Ffmpeg} | {results.Cpu}");
 
         List<EpisodeScore> scores = [];
         foreach (var episode in results.Episodes)
@@ -94,42 +87,49 @@ internal static class Commands
     }
 
     /// <summary>
-    /// Lists every file whose candidates changed between two runs, flags every regression, and
-    /// prints both runs' totals.
+    /// Lists every file whose candidates changed, flags every regression, and prints both runs'
+    /// totals. Returns 1 when it finds a regression.
     /// </summary>
-    /// <param name="options"><c>--baseline</c>, <c>--candidate</c> and <c>--labels</c>.</param>
-    /// <param name="output">Where the report goes.</param>
-    /// <returns>1 when any regression was found, otherwise 0.</returns>
-    public static int Diff(Options options, TextWriter output)
+    public static int Diff(IReadOnlyList<string> args, TextWriter output)
     {
+        var options = Options.Parse(args, "baseline", "candidate", "labels");
         var baseline = Json.Read<RunResults>(options.Required("baseline"));
         var candidate = Json.Read<RunResults>(options.Required("candidate"));
         var labels = Labels(options);
-        if (baseline.Configuration.GetRawText() != candidate.Configuration.GetRawText())
+
+        // Anything else that differs between the runs can change candidates or times too.
+        if (!JsonElement.DeepEquals(baseline.Configuration, candidate.Configuration))
         {
             output.WriteLine("warning: the runs used different configurations");
         }
 
-        var before = baseline.Episodes.ToDictionary(episode => episode.Id);
-        var after = candidate.Episodes.ToDictionary(episode => episode.Id);
+        foreach (var (what, before, after) in new[] { ("ffmpeg", baseline.Ffmpeg, candidate.Ffmpeg), ("CPU", baseline.Cpu, candidate.Cpu), ("repeats", $"{baseline.Repeats}", $"{candidate.Repeats}") })
+        {
+            if (before != after)
+            {
+                output.WriteLine($"warning: {what} differs: {before} -> {after}");
+            }
+        }
+
+        var old = baseline.Episodes.ToDictionary(episode => episode.Id);
+        var current = candidate.Episodes.ToDictionary(episode => episode.Id);
         List<EpisodeScore> baselineScores = [];
         List<EpisodeScore> candidateScores = [];
         var regressions = 0;
-        foreach (var id in before.Keys.Union(after.Keys))
+        foreach (var id in old.Keys.Union(current.Keys))
         {
-            if (!before.TryGetValue(id, out var old) || !after.TryGetValue(id, out var current))
+            if (!old.TryGetValue(id, out var before) || !current.TryGetValue(id, out var after))
             {
-                output.WriteLine($"{id}: only in the {(before.ContainsKey(id) ? "baseline" : "candidate")}");
+                output.WriteLine($"{id}: only in the {(old.ContainsKey(id) ? "baseline" : "candidate")}");
                 continue;
             }
 
-            var changed = old.Failure != current.Failure || !old.Combined.SequenceEqual(current.Combined);
-            if (changed)
+            if (before.Failure != after.Failure || !before.Combined.SequenceEqual(after.Combined))
             {
-                output.WriteLine($"{id}: {Candidates(old)} -> {Candidates(current)}");
+                output.WriteLine($"{id}: {Candidates(before)} -> {Candidates(after)}");
             }
 
-            if (current.Nondeterministic)
+            if (after.Nondeterministic)
             {
                 output.WriteLine($"{id}: nondeterministic in the candidate");
             }
@@ -139,10 +139,10 @@ internal static class Commands
                 continue;
             }
 
-            var (oldScore, newScore) = (Scorer.Score(label, old), Scorer.Score(label, current));
-            baselineScores.Add(oldScore);
-            candidateScores.Add(newScore);
-            foreach (var regression in Differ.Regressions(oldScore, newScore))
+            var (beforeScore, afterScore) = (Scorer.Score(label, before), Scorer.Score(label, after));
+            baselineScores.Add(beforeScore);
+            candidateScores.Add(afterScore);
+            foreach (var regression in Differ.Regressions(beforeScore, afterScore))
             {
                 regressions++;
                 output.WriteLine($"  REGRESSION {id}: {regression}");
@@ -150,21 +150,16 @@ internal static class Commands
         }
 
         output.WriteLine();
-        output.WriteLine($"baseline {baseline.Plugin}");
+        output.WriteLine($"baseline {baseline.Commit}");
         WriteSummaries(output, baselineScores);
         output.WriteLine();
-        output.WriteLine($"candidate {candidate.Plugin}");
+        output.WriteLine($"candidate {candidate.Commit}");
         WriteSummaries(output, candidateScores);
         output.WriteLine();
         output.WriteLine(Invariant($"{regressions} regressions, wall {baseline.Episodes.Sum(e => e.WallSeconds):F1} -> {candidate.Episodes.Sum(e => e.WallSeconds):F1} s, ffmpeg CPU {Seconds(baseline.Episodes.Select(e => e.CpuSeconds))} -> {Seconds(candidate.Episodes.Select(e => e.CpuSeconds))}"));
         return regressions > 0 ? 1 : 0;
     }
 
-    /// <summary>
-    /// Prints how to call the runner.
-    /// </summary>
-    /// <param name="output">Where the text goes.</param>
-    /// <returns>The exit code for a wrong call.</returns>
     public static int Usage(TextWriter output)
     {
         output.WriteLine("""
@@ -199,12 +194,12 @@ internal static class Commands
         var parts = score.Parts.Select(part => part.Missed ? "missed" : Invariant($"{part.StartError:+0.00;-0.00}/{part.EndError:+0.00;-0.00}"));
         return (score.Failed ? "FAILED, " : string.Empty)
             + $"parts [{string.Join(", ", parts)}]"
-            + (score.FalseParts.Count > 0 ? $", false {string.Join(", ", score.FalseParts.Select(p => Invariant($"{p.Start:F2}-{p.End:F2}")))}" : string.Empty)
+            + (score.FalseParts.Count > 0 ? $", false {string.Join(", ", score.FalseParts)}" : string.Empty)
             + Invariant($", story {score.StorySkipped:F2} s, credits missed {score.CreditsMissed:F2} s");
     }
 
     private static string Candidates(EpisodeResult episode)
-        => episode.Failure ?? (episode.Combined.Count == 0 ? "none" : string.Join(", ", episode.Combined.Select(c => Invariant($"{c.Start:F2}-{c.End:F2}"))));
+        => episode.Failure ?? (episode.Combined.Count == 0 ? "none" : string.Join(", ", episode.Combined));
 
     private static string Seconds(IEnumerable<double?> values)
     {
@@ -216,7 +211,7 @@ internal static class Commands
 }
 
 /// <summary>
-/// Command-line options in <c>--name value</c> pairs.
+/// A command's options as <c>--name value</c> pairs. Any name the command does not take is an error.
 /// </summary>
 internal sealed class Options
 {
@@ -224,13 +219,7 @@ internal sealed class Options
 
     private Options(Dictionary<string, string> values) => _values = values;
 
-    /// <summary>
-    /// Reads <c>--name value</c> pairs.
-    /// </summary>
-    /// <param name="args">The arguments after the command.</param>
-    /// <returns>The options.</returns>
-    /// <exception cref="ArgumentException">An argument is not a <c>--name value</c> pair.</exception>
-    public static Options Parse(IReadOnlyList<string> args)
+    public static Options Parse(IReadOnlyList<string> args, params string[] allowed)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < args.Count; i += 2)
@@ -240,34 +229,23 @@ internal sealed class Options
                 throw new ArgumentException($"expected --name value, got '{args[i]}'");
             }
 
-            values[args[i][2..]] = args[i + 1];
+            var name = args[i][2..];
+            if (!allowed.Contains(name))
+            {
+                throw new ArgumentException($"unknown option --{name}; this command takes --{string.Join(", --", allowed)}");
+            }
+
+            values[name] = args[i + 1];
         }
 
         return new Options(values);
     }
 
-    /// <summary>
-    /// Gets a required option.
-    /// </summary>
-    /// <param name="name">The name without dashes.</param>
-    /// <returns>The value.</returns>
-    /// <exception cref="ArgumentException">The option is missing.</exception>
     public string Required(string name)
         => _values.TryGetValue(name, out var value) ? value : throw new ArgumentException($"--{name} is required");
 
-    /// <summary>
-    /// Gets an optional option.
-    /// </summary>
-    /// <param name="name">The name without dashes.</param>
-    /// <returns>The value, or <see langword="null"/>.</returns>
     public string? Optional(string name) => _values.GetValueOrDefault(name);
 
-    /// <summary>
-    /// Gets an optional whole-number option.
-    /// </summary>
-    /// <param name="name">The name without dashes.</param>
-    /// <returns>The value, or <see langword="null"/>.</returns>
-    /// <exception cref="ArgumentException">The value is not a whole number.</exception>
     public int? Int(string name)
         => Optional(name) is not { } text ? null
             : int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value

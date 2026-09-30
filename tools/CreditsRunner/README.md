@@ -16,7 +16,9 @@ dotnet run --project tools/CreditsRunner -- diff --baseline before.json --candid
 
 For the timing box, publish self-contained with `dotnet publish tools/CreditsRunner -c Release -r linux-x64 --self-contained -p:SkipWebBuild=true`.
 
-`diff` exits with 1 when it finds a regression. For each labeled part, a regression is a newly failed file, a newly missed part, a new false part, more than 0.5 s of new story skipped, or a start or end error that grew by more than 0.5 s. It also lists every file whose candidates changed, so each change can be accepted by hand.
+`diff` exits with 1 when it finds a regression. Per file, a regression is a new failure, a new false part, or more than 0.5 s of story the baseline did not skip. Per labeled part, it is a new miss, or a start or end error that grew by more than 0.5 s. `diff` also lists every file whose candidates changed, so each change can be accepted by hand, and warns when the two runs differ in configuration, ffmpeg build, CPU or repeats.
+
+`run` refuses a manifest entry whose file is missing or whose duration is not positive, and every command rejects an option it does not take, so a typo cannot quietly change what is measured.
 
 ## Files
 
@@ -26,7 +28,7 @@ The manifest holds local paths and stays private. Paths are absolute or relative
 { "files": [{ "id": "Show S01E02", "path": "tv/Show/S01E02.mkv", "duration": 2702.4, "movie": false }] }
 ```
 
-The labels file holds no paths. Each file lists its roll and card credits parts in order. A boundary is a time, or a band `[earliest, latest]` for a fade or a cut to black, and any point inside a band scores zero. `ignore` holds credits out of scope, such as styled credits or credits over footage, which are never required and never penalized. `traps` names ranges worth watching, and the scorer does not read them. A file with `holdout` set is reported apart, and no prototype tunes on it.
+The labels file holds no paths. Each file lists its roll and card credits parts in order, and a file without credits has an empty list. A boundary is a time, or a band `[earliest, latest]` for a fade or a cut to black, and any point inside a band scores zero. `ignore` holds credits out of scope, such as styled credits or credits over footage, which are never required and never penalized. A file with `holdout` set is reported apart, and no prototype tunes on it. `kind` and `traps` are notes for people; the scorer skips them.
 
 ```json
 { "files": [{
@@ -37,9 +39,9 @@ The labels file holds no paths. Each file lists its roll and card credits parts 
 }] }
 ```
 
-The scorer judges the candidates after `CreditsCandidateCombiner.Combine`, which is what the keyframe analyzer contributes to a stored row. The raw candidates are kept for diagnosis. It matches each labeled part to at most one prediction by overlap. It reports signed and absolute start and end errors, story seconds skipped, credits seconds missed, missed and false parts, and hit rates at 0.5, 1, 2 and 5 s.
+The scorer judges the candidates after `CreditsCandidateCombiner.Combine`, which is what the keyframe analyzer contributes to a stored row. The raw candidates are kept for diagnosis. It matches each labeled part to at most one prediction by overlap. A prediction that matches no part is false when it skips more than 0.5 s of story. It reports signed and absolute start and end errors, story seconds skipped, credits seconds missed, missed and false parts, and hit rates at 0.5, 1, 2 and 5 s.
 
-The results record the plugin version with its commit, the ffmpeg version, the CPU, the configuration and, for each file, every call the analyzer made into `IFFmpegService`. Each call has the ffmpeg processes it started, its wall-clock and, on Linux, their CPU seconds from `getrusage(RUSAGE_CHILDREN)`.
+The results record the commit the plugin was built from, the ffmpeg version, the CPU, the configuration and, for each file, every call the analyzer made into `IFFmpegService`. Each call has the ffmpeg processes it started, its wall-clock and, on Linux, their CPU seconds from `getrusage(RUSAGE_CHILDREN)`.
 
 ## Seams
 
@@ -48,7 +50,9 @@ The runner builds these plugin pieces directly, through `InternalsVisibleTo`. A 
 - `KeyframeAnalyzer`, its constructor and `DetectCreditsAsync(QueuedEpisode, CancellationToken)`
 - `CreditsCandidateCombiner.Combine`
 - `FFmpegService(ILogger<FFmpegService>, DetectionCacheService)`, plus the debug line `Starting ffmpeg with the following arguments` that `FFmpegProcessRunner` logs before each start, which the runner counts
+- `FFmpegService.CheckFFmpegVersionAsync` and `GetCheckResult()`, run before each pass as the analysis pass runs them, since the check decides whether the scan reads keyframe visuals; the results take the ffmpeg version from its output named `version`
 - `DetectionCacheService`, `DetectionCacheDatabase`, `DetectionCacheDbContext` and `SqlitePragmas.Configure`
+- `AttributedSegment` and `SegmentSource`, the candidates' shape
 - `QueuedEpisode`, with the credits window set as `BaseItemAnalyzerTask.SetCreditsWindowsAsync` sets it when ProbeAudioDuration is off
 - `PluginConfiguration`
 

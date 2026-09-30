@@ -27,7 +27,6 @@ public class TestCreditsRunner
         // never predicted. The prediction at 305 lies in styled credits the label ignores.
         var label = new Label(
             "episode",
-            Holdout: false,
             [new LabeledPart(new Boundary(100, 102), new Boundary(120, 120)), new LabeledPart(new Boundary(200, 200), new Boundary(250, 250))],
             Ignore: [new Interval(300, 320)]);
 
@@ -40,11 +39,25 @@ public class TestCreditsRunner
     }
 
     [Fact]
+    public void Score_OnePredictionOverTwoParts_MatchesOnlyOne()
+    {
+        // One candidate across both parts of split credits skips the scene between them, and
+        // the second part counts as missed, although its credits are covered.
+        var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(210, 210), new Boundary(300, 300))]);
+
+        var score = Scorer.Score(label, Result(new Candidate(100, 300, "Combined")));
+
+        Assert.Equal([new PartScore(0, 100), new PartScore(null, null)], score.Parts);
+        Assert.Equal(10, score.StorySkipped, 6);
+        Assert.Equal(0, score.CreditsMissed, 6);
+    }
+
+    [Fact]
     public void Score_SecondPredictionInsideAMatchedPart_IsNotAFalsePart()
     {
         // Credits split into two candidates the combiner kept apart: one matches the part, the
         // other covers credits too and skips no story.
-        var label = new Label("episode", Holdout: false, [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200))]);
+        var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200))]);
 
         var score = Scorer.Score(label, Result(new(100, 140, "BlackFrame"), new(160, 200, "BlackFrame")));
 
@@ -55,29 +68,28 @@ public class TestCreditsRunner
     }
 
     [Fact]
-    public void Regressions_FlagMissesFalsePartsStoryAndErrorGrowthBeyondHalfASecond()
+    public void Regressions_FlagMissesNewFalsePartsNewStoryAndErrorGrowthBeyondHalfASecond()
     {
-        var label = new Label(
-            "episode",
-            Holdout: false,
-            [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(300, 300), new Boundary(400, 400))]);
-        var baseline = Scorer.Score(label, Result(new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame")));
+        var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(300, 300), new Boundary(400, 400))]);
+        var baseline = Scorer.Score(label, Result(new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"), new(450, 460, "BlackFrame")));
 
-        // The start moves 0.4 s, which is noise; the end moves 0.6 s, which is not.
-        var candidate = Scorer.Score(label, Result(new(100.4, 199.4, "BlackFrame"), new(500, 520, "KeyframeVisuals")));
+        // The start moves 0.4 s, which is noise; the end moves 0.6 s, which is not. The false
+        // part at 450 moves a second, so it is not new, but the second it now skips is.
+        var candidate = Scorer.Score(label, Result(new(100.4, 199.4, "BlackFrame"), new(451, 461, "BlackFrame"), new(500, 520, "KeyframeVisuals")));
 
         Assert.Equal(
-            ["part 1 end error +0.00 -> -0.60 s", "part 2 is now missed", "new false part 500.00-520.00", "story skipped 0.00 -> 20.00 s"],
+            ["part 1 end error +0.00 -> -0.60 s", "part 2 is now missed", "new false part 500.00-520.00 KeyframeVisuals", "21.00 s of new story skipped"],
             Differ.Regressions(baseline, candidate));
     }
 
     [Fact]
-    public void Labels_ReadABoundaryAsATimeOrABand()
+    public void Labels_ReadABoundaryAsATimeOrABand_AndRejectAMissingPartsList()
     {
         var label = JsonSerializer.Deserialize<Label>("""{ "id": "e", "holdout": true, "parts": [{ "start": [100, 102.5], "end": 120 }] }""", Json.Options)!;
 
         Assert.Equal(new LabeledPart(new Boundary(100, 102.5), new Boundary(120, 120)), Assert.Single(label.Parts));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Label>("""{ "id": "e", "parts": [{ "start": [102, 100], "end": 120 }] }""", Json.Options));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Label>("""{ "id": "e" }""", Json.Options));
     }
 
     [FactSkipFFmpegTests]
@@ -87,6 +99,7 @@ public class TestCreditsRunner
 
         var results = await new Runner(new PluginConfiguration(), repeats: 2, TextWriter.Null).RunAsync([file], CancellationToken.None);
 
+        Assert.StartsWith("ffmpeg version", results.Ffmpeg, StringComparison.Ordinal);
         var episode = Assert.Single(results.Episodes);
         Assert.Null(episode.Failure);
         Assert.False(episode.Nondeterministic);
@@ -103,9 +116,11 @@ public class TestCreditsRunner
             Assert.Null(scan.CpuSeconds);
         }
 
-        // The roll runs from the cut to black at 17.5 s to the end of the clip.
-        var label = new Label("cut-to-black", Holdout: false, [new LabeledPart(new Boundary(17.5, 17.5), new Boundary(39, 39))]);
-        Assert.False(Assert.Single(Scorer.Score(label, episode).Parts).Missed);
+        // The roll runs from the cut to black at 17.5 s to the end of the clip. The raw candidates
+        // end at the last keyframe, 36 s; only the combiner extends the end to the window end,
+        // so an exact end shows the scorer reads the combined candidates.
+        var label = new Label("cut-to-black", [new LabeledPart(new Boundary(17.5, 17.5), new Boundary(39, 39))]);
+        Assert.Equal(0, Assert.Single(Scorer.Score(label, episode).Parts).EndError);
 
         var path = Path.Combine(Path.GetTempPath(), $"credits-runner-{Guid.NewGuid():N}.json");
         try

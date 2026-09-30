@@ -4,51 +4,34 @@
 namespace CreditsRunner;
 
 /// <summary>
-/// How one labeled part came out.
+/// How one labeled part came out: signed errors, negative when the prediction starts or ends
+/// early, or both <see langword="null"/> when no prediction matched the part.
 /// </summary>
-/// <param name="StartError">The signed start error in seconds, negative when the prediction starts early; <see langword="null"/> when the part was missed.</param>
-/// <param name="EndError">The signed end error in seconds, negative when the prediction ends early; <see langword="null"/> when the part was missed.</param>
 internal sealed record PartScore(double? StartError, double? EndError)
 {
-    /// <summary>
-    /// Gets a value indicating whether no prediction matched the part.
-    /// </summary>
     public bool Missed => StartError is null;
 }
 
 /// <summary>
 /// How one corpus file came out against its label.
 /// </summary>
-/// <param name="Id">The corpus id.</param>
-/// <param name="Holdout">Whether the file is held out.</param>
-/// <param name="Failed">Whether the analyzer failed the file.</param>
 /// <param name="Parts">One score per labeled part, in label order.</param>
-/// <param name="FalseParts">Predictions that matched no part and reach into story.</param>
-/// <param name="StorySkipped">Seconds of story the predictions cover: outside every part's widest span and every ignore range.</param>
+/// <param name="FalseParts">Predictions that matched no part and skip more than <see cref="Scorer.Slack"/> of story.</param>
+/// <param name="Story">The story the predictions cover: outside every part's widest span and every ignore range.</param>
 /// <param name="CreditsMissed">Seconds of credits no prediction covers, counting only the span each part always covers.</param>
 internal sealed record EpisodeScore(
-    string Id,
     bool Holdout,
     bool Failed,
     IReadOnlyList<PartScore> Parts,
     IReadOnlyList<Candidate> FalseParts,
-    double StorySkipped,
-    double CreditsMissed);
+    IReadOnlyList<Interval> Story,
+    double CreditsMissed)
+{
+    public double StorySkipped => Story.Sum(span => span.Length);
+}
 
-/// <summary>
-/// Totals over a group of scored files.
-/// </summary>
-/// <param name="Files">The files in the group.</param>
-/// <param name="Failures">The files the analyzer failed.</param>
-/// <param name="Parts">The labeled parts.</param>
-/// <param name="Missed">The parts no prediction matched.</param>
-/// <param name="FalseParts">The false parts.</param>
 /// <param name="MeanStartError">The mean signed start error over matched parts.</param>
-/// <param name="MeanAbsoluteStartError">The mean absolute start error over matched parts.</param>
 /// <param name="MeanEndError">The mean signed end error over matched parts.</param>
-/// <param name="MeanAbsoluteEndError">The mean absolute end error over matched parts.</param>
-/// <param name="StorySkipped">The story seconds skipped.</param>
-/// <param name="CreditsMissed">The credits seconds missed.</param>
 /// <param name="HitRates">Per tolerance, the share of parts whose start and whose end land within it; a missed part misses both.</param>
 internal sealed record Summary(
     int Files,
@@ -64,28 +47,24 @@ internal sealed record Summary(
     double CreditsMissed,
     IReadOnlyList<HitRate> HitRates);
 
-/// <summary>
-/// The share of parts whose boundaries land within a tolerance.
-/// </summary>
-/// <param name="Tolerance">The tolerance in seconds.</param>
-/// <param name="Start">The share of parts whose start error is within it.</param>
-/// <param name="End">The share of parts whose end error is within it.</param>
 internal sealed record HitRate(double Tolerance, double Start, double End);
 
 /// <summary>
-/// Scores results against labels. Predictions are the combined candidates.
+/// Scores results against labels. The predictions are the combined candidates.
 /// </summary>
 internal static class Scorer
 {
+    /// <summary>
+    /// The seconds of story or of boundary error that count as noise, such as keyframe jitter.
+    /// </summary>
+    public const double Slack = 0.5;
+
     private static readonly double[] _tolerances = [0.5, 1, 2, 5];
 
     /// <summary>
     /// Scores one file. Each labeled part matches at most one prediction and each prediction at
     /// most one part, taking the pairs with the largest overlap with the part's widest span first.
     /// </summary>
-    /// <param name="label">The file's label.</param>
-    /// <param name="result">The file's result.</param>
-    /// <returns>The score.</returns>
     public static EpisodeScore Score(Label label, EpisodeResult result)
     {
         var parts = label.Parts;
@@ -108,22 +87,16 @@ internal static class Scorer
         var credits = Union([.. parts.Select(part => part.Outer), .. label.Ignore ?? []]);
         var predicted = Union([.. predictions.Select(prediction => prediction.Span)]);
         return new EpisodeScore(
-            label.Id,
             label.Holdout,
             result.Failure is not null,
             [.. parts.Select((part, i) => matchOfPart[i] is { } prediction
                 ? new PartScore(part.Start.ErrorOf(prediction.Start), part.End.ErrorOf(prediction.End))
                 : new PartScore(null, null))],
-            [.. predictions.Where((prediction, j) => !matched[j] && Length(Subtract([prediction.Span], credits)) > 0)],
-            Length(Subtract(predicted, credits)),
+            [.. predictions.Where((prediction, j) => !matched[j] && Length(Subtract([prediction.Span], credits)) > Slack)],
+            Subtract(predicted, credits),
             Length(Subtract(Union([.. parts.Select(part => part.Inner)]), predicted)));
     }
 
-    /// <summary>
-    /// Totals a group of scores.
-    /// </summary>
-    /// <param name="scores">The scores.</param>
-    /// <returns>The totals.</returns>
     public static Summary Summarize(IReadOnlyList<EpisodeScore> scores)
     {
         var parts = scores.SelectMany(score => score.Parts).ToArray();
@@ -147,11 +120,9 @@ internal static class Scorer
     }
 
     /// <summary>
-    /// Merges spans into sorted, disjoint, non-empty spans.
+    /// Merges spans in any order into sorted, disjoint, non-empty spans.
     /// </summary>
-    /// <param name="spans">The spans, in any order.</param>
-    /// <returns>The union.</returns>
-    internal static List<Interval> Union(IEnumerable<Interval> spans)
+    public static List<Interval> Union(IEnumerable<Interval> spans)
     {
         List<Interval> union = [];
         foreach (var span in spans.Where(span => span.Length > 0).OrderBy(span => span.Start))
@@ -170,12 +141,9 @@ internal static class Scorer
     }
 
     /// <summary>
-    /// Removes one union from another.
+    /// Removes one union from another. Both must come from <see cref="Union"/>.
     /// </summary>
-    /// <param name="from">A union.</param>
-    /// <param name="remove">A union.</param>
-    /// <returns>What remains of <paramref name="from"/>.</returns>
-    internal static List<Interval> Subtract(IReadOnlyList<Interval> from, IReadOnlyList<Interval> remove)
+    public static List<Interval> Subtract(IReadOnlyList<Interval> from, IReadOnlyList<Interval> remove)
     {
         List<Interval> rest = [];
         foreach (var span in from)
@@ -200,7 +168,7 @@ internal static class Scorer
         return rest;
     }
 
-    private static double Length(IEnumerable<Interval> spans) => spans.Sum(span => span.Length);
+    public static double Length(IEnumerable<Interval> spans) => spans.Sum(span => span.Length);
 
     private static double Overlap(Interval a, Interval b) => new Interval(Math.Max(a.Start, b.Start), Math.Min(a.End, b.End)).Length;
 
