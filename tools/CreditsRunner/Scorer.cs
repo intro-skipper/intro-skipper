@@ -94,7 +94,7 @@ internal static class Scorer
                 : new PartScore(null, null))],
             [.. predictions.Where((prediction, j) => !matched[j] && Length(Subtract([prediction.Span], credits)) > Slack)],
             Subtract(predicted, credits),
-            Length(Subtract(Union([.. parts.Select(part => part.Inner)]), predicted)));
+            Length(Subtract(Subtract(Union([.. parts.Select(part => part.Inner)]), Union(label.Ignore ?? [])), predicted)));
     }
 
     public static Summary Summarize(IReadOnlyList<EpisodeScore> scores)

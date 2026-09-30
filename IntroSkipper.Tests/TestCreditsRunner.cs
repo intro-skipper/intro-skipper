@@ -24,18 +24,19 @@ public class TestCreditsRunner
     public void Score_MatchesEachPartOnce_AndCountsStoryOutsidePartsAndIgnoreRanges()
     {
         // The first part's start is a band from 100 to 102, as a fade would be. The second part is
-        // never predicted. The prediction at 305 lies in styled credits the label ignores.
+        // never predicted, and its last ten seconds are ignored, so they are not missed either.
+        // The prediction at 305 lies in styled credits the label ignores.
         var label = new Label(
             "episode",
             [new LabeledPart(new Boundary(100, 102), new Boundary(120, 120)), new LabeledPart(new Boundary(200, 200), new Boundary(250, 250))],
-            Ignore: [new Interval(300, 320)]);
+            Ignore: [new Interval(240, 250), new Interval(300, 320)]);
 
         var score = Scorer.Score(label, Result(new(98, 121, "Combined"), new(150, 160, "BlackFrame"), new(305, 315, "KeyframeVisuals")));
 
         Assert.Equal([new PartScore(-2, 1), new PartScore(null, null)], score.Parts);
         Assert.Equal([new Candidate(150, 160, "BlackFrame")], score.FalseParts);
         Assert.Equal(2 + 1 + 10, score.StorySkipped, 6);
-        Assert.Equal(50, score.CreditsMissed, 6);
+        Assert.Equal(40, score.CreditsMissed, 6);
     }
 
     [Fact]

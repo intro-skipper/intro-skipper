@@ -31,15 +31,19 @@ internal static class Commands
         }
 
         // A missing file would scan as a file without credits, so the run refuses it, as the
-        // analysis pass skips it.
+        // analysis pass skips it. Ids key the labels and the diff, so each must be unique.
         var directory = Path.GetDirectoryName(manifestPath)!;
         var files = Json.Read<Manifest>(manifestPath).Files
             .Select(file => file with { Path = Path.GetFullPath(file.Path, directory) })
             .ToList();
-        var bad = files.Where(file => !File.Exists(file.Path) || file.Duration <= 0).Select(file => file.Id).ToList();
+        var bad = files
+            .Where(file => !File.Exists(file.Path) || file.Duration <= 0 || files.Count(other => other.Id == file.Id) > 1)
+            .Select(file => file.Id)
+            .Distinct()
+            .ToList();
         if (bad.Count > 0)
         {
-            throw new ArgumentException($"missing file or no duration: {string.Join(", ", bad)}");
+            throw new ArgumentException($"missing file, no duration or duplicate id: {string.Join(", ", bad)}");
         }
 
         // The results are written after the whole run, over whatever --out names.
