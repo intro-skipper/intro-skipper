@@ -493,9 +493,40 @@ public sealed class TestCacheOperations
         Assert.Single(logger.Messages);
     }
 
+    /// <summary>
+    /// A keyframe scan picks its filters by whether the file is VP9, and finding out starts ffmpeg.
+    /// Served from the cache, the scans need no filters, so no process starts.
+    /// </summary>
+    [Fact]
+    public async Task CachedKeyframeScans_StartNoProcess()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            Duration = 330,
+            CreditsFingerprintStart = 5,
+            CreditsFingerprintEnd = 35,
+        };
+        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, [new(100, 0, 0)]);
+        scope.CacheService.Write<KeyframeVisual>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35, [new(0, 16, 16, 16, 16, 0, 0)]);
+        scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, [10]);
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger);
+
+        await service.ScanKeyframesAsync(episode, 32);
+        await service.DetectKeyFramesAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction);
+
+        Assert.Empty(logger.Processes);
+    }
+
+    // Records the detection scans FFmpegService logs, and the processes its runner starts.
     private sealed class ScanLogger : ILogger<FFmpegService>
     {
         public List<string> Messages { get; } = [];
+
+        public List<string> Processes { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
@@ -504,9 +535,19 @@ public sealed class TestCacheOperations
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Debug && eventId.Name == "LogDetectionScan")
+            if (logLevel != LogLevel.Debug)
             {
-                Messages.Add(formatter(state, exception));
+                return;
+            }
+
+            var message = formatter(state, exception);
+            if (eventId.Name == "LogDetectionScan")
+            {
+                Messages.Add(message);
+            }
+            else if (message.StartsWith("Starting ffmpeg", StringComparison.Ordinal))
+            {
+                Processes.Add(message);
             }
         }
     }

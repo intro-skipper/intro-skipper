@@ -231,20 +231,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <returns>A task that returns the black percentage of each keyframe.</returns>
     internal async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
-        // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps source
-        // negotiation, while signalstats uses the 8-bit limited-range yuv420p scale.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, end);
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
         var withVisuals = _versionGate.CheckResult.KeyframeVisualsSupported;
-        string[] args =
-        [
-            "-skip_frame", "nokey",
-            "-ss", start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            .. OutputArgs(useKeyframeSelect ? WithKeyframeSelect($"blackframe=amount=0:threshold={threshold}") : $"blackframe=amount=0:threshold={threshold}"),
-            .. withVisuals ? OutputArgs(useKeyframeSelect ? WithKeyframeSelect(KeyframeVisualFilters) : KeyframeVisualFilters) : [],
-        ];
 
         // The visuals row is keyed by the credits window, as the standalone visuals scan writes
         // it; the black-frame row keeps its end-of-file key.
@@ -254,7 +243,21 @@ internal sealed partial class FFmpegService : IFFmpegService
             CacheEntryType.BlackFrame,
             start,
             0,
-            args,
+            async () =>
+            {
+                // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps
+                // source negotiation, while signalstats reads 8-bit yuv420p, which keeps the
+                // source's range.
+                var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
+                return
+                [
+                    "-skip_frame", "nokey",
+                    "-ss", start.ToString(CultureInfo.InvariantCulture),
+                    "-i", episode.Path,
+                    .. OutputArgs(useKeyframeSelect ? WithKeyframeSelect($"blackframe=amount=0:threshold={threshold}") : $"blackframe=amount=0:threshold={threshold}"),
+                    .. withVisuals ? OutputArgs(useKeyframeSelect ? WithKeyframeSelect(KeyframeVisualFilters) : KeyframeVisualFilters) : [],
+                ];
+            },
             raw =>
             {
                 if (withVisuals)
@@ -293,23 +296,24 @@ internal sealed partial class FFmpegService : IFFmpegService
         // the bounding.
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var range = new TimeRange(start, end);
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
-        string[] args =
-        [
-            "-skip_frame", "nokey",
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            .. OutputArgs(useKeyframeSelect ? WithKeyframeSelect(KeyframeVisualFilters) : KeyframeVisualFilters),
-        ];
-
         return await RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.KeyframeVisual,
             range.Start,
             range.End,
-            args,
+            async () =>
+            {
+                var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
+                return
+                [
+                    "-skip_frame", "nokey",
+                    "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+                    "-i", episode.Path,
+                    "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                    .. OutputArgs(useKeyframeSelect ? WithKeyframeSelect(KeyframeVisualFilters) : KeyframeVisualFilters),
+                ];
+            },
             raw => ParseKeyframeVisualsInWindow(raw, range),
             cancellationToken).ConfigureAwait(false);
     }
@@ -452,22 +456,43 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
-        string[] args =
-        [
-            "-skip_frame", "nokey",
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", useKeyframeSelect ? WithKeyframeSelect("showinfo") : "showinfo",
-            "-f", "null", "-",
-        ];
-
         // -to runs after showinfo, so the parser clips keyframes logged past the requested window.
-        var keyframes = await RunCachedScanAsync(episode, mode, CacheEntryType.Keyframe, range.Start, range.End, args, raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger), cancellationToken).ConfigureAwait(false);
+        var keyframes = await RunCachedScanAsync(
+            episode,
+            mode,
+            CacheEntryType.Keyframe,
+            range.Start,
+            range.End,
+            async () =>
+            {
+                var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
+                return
+                [
+                    "-skip_frame", "nokey",
+                    "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+                    "-i", episode.Path,
+                    "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                    "-an", "-dn", "-sn",
+                    "-vf", useKeyframeSelect ? WithKeyframeSelect("showinfo") : "showinfo",
+                    "-f", "null", "-",
+                ];
+            },
+            raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger),
+            cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }
+
+    // A scan whose arguments need no probe of the file.
+    private Task<T[]> RunCachedScanAsync<T>(
+        QueuedEpisode episode,
+        AnalysisMode mode,
+        CacheEntryType entryType,
+        double start,
+        double end,
+        IReadOnlyList<string> args,
+        Func<string, T[]> parse,
+        CancellationToken cancellationToken)
+        => RunCachedScanAsync(episode, mode, entryType, start, end, () => Task.FromResult(args), parse, cancellationToken);
 
     /// <summary>
     /// Serves a detection scan from the cache or runs ffmpeg, parses its stderr and caches the result.
@@ -478,7 +503,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="entryType">Cache entry type.</param>
     /// <param name="start">Cache key start; must be the exact value used when the row was written.</param>
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
-    /// <param name="args">ffmpeg arguments.</param>
+    /// <param name="args">Builds the ffmpeg arguments. Runs only on a cache miss, so it may probe the file first.</param>
     /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
@@ -488,7 +513,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         CacheEntryType entryType,
         double start,
         double end,
-        IReadOnlyList<string> args,
+        Func<Task<IReadOnlyList<string>>> args,
         Func<string, T[]> parse,
         CancellationToken cancellationToken)
     {
@@ -501,7 +526,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
-        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+        var arguments = await args().ConfigureAwait(false);
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(arguments, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
@@ -577,7 +603,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         CancellationToken cancellationToken)
         => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
 
-    // Cache one probe per queued episode; new queue objects re-probe replacement files.
+    // Called only on a scan cache miss. Cache one probe per queued episode; new queue objects
+    // re-probe replacement files.
     private Task<bool> IsVp9Async(QueuedEpisode episode, CancellationToken cancellationToken)
         => _vp9Probes.GetValue(episode, e => ProbeVp9Async(e.Path)).WaitAsync(cancellationToken);
 
