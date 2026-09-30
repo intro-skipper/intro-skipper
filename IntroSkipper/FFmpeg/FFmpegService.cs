@@ -246,7 +246,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             async () =>
             {
                 // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps
-                // source negotiation, while signalstats uses the 8-bit limited-range yuv420p scale.
+                // source negotiation, while signalstats reads 8-bit yuv420p, which keeps the
+                // source's range.
                 var useKeyframeSelect = await IsVp9Async(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
