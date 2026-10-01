@@ -12,7 +12,9 @@ namespace IntroSkipper.Helper;
 /// <summary>
 /// Adopts completed 10.11.22–24 analysis under the 12.0 baseline without running detection.
 /// The legacy hash inputs are frozen to those releases. Only hashes matching the retained
-/// settings are eligible; settings introduced in 12.0 must still have their defaults.
+/// settings are eligible; settings introduced in 12.0 must still have their defaults. For
+/// credits seasons pinned to one analyzer, settings belonging to the other analyzer are ignored
+/// because they could not have affected the stored result.
 /// Rewriting the completion record makes adoption one-time and preserves ordinary
 /// hash invalidation afterwards. Missing records and unknown hashes are never adopted.
 /// </summary>
@@ -28,17 +30,19 @@ internal static class LegacyAnalysisCompatibility
         foreach (var modeGroup in snapshot.AnalysisRecords.GroupBy(pair => pair.Key.Mode))
         {
             var mode = modeGroup.Key;
-            var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+            var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
+            var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
+                || mode == AnalysisMode.Credits && action != AnalyzerAction.BlackFrame;
             if (!AnalysisHelpers.IsSupported(mode)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
-                || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))
+                || (mode == AnalysisMode.Credits && action != AnalyzerAction.Chromaprint
+                    && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame))
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
             }
 
-            var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {
@@ -51,10 +55,13 @@ internal static class LegacyAnalysisCompatibility
                         continue;
                     }
 
-                    upgrades[AnalysisHash(config, mode, action, available, false, release)] = currentHash;
-                    if (mode == AnalysisMode.Credits)
+                    foreach (var normalizeInactiveSettings in new[] { false, true })
                     {
-                        upgrades[AnalysisHash(config, mode, action, available, true, release)] = currentHash;
+                        upgrades[AnalysisHash(config, mode, action, available, false, release, normalizeInactiveSettings)] = currentHash;
+                        if (mode == AnalysisMode.Credits)
+                        {
+                            upgrades[AnalysisHash(config, mode, action, available, true, release, normalizeInactiveSettings)] = currentHash;
+                        }
                     }
                 }
             }
@@ -82,10 +89,15 @@ internal static class LegacyAnalysisCompatibility
         AnalyzerAction action,
         bool ffmpegValid,
         bool alternativeBlackFrameAnalyzer,
-        int release = 24)
+        int release = 24,
+        bool ignoreInactiveCreditsSettings = false)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(release, 22);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(release, 24);
+        var defaults = ignoreInactiveCreditsSettings ? new PluginConfiguration() : config;
+        var creditsUsesChapter = action is not (AnalyzerAction.Chromaprint or AnalyzerAction.BlackFrame);
+        var creditsUsesChromaprint = action != AnalyzerAction.BlackFrame;
+        var creditsUsesBlackFrame = action != AnalyzerAction.Chromaprint;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -94,12 +106,12 @@ internal static class LegacyAnalysisCompatibility
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}"),
 
             AnalysisMode.Credits => Invariant(
-                $"analysis|v{release - 21}|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
+                $"analysis|v{release - 21}|mode={mode}|action={action}|prefer={(creditsUsesChapter ? config.PreferChromaprint : defaults.PreferChromaprint)}|chap={(creditsUsesChapter ? config.ChapterAnalyzerEndCreditsPattern : defaults.ChapterAnalyzerEndCreditsPattern)}|fullchap={(creditsUsesChapter ? config.FullLengthChapters : defaults.FullLengthChapters)}|sbchap={(creditsUsesChapter ? config.EnableSponsorBlockChapterDetection : defaults.EnableSponsorBlockChapterDetection)}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
-                $"{(release == 24 ? FormattableString.Invariant($"|minRegion={config.MinimumIntroDuration}") : string.Empty)}",
-                $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
-                $"|bfalt={alternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{(alternativeBlackFrameAnalyzer ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}") : string.Empty)}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}",
+                $"{(release == 24 ? FormattableString.Invariant($"|minRegion={(creditsUsesChromaprint ? config.MinimumIntroDuration : defaults.MinimumIntroDuration)}") : string.Empty)}",
+                $"|min={config.MinimumCreditsDuration}|bfmin={(creditsUsesBlackFrame ? config.BlackFrameMinimumPercentage : defaults.BlackFrameMinimumPercentage)}|bfthr={(creditsUsesBlackFrame ? config.BlackFrameThreshold : defaults.BlackFrameThreshold)}|bfchap={(creditsUsesBlackFrame ? config.UseChapterMarkersBlackFrame : defaults.UseChapterMarkersBlackFrame)}",
+                $"|bfalt={alternativeBlackFrameAnalyzer}|bfrefine={(creditsUsesBlackFrame ? config.RefineCreditsBoundary : defaults.RefineCreditsBoundary)}|bfaltVersion=2{(alternativeBlackFrameAnalyzer && creditsUsesBlackFrame ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}") : string.Empty)}",
+                $"|fpbits={(creditsUsesChromaprint ? config.MaximumFingerprintPointDifferences : defaults.MaximumFingerprintPointDifferences)}|skip={(creditsUsesChromaprint ? config.MaximumTimeSkip : defaults.MaximumTimeSkip)}|shift={(creditsUsesChromaprint ? config.InvertedIndexShift : defaults.InvertedIndexShift)}|chromaprint={ffmpegValid}",
                 $"|animePreview={config.AnimePreviewFromCreditsEnd}"),
 
             AnalysisMode.Recap => Invariant(
