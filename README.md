@@ -108,7 +108,7 @@ their respective owners.
 
 Companies that kindly allow us to use their stuff:
 
-| [DigitalOcean](https://www.digitalocean.com/?refcode=8471e96eb6dd)                                                                                                                                                                                                                           | [SignPath](https://signpath.org/)                                                                                  |
-|-|-
-| [![do_logo_vertical_blue svg](https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg)](https://www.digitalocean.com/) | [ ![Image](https://github.com/user-attachments/assets/2b5679e0-76a4-4ae7-bb37-a6a507a53466)](https://signpath.org/) |
-| Hosting of various services                                                                                                                                                                                                                                               | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).  
+| [SignPath](https://signpath.org/) |
+|-|
+| [ ![Image](https://github.com/user-attachments/assets/2b5679e0-76a4-4ae7-bb37-a6a507a53466)](https://signpath.org/) |
+| Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).  |
