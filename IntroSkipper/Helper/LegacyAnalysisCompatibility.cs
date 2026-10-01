@@ -96,9 +96,12 @@ internal static class LegacyAnalysisCompatibility
         ArgumentOutOfRangeException.ThrowIfLessThan(release, 22);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(release, 24);
         var defaults = ignoreInactiveCreditsSettings ? new PluginConfiguration() : config;
-        var creditsUsesChapter = action is not (AnalyzerAction.Chromaprint or AnalyzerAction.BlackFrame);
-        var creditsUsesChromaprint = action != AnalyzerAction.BlackFrame;
-        var creditsUsesBlackFrame = action != AnalyzerAction.Chromaprint;
+        var creditsUsesChapter = action is AnalyzerAction.Default or AnalyzerAction.Chapter
+            || (action == AnalyzerAction.Chromaprint && !ffmpegValid);
+        var creditsUsesChromaprint = ffmpegValid
+            && action is not (AnalyzerAction.None or AnalyzerAction.BlackFrame);
+        var creditsUsesBlackFrame = action is not AnalyzerAction.None
+            && (action is not AnalyzerAction.Chromaprint || !ffmpegValid);
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
