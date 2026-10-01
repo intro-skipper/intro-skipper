@@ -14,7 +14,8 @@ namespace IntroSkipper.Helper;
 /// The legacy hash inputs are frozen to those releases. Only hashes matching the retained
 /// settings are eligible; settings introduced in 12.0 must still have their defaults. For
 /// credits seasons pinned to one analyzer, settings belonging to the other analyzer are ignored
-/// because they could not have affected the stored result.
+/// only when that analyzer is actually exclusive; an unavailable Chromaprint action uses the
+/// default chapter-first policy instead.
 /// Rewriting the completion record makes adoption one-time and preserves ordinary
 /// hash invalidation afterwards. Missing records and unknown hashes are never adopted.
 /// </summary>
@@ -47,6 +48,16 @@ internal static class LegacyAnalysisCompatibility
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {
+                var chromaprintExclusive = mode == AnalysisMode.Credits
+                    && action == AnalyzerAction.Chromaprint
+                    && available;
+                if (mode == AnalysisMode.Credits && !chromaprintExclusive
+                    && (config.UseLegacyBlackFrameAnalyzer
+                        || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
+                {
+                    continue;
+                }
+
                 var currentHash = ConfigHasher.Analysis(config, mode, action, available);
                 foreach (var release in new[] { 22, 23, 24 })
                 {
