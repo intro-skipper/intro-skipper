@@ -32,12 +32,13 @@ internal static class LegacyAnalysisCompatibility
             var mode = modeGroup.Key;
             var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
-                || mode == AnalysisMode.Credits && action != AnalyzerAction.BlackFrame;
+                || (mode == AnalysisMode.Credits && action != AnalyzerAction.BlackFrame);
             if (!AnalysisHelpers.IsSupported(mode)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && action != AnalyzerAction.Chromaprint
-                    && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame))
+                    && (config.UseLegacyBlackFrameAnalyzer
+                        || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
