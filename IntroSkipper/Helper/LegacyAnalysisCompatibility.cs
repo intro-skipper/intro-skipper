@@ -32,14 +32,7 @@ internal static class LegacyAnalysisCompatibility
         {
             var mode = modeGroup.Key;
             var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
-            var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
-                || (mode == AnalysisMode.Credits && action != AnalyzerAction.BlackFrame);
             if (!AnalysisHelpers.IsSupported(mode)
-                || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
-                    || !config.PreferAudioStreamWithMostChannels))
-                || (mode == AnalysisMode.Credits && action != AnalyzerAction.Chromaprint
-                    && (config.UseLegacyBlackFrameAnalyzer
-                        || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
@@ -48,12 +41,20 @@ internal static class LegacyAnalysisCompatibility
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {
-                var chromaprintExclusive = mode == AnalysisMode.Credits
-                    && action == AnalyzerAction.Chromaprint
-                    && available;
-                if (mode == AnalysisMode.Credits && !chromaprintExclusive
-                    && (config.UseLegacyBlackFrameAnalyzer
-                        || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
+                var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
+                    || (mode == AnalysisMode.Credits
+                        && available
+                        && action is not (AnalyzerAction.None or AnalyzerAction.BlackFrame));
+                var creditsUsesChapter = mode == AnalysisMode.Credits
+                    && (action is AnalyzerAction.Default or AnalyzerAction.Chapter
+                        || (action == AnalyzerAction.Chromaprint && !available));
+                var creditsUsesBlackFrame = mode == AnalysisMode.Credits
+                    && action is not AnalyzerAction.None
+                    && (action is not AnalyzerAction.Chromaprint || !available);
+                if ((usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
+                        || !config.PreferAudioStreamWithMostChannels))
+                    || (creditsUsesBlackFrame && config.UseLegacyBlackFrameAnalyzer)
+                    || (creditsUsesChapter && config.EnhanceChapterCredits))
                 {
                     continue;
                 }
