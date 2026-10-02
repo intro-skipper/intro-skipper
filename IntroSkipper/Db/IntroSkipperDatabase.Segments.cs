@@ -71,20 +71,14 @@ internal sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // One read for the mode's rows plus, for a credits write, the active
-            // intros the overlap guard below compares against.
+            // One read for the mode's rows plus, for a credits write, the intros the
+            // admission policy compares against.
             var loadIntros = mode == AnalysisMode.Credits;
             var itemRows = await db.Segments
                 .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             var existing = itemRows.Where(s => s.Type == mode).ToList();
-            var intros = loadIntros
-                ? itemRows.Where(s => s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active).ToList()
-                : [];
-
-            var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
-            var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
 
             // Credits-derived previews belong to the credits pass and every other
             // automatic row to its own mode's pass (the attribution rule of
@@ -105,23 +99,22 @@ internal sealed partial class IntroSkipperDatabase
                     continue;
                 }
 
-                if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
+                var rejection = AutoSegmentAdmissionPolicy.Check(mode, startTicks, endTicks, itemRows);
+                if (rejection != AutoSegmentRejection.None)
                 {
-                    LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
-                    rejected++;
-                    continue;
-                }
+                    switch (rejection)
+                    {
+                        case AutoSegmentRejection.Tombstone:
+                            LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                            break;
+                        case AutoSegmentRejection.UserSegment:
+                            LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                            break;
+                        case AutoSegmentRejection.Introduction:
+                            LogCreditsOverlapWithIntro(_logger, itemId);
+                            break;
+                    }
 
-                if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
-                {
-                    LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
-                    rejected++;
-                    continue;
-                }
-
-                if (intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
-                {
-                    LogCreditsOverlapWithIntro(_logger, itemId);
                     rejected++;
                     continue;
                 }
