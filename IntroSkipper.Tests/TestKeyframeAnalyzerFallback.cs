@@ -30,7 +30,7 @@ public sealed class TestKeyframeAnalyzerFallback
             CreditsFingerprintStart = 550,
             CreditsFingerprintEnd = 1000,
         };
-        var pages = Enumerable.Range(0, 225).Select(index =>
+        KeyframePage[] pages = [.. Enumerable.Range(0, 225).Select(index =>
         {
             var time = index * 2.0;
             var earlierScene = time >= 150 && time <= 210;
@@ -41,7 +41,7 @@ public sealed class TestKeyframeAnalyzerFallback
                     ? KeyframeVisuals.Black(time)
                     : KeyframeVisuals.Content(time);
             return new KeyframePage(new BlackFrame(earlierScene || finalScene ? 95 : 0, time, index), visual);
-        }).ToArray();
+        })];
         var ffmpeg = new StubFFmpegService
         {
             KeyframeScan = (_, _) => pages,
@@ -73,12 +73,12 @@ public sealed class TestKeyframeAnalyzerFallback
     [Fact]
     public async Task DetectCreditsAsync_WithoutVisualsFallsBackToLatestSceneMeetingRefinedMinimum()
     {
-        var pages = Enumerable.Range(0, 43).Select(index =>
+        KeyframePage[] pages = [.. Enumerable.Range(0, 43).Select(index =>
         {
             var time = index * 2.0;
             var black = (time >= 10 && time <= 30) || time >= 70;
             return new KeyframePage(new BlackFrame(black ? 95 : 0, time, index), null);
-        }).ToArray();
+        })];
         var ffmpeg = new StubFFmpegService
         {
             KeyframeScan = (_, _) => pages,
