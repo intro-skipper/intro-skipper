@@ -8,19 +8,21 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Helper;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Model.MediaSegments;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="MediaSegmentMirror"/>: uniform per-item convergence, per-item
-/// serialization, cross-item concurrency, and the disabled no-op.
+/// Tests for <see cref="MediaSegmentMirror"/>: uniform per-item convergence, validated
+/// foreign-row deletes, and the disabled no-op. Every write lands in the store fake, so
+/// the assertions see exactly what Jellyfin would.
 /// </summary>
 public sealed class TestMediaSegmentMirror
 {
     [Fact]
-    public async Task SyncItem_UsesUniformReplace_ForEveryMode()
+    public async Task Apply_UsesUniformReplace_ForEveryMode()
     {
         var itemId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
@@ -41,10 +43,10 @@ public sealed class TestMediaSegmentMirror
         var store = new FakeJellyfinSegmentStore();
         var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
-        await mirror.SyncItemAsync(itemId, CancellationToken.None);
+        Assert.True(await mirror.ApplyAsync(itemId, [], CancellationToken.None));
 
-        // One uniform replace carries every active segment of every mode — no per-type
-        // routing, no commercial special case — and each DTO reuses its plugin row's id.
+        // One uniform replace carries every active segment of every mode (no per-type
+        // routing, no commercial special case), and each DTO reuses its plugin row's id.
         Assert.Equal(1, store.WriteCallCount);
         var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
@@ -58,116 +60,94 @@ public sealed class TestMediaSegmentMirror
         }
 
         Assert.Equal(2, pushed.Count(segment => segment.Type == MediaSegmentType.Commercial));
+
+        // Jellyfin now matches, so a second apply reads but does not write.
+        Assert.True(await mirror.ApplyAsync(itemId, [], CancellationToken.None));
+        Assert.Equal(1, store.WriteCallCount);
     }
 
     [Fact]
-    public async Task SyncItem_SerializesConcurrentCallsForSameItem()
+    public async Task Apply_DeletesValidatedForeignRowAndSyncsImage()
     {
         var itemId = Guid.NewGuid();
-        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var store = new FakeJellyfinSegmentStore
-        {
-            WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
-            WriteEntered = writeEntered,
-            BlockedItemId = itemId
-        };
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.ReplaceAutoSegmentsAsync(
-            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
+        var foreignId = Guid.NewGuid();
+        var (mirror, store, database) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, MediaSegmentType.Intro, 10, 20));
+        var own = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Credits, 30, 40);
 
-        // First call enters the critical section and parks inside the store write while
-        // holding the lock; wait for the park so the assertions below cannot race the
-        // asynchronous DTO-factory read that precedes the write.
-        var first = mirror.SyncItemAsync(itemId, CancellationToken.None);
-        await writeEntered.Task;
+        Assert.True(await mirror.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None));
 
-        // Second call for the same item must block on the per-item lock and therefore must
-        // not have reached the store yet.
-        var second = mirror.SyncItemAsync(itemId, CancellationToken.None);
-
-        Assert.False(first.IsCompleted);
-        Assert.False(second.IsCompleted);
-        Assert.Equal(1, store.WriteCallCount);
-
-        store.WriteGate!.SetResult();
-        await first;
-        await second;
-
-        // The first call converged the mirror, so the serialized second call found
-        // nothing left to change and skipped its write.
-        Assert.Equal(1, store.WriteCallCount);
-        Assert.Single(store.ReplacedItems);
+        Assert.Equal([(itemId, foreignId)], store.DeletedSegments);
+        Assert.Empty(store.ForeignSegments);
+        var (replacedItem, replaced) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItem);
+        Assert.Equal(own.Id, Assert.Single(replaced).Id);
     }
 
-    [Fact]
-    public async Task SyncItem_AllowsConcurrentCallsForDifferentItems()
-    {
-        var firstItemId = Guid.NewGuid();
-        var secondItemId = NewGuidOnDifferentStripe(firstItemId);
-        var store = new FakeJellyfinSegmentStore
-        {
-            WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
-            BlockedItemId = firstItemId
-        };
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-
-        // Seeding gives each item a segment to push (an empty-vs-empty sync would skip
-        // the store) and warms EF/SQLite before the race: the 1-second completion window
-        // below asserts mirror-stripe independence and must not also absorb the one-time
-        // model build + migration, which alone exceeds it on a cold run.
-        await database.ReplaceAutoSegmentsAsync(
-            firstItemId, AnalysisMode.Introduction, [new Segment(firstItemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        await database.ReplaceAutoSegmentsAsync(
-            secondItemId, AnalysisMode.Introduction, [new Segment(secondItemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
-
-        var first = mirror.SyncItemAsync(firstItemId, CancellationToken.None);
-        var second = mirror.SyncItemAsync(secondItemId, CancellationToken.None);
-
-        Assert.Same(second, await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1))));
-        Assert.False(first.IsCompleted);
-
-        store.WriteGate!.SetResult();
-        await first;
-
-        Assert.Equal(2, store.WriteCallCount);
-    }
-
-    [Fact]
-    public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
+    // The operation was validated as Intro 10..20; the row was rewritten under its
+    // stable id since then (type or boundaries). The predicate travels inside the
+    // delete, so the row stays in place, and the operation is dropped and still counts
+    // as done.
+    [Theory]
+    [InlineData(MediaSegmentType.Outro, 10, 20)]
+    [InlineData(MediaSegmentType.Intro, 100, 200)]
+    public async Task Apply_DropsRewrittenRowOperationWithoutDeleting(MediaSegmentType currentType, long currentStart, long currentEnd)
     {
         var itemId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore();
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.ReplaceAutoSegmentsAsync(
-            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-        var mirror = DatabaseTestHelpers.CreateMirror(store, database, new FakeMirrorPolicy { Enabled = false });
+        var foreignId = Guid.NewGuid();
+        var (mirror, store, _) = Create(SegmentChangeHarness.MirroredDto(itemId, foreignId, currentType, currentStart, currentEnd));
 
-        // The mirror flag lives in the mirror, not at call sites: every operation
-        // reports the typed disabled outcome and leaves the store untouched.
-        Assert.False(await mirror.SyncItemAsync(itemId, CancellationToken.None));
-        Assert.Null(await mirror.DeleteValidatedSegmentAsync(itemId, Guid.NewGuid(), MediaSegmentType.Intro, 10, 20, CancellationToken.None));
+        Assert.True(await mirror.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None));
 
-        Assert.Equal(0, store.WriteCallCount);
-        Assert.Empty(store.ReplacedItems);
+        Assert.Empty(store.DeletedSegments);
+        Assert.True(store.ForeignSegments.ContainsKey(foreignId));
+    }
+
+    [Fact]
+    public async Task Apply_MissingForeignRowIsIdempotentSuccess()
+    {
+        var itemId = Guid.NewGuid();
+        var (mirror, store, _) = Create();
+
+        Assert.True(await mirror.ApplyAsync(itemId, [Delete(Guid.NewGuid())], CancellationToken.None));
+
         Assert.Empty(store.DeletedSegments);
     }
 
-    /// <summary>
-    /// Picks an id on a different lock stripe than <paramref name="other"/> (the mirror
-    /// and mutation pools share the stripe mapping) so cross-item concurrency assertions
-    /// cannot flake on a stripe collision.
-    /// </summary>
-    private static Guid NewGuidOnDifferentStripe(Guid other)
+    [Fact]
+    public async Task Apply_DoesNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
     {
-        Guid id;
-        do
-        {
-            id = Guid.NewGuid();
-        }
-        while (StripedAsyncLock.StripeIndex(id) == StripedAsyncLock.StripeIndex(other));
+        var itemId = Guid.NewGuid();
+        var foreignId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore();
+        store.ForeignSegments[foreignId] = SegmentChangeHarness.MirroredDto(itemId, foreignId, MediaSegmentType.Intro, 10, 20);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(30, 40))], SegmentSource.Chapter);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database, new FakeMirrorPolicy { Enabled = false });
 
-        return id;
+        // The mirror flag lives in the mirror, not at call sites: an apply with both a
+        // journaled delete and a sync to do reports the disabled outcome and leaves the
+        // store untouched.
+        Assert.False(await mirror.ApplyAsync(itemId, [Delete(foreignId)], CancellationToken.None));
+
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(store.DeletedSegments);
+        Assert.True(store.ForeignSegments.ContainsKey(foreignId));
+    }
+
+    /// <summary>A journaled delete validated as Intro 10..20.</summary>
+    private static DbProjectionExternalOperation Delete(Guid externalSegmentId)
+        => new() { ExternalSegmentId = externalSegmentId, ExpectedType = MediaSegmentType.Intro, StartTicks = 10, EndTicks = 20 };
+
+    private static (MediaSegmentMirror Mirror, FakeJellyfinSegmentStore Store, IntroSkipperDatabase Database) Create(params MediaSegmentDto[] foreignSegments)
+    {
+        var store = new FakeJellyfinSegmentStore();
+        foreach (var segment in foreignSegments)
+        {
+            store.ForeignSegments[segment.Id] = segment;
+        }
+
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        return (DatabaseTestHelpers.CreateMirror(store, database), store, database);
     }
 }

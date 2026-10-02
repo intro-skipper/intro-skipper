@@ -64,28 +64,21 @@ internal static class DatabaseTestHelpers
     /// simply enabled when the test hosts no plugin instance.
     /// </summary>
     internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
-        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy());
+        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy(), NullLogger<MediaSegmentMirror>.Instance);
 
     private static IMediaSegmentMirrorPolicy DefaultPolicy()
         => Plugin.Instance is null ? new FakeMirrorPolicy() : new MediaSegmentMirrorPolicy();
 
     /// <summary>
-    /// Composes the durable segment-change coordinator over the real Jellyfin
-    /// projection adapter and mirror, the single test home of the production
-    /// composition chain so constructor changes touch one place. Controller tests get
-    /// end-to-end behavior: intent commit, journal, and mirror convergence against
-    /// the given store.
+    /// Composes the durable segment-change coordinator over the real mirror, the
+    /// single test home of the production composition chain so constructor changes
+    /// touch one place. Callers get end-to-end behavior: intent commit, journal, and
+    /// mirror convergence against the given store.
     /// </summary>
     internal static SegmentChange CreateSegmentChange(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
     {
         policy ??= DefaultPolicy();
-        return new(
-            database,
-            new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database, policy), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
-            policy,
-            new SegmentMutationLocks(),
-            TimeProvider.System,
-            NullLogger<SegmentChange>.Instance);
+        return new(database, CreateMirror(store, database, policy), policy, TimeProvider.System, NullLogger<SegmentChange>.Instance);
     }
 
     /// <summary>
