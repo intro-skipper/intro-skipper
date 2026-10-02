@@ -1,8 +1,7 @@
 import type { Tab } from "../types.ts";
 import type { KeyOfKind } from "../config/schema.ts";
 import { configStore } from "../store/config-store.ts";
-import { htmlEl } from "../components/dom.ts";
-import { fieldRow } from "../components/tab-layout.ts";
+import { el, htmlEl } from "../components/dom.ts";
 import { configForm, type ConfigForm } from "../components/config-form.ts";
 
 /** A min/max pair side by side. The ordering rule itself lives in the schema. */
@@ -12,7 +11,7 @@ function pairRow(
     maxId: KeyOfKind<"number">,
     visible?: () => boolean,
 ): HTMLElement {
-    const row = fieldRow(form.field(minId), form.field(maxId));
+    const row = el("div", { className: "side-by-side" }, form.field(minId), form.field(maxId));
     if (visible) form.visibleWhen(row, visible);
     return row;
 }

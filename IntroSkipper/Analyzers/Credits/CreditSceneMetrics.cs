@@ -12,6 +12,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="BlackFrameCount">The number of sampled frames that meet the black-frame threshold.</param>
 internal readonly record struct CreditSceneMetrics(int TotalFrameCount, int BlackFrameCount)
 {
+    // Black-frame evidence is sparse when its average spacing exceeds this fraction of the
+    // minimum credit duration.
+    private const double SparseAverageBlackFrameGapFactor = 0.5;
+
     /// <summary>
     /// Determines whether the fraction of sampled frames that meet the black-frame threshold satisfies a caller-supplied density.
     /// </summary>
@@ -36,7 +40,7 @@ internal readonly record struct CreditSceneMetrics(int TotalFrameCount, int Blac
         }
 
         var averageBlackFrameGap = (scene.EndTime - scene.StartTime) / (BlackFrameCount - 1);
-        return averageBlackFrameGap > CreditDetectionPolicy.MaximumSparseAverageBlackFrameGap(minimumDuration);
+        return averageBlackFrameGap > minimumDuration * SparseAverageBlackFrameGapFactor;
     }
 }
 

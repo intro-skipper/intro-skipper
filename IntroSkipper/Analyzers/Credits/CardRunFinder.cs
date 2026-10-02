@@ -36,7 +36,7 @@ internal static class CardRunFinder
         // keeps runs independent of an earlier dense run, while the non-card-evidence requirement keeps
         // a sparse all-card source (keyframes farther apart than the bridge but with nothing non-card
         // between) as a single run regardless of GOP length.
-        const double maximumInRunGap = CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
+        const double maximumInRunGap = CreditSceneBuilder.MaximumSceneMergeGapSeconds;
         TimeRange? best = null;
         var runCards = new List<CardPage>();
         var nonCardSinceLastCard = false;

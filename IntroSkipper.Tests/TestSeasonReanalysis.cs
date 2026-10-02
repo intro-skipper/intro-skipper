@@ -122,13 +122,20 @@ public sealed class TestSeasonReanalysisPlanner
     [InlineData(AnalysisMode.Introduction, AnalyzerAction.Chapter, false, true)]
     [InlineData(AnalysisMode.Introduction, AnalyzerAction.Default, true, true)]
     [InlineData(AnalysisMode.Credits, AnalyzerAction.Default, false, true)]
-    public void CanSettleReanalysisRun_SkipsIntroduction_WhenChromaprintUnavailable(
+    public void GetSettleReanalysisModes_SkipsIntroduction_WhenChromaprintUnavailable(
         AnalysisMode mode,
         AnalyzerAction action,
         bool ffmpegValid,
         bool expected)
     {
-        Assert.Equal(expected, SeasonReanalysisPlanner.CanSettleReanalysisRun(mode, action, ffmpegValid));
+        // A recorded empty episode set differs from the current one, so only the
+        // analyzer's availability decides.
+        var states = new Dictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>
+        {
+            [mode] = (action, new HashSet<Guid>()),
+        };
+
+        Assert.Equal(expected, SeasonReanalysisPlanner.GetSettleReanalysisModes(states, [Guid.NewGuid()], [mode], ffmpegValid).Contains(mode));
     }
 
     [Fact]
@@ -510,8 +517,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(fixture.EpisodeId, Assert.Single(verified).EpisodeId);
     }
 
-    // Mirrors the production eligibility decision in SeasonReanalysisPlanner.GetSettleReanalysisModes,
-    // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
+    // The production eligibility decision: the same batch read (GetSettleReanalysisStatesAsync)
+    // and SeasonReanalysisPlanner.GetSettleReanalysisModes call the analyzer makes.
     private static async Task<bool> ShouldReanalyzeAsync(
         IntroSkipperDatabase database,
         Guid seasonId,
@@ -519,8 +526,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         IReadOnlyCollection<Guid> episodeIds)
     {
         var states = await database.GetSettleReanalysisStatesAsync(seasonId);
-        return !states.TryGetValue(mode, out var state)
-            || SeasonReanalysisPlanner.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
+        return SeasonReanalysisPlanner.GetSettleReanalysisModes(states, episodeIds, [mode], ffmpegValid: true).Count > 0;
     }
 
     /// <summary>

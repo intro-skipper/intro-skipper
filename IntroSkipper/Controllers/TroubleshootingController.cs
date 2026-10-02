@@ -135,7 +135,7 @@ public partial class TroubleshootingController : ControllerBase
                 [
                     new("Jellyfin version", _applicationHost.ApplicationVersionString),
                     new("Plugin version", GetPluginVersion()),
-                    new("Runs on", Helper.OperatingSystem.DetermineOperatingSystem()),
+                    new("Runs on", DescribeOperatingSystem()),
                     new("Runtime", FormattableString.Invariant($"{RuntimeInformation.FrameworkDescription}, {RuntimeInformation.RuntimeIdentifier}, {Environment.ProcessorCount} CPUs")),
                     new("FFmpeg", ffmpeg.Status),
                     new("FFmpeg path", string.IsNullOrEmpty(plugin.FFmpegPath) ? "unknown" : plugin.FFmpegPath),
@@ -234,6 +234,37 @@ public partial class TroubleshootingController : ControllerBase
         }
 
         return parts.Count == 0 ? "empty" : string.Join(", ", parts);
+    }
+
+    // Names the host operating system, telling the common Docker images apart on Linux.
+    private static string DescribeOperatingSystem()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return "Windows";
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return "macOS";
+        }
+
+        if (!OperatingSystem.IsLinux())
+        {
+            return "Unknown";
+        }
+
+        if (!System.IO.File.Exists("/.dockerenv") && !System.IO.File.Exists("/run/.containerenv"))
+        {
+            return RuntimeInformation.OSDescription;
+        }
+
+        if (Environment.GetEnvironmentVariable("ATTACHED_DEVICES_PERMS") != null)
+        {
+            return "LinuxServer.io image (Docker)";
+        }
+
+        return Environment.GetEnvironmentVariable("WEBUI_PORTS") != null ? "hotio image (Docker)" : "Linux (Docker)";
     }
 
     private static string FormatDuration(TimeSpan duration) => duration switch

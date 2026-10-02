@@ -11,6 +11,19 @@ namespace IntroSkipper.Analyzers.Credits;
 internal static class CreditSceneBuilder
 {
     /// <summary>
+    /// The longest gap, in seconds, that still joins two black scenes or two credits
+    /// candidates into one.
+    /// </summary>
+    internal const double MaximumSceneMergeGapSeconds = 20;
+
+    private const double MaximumKeyframeGapMultiplier = 5.0;
+    private const double DefaultMinimumBlackFrameDensity = 0.50;
+    private const double MaximumIntervalToKeyframeGapSeconds = 2.0;
+
+    // Minimum keyframe gap before a scene start for boundary probing to be worthwhile.
+    private const double MinimumBoundaryProbeWindow = 0.50;
+
+    /// <summary>
     /// Detects credit scenes that have enough black-frame density or can become valid after boundary refinement.
     /// </summary>
     /// <param name="frames">The keyframe black-frame scan results.</param>
@@ -21,7 +34,7 @@ internal static class CreditSceneBuilder
     /// <returns>The detected credit scenes.</returns>
     public static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange, int minimumDuration, bool allowBoundaryRefinement = true)
     {
-        var minimumDensity = CreditDetectionPolicy.DefaultMinimumBlackFrameDensity;
+        var minimumDensity = DefaultMinimumBlackFrameDensity;
         var scenes = FindRawScenes(frames, minimum)
             .Where(scene => CreditSceneMetricsCalculator.Calculate(frames, scene, minimum).MeetsDensity(minimumDensity))
             .ToList();
@@ -133,6 +146,42 @@ internal static class CreditSceneBuilder
         return scenes;
     }
 
+    /// <summary>
+    /// Finds the keyframe gap before a scene that a boundary probe should search: from the
+    /// last keyframe before the scene to the first keyframe inside it.
+    /// </summary>
+    /// <param name="frames">The keyframe black-frame scan results.</param>
+    /// <param name="scene">The scene whose start boundary may be refined.</param>
+    /// <param name="minimumDuration">The minimum credit duration.</param>
+    /// <returns>The window, or <see langword="null" /> when no keyframe precedes the scene, the
+    /// gap is too short to probe, or even a start at the gap's beginning would leave the scene
+    /// shorter than <paramref name="minimumDuration" />.</returns>
+    internal static (double LastKeyframeTime, double FirstBlackTime)? FindBoundaryProbeWindow(List<BlackFrame> frames, CreditScene scene, int minimumDuration)
+    {
+        double? lastKeyframeTime = null;
+        double? firstBlackTime = null;
+        foreach (var frame in frames)
+        {
+            if (frame.Time >= scene.StartTime)
+            {
+                firstBlackTime = frame.Time;
+                break;
+            }
+
+            lastKeyframeTime = frame.Time;
+        }
+
+        if (lastKeyframeTime is not { } last || firstBlackTime is not { } first)
+        {
+            return null;
+        }
+
+        var window = scene.StartTime - last;
+        return window > MinimumBoundaryProbeWindow && scene.EndTime - scene.StartTime + window >= minimumDuration
+            ? (last, first)
+            : null;
+    }
+
     private static List<CreditScene> MergeNearbyScenes(List<BlackFrame> frames, List<CreditScene> scenes, int minimum, double minimumDensity)
     {
         if (scenes.Count <= 1)
@@ -147,7 +196,7 @@ internal static class CreditSceneBuilder
         {
             var scene = scenes[i];
             var mergedScene = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
-            if (scene.StartTime - current.EndTime <= CreditDetectionPolicy.MaximumSceneMergeGapSeconds &&
+            if (scene.StartTime - current.EndTime <= MaximumSceneMergeGapSeconds &&
                 CreditSceneMetricsCalculator.Calculate(frames, mergedScene, minimum).MeetsDensity(minimumDensity))
             {
                 current = mergedScene;
@@ -200,10 +249,7 @@ internal static class CreditSceneBuilder
         => endTime - startTime >= minimumDuration;
 
     private static bool CanReachMinimumDurationAfterBoundaryRefinement(List<BlackFrame> frames, CreditScene scene, int minimumDuration)
-    {
-        var boundary = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
-        return boundary is not null && CreditsBoundaryHelper.ShouldRefineBoundary(scene, boundary.Value.LastKeyframeTime, minimumDuration);
-    }
+        => FindBoundaryProbeWindow(frames, scene, minimumDuration) is not null;
 
     private static int FindStartFrame(List<BlackFrame> frames, CreditScene scene, double startTime, int minimum)
     {
@@ -248,7 +294,7 @@ internal static class CreditSceneBuilder
     {
         if (frames.Count < 2)
         {
-            return CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
+            return MaximumSceneMergeGapSeconds;
         }
 
         var gaps = new List<double>(frames.Count - 1);
@@ -263,11 +309,11 @@ internal static class CreditSceneBuilder
 
         if (gaps.Count == 0)
         {
-            return CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
+            return MaximumSceneMergeGapSeconds;
         }
 
         gaps.Sort();
-        return Math.Min(CreditDetectionPolicy.MaximumSceneMergeGapSeconds, gaps[gaps.Count / 2] * CreditDetectionPolicy.MaximumKeyframeGapMultiplier);
+        return Math.Min(MaximumSceneMergeGapSeconds, gaps[gaps.Count / 2] * MaximumKeyframeGapMultiplier);
     }
 
     private static BlackInterval? FindSupportingInterval(
@@ -283,7 +329,7 @@ internal static class CreditSceneBuilder
         foreach (var interval in intervals)
         {
             if (interval.Start <= lastBlackTime &&
-                interval.End >= firstBlackTime - CreditDetectionPolicy.MaximumIntervalToKeyframeGapSeconds)
+                interval.End >= firstBlackTime - MaximumIntervalToKeyframeGapSeconds)
             {
                 var span = Math.Max(lastBlackTime, interval.End) - interval.Start;
                 if (span > bestSpan)
