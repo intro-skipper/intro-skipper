@@ -25,12 +25,10 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
-    SegmentChange segmentChange,
-    IDetectionCacheDatabase cacheDatabase,
+    ISegmentEraser eraser,
     IIntroSkipperDatabase database) : ControllerBase
 {
-    private readonly SegmentChange _segmentChange = segmentChange;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly ISegmentEraser _eraser = eraser;
     private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
@@ -47,21 +45,7 @@ public partial class SkipIntroController(
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
-
-        if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
-        {
-            // Best-effort cache cleanup (the facade logs and swallows database errors),
-            // not bound to request cancellation: the main database rows are already
-            // gone, so make one complete cleanup attempt.
-            await _cacheDatabase.DeleteByModeAsync(mode, CancellationToken.None).ConfigureAwait(false);
-        }
-
-        // The erase journaled every affected item's projection; converge exactly those
-        // items now for a snappy dashboard — unrelated pending work keeps its backoff.
-        // Anything this pass cannot finish stays journaled and the worker completes it.
-        await _segmentChange.ProjectItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
-
+        await _eraser.EraseModeAsync(mode, eraseCache, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
