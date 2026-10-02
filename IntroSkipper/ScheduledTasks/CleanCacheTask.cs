@@ -26,7 +26,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="cacheService">Detection cache service; owns the configuration-hash policy.</param>
-/// <param name="segmentChange">Durable segment-change coordinator; converges the erased items' journaled projections.</param>
+/// <param name="eraser">Erases the segments of items the server no longer knows and converges their mirrors.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     SeasonResolver seasonResolver,
@@ -34,7 +34,7 @@ public partial class CleanCacheTask(
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
     DetectionCacheService cacheService,
-    SegmentChange segmentChange) : IScheduledTask
+    ISegmentEraser eraser) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
@@ -42,7 +42,7 @@ public partial class CleanCacheTask(
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly SegmentChange _segmentChange = segmentChange;
+    private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
     /// Gets the task name.
@@ -126,19 +126,9 @@ public partial class CleanCacheTask(
 
         if (staleTimestampEpisodeIds.Count > 0)
         {
-            // The erase journals every affected item's projection with the delete, so
-            // the Jellyfin rows converge away durably: a sync racing this cleanup
-            // from a stale read is followed by the marker's own projection, and a
-            // crash mid-cleanup leaves the work journaled instead of orphaning rows.
-            await _database
-                .EraseItemsAsync(staleTimestampEpisodeIds, cancellationToken)
-                .ConfigureAwait(false);
-
-            // Converge exactly the erased items now rather than waiting for the
-            // worker's poll. Unrelated pending work keeps its backoff; anything this
-            // pass cannot finish stays journaled. Uncancelable: the erase is committed.
-            await _segmentChange
-                .ProjectItemsAsync(staleTimestampEpisodeIds, CancellationToken.None)
+            // Cache rows of gone items are cleaned below by their own query.
+            await _eraser
+                .EraseItemsAsync(staleTimestampEpisodeIds, eraseCache: false, cancellationToken)
                 .ConfigureAwait(false);
         }
 

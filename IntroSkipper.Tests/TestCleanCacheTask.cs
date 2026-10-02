@@ -15,6 +15,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.SegmentChanges;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
@@ -254,7 +255,7 @@ public sealed class TestCleanCacheTask : IDisposable
             database,
             cacheDatabase,
             new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
-            DatabaseTestHelpers.CreateSegmentChange(store ?? new FakeJellyfinSegmentStore(), database));
+            new SegmentEraser(database, cacheDatabase, DatabaseTestHelpers.CreateSegmentChange(store ?? new FakeJellyfinSegmentStore(), database)));
 
     private static async Task SeedAsync(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
