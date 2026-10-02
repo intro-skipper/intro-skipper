@@ -9,10 +9,10 @@
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Serialization;
-using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -77,17 +77,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets the structured list of series names to exclude from analysis.
     /// </summary>
-    public ExclusionList SeriesExclusions { get; init; } = [];
+    public Collection<string?> SeriesExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets the structured list of movie names to exclude from analysis.
     /// </summary>
-    public ExclusionList MovieExclusions { get; init; } = [];
+    public Collection<string?> MovieExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets the structured list of filesystem paths to exclude from analysis.
     /// </summary>
-    public ExclusionList PathExclusions { get; init; } = [];
+    public Collection<string?> PathExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.

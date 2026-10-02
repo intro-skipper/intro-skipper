@@ -12,7 +12,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// A candidate that ends within the minimum credits duration of the window end is extended
 /// to it: nothing that short after credits can be a credits scene of its own, and shared
 /// audio stops a few seconds early at the fade-out. Candidates that then overlap or lie
-/// within <see cref="CreditDetectionPolicy.MaximumSceneMergeGapSeconds"/> of each other
+/// within <see cref="CreditSceneBuilder.MaximumSceneMergeGapSeconds"/> of each other
 /// merge into one segment from the earliest start to the latest end under
 /// <see cref="SegmentSource.Combined"/>. Candidates farther apart are emitted separately
 /// under their own source. Order carries no information: shared audio before, inside or
@@ -54,7 +54,7 @@ internal static class CreditsCandidateCombiner
         foreach (var candidate in ordered)
         {
             if (result.Count > 0 &&
-                candidate.Segment.Start <= result[^1].Segment.End + CreditDetectionPolicy.MaximumSceneMergeGapSeconds &&
+                candidate.Segment.Start <= result[^1].Segment.End + CreditSceneBuilder.MaximumSceneMergeGapSeconds &&
                 !boundaries.Any(b => b >= result[^1].Segment.End - BoundaryTolerance && b <= candidate.Segment.Start + BoundaryTolerance))
             {
                 var current = result[^1];

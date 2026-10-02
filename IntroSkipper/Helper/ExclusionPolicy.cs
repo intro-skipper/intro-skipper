@@ -87,13 +87,12 @@ internal sealed class ExclusionPolicy
         return false;
     }
 
-    private static HashSet<string> CreateNameSet(IEnumerable<string> entries)
+    private static HashSet<string> CreateNameSet(IEnumerable<string?> entries)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)
         {
-            var trimmed = entry.Trim();
-            if (trimmed.Length > 0)
+            if (entry?.Trim() is { Length: > 0 } trimmed)
             {
                 names.Add(trimmed);
             }
@@ -102,7 +101,7 @@ internal sealed class ExclusionPolicy
         return names;
     }
 
-    private static IReadOnlyList<string> CreatePathRoots(IEnumerable<string> entries)
+    private static IReadOnlyList<string> CreatePathRoots(IEnumerable<string?> entries)
     {
         var roots = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -1,7 +1,7 @@
 import type { Tab } from "../types.ts";
 import { configStore } from "../store/config-store.ts";
 import { configForm } from "../components/config-form.ts";
-import { fieldGroup } from "../components/field-group.ts";
+import { el } from "../components/dom.ts";
 
 export const detectionTab: Tab = {
     id: "detection",
@@ -21,8 +21,10 @@ export const detectionTab: Tab = {
             form.field("EndSnapThreshold"),
             form.field("FirstEpisodeIntroMode"),
             form.field("AnimePreviewFromCreditsEnd"),
-            fieldGroup(
-                "Segment Offset Adjustment",
+            el(
+                "fieldset",
+                {},
+                el("legend", {}, "Segment Offset Adjustment"),
                 form.field("IntroStartOffset"),
                 form.field("IncludeIntroStartOffsetWhenSnapping"),
                 form.field("IntroEndOffset"),

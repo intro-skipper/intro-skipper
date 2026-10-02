@@ -105,6 +105,19 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
+    /// Converts a probe hit inside the boundary window into a refined scene start.
+    /// </summary>
+    /// <param name="probeTime">The probe hit time relative to the probed range.</param>
+    /// <param name="lastKeyframeTime">The keyframe time immediately before the scene.</param>
+    /// <param name="sceneStartTime">The original scene start time.</param>
+    /// <returns>The refined start time, or <see langword="null" /> when the hit falls outside the window.</returns>
+    internal static double? TryRefineBoundaryTime(double probeTime, double lastKeyframeTime, double sceneStartTime)
+    {
+        var refinedTime = probeTime + lastKeyframeTime;
+        return refinedTime <= lastKeyframeTime || refinedTime > sceneStartTime ? null : refinedTime;
+    }
+
+    /// <summary>
     /// Stamps each page that has a visual with its card kind, from the black scenes the black-frame
     /// rules accepted and rejected. The rules apply in order, with membership by
     /// <see cref="InScene"/> on the page's time:
@@ -496,19 +509,15 @@ internal sealed partial class KeyframeAnalyzer(
         int minimumDuration,
         CancellationToken cancellationToken)
     {
-        var boundary = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
-        if (boundary is null)
+        if (CreditSceneBuilder.FindBoundaryProbeWindow(frames, scene, minimumDuration) is not var (lastKeyframeTime, firstBlackTime))
         {
             return scene.StartTime;
         }
 
-        var (lastKeyframeTime, firstBlackTime) = boundary.Value;
-        if (!CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime, minimumDuration))
-        {
-            return scene.StartTime;
-        }
-
-        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange);
+        // The scene's start frame normally traces back to a real keyframe; an interval-derived
+        // scene may have none, and then the scene-change threshold alone applies.
+        var startFrame = frames.FirstOrDefault(frame => frame.Frame == scene.StartFrame);
+        var probeMinimum = startFrame is null ? sceneChange : Math.Min(startFrame.Percentage, sceneChange);
         var probeRange = new TimeRange(
             lastKeyframeTime + episode.CreditsFingerprintStart,
             firstBlackTime + episode.CreditsFingerprintStart);
@@ -522,7 +531,7 @@ internal sealed partial class KeyframeAnalyzer(
             return scene.StartTime;
         }
 
-        var refinedTime = CreditsBoundaryHelper.TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
+        var refinedTime = TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
         if (refinedTime is null)
         {
             return scene.StartTime;

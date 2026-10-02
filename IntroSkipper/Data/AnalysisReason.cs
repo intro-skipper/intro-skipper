@@ -15,11 +15,6 @@ internal enum AnalysisReason
     None,
 
     /// <summary>
-    /// The stored analysis hash differs from the current configuration hash.
-    /// </summary>
-    ConfigHashChanged,
-
-    /// <summary>
     /// No analysis hash is stored for the item and mode.
     /// </summary>
     NoStoredState,
