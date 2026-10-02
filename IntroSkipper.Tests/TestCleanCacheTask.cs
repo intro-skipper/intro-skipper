@@ -246,7 +246,7 @@ public sealed class TestCleanCacheTask : IDisposable
     private static CleanCacheTask CreateTask(
         ILibraryManager libraryManager,
         IntroSkipperDatabase database,
-        IDetectionCacheDatabase cacheDatabase,
+        DetectionCacheDatabase cacheDatabase,
         FakeJellyfinSegmentStore? store = null)
         => new(
             NullLogger<CleanCacheTask>.Instance,
@@ -257,7 +257,7 @@ public sealed class TestCleanCacheTask : IDisposable
             new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
             new SegmentEraser(database, cacheDatabase, DatabaseTestHelpers.CreateSegmentChange(store ?? new FakeJellyfinSegmentStore(), database)));
 
-    private static async Task SeedAsync(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, Guid episodeId)
+    private static async Task SeedAsync(IntroSkipperDatabase database, DetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
         await database.ReplaceAutoSegmentsAsync(
             episodeId,
@@ -269,7 +269,7 @@ public sealed class TestCleanCacheTask : IDisposable
         cacheDatabase.Upsert(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
     }
 
-    private async Task AssertSeededDataIntactAsync(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, Guid episodeId)
+    private async Task AssertSeededDataIntactAsync(IntroSkipperDatabase database, DetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
         Assert.NotEmpty(await database.GetSegmentsAsync(episodeId));
         Assert.NotNull(cacheDatabase.FindEntry(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0));

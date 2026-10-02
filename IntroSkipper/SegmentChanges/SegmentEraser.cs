@@ -7,10 +7,10 @@ using IntroSkipper.Db;
 namespace IntroSkipper.SegmentChanges;
 
 /// <inheritdoc />
-internal sealed class SegmentEraser(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, SegmentChange segmentChange) : ISegmentEraser
+internal sealed class SegmentEraser(IntroSkipperDatabase database, DetectionCacheDatabase cacheDatabase, SegmentChange segmentChange) : ISegmentEraser
 {
-    private readonly IIntroSkipperDatabase _database = database;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly IntroSkipperDatabase _database = database;
+    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <inheritdoc />

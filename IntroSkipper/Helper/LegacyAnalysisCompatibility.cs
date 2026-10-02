@@ -19,7 +19,7 @@ namespace IntroSkipper.Helper;
 internal static class LegacyAnalysisCompatibility
 {
     internal static async Task<bool> UpgradeAsync(
-        IIntroSkipperDatabase database,
+        IntroSkipperDatabase database,
         SeasonQueueSnapshot snapshot,
         PluginConfiguration config,
         CancellationToken cancellationToken = default)

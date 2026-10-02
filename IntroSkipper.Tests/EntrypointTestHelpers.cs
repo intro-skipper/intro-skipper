@@ -65,7 +65,7 @@ internal static class EntrypointTestHelpers
     internal static AnalysisScheduler CreateQueue(
         SeasonResolver seasonResolver,
         IFFmpegService ffmpegService,
-        IIntroSkipperDatabase database,
+        IntroSkipperDatabase database,
         string cacheDbPath,
         ISegmentEraser? eraser = null,
         TimeProvider? timeProvider = null)

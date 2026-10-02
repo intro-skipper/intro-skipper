@@ -16,17 +16,17 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Manages reading and writing detection results to/from the SQLite cache.
 /// Serialization, compression and configuration-hash policy live here; all database
-/// access is delegated to <see cref="IDetectionCacheDatabase"/>.
+/// access is delegated to <see cref="DetectionCacheDatabase"/>.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
 /// </remarks>
 /// <param name="logger">The logger instance.</param>
 /// <param name="cacheDatabase">The detection cache database facade.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, IDetectionCacheDatabase cacheDatabase)
+public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, DetectionCacheDatabase cacheDatabase)
 {
     private readonly ILogger<DetectionCacheService> _logger = logger;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     /// <summary>
     /// Tries to read a cached detection result from the SQLite DB.

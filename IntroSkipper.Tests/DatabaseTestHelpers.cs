@@ -63,7 +63,7 @@ internal static class DatabaseTestHelpers
     /// policy the mirror follows the plugin configuration, as in production, or is
     /// simply enabled when the test hosts no plugin instance.
     /// </summary>
-    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
+    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
         => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy(), NullLogger<MediaSegmentMirror>.Instance);
 
     private static IMediaSegmentMirrorPolicy DefaultPolicy()
@@ -90,7 +90,7 @@ internal static class DatabaseTestHelpers
     /// Records the items as analyzed without a file version, the shape of records written
     /// before versioning. Tests about the version itself call the facade directly.
     /// </summary>
-    internal static Task MarkItemsAnalyzedAsync(this IIntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
+    internal static Task MarkItemsAnalyzedAsync(this IntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
         => database.MarkItemsAnalyzedAsync(mode, itemIds.Select(id => (id, (long?)null)), configHash);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)

@@ -20,9 +20,9 @@ namespace IntroSkipper.Providers;
 /// Initializes a new instance of the <see cref="SegmentDtoFactory"/> class.
 /// </remarks>
 /// <param name="database">Segment database facade.</param>
-public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
+public sealed class SegmentDtoFactory(IntroSkipperDatabase database)
 {
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Creates the Jellyfin media segment DTOs for an item from the plugin database.
