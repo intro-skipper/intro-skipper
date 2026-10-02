@@ -40,14 +40,10 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade.
-            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
-            serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
-
-            // Registered before Entrypoint so migrations are warmed as the first hosted
-            // service; the facades' internal gate still guarantees ordering for any
-            // request that arrives earlier.
-            serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
+            // gates, run on first use; every consumer goes through a facade. The
+            // segment-change worker's startup recovery is the first use at boot.
+            serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
             // The only thing that runs the analyzer: the scheduled task, the watcher and
             // the dashboard scan enqueue requests here. Registered ahead of the watcher so
@@ -87,7 +83,7 @@ namespace IntroSkipper
             // later plugin) the global TimeProvider slot for every consumer.
             serviceCollection.TryAddSingleton(TimeProvider.System);
             serviceCollection.AddSingleton(serviceProvider => new SegmentChange(
-                serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
+                serviceProvider.GetRequiredService<IntroSkipperDatabase>(),
                 serviceProvider.GetRequiredService<MediaSegmentMirror>(),
                 serviceProvider.GetRequiredService<IMediaSegmentMirrorPolicy>(),
                 serviceProvider.GetRequiredService<TimeProvider>(),

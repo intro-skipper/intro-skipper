@@ -17,7 +17,7 @@ namespace IntroSkipper.Db;
 /// crash. The journal records work, not data — projection re-derives the item's image
 /// from current truth when it runs.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
     /// <summary>
     /// Rows mirrored before the shared-id scheme were converted from seconds by
@@ -27,7 +27,23 @@ internal sealed partial class IntroSkipperDatabase
     /// </summary>
     internal const long UncorrelatedTickTolerance = 1;
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Applies one closed segment-change intent in a single transaction: the mutation,
+    /// its analysis-record bookkeeping and the projection journal. Rejected intents
+    /// journal nothing; ignored (already held) intents still journal a re-projection
+    /// unless their target exists in no state at all. Callers must serialize calls
+    /// per item (the coordinator's mutation stripe): concurrent first-time enqueues
+    /// for one item can otherwise fail on the queue's primary key. Outcome semantics:
+    /// <c>docs/segment-database-v2.md</c>.
+    /// </summary>
+    /// <param name="intent">Closed domain intent.</param>
+    /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
+    /// <see cref="EditorDeleteSegmentIntent"/> addresses; invoked at most once, inside
+    /// the transaction, only after the correlated lookup misses. Ignored for other
+    /// intents.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
+    /// <see langword="null"/> when the change committed.</returns>
     public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(intent);

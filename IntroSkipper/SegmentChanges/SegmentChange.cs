@@ -29,7 +29,7 @@ public sealed partial class SegmentChange : BackgroundService
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
-    private readonly IIntroSkipperDatabase _database;
+    private readonly IntroSkipperDatabase _database;
     private readonly MediaSegmentMirror _mirror;
     private readonly IMediaSegmentMirrorPolicy _mirrorPolicy;
     private readonly TimeProvider _timeProvider;
@@ -52,7 +52,7 @@ public sealed partial class SegmentChange : BackgroundService
     // it, and its collaborators stay internal. PluginServiceRegistrator builds it
     // through a factory since the container sees no public constructor.
     internal SegmentChange(
-        IIntroSkipperDatabase database,
+        IntroSkipperDatabase database,
         MediaSegmentMirror mirror,
         IMediaSegmentMirrorPolicy mirrorPolicy,
         TimeProvider timeProvider,

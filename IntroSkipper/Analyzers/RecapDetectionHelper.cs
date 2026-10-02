@@ -29,7 +29,7 @@ internal static class RecapDetectionHelper
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The maximum recap boundary in seconds.</returns>
     internal static async Task<double> GetMaximumBoundaryAsync(
-        IIntroSkipperDatabase database,
+        IntroSkipperDatabase database,
         QueuedEpisode episode,
         PluginConfiguration config,
         CancellationToken cancellationToken)

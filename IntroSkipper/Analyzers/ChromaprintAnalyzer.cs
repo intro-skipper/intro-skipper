@@ -25,7 +25,7 @@ internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    IIntroSkipperDatabase database,
+    IntroSkipperDatabase database,
     PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     /// <summary>
@@ -37,7 +37,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the

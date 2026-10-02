@@ -10,9 +10,15 @@ namespace IntroSkipper.Db;
 /// Disabled-item operations of <see cref="IntroSkipperDatabase"/>: items whose
 /// automatic segments are withheld from Jellyfin.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns the IDs among the given items whose automatic segments are withheld
+    /// from Jellyfin.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to check.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
     public async Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();

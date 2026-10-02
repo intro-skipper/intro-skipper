@@ -809,7 +809,7 @@ public sealed class TestCreditsPass
     private static ChapterInfo Chapter(string name, double start)
         => new() { Name = name, StartPositionTicks = TimeSpan.FromSeconds(start).Ticks };
 
-    private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IIntroSkipperDatabase database, DetectionCacheService? cache = null, PluginConfiguration? config = null)
+    private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IntroSkipperDatabase database, DetectionCacheService? cache = null, PluginConfiguration? config = null)
         => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration());
 
     /// <summary>
@@ -820,7 +820,7 @@ public sealed class TestCreditsPass
     /// intervals, so neither probe throws for want of a hook; a lead-in decode, which no fixture here
     /// reaches, would. Silence and keyframe lookups return nothing so end adjustment leaves ends alone.
     /// </summary>
-    private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IIntroSkipperDatabase Database) CreateSeason(
+    private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IntroSkipperDatabase Database) CreateSeason(
         (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[]? spans = null,
         int sharedAudioLastPoint = DefaultSharedAudioLastPoint,
         Func<QueuedEpisode, Exception?>? fingerprintFailure = null,

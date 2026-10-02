@@ -35,7 +35,7 @@ internal static class AnimePreviewDeriver
     /// <param name="minimumDuration">The minimum preview duration in seconds; shorter spans derive nothing.</param>
     /// <param name="cancellationToken">Cancellation token; stops the loop before the next episode.</param>
     /// <returns>A task that completes when every episode has been considered.</returns>
-    internal static async Task DeriveAsync(IIntroSkipperDatabase database, IReadOnlyList<QueuedEpisode> items, int minimumDuration, CancellationToken cancellationToken)
+    internal static async Task DeriveAsync(IntroSkipperDatabase database, IReadOnlyList<QueuedEpisode> items, int minimumDuration, CancellationToken cancellationToken)
     {
         foreach (var episode in items)
         {

@@ -31,16 +31,16 @@ public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     SeasonResolver seasonResolver,
     ILibraryManager libraryManager,
-    IIntroSkipperDatabase database,
-    IDetectionCacheDatabase cacheDatabase,
+    IntroSkipperDatabase database,
+    DetectionCacheDatabase cacheDatabase,
     DetectionCacheService cacheService,
     ISegmentEraser eraser) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IIntroSkipperDatabase _database = database;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly IntroSkipperDatabase _database = database;
+    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly ISegmentEraser _eraser = eraser;
 

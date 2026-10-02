@@ -26,10 +26,10 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public partial class SkipIntroController(
     ISegmentEraser eraser,
-    IIntroSkipperDatabase database) : ControllerBase
+    IntroSkipperDatabase database) : ControllerBase
 {
     private readonly ISegmentEraser _eraser = eraser;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Erases all previously discovered timestamps of a mode: the stored segments

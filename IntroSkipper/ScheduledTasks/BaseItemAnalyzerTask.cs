@@ -36,8 +36,8 @@ public partial class BaseItemAnalyzerTask(
     SeasonResolver seasonResolver,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    IDetectionCacheDatabase cacheDatabase,
-    IIntroSkipperDatabase database)
+    DetectionCacheDatabase cacheDatabase,
+    IntroSkipperDatabase database)
 {
     private static readonly AnalysisMode[] AllModes = Enum.GetValues<AnalysisMode>();
 
@@ -46,8 +46,8 @@ public partial class BaseItemAnalyzerTask(
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly IntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so

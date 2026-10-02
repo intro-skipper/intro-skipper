@@ -32,10 +32,10 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public class SegmentsController(
-    IIntroSkipperDatabase database,
+    IntroSkipperDatabase database,
     SegmentChange segmentChange) : ControllerBase
 {
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <summary>

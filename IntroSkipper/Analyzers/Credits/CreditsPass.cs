@@ -32,7 +32,7 @@ internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    IIntroSkipperDatabase database,
+    IntroSkipperDatabase database,
     PluginConfiguration config)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
@@ -41,7 +41,7 @@ internal sealed partial class CreditsPass(
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
 
     /// <summary>

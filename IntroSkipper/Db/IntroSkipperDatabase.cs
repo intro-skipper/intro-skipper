@@ -8,7 +8,14 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Default implementation of <see cref="IIntroSkipperDatabase"/>.
+/// Cohesive facade over the segment database (<c>introskipper-v2.db</c>).
+/// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
+/// season state, disabled items and database maintenance — as well as the database lifecycle
+/// (EF migrations, one-time legacy import and salvage rebuild).
+/// All domain rules that guard writes (user-provided precedence, tombstone
+/// suppression, credits/intro overlap) live inside this facade; callers never see a
+/// <c>DbContext</c>. Boundaries are ticks internally; analysis writes accept seconds
+/// because analyzers work in seconds.
 /// The implementation is split across partial class files by concern:
 /// <list type="bullet">
 /// <item><description><c>IntroSkipperDatabase.cs</c> — lifecycle (initialization gate, migrations, legacy import, rebuild).</description></item>
@@ -21,7 +28,7 @@ namespace IntroSkipper.Db;
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
@@ -46,16 +53,34 @@ internal sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         _initialization = new RetryableInitializationGate(() => Task.Run(InitializeCoreAsync));
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Ensures the database is initialized (EF migrations + one-time legacy import).
+    /// Concurrent callers share one attempt and successful initialization is cached.
+    /// A failed attempt propagates to its callers and the next operation retries before
+    /// touching the database, so calling this method eagerly is an optimization, not a requirement.
+    /// </summary>
+    /// <returns>A <see cref="Task"/> that completes when initialization has finished.</returns>
     /// <remarks>
     /// Every public data operation awaits this first, which guarantees that no query can
     /// observe the database before EF migrations and the one-time legacy import have
-    /// completed regardless of whether the eager initializer (hosted service) has already run.
+    /// completed.
     /// </remarks>
     public Task InitializeAsync()
         => _initialization.AwaitValueAsync(ex => LogDatabaseInitializationError(_logger, ex));
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Rebuilds the database while attempting to preserve segments, season state,
+    /// analysis records, disabled items and the legacy-import marker. Runs even when
+    /// initialization fails (it recreates the schema itself), so a database whose
+    /// migrations no longer apply can still be recovered.
+    /// </summary>
+    /// <param name="forceCleanOnBackupFailure">
+    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>false</c>, the rebuild aborts to avoid data loss.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
     public async Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         try
