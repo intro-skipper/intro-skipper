@@ -17,11 +17,16 @@ using Xunit;
 
 public sealed class TestKeyframeAnalyzerFallback
 {
+    // The middle scene never has visuals. A scene without visuals before a verified one is not a
+    // candidate, every one after the last verified scene is, and with no verified scene only the
+    // latest is. Missing visuals after the last verified scene stand in for scenes past the end of
+    // the credits window, where the scan keeps no visuals.
     [Theory]
     [InlineData(false, false)]
-    [InlineData(true, false)]
+    [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task DetectCreditsAsync_AdditionalScenesRequireVisualEvidence(bool withVisuals, bool earlierSceneHasVisuals)
+    [InlineData(true, false)]
+    public async Task DetectCreditsAsync_SceneWithoutVisualsCountsOnlyAfterEveryVerifiedScene(bool earlierSceneHasVisuals, bool finalSceneHasVisuals)
     {
         var episode = new QueuedEpisode
         {
@@ -34,13 +39,14 @@ public sealed class TestKeyframeAnalyzerFallback
         {
             var time = index * 2.0;
             var earlierScene = time >= 150 && time <= 210;
+            var middleScene = time >= 270 && time <= 300;
             var finalScene = time >= 400;
-            var visual = !withVisuals || (earlierScene && !earlierSceneHasVisuals)
+            var visual = middleScene || (earlierScene && !earlierSceneHasVisuals) || (finalScene && !finalSceneHasVisuals)
                 ? null
                 : earlierScene || finalScene
                     ? KeyframeVisuals.Black(time)
                     : KeyframeVisuals.Content(time);
-            return new KeyframePage(new BlackFrame(earlierScene || finalScene ? 95 : 0, time, index), visual);
+            return new KeyframePage(new BlackFrame(earlierScene || middleScene || finalScene ? 95 : 0, time, index), visual);
         })];
         var ffmpeg = new StubFFmpegService
         {
@@ -56,9 +62,12 @@ public sealed class TestKeyframeAnalyzerFallback
         var candidates = await analyzer.DetectCreditsAsync(episode, CancellationToken.None);
         var combined = CreditsCandidateCombiner.Combine(candidates, episode.Duration, config.MinimumCreditsDuration);
 
-        var expected = withVisuals && earlierSceneHasVisuals
-            ? new[] { (700.0, 760.0), (950.0, 1000.0) }
-            : [(950.0, 1000.0)];
+        (double Start, double End)[] expected = (earlierSceneHasVisuals, finalSceneHasVisuals) switch
+        {
+            (true, true) => [(700, 760), (950, 1000)],
+            (true, false) => [(700, 760), (820, 850), (950, 1000)],
+            _ => [(950, 1000)],
+        };
         Assert.Equal(expected, combined.Select(candidate => (candidate.Segment.Start, candidate.Segment.End)));
 
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
@@ -66,7 +75,7 @@ public sealed class TestKeyframeAnalyzerFallback
         var mirrored = await new SegmentDtoFactory(database).CreateAsync(episode.EpisodeId, CancellationToken.None);
 
         Assert.All(mirrored, segment => Assert.Equal(MediaSegmentType.Outro, segment.Type));
-        Assert.Equal(expected.Select(range => (TickConversions.FromSeconds(range.Item1), TickConversions.FromSeconds(range.Item2))),
+        Assert.Equal(expected.Select(range => (TickConversions.FromSeconds(range.Start), TickConversions.FromSeconds(range.End))),
             mirrored.Select(segment => (segment.StartTicks, segment.EndTicks)));
     }
 
