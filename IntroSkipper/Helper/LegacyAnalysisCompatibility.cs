@@ -38,19 +38,24 @@ internal static class LegacyAnalysisCompatibility
                 continue;
             }
 
+            var hasMultipleItems = modeGroup.Count() > 1;
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {
+                var creditsChromaprintAvailable = available && hasMultipleItems;
+                var chromaprintExclusive = mode == AnalysisMode.Credits
+                    && action == AnalyzerAction.Chromaprint
+                    && creditsChromaprintAvailable;
                 var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
                     || (mode == AnalysisMode.Credits
-                        && available
+                        && creditsChromaprintAvailable
                         && action is not (AnalyzerAction.None or AnalyzerAction.BlackFrame));
                 var creditsUsesChapter = mode == AnalysisMode.Credits
                     && (action is AnalyzerAction.Default or AnalyzerAction.Chapter
-                        || (action == AnalyzerAction.Chromaprint && !available));
+                        || (action == AnalyzerAction.Chromaprint && !creditsChromaprintAvailable));
                 var creditsUsesBlackFrame = mode == AnalysisMode.Credits
                     && action is not AnalyzerAction.None
-                    && (action is not AnalyzerAction.Chromaprint || !available);
+                    && (action is not AnalyzerAction.Chromaprint || !creditsChromaprintAvailable);
                 if ((usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                         || !config.PreferAudioStreamWithMostChannels))
                     || (creditsUsesBlackFrame && config.UseLegacyBlackFrameAnalyzer)
@@ -70,6 +75,15 @@ internal static class LegacyAnalysisCompatibility
 
                     foreach (var normalizeInactiveSettings in new[] { false, true })
                     {
+                        if (normalizeInactiveSettings
+                            && mode == AnalysisMode.Credits
+                            && action == AnalyzerAction.Chromaprint
+                            && available
+                            && !chromaprintExclusive)
+                        {
+                            continue;
+                        }
+
                         upgrades[AnalysisHash(config, mode, action, available, false, release, normalizeInactiveSettings)] = currentHash;
                         if (mode == AnalysisMode.Credits)
                         {
