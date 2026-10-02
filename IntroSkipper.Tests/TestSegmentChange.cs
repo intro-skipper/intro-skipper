@@ -1034,6 +1034,7 @@ public sealed class TestSegmentChange : IDisposable
         var other = service.ApplyAsync(new AddUserSegmentIntent(otherItem, AnalysisMode.Introduction, 10, 20));
 
         Assert.Same(other, await Task.WhenAny(other, Task.Delay(TimeSpan.FromSeconds(1))));
+        Assert.Equal(ProjectionState.Applied, Assert.IsType<Accepted>(await other).Projection);
         Assert.False(parked.IsCompleted);
 
         store.WriteGate!.SetResult();
@@ -1206,8 +1207,9 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     /// <summary>
-    /// Waits until the background worker has drained the journal, the only signal a
-    /// replay that writes nothing to Jellyfin leaves behind.
+    /// Waits until the background worker has drained the journal, queue markers and
+    /// external operations alike: the only signal a replay that writes nothing to
+    /// Jellyfin leaves behind.
     /// </summary>
     private async Task WaitForQueueEmptyAsync()
     {
@@ -1216,7 +1218,7 @@ public sealed class TestSegmentChange : IDisposable
         {
             await using (var db = CreateContext())
             {
-                if (!await db.ProjectionQueue.AnyAsync())
+                if (!await db.ProjectionQueue.AnyAsync() && !await db.ProjectionExternalOperations.AnyAsync())
                 {
                     return;
                 }

@@ -26,7 +26,7 @@ Redesign the schema from scratch for the 12.0 major version:
 - The legacy repair machinery, migration back-fill and epsilon matching are deleted; future schema changes are plain EF migrations on the v2 file.
 - Delete later: the importer's retry-against-populated-database recovery (`seen`, `rowsByMode`, `occupantsByQuad`, `promotions`) only serves the one-time v2 import and goes when the importer does.
 - Restoring an old `introskipper.db` after v2 exists does not re-import (marker); document "delete `introskipper-v2.db` + restart" in release notes as the supported re-import path. A database rebuild keeps the marker when one exists and writes none otherwise, so a rebuild after a failed startup import leaves the retry (and the legacy data) reachable.
-- The plugin's own DB remains the source of truth; Jellyfin's MediaSegments table is a mirror per item (`MediaSegmentMirror.ApplyAsync` replaces own rows), with other providers' rows untouched.
+- The plugin's own DB remains the source of truth; Jellyfin's MediaSegments table is a mirror per item (`MediaSegmentMirror.ApplyAsync` replaces own rows), with other providers' rows untouched except for deletes a user journals through the editor.
 
 ## Per-item disable (follow-up, supersedes PR #870)
 
