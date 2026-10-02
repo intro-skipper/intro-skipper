@@ -11,8 +11,8 @@ namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
 /// Detects credits from the keyframe scan as candidates for the credits pass: black rolls from
-/// black-frame evidence, one for each accepted scene that meets the minimum duration, and at most one
-/// card run from keyframe visuals.
+/// black-frame evidence, one for each visually verified scene that meets the minimum duration,
+/// or one latest viable scene when none has visual evidence, and at most one card run from keyframe visuals.
 /// </summary>
 /// <remarks>
 /// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
@@ -25,8 +25,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// between the keyframes move the start after a lead-in back from the first keyframe at the level
 /// over the frames that look like it (see <see cref="LeadInProbe"/>);
 /// the probe decodes for every trimmed scene and its start is cached under the two keyframes. Every
-/// accepted scene whose refined range meets the minimum duration is a black-frame candidate, so
-/// credits split by a mid-credits scene come out as separate parts. The card run is found over each
+/// visually verified scene whose refined range meets the minimum duration is a black-frame candidate,
+/// so credits split by a mid-credits scene come out as separate parts. With no verified scene, only
+/// the latest scene meeting the refined minimum duration is returned. The card run is found over each
 /// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
 /// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
 /// <see cref="StampCardKinds"/>).
@@ -58,7 +59,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each visually verified scene whose refined range meets the minimum duration, or one latest viable scene when none has visual evidence, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -71,7 +72,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Any number of black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each accepted black scene whose refined range meets the minimum duration, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each visually verified scene whose refined range meets the minimum duration, or one latest viable scene when none has visual evidence, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
@@ -259,20 +260,22 @@ internal sealed partial class KeyframeAnalyzer(
         // A roll or a dubbing card has lettering over black on most of its pages; a black gap between
         // acts, such as a cut to a commercial break, has it on none, and a cut followed by one dark
         // keyframe has it on half at most. A scene lettered on no more than half its pages is a gap.
-        rejected.AddRange(scenes.Where(scene => !IsMostlyLettered(scene, blackFrames, minimum, pages)).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
-        scenes = [.. scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, pages))];
+        rejected.AddRange(scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, pages) is false).Select(scene => new TimeRange(scene.StartTime, scene.EndTime)));
+        scenes = [.. scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, pages) is not false)];
         if (scenes.Count == 0)
         {
             return ([], [], rejected);
         }
 
-        // Each accepted scene gets the lead-in or boundary probe that applies to it, and a boundary
+        // Each selected scene gets the lead-in or boundary probe that applies to it, and a boundary
         // probe that throws propagates, so it fails the episode whichever scene it belongs to. Each
-        // scene whose refined range meets the minimum is a candidate, so credits split by a
-        // mid-credits scene come out as parts, and the credits pass decides whether they join.
+        // verified scene whose refined range meets the minimum is a candidate; without visuals,
+        // the first viable scene in reverse time order is the single conservative fallback.
         List<Segment> credits = [];
         List<TimeRange> accepted = [];
-        foreach (var scene in scenes)
+        var verifiedScenes = scenes.Where(scene => IsMostlyLettered(scene, blackFrames, minimum, pages) is true).ToList();
+        var scenesToProbe = verifiedScenes.Count > 0 ? verifiedScenes : scenes.AsEnumerable().Reverse();
+        foreach (var scene in scenesToProbe)
         {
             // A trimmed scene starts at the first keyframe at the level, or where the lead-in probe
             // finds the frames before that keyframe already look like it. The gap before it is the
@@ -296,6 +299,10 @@ internal sealed partial class KeyframeAnalyzer(
             {
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
                 credits.Add(segment);
+                if (verifiedScenes.Count == 0)
+                {
+                    break;
+                }
             }
         }
 
@@ -419,8 +426,8 @@ internal sealed partial class KeyframeAnalyzer(
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are
     // not black, such as the dark scene after a cut, and those must not vouch for it. A scene none of
-    // whose black keyframes has a visual carries no evidence either way and stays.
-    private static bool IsMostlyLettered(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
+    // whose black keyframes has a visual carries no evidence either way and gets no verdict.
+    private static bool? IsMostlyLettered(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
         var withVisual = 0;
         var lettered = 0;
@@ -441,7 +448,7 @@ internal sealed partial class KeyframeAnalyzer(
             }
         }
 
-        return withVisual == 0 || lettered * 2 > withVisual;
+        return withVisual == 0 ? null : lettered * 2 > withVisual;
     }
 
     // Whether a keyframe at the time belongs to the scene from start to end. The lead-in and
