@@ -4,6 +4,7 @@
 
 using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
+using MediaBrowser.Model.MediaSegments;
 
 namespace IntroSkipper.Db;
 
@@ -45,7 +46,7 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
     /// <see langword="null"/> when the change committed.</returns>
-    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default);
+    Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically replaces the active automatic segments the writing pass produced for

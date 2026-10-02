@@ -71,14 +71,10 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<SegmentDtoFactory>();
             serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
             // Every plugin write into Jellyfin's MediaSegments table goes through the
-            // mirror: per-item locked syncs and validated targeted deletes, driven by
-            // the projection worker.
+            // mirror: journaled validated deletes and item syncs, driven by the
+            // projection worker.
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            // The mutation stripes serialize all interactive mutations per item —
-            // apply and projection alike — which only works when every request
-            // shares the singleton.
-            serviceCollection.AddSingleton<SegmentMutationLocks>();
             // Live view of the mirroring flag plus its toggle event; hosted so it can
             // subscribe to plugin configuration changes.
             serviceCollection.AddSingleton<MediaSegmentMirrorPolicy>();
@@ -90,12 +86,10 @@ namespace IntroSkipper
             // container, so an unconditional registration would claim (or cede to a
             // later plugin) the global TimeProvider slot for every consumer.
             serviceCollection.TryAddSingleton(TimeProvider.System);
-            serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
             serviceCollection.AddSingleton(serviceProvider => new SegmentChange(
                 serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
-                serviceProvider.GetRequiredService<ISegmentProjectionAdapter>(),
+                serviceProvider.GetRequiredService<MediaSegmentMirror>(),
                 serviceProvider.GetRequiredService<IMediaSegmentMirrorPolicy>(),
-                serviceProvider.GetRequiredService<SegmentMutationLocks>(),
                 serviceProvider.GetRequiredService<TimeProvider>(),
                 serviceProvider.GetRequiredService<ILogger<SegmentChange>>()));
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());

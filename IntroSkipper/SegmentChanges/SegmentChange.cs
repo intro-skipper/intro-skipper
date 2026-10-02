@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -10,12 +12,12 @@ namespace IntroSkipper.SegmentChanges;
 
 /// <summary>
 /// Durable segment-change coordinator and retry worker. A change commits through the
-/// facade's intent transaction (mutation plus journal) under the shared per-item
-/// mutation stripe, is projected immediately, and when that fails or the process
-/// dies is retried from the journal with exponential backoff until Jellyfin
-/// converges. The journal records work, not data: applying always re-projects the
-/// item's current truth through the mirror, so retries and replays can never push a
-/// stale image. While mirroring is disabled the work sits durably (state
+/// facade's intent transaction (mutation plus journal) under the item's mutation
+/// stripe, is projected immediately, and when that fails or the process dies is
+/// retried from the journal with exponential backoff until Jellyfin converges. The
+/// journal records work, not data: applying always re-projects the item's current
+/// truth through the mirror, so retries and replays can never push a stale image.
+/// While mirroring is disabled the work sits durably (state
 /// <see cref="ProjectionState.Skipped"/>) and replays when the toggle turns on.
 /// </summary>
 public sealed partial class SegmentChange : BackgroundService
@@ -28,9 +30,8 @@ public sealed partial class SegmentChange : BackgroundService
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
     private readonly IIntroSkipperDatabase _database;
-    private readonly ISegmentProjectionAdapter _adapter;
+    private readonly MediaSegmentMirror _mirror;
     private readonly IMediaSegmentMirrorPolicy _mirrorPolicy;
-    private readonly SegmentMutationLocks _mutationLocks;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SegmentChange> _logger;
 
@@ -40,21 +41,26 @@ public sealed partial class SegmentChange : BackgroundService
     // due pass the nudge triggers replays all of it immediately.
     private readonly SemaphoreSlim _nudge = new(0, 1);
 
+    // Serializes every apply and projection per item, so a projection never interleaves
+    // with an interactive change or another projection of the same item, and the
+    // mirror's read-compare-replace runs as one unit. Analyzer and maintenance writes
+    // take no stripe; the completion's version guard covers them. Stripes live as long
+    // as this singleton.
+    private readonly StripedAsyncLock _mutationLocks = new();
+
     // Internal on purpose: the class is public only because public controllers take
     // it, and its collaborators stay internal. PluginServiceRegistrator builds it
     // through a factory since the container sees no public constructor.
     internal SegmentChange(
         IIntroSkipperDatabase database,
-        ISegmentProjectionAdapter adapter,
+        MediaSegmentMirror mirror,
         IMediaSegmentMirrorPolicy mirrorPolicy,
-        SegmentMutationLocks mutationLocks,
         TimeProvider timeProvider,
         ILogger<SegmentChange> logger)
     {
         _database = database;
-        _adapter = adapter;
+        _mirror = mirror;
         _mirrorPolicy = mirrorPolicy;
-        _mutationLocks = mutationLocks;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -84,8 +90,8 @@ public sealed partial class SegmentChange : BackgroundService
         MutationResult result;
         using (await _mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
-            Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
-                ? () => _adapter.ResolveExternalTargetAsync(editorDelete.ItemId, editorDelete.SegmentId, cancellationToken)
+            Func<Task<MediaSegmentDto?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
+                ? () => _mirror.FindSegmentAsync(editorDelete.SegmentId, cancellationToken)
                 : null;
             result = await _database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
         }
@@ -241,7 +247,7 @@ public sealed partial class SegmentChange : BackgroundService
     /// <summary>
     /// Applies one item's pending work, if any: the journaled foreign-row deletes,
     /// then the mirror convergence, then the version-guarded completion, all under
-    /// the shared mutation stripe, so a projection can never interleave with a
+    /// the item's mutation stripe, so a projection can never interleave with a
     /// concurrent mutation's commit-then-project sequence and push state derived from
     /// a stale read, and so <see cref="ApplyAsync"/>'s in-transaction target
     /// resolution and pending-op guard cannot race a mid-flight apply. Every step is
@@ -264,7 +270,7 @@ public sealed partial class SegmentChange : BackgroundService
 
         try
         {
-            if (!await _adapter.ApplyAsync(itemId, work.Operations, cancellationToken).ConfigureAwait(false))
+            if (!await _mirror.ApplyAsync(itemId, work.Operations, cancellationToken).ConfigureAwait(false))
             {
                 // Not a failure: the work stays exactly as journaled (no backoff, no
                 // attempt count, no failure text), immediately due for the enable

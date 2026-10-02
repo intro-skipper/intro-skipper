@@ -11,7 +11,7 @@ namespace IntroSkipper.Helper;
 /// two unrelated items' operations, which is harmless. Stripes are never disposed, so an
 /// instance must live for the process lifetime inside a singleton.
 /// </summary>
-internal class StripedAsyncLock
+internal sealed class StripedAsyncLock
 {
     private const int StripeCount = 32; // power of two so the index is a mask
 
@@ -33,9 +33,8 @@ internal class StripedAsyncLock
     }
 
     /// <summary>
-    /// Maps an item id to its lock stripe. The mapping is shared by every pool, and it
-    /// is internal so concurrency tests can pick ids on distinct (or identical)
-    /// stripes deterministically instead of flaking on hash luck.
+    /// Maps an item id to its lock stripe. Internal so concurrency tests can pick ids on
+    /// distinct (or identical) stripes deterministically instead of flaking on hash luck.
     /// </summary>
     /// <param name="itemId">Item id.</param>
     /// <returns>The stripe index.</returns>
