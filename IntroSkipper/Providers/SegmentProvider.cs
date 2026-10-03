@@ -20,9 +20,9 @@ namespace IntroSkipper.Providers
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
     /// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
-    public class SegmentProvider(IIntroSkipperDatabase database, SegmentDtoFactory segmentDtoFactory) : IMediaSegmentProvider
+    public class SegmentProvider(IntroSkipperDatabase database, SegmentDtoFactory segmentDtoFactory) : IMediaSegmentProvider
     {
-        private readonly IIntroSkipperDatabase _database = database;
+        private readonly IntroSkipperDatabase _database = database;
         private readonly SegmentDtoFactory _segmentDtoFactory = segmentDtoFactory;
 
         /// <inheritdoc/>

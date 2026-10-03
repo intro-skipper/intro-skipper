@@ -31,7 +31,7 @@ One keyframe of the keyframe scan: its black-frame row and its keyframe visual, 
 _Avoid_: Frame, row (for the pair)
 
 **Keyframe analyzer**:
-The analyzer over one keyframe scan. It emits a black-frame candidate for each accepted black scene whose refined range meets the minimum duration, and at most one card run.
+The analyzer over one keyframe scan. It emits a black-frame candidate for each black scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest when none is verified, and at most one card run.
 _Avoid_: Black-frame analyzer (for the class), card analyzer
 
 **Black-frame evidence**:

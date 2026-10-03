@@ -4,6 +4,7 @@
 using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Model.MediaSegments;
 using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Db;
@@ -16,7 +17,7 @@ namespace IntroSkipper.Db;
 /// crash. The journal records work, not data — projection re-derives the item's image
 /// from current truth when it runs.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
     /// <summary>
     /// Rows mirrored before the shared-id scheme were converted from seconds by
@@ -26,8 +27,24 @@ internal sealed partial class IntroSkipperDatabase
     /// </summary>
     internal const long UncorrelatedTickTolerance = 1;
 
-    /// <inheritdoc/>
-    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Applies one closed segment-change intent in a single transaction: the mutation,
+    /// its analysis-record bookkeeping and the projection journal. Rejected intents
+    /// journal nothing; ignored (already held) intents still journal a re-projection
+    /// unless their target exists in no state at all. Callers must serialize calls
+    /// per item (the coordinator's mutation stripe): concurrent first-time enqueues
+    /// for one item can otherwise fail on the queue's primary key. Outcome semantics:
+    /// <c>docs/segment-database-v2.md</c>.
+    /// </summary>
+    /// <param name="intent">Closed domain intent.</param>
+    /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
+    /// <see cref="EditorDeleteSegmentIntent"/> addresses; invoked at most once, inside
+    /// the transaction, only after the correlated lookup misses. Ignored for other
+    /// intents.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
+    /// <see langword="null"/> when the change committed.</returns>
+    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(intent);
         if (Validate(intent) is { } rejection)
@@ -173,7 +190,7 @@ internal sealed partial class IntroSkipperDatabase
     /// change, so the caller can abandon the transaction on those; an Ignore that
     /// journals may additionally have staged a foreign-row operation.
     /// </summary>
-    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, Func<Task<ExternalSegmentTarget?>>? resolveExternalTarget, CancellationToken cancellationToken)
+    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget, CancellationToken cancellationToken)
     {
         switch (intent)
         {
@@ -403,7 +420,7 @@ internal sealed partial class IntroSkipperDatabase
     /// the foreign row either way, carrying the validated boundaries for the
     /// apply-time guard.
     /// </summary>
-    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, ExternalSegmentTarget target, List<DbSegment> itemRows, CancellationToken cancellationToken)
+    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, MediaSegmentDto target, List<DbSegment> itemRows, CancellationToken cancellationToken)
     {
         var mode = AnalysisHelpers.TryMapSegmentTypeToMode(expectedType)!.Value;
 

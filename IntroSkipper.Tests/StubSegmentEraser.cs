@@ -7,12 +7,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 
 /// <summary>
-/// Counting <see cref="ISegmentEraser"/> whose hook runs before every erase, which then
-/// goes through the inner eraser when one is given and is otherwise a no-op. A hook that
-/// throws or parks makes the erase fail or hang.
+/// Counting <see cref="ISegmentEraser"/> whose hook runs before every item erase, which
+/// then goes through the inner eraser when one is given and is otherwise a no-op. A hook
+/// that throws or parks makes the erase fail or hang. Mode erases pass straight through.
 /// </summary>
 internal sealed class StubSegmentEraser(ISegmentEraser? inner = null) : ISegmentEraser
 {
@@ -28,4 +29,7 @@ internal sealed class StubSegmentEraser(ISegmentEraser? inner = null) : ISegment
         await OnErase(cancellationToken);
         return inner is null ? (0, 0) : await inner.EraseItemsAsync(itemIds, eraseCache, cancellationToken);
     }
+
+    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken)
+        => inner?.EraseModeAsync(mode, eraseCache, cancellationToken) ?? Task.CompletedTask;
 }

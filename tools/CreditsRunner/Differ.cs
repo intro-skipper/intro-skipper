@@ -30,12 +30,12 @@ internal static class Differ
             {
                 if (Grew(before.StartError!.Value, after.StartError!.Value))
                 {
-                    yield return Invariant($"part {i + 1} start error {before.StartError:+0.00;-0.00} -> {after.StartError:+0.00;-0.00} s");
+                    yield return Invariant($"part {i + 1} start error {before.StartError:+0.00;-0.00;+0.00} -> {after.StartError:+0.00;-0.00;+0.00} s");
                 }
 
                 if (Grew(before.EndError!.Value, after.EndError!.Value))
                 {
-                    yield return Invariant($"part {i + 1} end error {before.EndError:+0.00;-0.00} -> {after.EndError:+0.00;-0.00} s");
+                    yield return Invariant($"part {i + 1} end error {before.EndError:+0.00;-0.00;+0.00} -> {after.EndError:+0.00;-0.00;+0.00} s");
                 }
             }
         }

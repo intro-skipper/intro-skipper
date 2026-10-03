@@ -22,7 +22,7 @@ namespace IntroSkipper.Db;
 /// </summary>
 /// <remarks>
 /// Delete later: the retry-against-populated-database recovery in <see cref="ImportAsync"/>
-/// (<c>seen</c>, <c>blockers</c>, <c>occupantsByQuad</c>, <c>promotions</c>) exists only for
+/// (<c>seen</c>, <c>rowsByMode</c>, <c>occupantsByQuad</c>, <c>promotions</c>) exists only for
 /// the one-time v2 import. Once every 12.0 install has imported, it can go along with the
 /// rest of this importer.
 /// </remarks>
@@ -98,32 +98,23 @@ internal static partial class LegacyDatabaseImporter
         // swallowed and retried at the next start, and in between the plugin has run
         // (analysis, user edits) against the marker-less new file. The retry must not
         // contradict what that window recorded: `seen` blocks exact duplicates,
-        // `blockers` holds the human intent (tombstones and active user rows) that
-        // gates automatic legacy rows exactly like analysis writes, and
+        // `rowsByMode` holds the window's rows that the admission policy checks
+        // automatic legacy rows against, exactly like analysis writes, and
         // `occupantsByQuad` lets an exact collision with a window-era automatic row
         // preserve a legacy row's user provenance by promotion.
         var seen = new HashSet<(Guid ItemId, AnalysisMode Type, long StartTicks, long EndTicks)>();
-        var blockers = new Dictionary<(Guid ItemId, AnalysisMode Type), List<(long StartTicks, long EndTicks)>>();
         var occupantsByQuad = new Dictionary<(Guid ItemId, AnalysisMode Type, long StartTicks, long EndTicks), Guid>();
         var existing = await newDb.Segments
             .AsNoTracking()
-            .Select(s => new { s.Id, s.ItemId, s.Type, s.StartTicks, s.EndTicks, s.State, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var rowsByMode = existing
+            .GroupBy(row => (row.ItemId, row.Type))
+            .ToDictionary(group => group.Key, group => group.ToList());
         foreach (var row in existing)
         {
             seen.Add((row.ItemId, row.Type, row.StartTicks, row.EndTicks));
-            if (row.State == SegmentState.Suppressed || row.Source == SegmentSource.User)
-            {
-                if (!blockers.TryGetValue((row.ItemId, row.Type), out var ranges))
-                {
-                    ranges = [];
-                    blockers[(row.ItemId, row.Type)] = ranges;
-                }
-
-                ranges.Add((row.StartTicks, row.EndTicks));
-            }
-            else
+            if (row.State == SegmentState.Active && row.Source != SegmentSource.User)
             {
                 occupantsByQuad[(row.ItemId, row.Type, row.StartTicks, row.EndTicks)] = row.Id;
             }
@@ -190,11 +181,13 @@ internal static partial class LegacyDatabaseImporter
 
                 // Automatic legacy rows obey the same admission rule as analysis writes:
                 // they must not contradict the human intent (tombstones, user rows) the
-                // retry window recorded. User rows are admitted unconditionally, as at
+                // retry window recorded. Only same-mode rows are passed, so the
+                // credits-versus-introduction heuristic for fresh detections does not
+                // apply to legacy rows. User rows are admitted unconditionally, as at
                 // every other write door.
                 if (source != SegmentSource.User
-                    && blockers.TryGetValue((itemId, mode), out var ranges)
-                    && ranges.Any(r => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, r.StartTicks, r.EndTicks)))
+                    && rowsByMode.TryGetValue((itemId, mode), out var modeRows)
+                    && AutoSegmentAdmissionPolicy.Check(mode, startTicks, endTicks, modeRows) != AutoSegmentRejection.None)
                 {
                     skipped++;
                     continue;

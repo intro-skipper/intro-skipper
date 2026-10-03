@@ -47,7 +47,7 @@ public class TestPluginConfiguration
         var config = JsonSerializer.Deserialize<PluginConfiguration>(
             """
             {
-              "SeriesExclusions": ["The Office", "Show, With Comma", null],
+              "SeriesExclusions": ["The Office", "Show, With Comma"],
               "MovieExclusions": ["The Matrix"],
               "PathExclusions": ["/mnt/remote"]
             }

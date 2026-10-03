@@ -158,6 +158,51 @@ public sealed class TestLegacyImporter
         Assert.Equal(1, await db.ImportHistory.CountAsync());
     }
 
+    // A failed import leaves no marker, so it retries at the next start against rows the
+    // plugin wrote in between. Automatic legacy rows then pass the same admission policy
+    // as analysis writes, except the credits-versus-introduction rule, which is for
+    // fresh detections only. A user-flagged legacy row on an automatic row's exact range
+    // promotes that row instead of duplicating it.
+    [Fact]
+    public async Task Import_Retry_AdmitsAutomaticRowsLikeAnalysisWrites()
+    {
+        using var scope = new FixtureScope();
+        var itemId = Guid.NewGuid();
+        var window = DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path);
+        await window.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chapter);
+        await window.DeleteSegmentAsync(itemId, Assert.Single(await window.GetSegmentsAsync(itemId)).Id);
+        await window.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, TickConversions.FromSeconds(100), TickConversions.FromSeconds(160));
+        await window.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(300, 330))], SegmentSource.Chapter);
+        await using (var db = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path))
+        {
+            await db.ImportHistory.ExecuteDeleteAsync();
+        }
+
+        LegacySchemaFixtures.CreateV5(
+            scope.LegacyPath,
+            [
+                new(itemId, 20, 50, (int)AnalysisMode.Introduction),                       // overlaps the tombstone
+                new(itemId, 110, 150, (int)AnalysisMode.Introduction),                     // overlaps the user intro
+                new(itemId, 400, 450, (int)AnalysisMode.Introduction),                     // admitted
+                new(itemId, 100, 160, (int)AnalysisMode.Credits),                          // admitted despite the intro
+                new(itemId, 300, 330, (int)AnalysisMode.Commercial, IsUserProvided: true), // promotes the occupant
+            ],
+            []);
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using var verify = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
+        var rows = await verify.Segments.AsNoTracking().ToListAsync();
+        Assert.Equal(
+            [TickConversions.FromSeconds(10), TickConversions.FromSeconds(100), TickConversions.FromSeconds(400)],
+            rows.Where(s => s.Type == AnalysisMode.Introduction).Select(s => s.StartTicks).Order());
+        Assert.Equal(TickConversions.FromSeconds(100), Assert.Single(rows, s => s.Type == AnalysisMode.Credits).StartTicks);
+        Assert.Equal(SegmentSource.User, Assert.Single(rows, s => s.Type == AnalysisMode.Commercial).Source);
+        var marker = Assert.Single(await verify.ImportHistory.AsNoTracking().ToListAsync());
+        Assert.Equal(2, marker.SegmentsImported);
+        Assert.Equal(3, marker.SegmentsSkipped);
+    }
+
     [Fact]
     public async Task Import_MalformedValues_SkipsBadRowsAndDegradesBadJsonWithoutAbortingImport()
     {

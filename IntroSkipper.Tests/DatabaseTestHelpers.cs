@@ -63,29 +63,22 @@ internal static class DatabaseTestHelpers
     /// policy the mirror follows the plugin configuration, as in production, or is
     /// simply enabled when the test hosts no plugin instance.
     /// </summary>
-    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IIntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
-        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy());
+    internal static MediaSegmentMirror CreateMirror(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
+        => new(store, new SegmentDtoFactory(database), policy ?? DefaultPolicy(), NullLogger<MediaSegmentMirror>.Instance);
 
     private static IMediaSegmentMirrorPolicy DefaultPolicy()
         => Plugin.Instance is null ? new FakeMirrorPolicy() : new MediaSegmentMirrorPolicy();
 
     /// <summary>
-    /// Composes the durable segment-change coordinator over the real Jellyfin
-    /// projection adapter and mirror, the single test home of the production
-    /// composition chain so constructor changes touch one place. Controller tests get
-    /// end-to-end behavior: intent commit, journal, and mirror convergence against
-    /// the given store.
+    /// Composes the durable segment-change coordinator over the real mirror, the
+    /// single test home of the production composition chain so constructor changes
+    /// touch one place. Callers get end-to-end behavior: intent commit, journal, and
+    /// mirror convergence against the given store.
     /// </summary>
     internal static SegmentChange CreateSegmentChange(IJellyfinSegmentStore store, IntroSkipperDatabase database, IMediaSegmentMirrorPolicy? policy = null)
     {
         policy ??= DefaultPolicy();
-        return new(
-            database,
-            new JellyfinSegmentProjectionAdapter(store, CreateMirror(store, database, policy), NullLogger<JellyfinSegmentProjectionAdapter>.Instance),
-            policy,
-            new SegmentMutationLocks(),
-            TimeProvider.System,
-            NullLogger<SegmentChange>.Instance);
+        return new(database, CreateMirror(store, database, policy), policy, TimeProvider.System, NullLogger<SegmentChange>.Instance);
     }
 
     /// <summary>
@@ -97,7 +90,7 @@ internal static class DatabaseTestHelpers
     /// Records the items as analyzed without a file version, the shape of records written
     /// before versioning. Tests about the version itself call the facade directly.
     /// </summary>
-    internal static Task MarkItemsAnalyzedAsync(this IIntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
+    internal static Task MarkItemsAnalyzedAsync(this IntroSkipperDatabase database, AnalysisMode mode, IEnumerable<Guid> itemIds, string configHash)
         => database.MarkItemsAnalyzedAsync(mode, itemIds.Select(id => (id, (long?)null)), configHash);
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)

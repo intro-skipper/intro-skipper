@@ -795,7 +795,7 @@ public class TestBlackFrames
     [InlineData(6.0, null)] // past the scene start
     public void TestTryRefineBoundaryTime(double probeTime, double? expected)
     {
-        Assert.Equal(expected, CreditsBoundaryHelper.TryRefineBoundaryTime(probeTime, lastKeyframeTime: 10.0, sceneStartTime: 15.0));
+        Assert.Equal(expected, KeyframeAnalyzer.TryRefineBoundaryTime(probeTime, lastKeyframeTime: 10.0, sceneStartTime: 15.0));
     }
 
     [Fact]
