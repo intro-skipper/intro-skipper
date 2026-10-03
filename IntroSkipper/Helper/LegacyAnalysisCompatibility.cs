@@ -12,7 +12,9 @@ namespace IntroSkipper.Helper;
 /// <summary>
 /// Adopts completed 10.11.22–24 analysis under the 12.0 baseline without running detection.
 /// The legacy hash inputs are frozen to those releases. Only hashes matching the retained
-/// settings are eligible; settings introduced in 12.0 must still have their defaults.
+/// settings are eligible. A setting introduced in 12.0 blocks adoption exactly where
+/// <see cref="ConfigHasher.Analysis"/> hashes it for the season's mode and action, so changing
+/// it before adoption reanalyzes the same seasons as changing it afterwards.
 /// Rewriting the completion record makes adoption one-time and preserves ordinary
 /// hash invalidation afterwards. Missing records and unknown hashes are never adopted.
 /// </summary>
@@ -28,17 +30,18 @@ internal static class LegacyAnalysisCompatibility
         foreach (var modeGroup in snapshot.AnalysisRecords.GroupBy(pair => pair.Key.Mode))
         {
             var mode = modeGroup.Key;
+            var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
             if (!AnalysisHelpers.IsSupported(mode)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
-                || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))
+                || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer
+                    || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
             }
 
-            var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {

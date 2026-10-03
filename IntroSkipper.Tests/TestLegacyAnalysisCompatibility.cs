@@ -176,14 +176,9 @@ public sealed class TestLegacyAnalysisCompatibility
     }
 
     [Theory]
-    [InlineData(AnalysisMode.Introduction, "language")]
-    [InlineData(AnalysisMode.Introduction, "channels")]
     [InlineData(AnalysisMode.Introduction, "duration")]
     [InlineData(AnalysisMode.Introduction, "action")]
-    [InlineData(AnalysisMode.Credits, "legacy")]
-    [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
-    [InlineData(AnalysisMode.Recap, "cold-open")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -194,14 +189,9 @@ public sealed class TestLegacyAnalysisCompatibility
         await temp.Database.MarkItemsAnalyzedAsync(mode, [id], legacyHash);
         switch (change)
         {
-            case "language": config.PreferredAudioLanguage = "eng"; break;
-            case "channels": config.PreferAudioStreamWithMostChannels = false; break;
             case "duration": config.MinimumIntroDuration++; break;
             case "action": await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = AnalyzerAction.Chapter }); break;
-            case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
-            case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
-            case "cold-open": config.AnchorRecapToColdOpen = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
@@ -211,6 +201,55 @@ public sealed class TestLegacyAnalysisCompatibility
         var candidate = new QueuedEpisode { EpisodeId = id };
         new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
+    }
+
+    /// <summary>
+    /// Changing a setting introduced in 12.0 before adoption must reanalyze exactly the
+    /// seasons that changing it after adoption would: those whose current hash carries it.
+    /// </summary>
+    [Theory]
+    [InlineData("language")]
+    [InlineData("channels")]
+    [InlineData("legacy")]
+    [InlineData("chapter-enhancement")]
+    [InlineData("cold-open")]
+    public async Task IntroducedSettings_BlockAdoptionWhereTheHashCarriesThem(string change)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration();
+        switch (change)
+        {
+            case "language": config.PreferredAudioLanguage = "eng"; break;
+            case "channels": config.PreferAudioStreamWithMostChannels = false; break;
+            case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
+            case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
+            case "cold-open": config.AnchorRecapToColdOpen = true; break;
+            default: throw new ArgumentOutOfRangeException(nameof(change));
+        }
+
+        List<string> mismatches = [];
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            foreach (var action in Enum.GetValues<AnalyzerAction>())
+            {
+                var id = Guid.NewGuid();
+                var seasonId = Guid.NewGuid();
+                await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = action });
+                await temp.Database.MarkItemsAnalyzedAsync(mode, [id], LegacyAnalysisCompatibility.AnalysisHash(new PluginConfiguration(), mode, action, true, false));
+                await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]), config);
+
+                var candidate = new QueuedEpisode { EpisodeId = id };
+                new QueueVerifier(config, [mode], await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]), true).Classify(candidate);
+                var adopted = candidate.GetAnalyzed(mode) != EpisodeState.NotAnalyzed;
+                var hashIgnoresChange = ConfigHasher.Analysis(config, mode, action, true) == ConfigHasher.Analysis(new PluginConfiguration(), mode, action, true);
+                if (adopted != hashIgnoresChange)
+                {
+                    mismatches.Add($"{mode}/{action}");
+                }
+            }
+        }
+
+        Assert.Empty(mismatches);
     }
 
     [Theory]
