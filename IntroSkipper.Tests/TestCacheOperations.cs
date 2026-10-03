@@ -494,8 +494,8 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// A keyframe scan picks its filters by whether the file is VP9, and finding out starts ffmpeg.
-    /// Served from the cache, the scans need no filters, so no process starts.
+    /// A keyframe scan picks its filters and threads by the file's codec, and finding out starts
+    /// ffmpeg. Served from the cache, the scans need neither, so no process starts.
     /// </summary>
     [Fact]
     public async Task CachedKeyframeScans_StartNoProcess()
@@ -519,6 +519,67 @@ public sealed class TestCacheOperations
         await service.DetectKeyFramesAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction);
 
         Assert.Empty(logger.Processes);
+    }
+
+    /// <summary>
+    /// Frame threads decode one keyframe at a time when the frames between keyframes are skipped,
+    /// so the keyframe scan decodes HEVC with slice threads. H.264 keeps ffmpeg's default.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task KeyframeScan_UsesSliceThreadsOnlyForHevc()
+    {
+        Assert.Contains("-thread_type slice -ss 0 -i ", await ScanArgumentsAsync("libx265"), StringComparison.Ordinal);
+        Assert.DoesNotContain("-thread_type", await ScanArgumentsAsync("libx264"), StringComparison.Ordinal);
+
+        static async Task<string> ScanArgumentsAsync(string encoder)
+        {
+            var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+            await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+                "ffmpeg",
+                ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=128x128:r=25:d=2", "-c:v", encoder, path]);
+            try
+            {
+                using var scope = new CachingPluginScope();
+                var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 2, CreditsFingerprintStart = 0, CreditsFingerprintEnd = 2 };
+                var logger = new ScanLogger();
+
+                await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, 32);
+
+                return Assert.Single(logger.Processes, process => process.Contains("-skip_frame", StringComparison.Ordinal));
+            }
+            finally
+            {
+                System.IO.File.Delete(path);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Slice threads decode an HEVC stream whose slice segments don't match their wavefront entry
+    /// points as black, with exit 0. ffmpeg logs the bad slices, so the scan decodes again with
+    /// frame threads and reads the picture.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task KeyframeScan_DecodesBrokenHevcWavefrontsAgainWithFrameThreads()
+    {
+        using var scope = new CachingPluginScope();
+
+        // Slice threads take the wavefront path only with more than one thread.
+        Plugin.Instance!.Configuration.ProcessThreads = 2;
+        var episode = FfmpegTestHelpers.QueueFile("video/hevc-broken-wavefronts.mkv");
+        episode.Duration = 1;
+        episode.CreditsFingerprintStart = 0;
+        episode.CreditsFingerprintEnd = 1;
+        var logger = new ScanLogger();
+
+        var frames = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, 32);
+
+        Assert.NotEmpty(frames);
+        Assert.All(frames, frame => Assert.Equal(0, frame.Percentage));
+        Assert.Collection(
+            logger.Processes.Where(process => process.Contains("-skip_frame", StringComparison.Ordinal)),
+            slice => Assert.Contains("-thread_type slice", slice, StringComparison.Ordinal),
+            frame => Assert.DoesNotContain("-thread_type", frame, StringComparison.Ordinal));
     }
 
     // Records the detection scans FFmpegService logs, and the processes its runner starts.
