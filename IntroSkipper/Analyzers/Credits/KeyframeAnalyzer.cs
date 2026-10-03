@@ -47,9 +47,9 @@ internal sealed partial class KeyframeAnalyzer(
     DetectionCacheService cacheService,
     PluginConfiguration? configuration = null)
 {
-    // Black sits at 16 on the limited-range scale the scan is pinned to; a scene whose black keyframes
-    // typically sit higher has lifted blacks and sets its own level. A couple of levels over it is
-    // encoder noise, more is a dark grey scene.
+    // Black sits at 16 on a limited-range source and lower on a full-range one, so 16 is the floor;
+    // a scene whose black keyframes typically sit higher has lifted blacks and sets its own level. A
+    // couple of levels over it is encoder noise, more is a dark grey scene.
     private const double LimitedRangeBlack = 16;
     private const double BlackLevelTolerance = 2;
 
