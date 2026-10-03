@@ -194,14 +194,14 @@ internal static class Commands
             }
 
             var summary = Scorer.Summarize(group);
-            output.WriteLine(Invariant($"{name}: {summary.Files} files, {summary.Failures} failed, {summary.Parts} parts, {summary.Missed} missed, {summary.FalseParts} false, start {summary.MeanStartError:+0.00;-0.00} (|{summary.MeanAbsoluteStartError:F2}|) s, end {summary.MeanEndError:+0.00;-0.00} (|{summary.MeanAbsoluteEndError:F2}|) s, story skipped {summary.StorySkipped:F1} s, credits missed {summary.CreditsMissed:F1} s"));
+            output.WriteLine(Invariant($"{name}: {summary.Files} files, {summary.Failures} failed, {summary.Parts} parts, {summary.Missed} missed, {summary.FalseParts} false, start {summary.MeanStartError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteStartError:F2}|) s, end {summary.MeanEndError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteEndError:F2}|) s, story skipped {summary.StorySkipped:F1} s, credits missed {summary.CreditsMissed:F1} s"));
             output.WriteLine("  hit rate " + string.Join(", ", summary.HitRates.Select(rate => Invariant($"{rate.Tolerance} s {rate.Start:P0}/{rate.End:P0}"))));
         }
     }
 
     private static string Describe(EpisodeScore score)
     {
-        var parts = score.Parts.Select(part => part.Missed ? "missed" : Invariant($"{part.StartError:+0.00;-0.00}/{part.EndError:+0.00;-0.00}"));
+        var parts = score.Parts.Select(part => part.Missed ? "missed" : Invariant($"{part.StartError:+0.00;-0.00;+0.00}/{part.EndError:+0.00;-0.00;+0.00}"));
         return (score.Failed ? "FAILED, " : string.Empty)
             + $"parts [{string.Join(", ", parts)}]"
             + (score.FalseParts.Count > 0 ? $", false {string.Join(", ", score.FalseParts)}" : string.Empty)
