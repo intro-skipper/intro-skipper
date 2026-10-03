@@ -32,6 +32,12 @@ namespace IntroSkipper.Migrations
                     b.Property<long?>("FileVersion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ShortcutPath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("Duration")
+                        .HasColumnType("REAL");
+
                     b.HasKey("ItemId", "Type");
 
                     b.ToTable("AnalyzedItems", (string)null);

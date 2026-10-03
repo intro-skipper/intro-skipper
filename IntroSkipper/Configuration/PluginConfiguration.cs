@@ -48,6 +48,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int MaximumSettledSeasonDelayHours = 87600;
 
     /// <summary>
+    /// Maximum number of shortcut videos a throttled shortcut pass may analyze.
+    /// </summary>
+    public const int MaximumShortcutAnalysisBatchSize = 100;
+
+    /// <summary>
     /// Minimum percentage of each episode's audio track to analyze.
     /// </summary>
     public const int MinimumAnalysisPercent = 1;
@@ -116,6 +121,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
     public bool AnalyzeSeasonZero { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to process shortcut videos.
+    /// </summary>
+    public bool ProcessShortcutVideos { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets the maximum number of shortcut videos analyzed by one throttled pass.
+    /// </summary>
+    public int ShortcutAnalysisBatchSize { get; set; } = 1;
 
     /// <summary>
     /// Gets or sets a value indicating whether chromaprint runs ahead of the chapter analyzer

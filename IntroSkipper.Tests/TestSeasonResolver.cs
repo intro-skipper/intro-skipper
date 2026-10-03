@@ -69,6 +69,61 @@ public sealed class TestSeasonResolver
     }
 
     [Fact]
+    public void ResolveLibrary_PreservesShortcutMetadataForAnalysis()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var shortcutPath = "/remote/series/s01e01.mkv";
+        var episode = JellyfinItems.Episode(
+            Guid.NewGuid(),
+            seriesId,
+            seasonId,
+            path: "/media/series/s01e01.strm",
+            isShortcut: true,
+            shortcutPath: shortcutPath);
+        var movie = JellyfinItems.Movie(
+            Guid.NewGuid(),
+            path: "/media/movie.strm",
+            isShortcut: true,
+            shortcutPath: "/remote/movie.mkv");
+        var resolver = CreateResolver(JellyfinItems.WithParents(episode, movie));
+
+        var seasons = resolver.ResolveLibrary(includeExcluded: false, CancellationToken.None).Seasons;
+
+        var queuedEpisode = Assert.Single(seasons, season => season.Key == seasonId).Episodes;
+        Assert.True(Assert.Single(queuedEpisode).IsShortcut);
+        Assert.Equal(shortcutPath, queuedEpisode[0].ShortcutPath);
+        Assert.Equal(shortcutPath, queuedEpisode[0].AnalysisPath);
+
+        var queuedMovie = Assert.Single(seasons, season => season.Key == movie.Id).Episodes;
+        Assert.True(Assert.Single(queuedMovie).IsShortcut);
+        Assert.Equal("/remote/movie.mkv", queuedMovie[0].ShortcutPath);
+        Assert.Equal("/remote/movie.mkv", queuedMovie[0].AnalysisPath);
+    }
+
+    [Fact]
+    public void FileVersion_ShortcutIdentityChangesWhenTargetChanges()
+    {
+        var episode = JellyfinItems.Episode(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            path: "/media/episode.strm",
+            isShortcut: true,
+            shortcutPath: "/remote/old.mkv");
+        episode.DateModified = new DateTime(2, DateTimeKind.Utc);
+
+        var oldVersion = SeasonResolver.FileVersion(episode);
+        var unchangedVersion = SeasonResolver.FileVersion(episode);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "ShortcutPath", "/remote/new.mkv");
+        var newVersion = SeasonResolver.FileVersion(episode);
+
+        Assert.Equal(oldVersion, unchangedVersion);
+        Assert.NotEqual(oldVersion, newVersion);
+    }
+
+    [Fact]
     public void Resolve_QueuesAnItemReturnedTwiceOnce()
     {
         using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());

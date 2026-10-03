@@ -69,6 +69,21 @@ export const configSchema = {
         description:
             "Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.",
     },
+    ProcessShortcutVideos: {
+        kind: "checkbox",
+        label: "Process Shortcut Videos (.strm files)",
+        description:
+            "If enabled, shortcut videos such as .strm files are processed by the separate throttled shortcut task. Disabled by default because remote sources may impose rate limits.",
+    },
+    ShortcutAnalysisBatchSize: {
+        kind: "number",
+        label: "Shortcut videos per throttled pass",
+        min: 1,
+        max: 100,
+        step: 1,
+        description:
+            "The shortcut analysis task processes this many remote videos per run. The default of 1 minimizes requests to rate-limited sources.",
+    },
     UseFileTransformationPlugin: {
         kind: "checkbox",
         label: "Use File Transformation Plugin to patch the web interface",

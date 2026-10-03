@@ -78,6 +78,57 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void ShortcutDurationCache_IsScopedToTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+        };
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+
+        Assert.True(scope.CacheService.TryReadShortcutDuration(episode, out var duration));
+        Assert.Equal(321, duration);
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.TryReadShortcutDuration(episode, out _));
+    }
+
+    [Fact]
+    public void ShortcutFingerprintCache_RequiresTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+            IntroFingerprintEnd = 600,
+        };
+
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            EntrypointTestHelpers.EmptyJsonArray,
+            0,
+            600);
+
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+        Assert.True(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode
@@ -95,6 +146,24 @@ public sealed class TestCacheOperations
         var result = await scope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(1560, 1800), 32, 85);
 
         Assert.Equal(intervals, result);
+    }
+
+    [Fact]
+    public void CachedCreditsRange_CanHydrateAContextSibling()
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
+        using var scope = new CachingPluginScope();
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            CacheEntryType.Chromaprint,
+            DetectionCacheService.CompressBrotli<uint[]>([111u]),
+            1560,
+            1800);
+
+        Assert.True(scope.CacheService.TryReadCachedCreditsRange(episode, out var start, out var end));
+        Assert.Equal(1560, start);
+        Assert.Equal(1800, end);
     }
 
     [Fact]
