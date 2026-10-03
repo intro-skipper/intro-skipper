@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 using Jellyfin.Database.Implementations.Enums;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -69,5 +70,5 @@ public sealed class TestSkipIntroController : IDisposable
     }
 
     private SkipIntroController CreateController(string cacheDbPath)
-        => new(_h.Change, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Database);
+        => new(new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change), _h.Database);
 }

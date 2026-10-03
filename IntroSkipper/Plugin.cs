@@ -27,7 +27,7 @@ namespace IntroSkipper;
 /// </summary>
 /// <remarks>
 /// This class contains no database code. All database access lives in
-/// <see cref="IIntroSkipperDatabase"/> and <see cref="IDetectionCacheDatabase"/>;
+/// <see cref="IntroSkipperDatabase"/> and <see cref="DetectionCacheDatabase"/>;
 /// every consumer receives the facades by constructor injection, and their
 /// initialization gates own the database lifecycle.
 /// </remarks>

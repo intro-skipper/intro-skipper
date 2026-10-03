@@ -2,63 +2,103 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Helper;
+using IntroSkipper.Db;
 using IntroSkipper.Providers;
+using IntroSkipper.SegmentChanges;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// The plugin's write path into Jellyfin's media segments: per-item locked convergence
-/// (<see cref="SyncItemAsync"/>) and the validated foreign-row delete
-/// (<see cref="DeleteValidatedSegmentAsync"/>). Sync never touches other providers'
-/// segments; the validated delete removes any of the item's rows by id (the editor
-/// lets users delete foreign rows). Every operation no-ops when mirroring is disabled
-/// (<see cref="IMediaSegmentMirrorPolicy"/>), so callers never gate it. The one writer
-/// that bypasses this class is Jellyfin itself: it persists
-/// <see cref="SegmentProvider"/> results during its own provider runs and can therefore
-/// re-add a just-deleted segment from a read that predates the delete, until a later
-/// sync converges the item.
+/// The plugin's write path into Jellyfin's media segments, driven by
+/// <see cref="SegmentChange"/>: <see cref="ApplyAsync"/> runs an item's journaled
+/// foreign-row deletes, then converges the item's own rows on the plugin database.
+/// Convergence never touches other providers' segments; a journaled delete removes any
+/// of the item's rows by id (the editor lets users delete foreign rows). Every write
+/// no-ops when mirroring is disabled (<see cref="IMediaSegmentMirrorPolicy"/>), so
+/// callers never gate it. The one writer that bypasses this class is Jellyfin itself:
+/// it persists <see cref="SegmentProvider"/> results during its own provider runs and
+/// can therefore re-add a just-deleted segment from a read that predates the delete,
+/// until a later apply converges the item.
 /// </summary>
 /// <remarks>
-/// Initializes a new instance of the <see cref="MediaSegmentMirror"/> class.
+/// Not locked: the plugin-database read, the mirror comparison and the Jellyfin replace
+/// must run as one unit per item, or a write derived from a stale read could land after
+/// a newer one. <see cref="SegmentChange"/>, the only caller, provides that by holding
+/// the item's mutation stripe around every apply.
 /// </remarks>
-/// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
-/// <param name="segmentDtoFactory">Factory that converts stored plugin segments to Jellyfin DTOs.</param>
-/// <param name="policy">The mirroring flag, read on every write.</param>
-internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, SegmentDtoFactory segmentDtoFactory, IMediaSegmentMirrorPolicy policy)
+/// <param name="segmentStore">The direct store for Jellyfin's media segments.</param>
+/// <param name="segmentDtoFactory">The factory that converts stored plugin segments to Jellyfin DTOs.</param>
+/// <param name="policy">The mirroring flag, read before every write.</param>
+/// <param name="logger">The logger.</param>
+internal sealed partial class MediaSegmentMirror(
+    IJellyfinSegmentStore segmentStore,
+    SegmentDtoFactory segmentDtoFactory,
+    IMediaSegmentMirrorPolicy policy,
+    ILogger<MediaSegmentMirror> logger)
 {
-    // Separate pool from SegmentMutationLocks' mutation stripes; see
-    // StripedAsyncLock for the pooling rationale.
-    private readonly StripedAsyncLock _lock = new();
+    /// <summary>
+    /// Finds a Jellyfin segment by id alone, any item and any provider. Reads are never
+    /// gated by the mirroring flag.
+    /// </summary>
+    /// <param name="segmentId">The segment id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The segment, or <see langword="null"/> when no row has the id.</returns>
+    public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+        => segmentStore.FindSegmentAsync(segmentId, cancellationToken);
 
     /// <summary>
-    /// Mirrors the plugin database into Jellyfin's media segments for one item: every
-    /// active plugin segment is pushed (carrying its plugin row id) and Intro Skipper
-    /// rows no longer present in the plugin database are removed. When Jellyfin's rows
-    /// already equal the intended push, the replace is skipped, so bulk refreshes over
-    /// unchanged items stay read-only instead of taking one write transaction each
-    /// under Jellyfin's database lock. The lock spans the plugin-database read, the
-    /// mirror comparison, and the Jellyfin replace as one unit, so a write derived
-    /// from a stale read can never land after a newer one; distinct items are
-    /// serialized only when their ids share a lock stripe.
+    /// Applies one item's projection work: the journaled foreign-row deletes in order,
+    /// then the item's convergence. Convergence pushes every active plugin segment
+    /// (carrying its plugin row id) and removes Intro Skipper rows no longer in the plugin
+    /// database; when Jellyfin's rows already equal the intended push the replace is
+    /// skipped, so bulk refreshes over unchanged items stay read-only instead of taking
+    /// one write transaction each under Jellyfin's database lock.
     /// </summary>
-    /// <param name="itemId">The id of the media item to synchronize.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when the item converged (a matching mirror counts:
-    /// the skip-when-unchanged comparison verified it); <see langword="false"/> when
-    /// mirroring is disabled and Jellyfin was not touched. The disabled answer comes
-    /// from the same check that gated the write, so the durable projection never
-    /// reports unpushed work as done.</returns>
-    public async Task<bool> SyncItemAsync(Guid itemId, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Each delete carries its validated type and boundaries inside the delete predicate,
+    /// so a row rewritten under its stable id since validation is left alone: deleting it
+    /// would remove content the user never approved. That drop and an already vanished
+    /// row both count as done, because retrying into the same mismatch would wedge the
+    /// item. Every step is idempotent, so a partially applied attempt replays safely.
+    /// </remarks>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="externalOperations">The journaled foreign-row deletes, in FIFO order.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><see langword="true"/> when Jellyfin converged on the item's current truth;
+    /// <see langword="false"/> when mirroring is disabled and the rest of the work was not
+    /// attempted. The disabled answer comes from the same check that gated the write, so
+    /// the durable projection never reports unpushed work as done.</returns>
+    public async Task<bool> ApplyAsync(Guid itemId, IReadOnlyList<DbProjectionExternalOperation> externalOperations, CancellationToken cancellationToken)
     {
+        foreach (var operation in externalOperations)
+        {
+            if (!policy.Enabled)
+            {
+                return false;
+            }
+
+            var deleted = await segmentStore.DeleteValidatedSegmentAsync(
+                itemId,
+                operation.ExternalSegmentId,
+                operation.ExpectedType,
+                operation.StartTicks,
+                operation.EndTicks,
+                cancellationToken).ConfigureAwait(false);
+            if (deleted == 0
+                && await segmentStore.FindSegmentAsync(operation.ExternalSegmentId, cancellationToken).ConfigureAwait(false) is not null)
+            {
+                LogExternalDeleteSuperseded(logger, operation.ExternalSegmentId, itemId);
+            }
+        }
+
         if (!policy.Enabled)
         {
             return false;
         }
 
-        using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
         var segments = await segmentDtoFactory.CreateAsync(itemId, cancellationToken).ConfigureAwait(false);
         var mirrored = await segmentStore.GetOwnSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (!SegmentsMatch(mirrored, segments))
@@ -69,40 +109,10 @@ internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Seg
         return true;
     }
 
-    /// <summary>
-    /// Deletes one journaled foreign row under the item's lock — so the targeted
-    /// delete serializes with concurrent <see cref="SyncItemAsync"/> calls instead of
-    /// racing a bulk replace derived from a stale plugin-database read — and only
-    /// while the row still matches its validated shape: type and boundaries travel
-    /// inside the delete statement itself, so no concurrent rewrite of the row under
-    /// its stable id can slip between a check and the delete.
-    /// </summary>
-    /// <param name="itemId">The item id that must own the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="type">The type the row carried when the delete was validated.</param>
-    /// <param name="startTicks">The start ticks the row carried when the delete was validated.</param>
-    /// <param name="endTicks">The end ticks the row carried when the delete was validated.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when the row existed and was deleted;
-    /// <see langword="false"/> when no row matched (vanished, or no longer matching its
-    /// validated shape); <see langword="null"/> when mirroring is disabled and Jellyfin
-    /// was not touched, so a config flip mid-flight cannot masquerade as drift.</returns>
-    public async Task<bool?> DeleteValidatedSegmentAsync(Guid itemId, Guid segmentId, MediaSegmentType type, long startTicks, long endTicks, CancellationToken cancellationToken)
-    {
-        if (!policy.Enabled)
-        {
-            return null;
-        }
-
-        using var stripe = await _lock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var rowsDeleted = await segmentStore.DeleteValidatedSegmentAsync(itemId, segmentId, type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        return rowsDeleted > 0;
-    }
-
     // (Id, StartTicks, EndTicks, Type) plus the query-fixed item and provider id is the
     // entire surface the store writes, so with ids unique per row an equal-count subset
-    // check is an exact row-set match. Any drift — including rows Jellyfin should hold
-    // but does not — fails the match and triggers the full replace, so the skip never
+    // check is an exact row-set match. Any drift, including rows Jellyfin should hold
+    // but does not, fails the match and triggers the full replace, so the skip never
     // costs the sync its self-healing.
     private static bool SegmentsMatch(IReadOnlyList<MediaSegmentDto> mirrored, IReadOnlyList<MediaSegmentDto> desired)
     {
@@ -117,4 +127,7 @@ internal sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Seg
         static (Guid Id, long StartTicks, long EndTicks, MediaSegmentType Type) RowKey(MediaSegmentDto segment)
             => (segment.Id, segment.StartTicks, segment.EndTicks, segment.Type);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Journaled delete of external segment {SegmentId} on item {ItemId} was dropped: the row no longer matches its validated shape.")]
+    private static partial void LogExternalDeleteSuperseded(ILogger logger, Guid segmentId, Guid itemId);
 }

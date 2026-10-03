@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using Xunit;
@@ -54,6 +55,18 @@ public sealed class TestExclusionPolicy
         var policy = ExclusionPolicy.FromConfiguration(config);
 
         Assert.True(policy.EvaluateSeries("structured show", "/media/show.mkv").IsExcluded);
+        Assert.False(policy.EvaluateSeries("Other Show", "/media/other.mkv").IsExcluded);
+    }
+
+    [Fact]
+    public void FromConfiguration_SkipsNullEntriesFromConfigurationJson()
+    {
+        var config = JsonSerializer.Deserialize<PluginConfiguration>(
+            """{ "SeriesExclusions": [null, "Structured Show"], "PathExclusions": [null] }""")!;
+
+        var policy = ExclusionPolicy.FromConfiguration(config);
+
+        Assert.True(policy.EvaluateSeries("Structured Show", "/media/show.mkv").IsExcluded);
         Assert.False(policy.EvaluateSeries("Other Show", "/media/other.mkv").IsExcluded);
     }
 

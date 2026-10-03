@@ -40,14 +40,10 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
-            // gates; every consumer goes through a facade.
-            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
-            serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
-
-            // Registered before Entrypoint so migrations are warmed as the first hosted
-            // service; the facades' internal gate still guarantees ordering for any
-            // request that arrives earlier.
-            serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
+            // gates, run on first use; every consumer goes through a facade. The
+            // segment-change worker's startup recovery is the first use at boot.
+            serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
             // The only thing that runs the analyzer: the scheduled task, the watcher and
             // the dashboard scan enqueue requests here. Registered ahead of the watcher so
@@ -71,14 +67,10 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<SegmentDtoFactory>();
             serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
             // Every plugin write into Jellyfin's MediaSegments table goes through the
-            // mirror: per-item locked syncs and validated targeted deletes, driven by
-            // the projection worker.
+            // mirror: journaled validated deletes and item syncs, driven by the
+            // projection worker.
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            // The mutation stripes serialize all interactive mutations per item —
-            // apply and projection alike — which only works when every request
-            // shares the singleton.
-            serviceCollection.AddSingleton<SegmentMutationLocks>();
             // Live view of the mirroring flag plus its toggle event; hosted so it can
             // subscribe to plugin configuration changes.
             serviceCollection.AddSingleton<MediaSegmentMirrorPolicy>();
@@ -90,12 +82,10 @@ namespace IntroSkipper
             // container, so an unconditional registration would claim (or cede to a
             // later plugin) the global TimeProvider slot for every consumer.
             serviceCollection.TryAddSingleton(TimeProvider.System);
-            serviceCollection.AddSingleton<ISegmentProjectionAdapter, JellyfinSegmentProjectionAdapter>();
             serviceCollection.AddSingleton(serviceProvider => new SegmentChange(
-                serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
-                serviceProvider.GetRequiredService<ISegmentProjectionAdapter>(),
+                serviceProvider.GetRequiredService<IntroSkipperDatabase>(),
+                serviceProvider.GetRequiredService<MediaSegmentMirror>(),
                 serviceProvider.GetRequiredService<IMediaSegmentMirrorPolicy>(),
-                serviceProvider.GetRequiredService<SegmentMutationLocks>(),
                 serviceProvider.GetRequiredService<TimeProvider>(),
                 serviceProvider.GetRequiredService<ILogger<SegmentChange>>()));
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<SegmentChange>());

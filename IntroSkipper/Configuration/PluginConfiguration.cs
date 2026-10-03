@@ -9,10 +9,10 @@
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Serialization;
-using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -82,17 +82,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets the structured list of series names to exclude from analysis.
     /// </summary>
-    public ExclusionList SeriesExclusions { get; init; } = [];
+    public Collection<string?> SeriesExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets the structured list of movie names to exclude from analysis.
     /// </summary>
-    public ExclusionList MovieExclusions { get; init; } = [];
+    public Collection<string?> MovieExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets the structured list of filesystem paths to exclude from analysis.
     /// </summary>
-    public ExclusionList PathExclusions { get; init; } = [];
+    public Collection<string?> PathExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.
@@ -495,12 +495,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public double SilenceDetectionMinimumDuration { get; set; } = 0.33;
 
     /// <summary>
-    /// Gets or sets the max degree of parallelism used when analyzing episodes.
+    /// Gets or sets the maximum number of seasons analyzed concurrently.
     /// </summary>
     public int MaxParallelism { get; set; } = 2;
 
     /// <summary>
-    /// Gets or sets the number of threads for a ffmpeg process.
+    /// Gets or sets the number of codec worker threads used by each ffmpeg process.
+    /// A value of 0 lets ffmpeg choose automatically. This does not limit the number of
+    /// ffmpeg processes; <see cref="MaxParallelism"/> controls concurrent analysis work.
     /// </summary>
     public int ProcessThreads { get; set; }
 
@@ -511,7 +513,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ScanTimeoutSeconds { get; set; } = 300;
 
     /// <summary>
-    /// Gets or sets the relative priority for a ffmpeg process.
+    /// Gets or sets the relative priority for analysis ffmpeg processes.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
 

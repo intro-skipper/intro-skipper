@@ -113,18 +113,18 @@ internal static class SeasonReanalysisPlanner
     /// <param name="action">The season's analyzer action for the mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports Chromaprint.</param>
     /// <returns><see langword="true"/> when the mode can be re-analyzed; otherwise <see langword="false"/>.</returns>
-    internal static bool CanSettleReanalysisRun(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    private static bool CanSettleReanalysisRun(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
         => mode != AnalysisMode.Introduction || ffmpegValid || action == AnalyzerAction.Chapter;
 
     /// <summary>
     /// Returns whether a mode's recorded settle-reanalysis episode set differs from the current one.
-    /// The record is written by <c>IIntroSkipperDatabase.RecordSettleReanalysisAsync</c> only after
+    /// The record is written by <c>IntroSkipperDatabase.RecordSettleReanalysisAsync</c> only after
     /// the reset succeeded, so the decision survives plugin restarts.
     /// </summary>
     /// <param name="settledEpisodeIds">Episode IDs recorded when the season was last settle-reanalyzed for this mode.</param>
     /// <param name="episodeIds">Current episode IDs in the season.</param>
     /// <returns><see langword="true"/> when a re-analysis should be performed; otherwise <see langword="false"/>.</returns>
-    internal static bool ShouldSettleReanalyze(
+    private static bool ShouldSettleReanalyze(
         IReadOnlySet<Guid> settledEpisodeIds,
         IReadOnlyCollection<Guid> episodeIds)
         => settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id));

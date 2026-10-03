@@ -32,13 +32,13 @@ namespace IntroSkipper.Services;
 /// <param name="queue">Analysis queue the changed items are handed to.</param>
 public sealed partial class Entrypoint(
     ILibraryManager libraryManager,
-    IDetectionCacheDatabase cacheDatabase,
+    DetectionCacheDatabase cacheDatabase,
     IFFmpegService ffmpegService,
     ILogger<Entrypoint> logger,
     AnalysisScheduler queue) : IHostedService
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly ILogger<Entrypoint> _logger = logger;
     private readonly AnalysisScheduler _queue = queue;

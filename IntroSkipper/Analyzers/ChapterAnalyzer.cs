@@ -28,12 +28,12 @@ namespace IntroSkipper.Analyzers;
 internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
-    IIntroSkipperDatabase database,
+    IntroSkipperDatabase database,
     PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which

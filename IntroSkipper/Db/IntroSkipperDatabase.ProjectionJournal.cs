@@ -9,9 +9,14 @@ namespace IntroSkipper.Db;
 /// Projection-journal operations of <see cref="IntroSkipperDatabase"/>. Enqueueing
 /// lives in <c>IntroSkipperDatabase.Changes.cs</c>, atomically with the mutation.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
-    /// <inheritdoc/>
+    /// <summary>
+    /// Reads every pending queue row, ordered by item id. Items without a row have no
+    /// pending work; one item's work is read through <see cref="ReadProjectionWorkAsync"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Untracked queue rows.</returns>
     public async Task<IReadOnlyList<DbProjectionQueueItem>> GetProjectionQueueAsync(CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -23,7 +28,13 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Reads the ids of items whose work is due: no backoff recorded, or the backoff
+    /// has elapsed.
+    /// </summary>
+    /// <param name="now">Current UTC time.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The due item ids.</returns>
     public async Task<IReadOnlyList<Guid>> GetDueProjectionItemIdsAsync(DateTime now, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -37,7 +48,13 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Reads one item's pending work: the untracked queue row plus its journaled
+    /// foreign-row deletes in FIFO order.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The work, or <see langword="null"/> when nothing is pending.</returns>
     public async Task<(DbProjectionQueueItem Item, IReadOnlyList<DbProjectionExternalOperation> Operations)?> ReadProjectionWorkAsync(Guid itemId, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -59,7 +76,20 @@ internal sealed partial class IntroSkipperDatabase
         return (item, operations);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Completes applied work: deletes the processed operations, then the queue row,
+    /// the latter only when its version still matches, so work enqueued while the
+    /// apply was in flight survives. The two deletes are separate statements on
+    /// purpose: a crash between them leaves the row, which costs one extra idempotent
+    /// re-sync.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="version">The queue-row version the caller projected.</param>
+    /// <param name="processedOperationIds">Ids of the operations the apply processed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> when the queue row was retired at the projected
+    /// version; <see langword="false"/> when it survived because newer work superseded
+    /// the version mid-apply, so the item is still behind.</returns>
     public async Task<bool> CompleteProjectionWorkAsync(Guid itemId, long version, IReadOnlyList<long> processedOperationIds, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -79,7 +109,19 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false) > 0;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Records a failed attempt on the item's queue row: increments the attempt count
+    /// and stores the backoff due time and sanitized failure. Guarded by the version
+    /// the failed attempt projected, like the completion: a no-op when the row is
+    /// gone (the work completed concurrently) or superseded (a newer enqueue made the
+    /// work due immediately, and that must not be stomped with a stale backoff).
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="version">The queue-row version the failed attempt projected.</param>
+    /// <param name="nextAttemptAt">UTC time the next attempt is due.</param>
+    /// <param name="failure">Sanitized failure message.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task RecordProjectionFailureAsync(Guid itemId, long version, DateTime nextAttemptAt, string failure, CancellationToken cancellationToken)
     {
         await InitializeAsync().ConfigureAwait(false);

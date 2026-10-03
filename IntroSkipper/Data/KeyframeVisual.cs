@@ -8,7 +8,8 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <remarks>
 /// All from the <c>signalstats</c> filter in the same keyframe decode as the black-frame scan, on the
-/// 8-bit limited-range scale the graph pins with <c>format=yuv420p</c>. A card is a dominant background
+/// 8-bit scale of <c>format=yuv420p</c>. That conversion keeps the source's range, so a full-range
+/// source spans 0 to 255. A card is a dominant background
 /// (<see cref="LumaLow"/> to <see cref="LumaHigh"/> within a few levels) with text far from it
 /// (<see cref="LumaMin"/> or <see cref="LumaMax"/> far outside that band).
 /// </remarks>

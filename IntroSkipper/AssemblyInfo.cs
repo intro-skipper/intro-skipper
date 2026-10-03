@@ -6,3 +6,4 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("IntroSkipper.Tests")]
+[assembly: InternalsVisibleTo("CreditsRunner")]

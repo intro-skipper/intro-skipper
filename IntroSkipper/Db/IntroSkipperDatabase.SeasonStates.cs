@@ -12,11 +12,12 @@ namespace IntroSkipper.Db;
 /// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>,
 /// plus the queue-verification snapshot that joins season state, analysis records and segments.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
-    /// <inheritdoc/>
+    /// <summary>Returns the optional analysis-window overrides for a season.</summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The saved overrides, with null values meaning inherit.</returns>
     public async Task<AnalysisOverrides> GetAnalysisOverridesAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -33,12 +34,13 @@ internal sealed partial class IntroSkipperDatabase
             : new AnalysisOverrides(result.AnalysisPercent, result.AnalysisLengthLimit, result.PreviewFromCreditsEnd);
     }
 
-    /// <inheritdoc/>
+    /// <summary>Stores or clears the optional analysis-window overrides for a season.</summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
     /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
     public async Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, bool? previewFromCreditsEnd, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -65,7 +67,13 @@ internal sealed partial class IntroSkipperDatabase
             cancellationToken).ConfigureAwait(false);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Sets the analyzer actions for a season.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="analyzerActions">Analyzer actions keyed by analysis mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -91,7 +99,14 @@ internal sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns the analyzer action and settled-season reanalysis state for every mode
+    /// of a season that has a stored row; modes without a row are absent and mean
+    /// <see cref="AnalyzerAction.Default"/>.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Settled reanalysis state keyed by analysis mode.</returns>
     public async Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(
         Guid seasonId,
         CancellationToken cancellationToken = default)
@@ -115,7 +130,15 @@ internal sealed partial class IntroSkipperDatabase
             s => (s.Action, (IReadOnlySet<Guid>)s.SettledReanalysisEpisodeIds.ToHashSet()));
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Records that season analysis modes have been re-analyzed for the given episode set.
+    /// Call only after the reset has committed.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="modes">Analysis modes that were re-analyzed.</param>
+    /// <param name="episodeIds">Episode IDs that were re-analyzed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task RecordSettleReanalysisAsync(
         Guid seasonId,
         IReadOnlyCollection<AnalysisMode> modes,
@@ -146,7 +169,13 @@ internal sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns the analyzer action for every analysis mode of a season, filling in
+    /// <see cref="AnalyzerAction.Default"/> for modes without a stored row.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Analyzer actions keyed by analysis mode.</returns>
     public async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -168,7 +197,16 @@ internal sealed partial class IntroSkipperDatabase
         return result;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns a snapshot of the season's analyzer actions, the episodes' analysis records
+    /// and the modes their active segments cover, used by queue verification to avoid
+    /// per-episode database lookups. The episode ID set is bound as one JSON parameter, so
+    /// the episode count is unbounded.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="episodeIds">Episode IDs in the season.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The season queue snapshot.</returns>
     public async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);

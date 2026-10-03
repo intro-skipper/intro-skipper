@@ -14,9 +14,27 @@ namespace IntroSkipper.Db;
 /// caller-owned context; <see cref="ApplyChangeAsync"/> composes them with the
 /// analysis bookkeeping and the projection journal in one transaction.
 /// </summary>
-internal sealed partial class IntroSkipperDatabase
+public sealed partial class IntroSkipperDatabase
 {
-    /// <inheritdoc/>
+    /// <summary>
+    /// Atomically replaces the active automatic segments the writing pass produced for
+    /// an item and mode with the admitted subset of <paramref name="segments"/>
+    /// (<see cref="AutoSegmentAdmissionPolicy"/>: tombstones, user rows and intro
+    /// overlap for credits reject a candidate; exact matches of the other pass or of
+    /// an earlier candidate are dropped). Rows whose boundaries match an accepted
+    /// segment keep their ids; an empty list clears the pass's rows; a non-empty list
+    /// whose candidates were all rejected leaves the standing rows untouched. User
+    /// segments and tombstones are never touched. A write that changes the servable
+    /// image journals the item's projection in the same transaction.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode the segments belong to.</param>
+    /// <param name="segments">Detected segments in seconds.</param>
+    /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
+    /// <param name="configHash">Configuration hash that produced the segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of the pass's active automatic segments written or kept;
+    /// 0 for a fully rejected write.</returns>
     public Task<int> ReplaceAutoSegmentsAsync(
         Guid itemId,
         AnalysisMode mode,
@@ -39,7 +57,19 @@ internal sealed partial class IntroSkipperDatabase
             cancellationToken);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// The per-segment-source form of <see cref="ReplaceAutoSegmentsAsync(Guid, AnalysisMode, IReadOnlyList{Segment}, SegmentSource, string, CancellationToken)"/>
+    /// for a pass whose segments come from different analyzers. Same admission,
+    /// id-keeping and journaling rules; the write is attributed to the mode's own pass,
+    /// never to the credits-derived preview pass.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode the segments belong to.</param>
+    /// <param name="segments">Detected segments in seconds, each with its source; no source may be <see cref="SegmentSource.User"/> or <see cref="SegmentSource.CreditsDerived"/>.</param>
+    /// <param name="configHash">Configuration hash that produced the segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of the pass's active automatic segments written or kept;
+    /// 0 for a fully rejected write.</returns>
     public Task<int> ReplaceAutoSegmentsAsync(
         Guid itemId,
         AnalysisMode mode,
@@ -71,20 +101,14 @@ internal sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // One read for the mode's rows plus, for a credits write, the active
-            // intros the overlap guard below compares against.
+            // One read for the mode's rows plus, for a credits write, the intros the
+            // admission policy compares against.
             var loadIntros = mode == AnalysisMode.Credits;
             var itemRows = await db.Segments
                 .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             var existing = itemRows.Where(s => s.Type == mode).ToList();
-            var intros = loadIntros
-                ? itemRows.Where(s => s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active).ToList()
-                : [];
-
-            var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
-            var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
 
             // Credits-derived previews belong to the credits pass and every other
             // automatic row to its own mode's pass (the attribution rule of
@@ -105,23 +129,22 @@ internal sealed partial class IntroSkipperDatabase
                     continue;
                 }
 
-                if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
+                var rejection = AutoSegmentAdmissionPolicy.Check(mode, startTicks, endTicks, itemRows);
+                if (rejection != AutoSegmentRejection.None)
                 {
-                    LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
-                    rejected++;
-                    continue;
-                }
+                    switch (rejection)
+                    {
+                        case AutoSegmentRejection.Tombstone:
+                            LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                            break;
+                        case AutoSegmentRejection.UserSegment:
+                            LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                            break;
+                        case AutoSegmentRejection.Introduction:
+                            LogCreditsOverlapWithIntro(_logger, itemId);
+                            break;
+                    }
 
-                if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
-                {
-                    LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
-                    rejected++;
-                    continue;
-                }
-
-                if (intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
-                {
-                    LogCreditsOverlapWithIntro(_logger, itemId);
                     rejected++;
                     continue;
                 }
@@ -489,7 +512,14 @@ internal sealed partial class IntroSkipperDatabase
         return row;
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns the stored segments of an item, ordered by mode and start time.
+    /// Tombstones are excluded unless <paramref name="includeSuppressed"/> is set.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="includeSuppressed">Whether to include suppressed rows.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stored segments.</returns>
     public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(
         Guid itemId,
         bool includeSuppressed = false,
@@ -503,7 +533,15 @@ internal sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Returns the item's active segments as served to clients: automatic rows are
+    /// withheld while the item is disabled, user-provided rows always pass. Every
+    /// client-facing surface (the Jellyfin mirror and the provider) reads through
+    /// this; editor and analysis reads use <see cref="GetSegmentsAsync"/>.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The servable segments, ordered by mode and start time.</returns>
     public async Task<IReadOnlyList<DbSegment>> GetServableSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -529,7 +567,18 @@ internal sealed partial class IntroSkipperDatabase
             .OrderBy(s => s.Type)
             .ThenBy(s => s.StartTicks);
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Deletes every stored segment of the given analysis mode, tombstones included
+    /// (explicit erase is a factory reset), and the mode's analysis records so the next
+    /// scan re-detects instead of classifying the erased items as <c>NoSegments</c>.
+    /// Items whose erased rows were credits-derived also lose their
+    /// <see cref="AnalysisMode.Credits"/> records, because only the credits pass can
+    /// regenerate those rows. Everything runs in one transaction, the affected items'
+    /// projections journaled with it, so their Jellyfin mirrors converge durably.
+    /// </summary>
+    /// <param name="mode">Analysis mode to erase.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ids of the items that held a segment of the mode.</returns>
     public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -575,7 +624,13 @@ internal sealed partial class IntroSkipperDatabase
         }
     }
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Removes active Preview segments derived from Credits for the supplied items, preserving
+    /// user segments and previews produced by the regular Preview pass.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to inspect.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of credits-derived preview rows removed.</returns>
     public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         Guid[] ids = [.. itemIds.Distinct()];

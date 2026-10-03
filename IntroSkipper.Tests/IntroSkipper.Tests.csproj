@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IntroSkipper\IntroSkipper.csproj" />
+    <ProjectReference Include="..\tools\CreditsRunner\CreditsRunner.csproj" />
   </ItemGroup>
 
 </Project>

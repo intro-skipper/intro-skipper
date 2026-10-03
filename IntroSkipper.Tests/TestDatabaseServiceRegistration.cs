@@ -38,14 +38,14 @@ public sealed class TestDatabaseServiceRegistration
 
             await using var provider = services.BuildServiceProvider();
 
-            var database = provider.GetRequiredService<IIntroSkipperDatabase>();
+            var database = provider.GetRequiredService<IntroSkipperDatabase>();
             var episodeId = Guid.NewGuid();
             await database.ReplaceAutoSegmentsAsync(
                 episodeId, AnalysisMode.Introduction, [new Segment(episodeId, new TimeRange(10, 60))], SegmentSource.Chapter);
             var stored = Assert.Single(await database.GetSegmentsAsync(episodeId));
             Assert.Equal(episodeId, stored.ItemId);
 
-            var cacheDatabase = provider.GetRequiredService<IDetectionCacheDatabase>();
+            var cacheDatabase = provider.GetRequiredService<DetectionCacheDatabase>();
             var itemId = Guid.NewGuid();
             cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
             Assert.NotNull(cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10));

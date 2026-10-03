@@ -37,13 +37,13 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IIntroSkipperDatabase database, ISegmentEraser eraser) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IntroSkipperDatabase database, ISegmentEraser eraser) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
     private readonly AnalysisScheduler _queue = queue;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
