@@ -463,11 +463,16 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.IsType<OkObjectResult>(
             (await controller.ReplaceSegmentsAsync(itemId, [.. currentSegments], CancellationToken.None)).Result);
 
+        controller.Request.Headers["If-Match"] = "*";
+        Assert.IsType<OkObjectResult>(
+            (await controller.ReplaceSegmentsAsync(itemId, [], CancellationToken.None)).Result);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+
         controller.Request.Headers["If-Match"] = staleEtag;
         var stale = await controller.ReplaceSegmentsAsync(itemId, [], CancellationToken.None);
         var conflict = Assert.IsType<ObjectResult>(stale.Result);
         Assert.Equal(StatusCodes.Status412PreconditionFailed, conflict.StatusCode);
-        Assert.Equal(2, (await database.GetSegmentsAsync(itemId)).Count);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
     }
 
     [Fact]

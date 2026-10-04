@@ -187,13 +187,32 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
         }
 
         // Resolve a matching list member to the single revision token understood by
-        // the domain intent. The snapshot is read under the same item stripe used by
-        // ApplyAsync, and ApplyAsync checks it again before mutating, so a matching
-        // tag cannot become stale in the gap between these two calls.
-        var currentSnapshot = await _segmentChange.GetEditorSnapshotAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var expectedRevision = wildcard || revisions.Any(revision => string.Equals(revision, currentSnapshot.Revision, StringComparison.Ordinal))
-            ? currentSnapshot.Revision
-            : revisions.FirstOrDefault() ?? string.Empty;
+        // the domain intent. A wildcard deliberately remains a wildcard: it permits
+        // the replacement to race another editor, as required by If-Match semantics.
+        // Strong tags use a snapshot only to select a matching token; ApplyAsync
+        // checks that token again before mutating.
+        string expectedRevision;
+        if (wildcard)
+        {
+            expectedRevision = "*";
+        }
+        else
+        {
+            var currentSnapshot = await _segmentChange.GetEditorSnapshotAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var matchesCurrent = false;
+            for (var index = 0; index < revisions.Count; index++)
+            {
+                if (string.Equals(revisions[index], currentSnapshot.Revision, StringComparison.Ordinal))
+                {
+                    matchesCurrent = true;
+                    break;
+                }
+            }
+
+            expectedRevision = matchesCurrent
+                ? currentSnapshot.Revision
+                : revisions.Count > 0 ? revisions[0] : string.Empty;
+        }
 
         var outcome = await _segmentChange
             .ApplyAsync(new ReplaceUserSegmentsForItemIntent(itemId, inputs, expectedRevision), cancellationToken)

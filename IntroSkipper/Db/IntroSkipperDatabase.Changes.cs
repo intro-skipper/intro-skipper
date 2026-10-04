@@ -57,7 +57,7 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            if (intent is ReplaceUserSegmentsForItemIntent { ExpectedRevision: { } expectedRevision })
+            if (intent is ReplaceUserSegmentsForItemIntent { ExpectedRevision: { } expectedRevision } && expectedRevision != "*")
             {
                 var currentRevision = await ComputeSegmentRevisionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
                 if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
