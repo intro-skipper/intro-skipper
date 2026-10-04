@@ -620,10 +620,9 @@ public sealed class TestSegmentChange : IDisposable
         Assert.Equal(1, await service.ProjectItemsAsync([itemId]));
         Assert.Equal(
             [(MediaSegmentType.Intro, 10L, 20L), (MediaSegmentType.Intro, 30L, 40L), (MediaSegmentType.Commercial, 50L, 60L)],
-            (await MirroredAsync(store, itemId))
+            [.. (await MirroredAsync(store, itemId))
                 .OrderBy(segment => segment.StartTicks)
-                .Select(segment => (segment.Type, segment.StartTicks, segment.EndTicks))
-                .ToArray());
+                .Select(segment => (segment.Type, segment.StartTicks, segment.EndTicks))]);
         await AssertQueueEmptyAsync();
     }
 
