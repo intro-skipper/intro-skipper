@@ -339,9 +339,11 @@ public sealed partial class IntroSkipperDatabase
     /// complete editor round-trip keeps Jellyfin's stable ids without colliding with
     /// an existing exact range. Rows omitted from the
     /// image use the normal delete rule: user rows are removed and automatic rows are
-    /// tombstoned. Suppressed rows that remain omitted are left in place as tombstones.
+    /// tombstoned. Exact-range automatic rows in the requested image retain their
+    /// automatic provenance; moving an addressed row promotes it to user ownership.
+    /// Suppressed rows that remain omitted are left in place as tombstones.
     /// </summary>
-    /// <returns>The active user rows in request order.</returns>
+    /// <returns>The active rows in request order.</returns>
     private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsForItemCoreAsync(
         IntroSkipperDbContext db,
         Guid itemId,
@@ -363,10 +365,16 @@ public sealed partial class IntroSkipperDatabase
                 && s.Type == input.Mode
                 && s.StartTicks == input.StartTicks
                 && s.EndTicks == input.EndTicks);
+            var movedById = false;
 
-            row ??= input.Id is { } id && id != Guid.Empty
-                ? existing.Find(s => !kept.Contains(s) && s.Id == id && s.Type == input.Mode && s.State != SegmentState.Suppressed)
-                : null;
+            if (row is null && input.Id is { } id && id != Guid.Empty)
+            {
+                row = existing.Find(s => !kept.Contains(s)
+                    && s.Id == id
+                    && s.Type == input.Mode
+                    && s.State != SegmentState.Suppressed);
+                movedById = row is not null;
+            }
 
             if (row is null)
             {
@@ -375,9 +383,16 @@ public sealed partial class IntroSkipperDatabase
             }
             else
             {
+                var wasSuppressed = row.State == SegmentState.Suppressed;
                 row.StartTicks = input.StartTicks;
                 row.EndTicks = input.EndTicks;
-                row.PromoteToUser();
+                // A full GET/PUT round-trip must not turn every automatic row into a
+                // user row. Moving an addressed automatic row is an explicit user
+                // edit, while an exact-range match preserves its provenance.
+                if (wasSuppressed || movedById || row.Source == SegmentSource.User)
+                {
+                    row.PromoteToUser();
+                }
             }
 
             kept.Add(row);
@@ -593,6 +608,31 @@ public sealed partial class IntroSkipperDatabase
         return await OrderedItemSegments(db, itemId, includeSuppressed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the complete editor image and its revision in one database query. The
+    /// response image contains every active row, including automatic rows on disabled
+    /// items; suppressed tombstones participate in the revision but are not returned
+    /// as active MediaSegments.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The active editor image and its opaque revision.</returns>
+    internal async Task<(IReadOnlyList<DbSegment> Segments, string Revision)> GetEditorSnapshotAsync(
+        Guid itemId,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var all = await db.Segments.AsNoTracking()
+            .Where(s => s.ItemId == itemId)
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.StartTicks)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return (all.Where(s => s.State == SegmentState.Active).ToList(), SegmentRevision.Compute(all));
     }
 
     /// <summary>

@@ -72,5 +72,8 @@ public enum SegmentChangeRejectedReason
     ExternalTypeMismatch,
 
     /// <summary>The intent type is not supported.</summary>
-    UnsupportedIntent
+    UnsupportedIntent,
+
+    /// <summary>The editor submitted a revision that is no longer current.</summary>
+    RevisionMismatch
 }

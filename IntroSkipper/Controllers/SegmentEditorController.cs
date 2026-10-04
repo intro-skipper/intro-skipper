@@ -51,6 +51,31 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
     }
 
     /// <summary>
+    /// Gets the complete active editor image for an item. This is intentionally
+    /// unfiltered by the item's playback visibility setting; tombstones are excluded
+    /// because they are deletion history, not active MediaSegments.
+    /// </summary>
+    /// <param name="itemId">The ItemId.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The canonical active segment list and an ETag for optimistic writes.</returns>
+    [HttpGet("{itemId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<MediaSegmentDto>>> GetSegmentsAsync(
+        [FromRoute, Required] Guid itemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (MediaItemHelper.FindSupported(itemId) is null)
+        {
+            return NotFound();
+        }
+
+        var snapshot = await _segmentChange.GetEditorSnapshotAsync(itemId, cancellationToken).ConfigureAwait(false);
+        SetEtag(snapshot.Revision);
+        return Ok(snapshot.Segments.Select(ToMediaSegment).ToList());
+    }
+
+    /// <summary>
     /// Create MediaSegment for itemId.
     /// </summary>
     /// <param name="itemId">The ItemId.</param>
@@ -108,6 +133,8 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status412PreconditionFailed)]
+    [ProducesResponseType(StatusCodes.Status428PreconditionRequired)]
     public async Task<ActionResult<IReadOnlyList<MediaSegmentDto>>> ReplaceSegmentsAsync(
         [FromRoute, Required] Guid itemId,
         [FromBody, Required] MediaSegmentDto[] segments,
@@ -118,6 +145,18 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
             return NotFound();
         }
 
+        var ifMatch = Request.Headers["If-Match"].ToString().Trim();
+        if (ifMatch.Length == 0)
+        {
+            return StatusCode(StatusCodes.Status428PreconditionRequired, "If-Match is required; read the item before replacing its segments.");
+        }
+
+        if (ifMatch.Length < 2 || ifMatch[0] != '"' || ifMatch[^1] != '"')
+        {
+            return BadRequest("If-Match must contain the quoted ETag returned by GET /MediaSegmentsApi/{itemId}.");
+        }
+
+        var expectedRevision = ifMatch[1..^1];
         var inputs = new List<UserSegmentInput>(segments.Length);
         foreach (var segment in segments)
         {
@@ -149,21 +188,29 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
         }
 
         var outcome = await _segmentChange
-            .ApplyAsync(new ReplaceUserSegmentsForItemIntent(itemId, inputs), cancellationToken)
+            .ApplyAsync(new ReplaceUserSegmentsForItemIntent(itemId, inputs, expectedRevision), cancellationToken)
             .ConfigureAwait(false);
+        if (outcome is Accepted { Revision: { } revision })
+        {
+            SetEtag(revision);
+        }
+
         return SegmentChangeHttp.Map(
             outcome,
             onApplied: values => Ok(values.Select(ToMediaSegment).ToList()));
-
-        static MediaSegmentDto ToMediaSegment(SegmentValue value) => new()
-        {
-            Id = value.Id,
-            ItemId = value.ItemId,
-            Type = AnalysisHelpers.ModeToSegmentType[value.Mode],
-            StartTicks = value.StartTicks,
-            EndTicks = value.EndTicks,
-        };
     }
+
+    private static MediaSegmentDto ToMediaSegment(SegmentValue value) => new()
+    {
+        Id = value.Id,
+        ItemId = value.ItemId,
+        Type = AnalysisHelpers.ModeToSegmentType[value.Mode],
+        StartTicks = value.StartTicks,
+        EndTicks = value.EndTicks,
+    };
+
+    private void SetEtag(string revision)
+        => Response.Headers["ETag"] = $"\"{revision}\"";
 
     /// <summary>
     /// Delete MediaSgment by segment id.

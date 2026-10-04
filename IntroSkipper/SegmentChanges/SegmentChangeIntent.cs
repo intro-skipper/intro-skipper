@@ -25,8 +25,9 @@ public sealed record ReplaceUserSegmentsForModeIntent(Guid ItemId, AnalysisMode 
 
 /// <summary>Replaces the complete user-visible segment image for one item.</summary>
 /// <param name="ItemId">Item ID.</param>
-/// <param name="Segments">The complete desired segment set. IDs are hints used to preserve existing rows.</param>
-public sealed record ReplaceUserSegmentsForItemIntent(Guid ItemId, IReadOnlyList<UserSegmentInput> Segments) : SegmentChangeIntent(ItemId);
+/// <param name="Segments">The complete desired active segment set. IDs are hints used to preserve existing rows.</param>
+/// <param name="ExpectedRevision">The editor snapshot revision that must still be current.</param>
+public sealed record ReplaceUserSegmentsForItemIntent(Guid ItemId, IReadOnlyList<UserSegmentInput> Segments, string? ExpectedRevision = null) : SegmentChangeIntent(ItemId);
 
 /// <summary>Updates one segment and promotes the surviving row to user provenance.</summary>
 /// <param name="ItemId">Item ID.</param>

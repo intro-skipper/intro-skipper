@@ -57,6 +57,17 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
+            if (intent is ReplaceUserSegmentsForItemIntent { ExpectedRevision: { } expectedRevision })
+            {
+                var currentRevision = await ComputeSegmentRevisionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+                {
+                    return MutationResult.Reject(
+                        SegmentChangeRejectedReason.RevisionMismatch,
+                        "The segment image has changed since it was read.");
+                }
+            }
+
             var result = await MutateAsync(db, intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
             if (result.Outcome is Rejected || !result.Reproject)
             {
@@ -74,9 +85,24 @@ public sealed partial class IntroSkipperDatabase
             // same reason.
             await EnqueueProjectionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            var revision = intent is ReplaceUserSegmentsForItemIntent
+                ? await ComputeSegmentRevisionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false)
+                : null;
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return result;
+            return result with { Revision = revision };
         }
+    }
+
+    private static async Task<string> ComputeSegmentRevisionAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await db.Segments.AsNoTracking()
+            .Where(s => s.ItemId == itemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return SegmentRevision.Compute(rows);
     }
 
     /// <summary>
@@ -272,7 +298,13 @@ public sealed partial class IntroSkipperDatabase
                         await ClearItemAnalysisCoreAsync(db, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
                     }
 
-                    return new MutationResult(null, survivors.Select(ToValue).ToList());
+                    return new MutationResult(
+                        null,
+                        survivors
+                            .OrderBy(segment => segment.Type)
+                            .ThenBy(segment => segment.StartTicks)
+                            .Select(ToValue)
+                            .ToList());
                 }
 
             case UpdateSegmentIntent value:

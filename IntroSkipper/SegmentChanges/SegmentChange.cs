@@ -114,7 +114,34 @@ public sealed partial class SegmentChange : BackgroundService
         // state the plugin database already holds, and re-projecting it is how a
         // diverged mirror (a ghost or missing Jellyfin row) heals on retry.
         var projected = await ProjectCommittedItemAsync(intent.ItemId, cancellationToken).ConfigureAwait(false);
-        return result.Outcome ?? new Accepted(result.Affected, projected);
+        return result.Outcome ?? new Accepted(result.Affected, projected, result.Revision);
+    }
+
+    /// <summary>
+    /// Reads the complete active editor image and its revision while holding the
+    /// item's mutation stripe, so the returned list and ETag describe one snapshot.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The unfiltered active image and its opaque revision.</returns>
+    public async Task<SegmentImageSnapshot> GetEditorSnapshotAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        using (await _mutationLocks.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false))
+        {
+            var snapshot = await _database.GetEditorSnapshotAsync(itemId, cancellationToken).ConfigureAwait(false);
+            return new SegmentImageSnapshot(
+                snapshot.Segments
+                    .Select(segment => new SegmentValue(
+                        segment.Id,
+                        segment.ItemId,
+                        segment.Type,
+                        segment.StartTicks,
+                        segment.EndTicks,
+                        segment.Source,
+                        segment.State))
+                    .ToList(),
+                snapshot.Revision);
+        }
     }
 
     /// <summary>
