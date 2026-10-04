@@ -121,6 +121,10 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
         var inputs = new List<UserSegmentInput>(segments.Length);
         foreach (var segment in segments)
         {
+            if (segment is null)
+            {
+                return BadRequest("Every segment must be non-null.");
+            }
             if (segment.ItemId != Guid.Empty && segment.ItemId != itemId)
             {
                 return BadRequest("Every segment must belong to the requested item.");
