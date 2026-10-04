@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -329,6 +330,66 @@ public sealed partial class IntroSkipperDatabase
         }
 
         db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)));
+        return kept;
+    }
+
+    /// <summary>
+    /// Replaces every active segment of an item in one tracked transaction. A requested
+    /// row is matched by exact mode and range first, then by its supplied id, so a
+    /// complete editor round-trip keeps Jellyfin's stable ids without colliding with
+    /// an existing exact range. Rows omitted from the
+    /// image use the normal delete rule: user rows are removed and automatic rows are
+    /// tombstoned. Suppressed rows that remain omitted are left in place as tombstones.
+    /// </summary>
+    /// <returns>The active user rows in request order.</returns>
+    private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsForItemCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        IReadOnlyList<UserSegmentInput> requested,
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.Segments
+            .Where(s => s.ItemId == itemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var kept = new List<DbSegment>(requested.Count);
+        foreach (var input in requested)
+        {
+            // Prefer an exact range occupant: it avoids a unique-index collision
+            // when a caller sends a stale id while another editor already owns the
+            // requested range, and still preserves a stable id wherever possible.
+            var row = existing.Find(s => s.Type == input.Mode
+                && s.StartTicks == input.StartTicks
+                && s.EndTicks == input.EndTicks);
+
+            row ??= input.Id is { } id && id != Guid.Empty
+                ? existing.Find(s => s.Id == id && s.Type == input.Mode && s.State != SegmentState.Suppressed)
+                : null;
+
+            if (row is null)
+            {
+                row = new DbSegment(itemId, input.Mode, input.StartTicks, input.EndTicks, SegmentSource.User);
+                db.Segments.Add(row);
+            }
+            else
+            {
+                row.StartTicks = input.StartTicks;
+                row.EndTicks = input.EndTicks;
+                row.PromoteToUser();
+            }
+
+            kept.Add(row);
+        }
+
+        // This is intentionally staged before SaveChanges, but remains in the same
+        // database transaction as every promotion/insertion above. There is no window
+        // in which a partial desired image can be observed or journaled.
+        foreach (var row in existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)))
+        {
+            StageDelete(db, row);
+        }
+
         return kept;
     }
 

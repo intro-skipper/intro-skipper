@@ -23,6 +23,11 @@ public sealed record AddUserSegmentIntent(Guid ItemId, AnalysisMode Mode, long S
 /// <param name="Segments">Complete user range set.</param>
 public sealed record ReplaceUserSegmentsForModeIntent(Guid ItemId, AnalysisMode Mode, IReadOnlyList<SegmentRange> Segments) : SegmentChangeIntent(ItemId);
 
+/// <summary>Replaces the complete user-visible segment image for one item.</summary>
+/// <param name="ItemId">Item ID.</param>
+/// <param name="Segments">The complete desired segment set. IDs are hints used to preserve existing rows.</param>
+public sealed record ReplaceUserSegmentsForItemIntent(Guid ItemId, IReadOnlyList<UserSegmentInput> Segments) : SegmentChangeIntent(ItemId);
+
 /// <summary>Updates one segment and promotes the surviving row to user provenance.</summary>
 /// <param name="ItemId">Item ID.</param>
 /// <param name="SegmentId">Segment ID.</param>
@@ -62,3 +67,10 @@ public sealed record EditorDeleteSegmentIntent(Guid ItemId, Guid SegmentId, Medi
 /// <param name="StartTicks">Start ticks.</param>
 /// <param name="EndTicks">End ticks.</param>
 public sealed record SegmentRange(long StartTicks, long EndTicks);
+
+/// <summary>One segment in an item-wide replacement request.</summary>
+/// <param name="Id">Existing segment ID, when the caller knows it.</param>
+/// <param name="Mode">Analysis mode.</param>
+/// <param name="StartTicks">Start ticks.</param>
+/// <param name="EndTicks">End ticks.</param>
+public sealed record UserSegmentInput(Guid? Id, AnalysisMode Mode, long StartTicks, long EndTicks);

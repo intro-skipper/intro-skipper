@@ -86,16 +86,78 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
             return BadRequest($"Unknown segment type '{segment.Type}'.");
         }
 
-        // Legacy wire contract: a non-commercial POST replaces the mode's stored
-        // segments with the posted one (clients edit by re-POSTing a new range), while
-        // commercials — inherently many per item — are added, deduplicated on an
-        // exact-range collision.
-        SegmentChangeIntent intent = mode == AnalysisMode.Commercial
-            ? new AddUserSegmentIntent(itemId, mode, segment.StartTicks, segment.EndTicks)
-            : new ReplaceUserSegmentsForModeIntent(itemId, mode, [new SegmentRange(segment.StartTicks, segment.EndTicks)]);
+        // POST is the backwards-compatible single-segment form. Every media segment
+        // type is additive now; callers that own the complete image should use PUT.
+        // This keeps older clients that send one POST per row from deleting the rows
+        // posted immediately before it.
+        SegmentChangeIntent intent = new AddUserSegmentIntent(itemId, mode, segment.StartTicks, segment.EndTicks);
         var outcome = await _segmentChange.ApplyAsync(intent, cancellationToken).ConfigureAwait(false);
         // An already-stored image (an idempotent re-POST) answers like a fresh one.
         return SegmentChangeHttp.Map(outcome, onApplied: _ => Ok());
+    }
+
+    /// <summary>
+    /// Replaces the complete MediaSegments image for an item atomically.
+    /// </summary>
+    /// <param name="itemId">The ItemId.</param>
+    /// <param name="segments">The complete desired segment list, in Jellyfin ticks.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>HTTP 200 when the change and projection applied synchronously, or 202 when the durable projection is pending/skipped.</returns>
+    [HttpPut("{itemId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<MediaSegmentDto>>> ReplaceSegmentsAsync(
+        [FromRoute, Required] Guid itemId,
+        [FromBody, Required] MediaSegmentDto[] segments,
+        CancellationToken cancellationToken = default)
+    {
+        if (MediaItemHelper.FindSupported(itemId) is null)
+        {
+            return NotFound();
+        }
+
+        var inputs = new List<UserSegmentInput>(segments.Length);
+        foreach (var segment in segments)
+        {
+            if (segment.ItemId != Guid.Empty && segment.ItemId != itemId)
+            {
+                return BadRequest("Every segment must belong to the requested item.");
+            }
+
+            if (AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type) is not { } mode)
+            {
+                return BadRequest($"Unknown segment type '{segment.Type}'.");
+            }
+
+            if (!TickConversions.IsValidTickRange(segment.StartTicks, segment.EndTicks))
+            {
+                return BadRequest("EndTicks must be after StartTicks and both must be non-negative.");
+            }
+
+            inputs.Add(new UserSegmentInput(
+                segment.Id == Guid.Empty ? null : segment.Id,
+                mode,
+                segment.StartTicks,
+                segment.EndTicks));
+        }
+
+        var outcome = await _segmentChange
+            .ApplyAsync(new ReplaceUserSegmentsForItemIntent(itemId, inputs), cancellationToken)
+            .ConfigureAwait(false);
+        return SegmentChangeHttp.Map(
+            outcome,
+            onApplied: values => Ok(values.Select(ToMediaSegment).ToList()));
+
+        static MediaSegmentDto ToMediaSegment(SegmentValue value) => new()
+        {
+            Id = value.Id,
+            ItemId = value.ItemId,
+            Type = AnalysisHelpers.ModeToSegmentType[value.Mode],
+            StartTicks = value.StartTicks,
+            EndTicks = value.EndTicks,
+        };
     }
 
     /// <summary>

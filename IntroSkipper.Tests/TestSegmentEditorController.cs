@@ -310,13 +310,12 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.Equal(row.Id, Assert.Single(pushed).Id);
     }
 
-    // Legacy wire contract: clients edit by re-POSTing a new range, so a non-commercial
-    // POST replaces the mode's stored row instead of stacking a second one, while
-    // commercials are inherently many per item and accumulate.
+    // The single-segment POST remains additive for backwards compatibility: clients
+    // that send one request per row must not lose earlier rows.
     [Theory]
-    [InlineData(MediaSegmentType.Intro, 1)]
+    [InlineData(MediaSegmentType.Intro, 2)]
     [InlineData(MediaSegmentType.Commercial, 2)]
-    public async Task CreateSegment_ReplacesNonCommercial_AndAppendsCommercial(MediaSegmentType type, int expectedRows)
+    public async Task CreateSegment_AppendsEverySupportedType(MediaSegmentType type, int expectedRows)
     {
         var itemId = Guid.NewGuid();
         using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
@@ -336,6 +335,72 @@ public sealed class SegmentEditorControllerTests : IDisposable
         var rows = await database.GetSegmentsAsync(itemId);
         Assert.Equal(expectedRows, rows.Count);
         Assert.Contains(rows, row => row.StartTicks == TickConversions.FromSeconds(300) && row.EndTicks == TickConversions.FromSeconds(320));
+    }
+
+    [Fact]
+    public async Task ReplaceSegments_ReplacesCompleteMixedImage_KeepsIds_AndTombstonesRemovedAutomaticRows()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = _h.Database;
+        var intro = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(20));
+        var secondIntro = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(22), Ticks(28));
+        var commercial = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Commercial, Ticks(30), Ticks(40));
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Credits,
+            [new Segment(itemId, new TimeRange(50, 60))],
+            SegmentSource.Chapter,
+            "credits-hash");
+        var removedAutomatic = Assert.Single(await database.GetSegmentsAsync(itemId), segment => segment.Type == AnalysisMode.Credits);
+        Assert.Equal(AnalysisMode.Credits, removedAutomatic.Type);
+
+        var controller = CreateController();
+        var response = await controller.ReplaceSegmentsAsync(
+            itemId,
+            [
+                SegmentChangeHarness.MirroredDto(itemId, intro.Id, MediaSegmentType.Intro, Ticks(10), Ticks(20)),
+                SegmentChangeHarness.MirroredDto(itemId, secondIntro.Id, MediaSegmentType.Intro, Ticks(22), Ticks(28)),
+                SegmentChangeHarness.MirroredDto(itemId, commercial.Id, MediaSegmentType.Commercial, Ticks(30), Ticks(40)),
+                SegmentChangeHarness.MirroredDto(itemId, Guid.Empty, MediaSegmentType.Outro, Ticks(70), Ticks(80)),
+            ],
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        var returned = Assert.IsAssignableFrom<IReadOnlyList<MediaSegmentDto>>(ok.Value);
+        Assert.Equal(4, returned.Count);
+        Assert.Contains(returned, segment => segment.Id == intro.Id);
+        Assert.Contains(returned, segment => segment.Id == secondIntro.Id);
+        Assert.Contains(returned, segment => segment.Id == commercial.Id);
+        Assert.All(await database.GetSegmentsAsync(itemId), segment => Assert.Equal(SegmentSource.User, segment.Source));
+        Assert.Equal(4, (await database.GetSegmentsAsync(itemId)).Count);
+
+        var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true), segment => segment.Id == removedAutomatic.Id);
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+    }
+
+    [Fact]
+    public async Task ReplaceSegments_Returns202WhenProjectionIsPending_AndRetryConverges()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var store = _h.Store;
+        store.WriteException = new InvalidOperationException("jellyfin unavailable");
+        var controller = CreateController();
+
+        var response = await controller.ReplaceSegmentsAsync(
+            itemId,
+            [SegmentChangeHarness.MirroredDto(itemId, Guid.Empty, MediaSegmentType.Intro, Ticks(10), Ticks(20))],
+            CancellationToken.None);
+
+        var accepted = Assert.IsType<AcceptedResult>(response.Result);
+        var body = Assert.IsType<SegmentChangeAcceptedResponse>(accepted.Value);
+        Assert.Equal("Pending", body.Projection);
+        Assert.Single(await _h.Database.GetSegmentsAsync(itemId));
+
+        store.WriteException = null;
+        Assert.Equal(1, await _h.Change.ProjectItemsAsync([itemId]));
+        Assert.Single(await store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope()
