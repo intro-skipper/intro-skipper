@@ -125,6 +125,7 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
             {
                 return BadRequest("Every segment must be non-null.");
             }
+
             if (segment.ItemId != Guid.Empty && segment.ItemId != itemId)
             {
                 return BadRequest("Every segment must belong to the requested item.");
