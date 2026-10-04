@@ -441,7 +441,7 @@ public sealed class SegmentEditorControllerTests : IDisposable
         var staleEtag = controller.Response.Headers["ETag"].ToString();
         Assert.StartsWith("\"", staleEtag, StringComparison.Ordinal);
 
-        var roundTrip = await controller.ReplaceSegmentsAsync(itemId, initialSegments.ToArray(), CancellationToken.None);
+        var roundTrip = await controller.ReplaceSegmentsAsync(itemId, [.. initialSegments], CancellationToken.None);
         var roundTripResult = Assert.IsType<OkObjectResult>(roundTrip.Result);
         var roundTripSegments = Assert.IsAssignableFrom<IReadOnlyList<MediaSegmentDto>>(roundTripResult.Value);
         var retainedAutomatic = Assert.Single(roundTripSegments);
