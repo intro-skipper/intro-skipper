@@ -11,6 +11,7 @@ public abstract record SegmentChangeOutcome;
 /// <summary>The authoritative transaction committed and projection work was journaled.</summary>
 /// <param name="AffectedValues">Affected authoritative segment values.</param>
 /// <param name="Projection">Disposition of the immediate projection attempt.</param>
+/// <param name="Revision">Opaque revision of the committed segment image, when available.</param>
 public sealed record Accepted(IReadOnlyList<SegmentValue> AffectedValues, ProjectionState Projection, string? Revision = null) : SegmentChangeOutcome;
 
 /// <summary>
@@ -50,6 +51,7 @@ public sealed record SegmentImageSnapshot(IReadOnlyList<SegmentValue> Segments, 
 /// <param name="Reproject">Whether the change journals a re-projection. <see langword="false"/> only for
 /// Ignored outcomes whose target exists in no state at all: nothing addressable can have diverged,
 /// so a 404-style probe does not pay a journal write and a mirror sync.</param>
+/// <param name="Revision">Opaque revision of the committed segment image, when available.</param>
 public sealed record MutationResult(SegmentChangeOutcome? Outcome, IReadOnlyList<SegmentValue> Affected, bool Reproject = true, string? Revision = null)
 {
     internal static MutationResult Ignore(SegmentChangeIgnoredReason reason, string message, IReadOnlyList<SegmentValue>? affectedValues = null, bool reproject = true) => new(new Ignored(reason, message, affectedValues ?? []), [], reproject);
