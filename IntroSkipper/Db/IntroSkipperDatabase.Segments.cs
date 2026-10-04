@@ -359,12 +359,13 @@ public sealed partial class IntroSkipperDatabase
             // Prefer an exact range occupant: it avoids a unique-index collision
             // when a caller sends a stale id while another editor already owns the
             // requested range, and still preserves a stable id wherever possible.
-            var row = existing.Find(s => s.Type == input.Mode
+            var row = existing.Find(s => !kept.Contains(s)
+                && s.Type == input.Mode
                 && s.StartTicks == input.StartTicks
                 && s.EndTicks == input.EndTicks);
 
             row ??= input.Id is { } id && id != Guid.Empty
-                ? existing.Find(s => s.Id == id && s.Type == input.Mode && s.State != SegmentState.Suppressed)
+                ? existing.Find(s => !kept.Contains(s) && s.Id == id && s.Type == input.Mode && s.State != SegmentState.Suppressed)
                 : null;
 
             if (row is null)
