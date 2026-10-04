@@ -151,12 +151,11 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
             return StatusCode(StatusCodes.Status428PreconditionRequired, "If-Match is required; read the item before replacing its segments.");
         }
 
-        if (ifMatch.Length < 2 || ifMatch[0] != '"' || ifMatch[^1] != '"')
+        if (!TryParseIfMatch(ifMatch, out var revisions, out var wildcard))
         {
-            return BadRequest("If-Match must contain the quoted ETag returned by GET /MediaSegmentsApi/{itemId}.");
+            return BadRequest("If-Match must contain a valid entity-tag list returned by GET /MediaSegmentsApi/{itemId}.");
         }
 
-        var expectedRevision = ifMatch[1..^1];
         var inputs = new List<UserSegmentInput>(segments.Length);
         foreach (var segment in segments)
         {
@@ -187,6 +186,15 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
                 segment.EndTicks));
         }
 
+        // Resolve a matching list member to the single revision token understood by
+        // the domain intent. The snapshot is read under the same item stripe used by
+        // ApplyAsync, and ApplyAsync checks it again before mutating, so a matching
+        // tag cannot become stale in the gap between these two calls.
+        var currentSnapshot = await _segmentChange.GetEditorSnapshotAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var expectedRevision = wildcard || revisions.Any(revision => string.Equals(revision, currentSnapshot.Revision, StringComparison.Ordinal))
+            ? currentSnapshot.Revision
+            : revisions.FirstOrDefault() ?? string.Empty;
+
         var outcome = await _segmentChange
             .ApplyAsync(new ReplaceUserSegmentsForItemIntent(itemId, inputs, expectedRevision), cancellationToken)
             .ConfigureAwait(false);
@@ -211,6 +219,102 @@ public class SegmentEditorController(SegmentChange segmentChange) : ControllerBa
 
     private void SetEtag(string revision)
         => Response.Headers["ETag"] = $"\"{revision}\"";
+
+    private static bool TryParseIfMatch(string value, out IReadOnlyList<string> strongTags, out bool wildcard)
+    {
+        var tags = new List<string>();
+        var index = 0;
+        var sawTag = false;
+        wildcard = false;
+
+        while (true)
+        {
+            while (index < value.Length && char.IsWhiteSpace(value[index]))
+            {
+                index++;
+            }
+
+            if (index == value.Length)
+            {
+                strongTags = tags;
+                return sawTag;
+            }
+
+            if (value[index] == '*')
+            {
+                if (wildcard || sawTag)
+                {
+                    strongTags = tags;
+                    return false;
+                }
+
+                wildcard = true;
+                sawTag = true;
+                index++;
+            }
+            else
+            {
+                var weak = value.AsSpan(index).StartsWith("W/", StringComparison.OrdinalIgnoreCase);
+                if (weak)
+                {
+                    index += 2;
+                }
+
+                if (index == value.Length || value[index] != '"')
+                {
+                    strongTags = tags;
+                    return false;
+                }
+
+                index++;
+                var start = index;
+                while (index < value.Length && value[index] != '"')
+                {
+                    var character = value[index];
+                    if (character < 0x21 || (character > 0x7E && character < 0x80))
+                    {
+                        strongTags = tags;
+                        return false;
+                    }
+
+                    index++;
+                }
+
+                if (index == value.Length)
+                {
+                    strongTags = tags;
+                    return false;
+                }
+
+                if (!weak)
+                {
+                    tags.Add(value[start..index]);
+                }
+
+                sawTag = true;
+                index++;
+            }
+
+            while (index < value.Length && char.IsWhiteSpace(value[index]))
+            {
+                index++;
+            }
+
+            if (index == value.Length)
+            {
+                strongTags = tags;
+                return true;
+            }
+
+            if (value[index] != ',')
+            {
+                strongTags = tags;
+                return false;
+            }
+
+            index++;
+        }
+    }
 
     /// <summary>
     /// Delete MediaSgment by segment id.

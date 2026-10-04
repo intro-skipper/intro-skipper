@@ -358,7 +358,7 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.Equal(AnalysisMode.Credits, removedAutomatic.Type);
 
         var controller = CreateController();
-        var etag = await ReadEtagAsync(controller, itemId);
+        await ReadEtagAsync(controller, itemId);
         var response = await controller.ReplaceSegmentsAsync(
             itemId,
             [
@@ -396,8 +396,7 @@ public sealed class SegmentEditorControllerTests : IDisposable
         store.WriteException = new InvalidOperationException("jellyfin unavailable");
         var controller = CreateController();
 
-        var etag = await ReadEtagAsync(controller, itemId);
-        controller.Request.Headers["If-Match"] = etag;
+        await ReadEtagAsync(controller, itemId);
         var response = await controller.ReplaceSegmentsAsync(
             itemId,
             [SegmentChangeHarness.MirroredDto(itemId, Guid.Empty, MediaSegmentType.Intro, Ticks(10), Ticks(20))],
@@ -441,6 +440,7 @@ public sealed class SegmentEditorControllerTests : IDisposable
         var staleEtag = controller.Response.Headers["ETag"].ToString();
         Assert.StartsWith("\"", staleEtag, StringComparison.Ordinal);
 
+        controller.Request.Headers["If-Match"] = staleEtag;
         var roundTrip = await controller.ReplaceSegmentsAsync(itemId, [.. initialSegments], CancellationToken.None);
         var roundTripResult = Assert.IsType<OkObjectResult>(roundTrip.Result);
         var roundTripSegments = Assert.IsAssignableFrom<IReadOnlyList<MediaSegmentDto>>(roundTripResult.Value);
@@ -448,7 +448,6 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.Equal(initialSegments[0].Id, retainedAutomatic.Id);
         Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(itemId)).Source);
 
-        controller.Request.Headers["If-Match"] = staleEtag;
         Assert.IsType<OkResult>((
             await controller.CreateSegmentAsync(
                 itemId,
@@ -456,6 +455,15 @@ public sealed class SegmentEditorControllerTests : IDisposable
                 SegmentChangeHarness.MirroredDto(itemId, Guid.Empty, MediaSegmentType.Commercial, Ticks(30), Ticks(40)),
                 CancellationToken.None)).Result);
 
+        var current = await controller.GetSegmentsAsync(itemId, CancellationToken.None);
+        var currentResult = Assert.IsType<OkObjectResult>(current.Result);
+        var currentSegments = Assert.IsAssignableFrom<IReadOnlyList<MediaSegmentDto>>(currentResult.Value);
+        var currentEtag = controller.Response.Headers["ETag"].ToString();
+        controller.Request.Headers["If-Match"] = $"{staleEtag}, {currentEtag}";
+        Assert.IsType<OkObjectResult>(
+            (await controller.ReplaceSegmentsAsync(itemId, [.. currentSegments], CancellationToken.None)).Result);
+
+        controller.Request.Headers["If-Match"] = staleEtag;
         var stale = await controller.ReplaceSegmentsAsync(itemId, [], CancellationToken.None);
         var conflict = Assert.IsType<ObjectResult>(stale.Result);
         Assert.Equal(StatusCodes.Status412PreconditionFailed, conflict.StatusCode);
@@ -484,10 +492,9 @@ public sealed class SegmentEditorControllerTests : IDisposable
 
         Assert.Equal(firstEtag, secondEtag);
         Assert.Single(responses, response => response.Result is OkObjectResult);
-        var conflict = Assert.Single(
+        Assert.Single(
             responses,
             response => response.Result is ObjectResult result && result.StatusCode == StatusCodes.Status412PreconditionFailed);
-        Assert.Equal(StatusCodes.Status412PreconditionFailed, ((ObjectResult)conflict.Result!).StatusCode);
         Assert.Single(await _h.Database.GetSegmentsAsync(itemId));
     }
 
