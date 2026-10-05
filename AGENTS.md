@@ -37,7 +37,7 @@ Run .NET commands from the repo root. Ignore `IntroSkipper/IntroSkipper.sln`; it
 
 - The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#.
 - `TreatWarningsAsErrors` with StyleCop and all analyzers enabled (`AnalysisMode=AllEnabledByDefault`). Any new warning fails the build.
-- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build on first run and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg7` package.
+- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build each time the test host starts and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg7` package.
 - Tests and CI pin jellyfin-ffmpeg 7.1.3, but Jellyfin 12 servers run 8.x. Check a change to ffmpeg arguments or output parsing on both.
 - `web/` is plain TypeScript plus Vite, no framework. `pnpm build` runs `tsc` first, so a type error in `web/` fails the plugin build unless you pass `SkipWebBuild`.
 </important>
