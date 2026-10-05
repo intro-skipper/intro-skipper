@@ -94,7 +94,7 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // Journaled with the delete; see docs/segment-database-v2.md.
+            // Journaled with the delete; see docs/segments.md.
             var (removed, _) = await DeleteSegmentsAndJournalAsync(db, staleRows, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -184,7 +184,7 @@ public sealed partial class IntroSkipperDatabase
                         && u.Source == SegmentSource.User
                         && u.State == SegmentState.Active));
 
-            // Journaled with the delete; see docs/segment-database-v2.md.
+            // Journaled with the delete; see docs/segments.md.
             await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
 
             // Without their records the items are NotAnalyzed on this pass (or a later

@@ -31,7 +31,7 @@ One keyframe of the keyframe scan: its black-frame row and its keyframe visual, 
 _Avoid_: Frame, row (for the pair)
 
 **Keyframe analyzer**:
-The analyzer over one keyframe scan. It emits a black-frame candidate for each black scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest when none is verified, and at most one card run.
+The analyzer over one keyframe scan. It emits black-frame candidates for roll credits and at most one card run; `docs/credits.md` has its rules.
 _Avoid_: Black-frame analyzer (for the class), card analyzer
 
 **Black-frame evidence**:
@@ -43,7 +43,7 @@ The per-keyframe luma percentiles and saturation a keyframe scan reports. The ba
 _Avoid_: Entropy data, visual stats, card evidence
 
 **Card credits**:
-Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals. Inside a black scene the black-frame rules accepted, a black keyframe that is not solid white and a card-like keyframe are black cards: they extend a card run but never count toward its density, so a black roll on its own is black-frame evidence, not card credits. Solid white screens are always content, even inside an accepted scene.
+Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
 
 **Card kind**:
