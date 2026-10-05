@@ -34,7 +34,7 @@ public sealed partial class IntroSkipperDatabase
     /// unless their target exists in no state at all. Callers must serialize calls
     /// per item (the coordinator's mutation stripe): concurrent first-time enqueues
     /// for one item can otherwise fail on the queue's primary key. Outcome semantics:
-    /// <c>docs/segment-database-v2.md</c>.
+    /// <c>docs/segments.md</c>.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
     /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
