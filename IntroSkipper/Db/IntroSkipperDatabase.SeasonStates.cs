@@ -132,7 +132,7 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Records that season analysis modes have been re-analyzed for the given episode set.
-    /// Call only after the reset has committed.
+    /// Call only for modes whose reanalysis completed.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="modes">Analysis modes that were re-analyzed.</param>

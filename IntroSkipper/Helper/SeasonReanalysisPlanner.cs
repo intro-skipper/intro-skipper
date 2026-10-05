@@ -119,7 +119,7 @@ internal static class SeasonReanalysisPlanner
     /// <summary>
     /// Returns whether a mode's recorded settle-reanalysis episode set differs from the current one.
     /// The record is written by <c>IntroSkipperDatabase.RecordSettleReanalysisAsync</c> only after
-    /// the reset succeeded, so the decision survives plugin restarts.
+    /// the mode's reanalysis completed, so an interrupted reanalysis runs again.
     /// </summary>
     /// <param name="settledEpisodeIds">Episode IDs recorded when the season was last settle-reanalyzed for this mode.</param>
     /// <param name="episodeIds">Current episode IDs in the season.</param>

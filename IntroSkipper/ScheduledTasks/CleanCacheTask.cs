@@ -68,7 +68,8 @@ public partial class CleanCacheTask(
     /// Cleans the cache of unused rows.
     /// Clears segment, season-state and cache rows of items the server no longer knows.
     /// Items that still exist but were not resolved (a provider-disabled library, an
-    /// episode waiting for its season) keep all their rows.
+    /// episode waiting for its season) keep their segment and season-state rows. They lose
+    /// only the cache rows no read path accepts, which are deleted for every item.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

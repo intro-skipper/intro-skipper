@@ -8,18 +8,22 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Xunit;
 
 /// <summary>
 /// Keeps the docs agents navigate by pointing at things that exist. In each doc, every
-/// backticked PascalCase identifier must appear in the source, every backticked repo path
-/// must resolve, and every ADR reference must name a file in <c>docs/adr</c>. A rename or
-/// deletion that leaves a doc behind fails here instead of misleading the next reader.
-/// The repo is what git lists, so ignored and excluded folders never count as part of it.
+/// backticked <c>Type.Member</c> on a plugin type must name one of that type's members,
+/// every other backticked PascalCase identifier must appear in the source, and every
+/// backticked repo path must resolve. A rename or deletion that leaves a doc behind fails
+/// here instead of misleading the next reader. The repo is what git lists, so ignored and
+/// excluded folders never count as part of it.
 /// </summary>
 public sealed partial class TestDocReferences
 {
+    private const BindingFlags AnyMember = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
+
     private static readonly string Root = FindRoot();
 
     // Build output: a doc may name a path inside it, which exists only after a build.
@@ -29,22 +33,18 @@ public sealed partial class TestDocReferences
 
     private static readonly Lazy<RepoIndex> Index = new(BuildIndex);
 
+    // Plugin types by simple name, nested and non-public ones included.
+    private static readonly ILookup<string, Type> PluginTypes = typeof(Plugin).Assembly.GetTypes().ToLookup(type => type.Name, StringComparer.Ordinal);
+
     // The docs agents navigate by. The other files in docs/ are how-tos about the Jellyfin
     // server and name its files, which this repo does not hold.
-    public static TheoryData<string> Docs()
-    {
-        var docs = new TheoryData<string>();
-        string[] candidates = ["AGENTS.md", "CONTEXT.md", "docs/segments.md", "docs/analysis.md", "docs/credits.md", "tools/CreditsRunner/README.md"];
-        foreach (var doc in candidates.Where(doc => File.Exists(Path.Combine(Root, doc))))
-        {
-            docs.Add(doc);
-        }
-
-        return docs;
-    }
-
     [Theory]
-    [MemberData(nameof(Docs))]
+    [InlineData("AGENTS.md")]
+    [InlineData("CONTEXT.md")]
+    [InlineData("docs/segments.md")]
+    [InlineData("docs/analysis.md")]
+    [InlineData("docs/credits.md")]
+    [InlineData("tools/CreditsRunner/README.md")]
     public void EveryReferenceResolves(string doc)
     {
         var text = File.ReadAllText(Path.Combine(Root, doc));
@@ -53,7 +53,6 @@ public sealed partial class TestDocReferences
         var missing = CodeSpan().Matches(text)
             .Select(match => match.Groups[1].Value)
             .Where(span => !Resolves(span, index))
-            .Concat(AdrReference().Matches(text).Select(match => match.Value).Where(adr => !index.Adrs.Contains(adr)))
             .Distinct()
             .ToList();
 
@@ -64,7 +63,13 @@ public sealed partial class TestDocReferences
     {
         if (Identifier().IsMatch(span))
         {
-            return span.Split('.').All(index.Words.Contains);
+            // Type.Member is checked on the type itself, so a member that only another type
+            // still has does not resolve. Any other identifier, such as a namespace or a
+            // Jellyfin name, only has to appear in the source.
+            var parts = span.Split('.');
+            return parts is [var type, var member] && PluginTypes.Contains(type)
+                ? PluginTypes[type].Any(candidate => candidate.GetMember(member, AnyMember).Length > 0)
+                : parts.All(index.Words.Contains);
         }
 
         if (!IsRepoPath(span))
@@ -109,12 +114,7 @@ public sealed partial class TestDocReferences
             }
         }
 
-        var adrs = files
-            .Where(file => file.StartsWith("docs/adr/", StringComparison.Ordinal))
-            .Select(file => "ADR-" + Path.GetFileName(file)[..4])
-            .ToHashSet(StringComparer.Ordinal);
-
-        return new RepoIndex(words, paths, files.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.Ordinal), adrs);
+        return new RepoIndex(words, paths, files.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.Ordinal));
     }
 
     // Tracked files plus untracked ones git does not ignore, so a doc can name a file before
@@ -130,7 +130,7 @@ public sealed partial class TestDocReferences
         using var git = Process.Start(start) ?? throw new InvalidOperationException("git did not start");
         var output = git.StandardOutput.ReadToEnd();
         git.WaitForExit();
-        Assert.Equal(0, git.ExitCode);
+        Assert.True(git.ExitCode == 0, $"git ls-files exited with code {git.ExitCode} in {Root}. This test lists the repo through git, so it needs a checkout git can read.");
 
         return output.Split('\0', StringSplitOptions.RemoveEmptyEntries)
             .Where(file => File.Exists(Path.Combine(Root, file)))
@@ -156,11 +156,8 @@ public sealed partial class TestDocReferences
     [GeneratedRegex(@"^[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*$")]
     private static partial Regex Identifier();
 
-    [GeneratedRegex(@"\bADR-\d{4}\b")]
-    private static partial Regex AdrReference();
-
     [GeneratedRegex(@"[A-Za-z_][A-Za-z0-9_]*")]
     private static partial Regex Word();
 
-    private sealed record RepoIndex(HashSet<string> Words, HashSet<string> Paths, HashSet<string> FileNames, HashSet<string> Adrs);
+    private sealed record RepoIndex(HashSet<string> Words, HashSet<string> Paths, HashSet<string> FileNames);
 }

@@ -39,7 +39,7 @@ Every interactive surface commits through `SegmentChange.ApplyAsync`: the plural
 
 ### Maintenance writes
 
-Analyzer and maintenance code calls the facade directly but journals too. Every facade write that changes an item's servable image (`ReplaceAutoSegmentsAsync`, `CleanStaleAutomaticSegmentsAsync`, `EraseItemsAsync`, `DeleteSegmentsByModeAsync`, `ResetItemsForReanalysisAsync`) enqueues the affected items' markers in its own transaction. Pure bookkeeping, such as analysis records, season state and analyzer actions, journals nothing because Jellyfin serves none of it.
+Analyzer and maintenance code calls the facade directly but journals too. Every facade write that changes an item's servable image (`ReplaceAutoSegmentsAsync`, `CleanStaleAutomaticSegmentsAsync`, `EraseItemsAsync`, `DeleteSegmentsByModeAsync`, `ClearCreditsDerivedPreviewsAsync`, `ResetItemsForReanalysisAsync`) enqueues the affected items' markers in its own transaction. Pure bookkeeping, such as analysis records, season state and analyzer actions, journals nothing because Jellyfin serves none of it.
 
 A re-analysis that reproduces identical boundaries journals nothing either. A Jellyfin row that was hand-deleted or corrupted therefore stays divergent until a journaled change touches the item, an idempotent interactive request re-asserts it, or Jellyfin's own media segment scan pulls current truth through the provider.
 
