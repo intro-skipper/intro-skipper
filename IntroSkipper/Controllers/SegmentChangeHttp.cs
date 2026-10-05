@@ -4,6 +4,7 @@
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.SegmentChanges;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IntroSkipper.Controllers;
@@ -56,11 +57,11 @@ internal static class SegmentChangeHttp
     /// Maps a rejection to its established wire status: an absent or foreign-owned
     /// target is 404 (the caller addressed something that does not exist for it,
     /// empty segment and item ids included, which the pre-cutover delete and update
-    /// paths answered with 404 after their lookups found nothing), every other
-    /// rejection is 400 with the typed message.
+    /// paths answered with 404 after their lookups found nothing), a stale editor
+    /// revision is 412, and every other rejection is 400 with the typed message.
     /// </summary>
     /// <param name="rejected">The rejection outcome.</param>
-    /// <returns>The mapped 404 or 400 result.</returns>
+    /// <returns>The mapped HTTP result.</returns>
     internal static ActionResult Rejected(Rejected rejected) => rejected.Reason switch
     {
         SegmentChangeRejectedReason.SegmentMissingOrSuppressed or
@@ -68,6 +69,10 @@ internal static class SegmentChangeHttp
         SegmentChangeRejectedReason.EmptySegmentId or
         SegmentChangeRejectedReason.ExternalSegmentNotFound or
         SegmentChangeRejectedReason.ExternalItemMismatch => new NotFoundResult(),
+        SegmentChangeRejectedReason.RevisionMismatch => new ObjectResult(rejected.Message)
+        {
+            StatusCode = StatusCodes.Status412PreconditionFailed
+        },
         _ => new BadRequestObjectResult(rejected.Message)
     };
 

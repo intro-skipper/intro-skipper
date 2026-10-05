@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -333,6 +334,82 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
+    /// Replaces every active segment of an item in one tracked transaction. A requested
+    /// row is matched by exact mode and range first, then by its supplied id, so a
+    /// complete editor round-trip keeps Jellyfin's stable ids without colliding with
+    /// an existing exact range. Rows omitted from the
+    /// image use the normal delete rule: user rows are removed and automatic rows are
+    /// tombstoned. Exact-range automatic rows in the requested image retain their
+    /// automatic provenance; moving an addressed row promotes it to user ownership.
+    /// Suppressed rows that remain omitted are left in place as tombstones.
+    /// </summary>
+    /// <returns>The active rows in request order.</returns>
+    private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsForItemCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        IReadOnlyList<UserSegmentInput> requested,
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.Segments
+            .Where(s => s.ItemId == itemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var kept = new List<DbSegment>(requested.Count);
+        foreach (var input in requested)
+        {
+            // Prefer an exact range occupant: it avoids a unique-index collision
+            // when a caller sends a stale id while another editor already owns the
+            // requested range, and still preserves a stable id wherever possible.
+            var row = existing.Find(s => !kept.Contains(s)
+                && s.Type == input.Mode
+                && s.StartTicks == input.StartTicks
+                && s.EndTicks == input.EndTicks);
+            var movedById = false;
+
+            if (row is null && input.Id is { } id && id != Guid.Empty)
+            {
+                row = existing.Find(s => !kept.Contains(s)
+                    && s.Id == id
+                    && s.Type == input.Mode
+                    && s.State != SegmentState.Suppressed);
+                movedById = row is not null;
+            }
+
+            if (row is null)
+            {
+                row = new DbSegment(itemId, input.Mode, input.StartTicks, input.EndTicks, SegmentSource.User);
+                db.Segments.Add(row);
+            }
+            else
+            {
+                var wasSuppressed = row.State == SegmentState.Suppressed;
+                row.StartTicks = input.StartTicks;
+                row.EndTicks = input.EndTicks;
+                // A full GET/PUT round-trip must not turn every automatic row into a
+                // user row. Moving an addressed automatic row is an explicit user
+                // edit, while an exact-range match preserves its provenance.
+                if (wasSuppressed || movedById || row.Source == SegmentSource.User)
+                {
+                    row.PromoteToUser();
+                }
+            }
+
+            kept.Add(row);
+        }
+
+        // This is intentionally staged before SaveChanges, but remains in the same
+        // database transaction as every promotion/insertion above. There is no window
+        // in which a partial desired image can be observed or journaled.
+        foreach (var row in existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)))
+        {
+            StageDelete(db, row);
+        }
+
+        return kept;
+    }
+
+    /// <summary>
     /// Moves a segment's boundaries and promotes the surviving row to user provenance
     /// on a caller-owned context, given the caller's read of the active tracked
     /// <paramref name="row"/>: an exact-range occupant of the same mode absorbs the
@@ -531,6 +608,31 @@ public sealed partial class IntroSkipperDatabase
         return await OrderedItemSegments(db, itemId, includeSuppressed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the complete editor image and its revision in one database query. The
+    /// response image contains every active row, including automatic rows on disabled
+    /// items; suppressed tombstones participate in the revision but are not returned
+    /// as active MediaSegments.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The active editor image and its opaque revision.</returns>
+    internal async Task<(IReadOnlyList<DbSegment> Segments, string Revision)> GetEditorSnapshotAsync(
+        Guid itemId,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var all = await db.Segments.AsNoTracking()
+            .Where(s => s.ItemId == itemId)
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.StartTicks)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return (all.Where(s => s.State == SegmentState.Active).ToList(), SegmentRevision.Compute(all));
     }
 
     /// <summary>

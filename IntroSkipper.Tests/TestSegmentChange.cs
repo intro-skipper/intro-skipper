@@ -563,6 +563,93 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task ReplaceUserSegmentsForItem_ReplacesAllTypesAtomically_AndPreservesIds()
+    {
+        var itemId = Guid.NewGuid();
+        var intro = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.User);
+        var secondIntro = new DbSegment(itemId, AnalysisMode.Introduction, 30, 40, SegmentSource.User);
+        var commercial = new DbSegment(itemId, AnalysisMode.Commercial, 50, 60, SegmentSource.User);
+        var removed = new DbSegment(itemId, AnalysisMode.Recap, 70, 80, SegmentSource.Chapter, "recap-hash");
+        await SeedAsync(intro, secondIntro, commercial, removed);
+        await SeedAnalyzedItemAsync(new DbAnalyzedItem(itemId, AnalysisMode.Recap, "recap-hash"));
+
+        var result = Assert.IsType<Accepted>(await CreateService(new FakeJellyfinSegmentStore()).ApplyAsync(
+            new ReplaceUserSegmentsForItemIntent(
+                itemId,
+                [
+                    new UserSegmentInput(intro.Id, AnalysisMode.Introduction, 10, 20),
+                    new UserSegmentInput(secondIntro.Id, AnalysisMode.Introduction, 30, 40),
+                    new UserSegmentInput(commercial.Id, AnalysisMode.Commercial, 50, 60),
+                    new UserSegmentInput(null, AnalysisMode.Preview, 90, 100),
+                ])));
+
+        Assert.Equal(ProjectionState.Applied, result.Projection);
+        Assert.Equal(4, result.AffectedValues.Count);
+        Assert.Contains(result.AffectedValues, value => value.Id == intro.Id);
+        Assert.Contains(result.AffectedValues, value => value.Id == secondIntro.Id);
+        Assert.Contains(result.AffectedValues, value => value.Id == commercial.Id);
+
+        await using var db = CreateContext();
+        var active = await db.Segments.Where(segment => segment.ItemId == itemId && segment.State == SegmentState.Active).ToListAsync();
+        Assert.Equal(4, active.Count);
+        Assert.DoesNotContain(active, segment => segment.Id == removed.Id);
+        var tombstone = await db.Segments.SingleAsync(segment => segment.Id == removed.Id);
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+        Assert.Empty(await db.AnalyzedItems.Where(item => item.ItemId == itemId).ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReplaceUserSegmentsForItem_RetryAfterProjectionFailureConvergesLatestImage()
+    {
+        var store = new FakeJellyfinSegmentStore { WriteException = JellyfinDown() };
+        var service = CreateService(store);
+        var itemId = Guid.NewGuid();
+        var intent = new ReplaceUserSegmentsForItemIntent(
+            itemId,
+            [
+                new UserSegmentInput(null, AnalysisMode.Introduction, 10, 20),
+                new UserSegmentInput(null, AnalysisMode.Introduction, 30, 40),
+                new UserSegmentInput(null, AnalysisMode.Commercial, 50, 60),
+            ]);
+
+        var pending = Assert.IsType<Accepted>(await service.ApplyAsync(intent));
+        Assert.Equal(ProjectionState.Pending, pending.Projection);
+        Assert.Equal(3, (await SegmentsAsync()).Count);
+
+        store.WriteException = null;
+        Assert.Equal(1, await service.ProjectItemsAsync([itemId]));
+        Assert.Equal(
+            [(MediaSegmentType.Intro, 10L, 20L), (MediaSegmentType.Intro, 30L, 40L), (MediaSegmentType.Commercial, 50L, 60L)],
+            [.. (await MirroredAsync(store, itemId))
+                .OrderBy(segment => segment.StartTicks)
+                .Select(segment => (segment.Type, segment.StartTicks, segment.EndTicks))]);
+        await AssertQueueEmptyAsync();
+    }
+
+    [Fact]
+    public async Task ReplaceUserSegmentsForItem_ConcurrentRequestsSerializeAndLeaveOneCompleteImage()
+    {
+        var service = CreateService(new FakeJellyfinSegmentStore());
+        var itemId = Guid.NewGuid();
+        var first = new ReplaceUserSegmentsForItemIntent(
+            itemId,
+            [new UserSegmentInput(null, AnalysisMode.Introduction, 10, 20), new UserSegmentInput(null, AnalysisMode.Credits, 30, 40)]);
+        var second = new ReplaceUserSegmentsForItemIntent(
+            itemId,
+            [new UserSegmentInput(null, AnalysisMode.Introduction, 100, 110), new UserSegmentInput(null, AnalysisMode.Commercial, 120, 130)]);
+
+        var outcomes = await Task.WhenAll(service.ApplyAsync(first), service.ApplyAsync(second));
+
+        Assert.All(outcomes, outcome => Assert.IsType<Accepted>(outcome));
+        var rows = await SegmentsAsync();
+        Assert.Equal(2, rows.Count);
+        var image = rows.Select(row => (row.Type, row.StartTicks, row.EndTicks)).ToHashSet();
+        Assert.True(
+            image.SetEquals([(AnalysisMode.Introduction, 10L, 20L), (AnalysisMode.Credits, 30L, 40L)])
+            || image.SetEquals([(AnalysisMode.Introduction, 100L, 110L), (AnalysisMode.Commercial, 120L, 130L)]));
+    }
+
+    [Fact]
     public async Task UpdateCollision_MergesIntoOccupantKeepingItsId()
     {
         var itemId = Guid.NewGuid();
