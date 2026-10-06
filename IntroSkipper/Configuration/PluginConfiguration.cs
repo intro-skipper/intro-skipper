@@ -151,8 +151,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to detect credits from black-frame evidence: a roll of
-    /// credits over black. The evidence is still read as context for <see cref="DetectNonBlackCredits"/>,
-    /// which needs it to tell a black card apart from a black roll.
+    /// credits over black. Individual seasons can override this setting.
     /// </summary>
     public bool DetectBlackFrameCredits { get; set; } = true;
 

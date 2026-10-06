@@ -27,4 +27,9 @@ public sealed record UpdateAnalysisOverridesRequest
     /// Gets the optional setting that derives a preview from the end of credits.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; init; }
+
+    /// <summary>
+    /// Gets the optional setting that detects credits on a black roll.
+    /// </summary>
+    public bool? DetectBlackFrameCredits { get; init; }
 }

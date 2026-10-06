@@ -64,12 +64,7 @@ internal sealed partial class CreditsPass(
     public async Task RunAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken)
     {
         var chromaprintAvailable = ffmpegValid && items.Count > 1;
-
-        // With every candidate the keyframe analyzer could contribute switched off there is nothing
-        // to build, so an action naming it falls back to the default policy instead of restricting
-        // the pass to an analyzer that would find nothing, exactly as an unavailable Chromaprint
-        // already does. Shared with the hasher, which omits the enhancement token while it holds.
-        var keyframeCreditsEnabled = ConfigHasher.KeyframeCreditsEnabled(_config);
+        var keyframeCreditsEnabled = ConfigHasher.KeyframeCreditsEnabled(_config, items[0].DetectBlackFrameCreditsOverride ?? _config.DetectBlackFrameCredits);
         var restriction = action switch
         {
             AnalyzerAction.BlackFrame when keyframeCreditsEnabled => action,

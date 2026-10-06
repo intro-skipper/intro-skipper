@@ -42,8 +42,8 @@ public sealed class TestConfigHasher
         var nonBlackOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
         var legacyNonBlackOn = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
         var legacyNonBlackOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
-        var blackRollOff = new PluginConfiguration { DetectBlackFrameCredits = false };
-        var legacyBlackRollOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectBlackFrameCredits = false };
+        var blackFrameOff = new PluginConfiguration { DetectBlackFrameCredits = false };
+        var legacyBlackFrameOff = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, DetectBlackFrameCredits = false };
         var bothCandidatesOff = new PluginConfiguration { DetectBlackFrameCredits = false, DetectNonBlackCredits = false };
         var bothCandidatesOffEnhanced = new PluginConfiguration { DetectBlackFrameCredits = false, DetectNonBlackCredits = false, EnhanceChapterCredits = true };
 
@@ -78,9 +78,10 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with DetectNonBlackCredits", Analysis(nonBlackOn, AnalysisMode.Credits), Analysis(nonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis changes when legacy analyzer selected", Analysis(nonBlackOff, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis ignores DetectNonBlackCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), true);
-        Case("Credits analysis changes with DetectBlackFrameCredits", Analysis(defaults, AnalysisMode.Credits), Analysis(blackRollOff, AnalysisMode.Credits), false);
-        Case("Credits analysis changes with DetectBlackFrameCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyBlackRollOff, AnalysisMode.Credits), false);
-        Case("Recap analysis ignores DetectBlackFrameCredits", Analysis(defaults, AnalysisMode.Recap), Analysis(blackRollOff, AnalysisMode.Recap), true);
+        Case("Credits analysis changes with DetectBlackFrameCredits", Analysis(defaults, AnalysisMode.Credits), Analysis(blackFrameOff, AnalysisMode.Credits), false);
+        Case("Credits analysis changes with DetectBlackFrameCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyBlackFrameOff, AnalysisMode.Credits), false);
+        Case("Credits analysis follows a season DetectBlackFrameCredits override", Analysis(blackFrameOff, AnalysisMode.Credits), ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true, detectBlackFrameCreditsOverride: false), true);
+        Case("Recap analysis ignores DetectBlackFrameCredits", Analysis(defaults, AnalysisMode.Recap), Analysis(blackFrameOff, AnalysisMode.Recap), true);
 
         // Chromaprint availability changes what the Chromaprint-backed modes can produce;
         // the chapter-only modes never consult it.

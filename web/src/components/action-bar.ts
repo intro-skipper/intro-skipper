@@ -131,6 +131,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         analysisWindowDescription,
         analysisWindowGrid,
         overrideForm.field("PreviewFromCreditsEnd"),
+        overrideForm.field("DetectBlackFrameCredits"),
         resetWindowBtn,
     );
 

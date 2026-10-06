@@ -15,6 +15,7 @@ export const blackFrameTab: Tab = {
             form.field("DetectRecapUsingBlackFrames"),
             form.field("AnchorRecapToColdOpen"),
             form.field("RefineCreditsBoundary", { visible: modernAnalyzer }),
+            form.field("DetectBlackFrameCredits"),
             form.field("DetectNonBlackCredits", { visible: modernAnalyzer }),
             form.field("UseChapterMarkersBlackFrame", { visible: legacyAnalyzer }),
             form.field("BlackFrameMinimumPercentage"),

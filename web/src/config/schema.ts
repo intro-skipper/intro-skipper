@@ -118,12 +118,6 @@ export const configSchema = {
         description:
             "Run chromaprint before the chapter analyzer for intros and recaps. Credits ignore this setting.",
     },
-    DetectBlackFrameCredits: {
-        kind: "checkbox",
-        label: "Detect credits on a black roll",
-        description:
-            "Detect credits rolling over black, from the black-frame evidence in the keyframe scan. Turn this off when scene transitions that fade to black are being stored as credits; recap detection is unaffected. Changing this re-analyzes credits on the next scan; existing timestamps stay until then.",
-    },
     EnhanceChapterCredits: {
         kind: "checkbox",
         label: "Enhance chapter credits",
@@ -353,6 +347,12 @@ export const configSchema = {
         label: "Refine credits boundary",
         description:
             "Use frame-level analysis to find the exact credits boundary. Disable for faster analysis with keyframe-only accuracy.",
+    },
+    DetectBlackFrameCredits: {
+        kind: "checkbox",
+        label: "Detect credits on a black roll",
+        description:
+            "Detect credits rolling over black. Turn this off when scene transitions that fade to black are being stored as credits; recap detection is unaffected. Changing this re-analyzes credits on the next scan; existing timestamps stay until then. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     DetectNonBlackCredits: {
         kind: "checkbox",

@@ -843,7 +843,7 @@ public class TestBlackFrames
 
     /// <summary>
     /// The card run reads the black scenes the black-frame rules accept, so its range must match what
-    /// the same scan produces with both candidates on: see the case above, card 100 to 154.
+    /// the same scan produces with both candidates on in DetectCreditsAsync_ReturnsBlackFrameAndCardCandidates: card 100 to 154.
     /// </summary>
     [Fact]
     public async Task DetectCreditsAsync_WithoutBlackRollCredits_KeepsTheCardCandidateUnchanged()

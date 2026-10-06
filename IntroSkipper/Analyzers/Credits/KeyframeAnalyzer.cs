@@ -69,7 +69,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectBlackFrameCredits, _config.DetectNonBlackCredits, cancellationToken);
+        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, episode.DetectBlackFrameCreditsOverride ?? _config.DetectBlackFrameCredits, _config.DetectNonBlackCredits, cancellationToken);
 
     /// <summary>
     /// Detects the credits from FFmpeg keyframe evidence with explicit thresholds.
@@ -78,7 +78,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
-    /// <param name="detectBlackFrameCredits">Whether the black roll is offered as a candidate. The evidence is read either way.</param>
+    /// <param name="detectBlackFrameCredits">Whether the black roll is offered as a candidate.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
