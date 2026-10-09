@@ -503,7 +503,7 @@ public partial class BaseItemAnalyzerTask(
             }
             else if (mode == AnalysisMode.Preview)
             {
-                List<QueuedEpisode> unsettled = [.. items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) == EpisodeState.NotAnalyzed)];
+                List<QueuedEpisode> unsettled = [.. items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) is EpisodeState.NotAnalyzed or EpisodeState.NoSegments)];
                 await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }

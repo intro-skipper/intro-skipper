@@ -673,13 +673,35 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         foreach (var streamIndex in embeddedStreams)
         {
-            cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+            try
+            {
+                cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+            {
+                // ExtractWebVttAsync logged this source's failure; remaining streams may still be usable.
+            }
         }
 
         string[] sidecars = [.. FindSubtitleSidecars(episode.Path)];
         foreach (var sidecar in sidecars)
         {
-            cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+            try
+            {
+                cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+            {
+                // ExtractWebVttAsync logged this source's failure; remaining sidecars may still be usable.
+            }
         }
 
         if (probeFailure is not null && sidecars.Length == 0)

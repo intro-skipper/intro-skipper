@@ -80,7 +80,12 @@ internal sealed partial class SubtitleAnalyzer(
                 ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
                 : FindPreview(episode, cues, regex);
 
-            var written = mode == AnalysisMode.Preview && segment is not null
+            if (segment is null)
+            {
+                continue;
+            }
+
+            var written = mode == AnalysisMode.Preview
                 ? await _database.ReplaceSubtitlePreviewAsync(
                     episode.EpisodeId,
                     segment,
@@ -89,12 +94,12 @@ internal sealed partial class SubtitleAnalyzer(
                 : await _database.ReplaceAutoSegmentsAsync(
                     episode.EpisodeId,
                     mode,
-                    segment is null ? [] : [segment],
+                    [segment],
                     SegmentSource.Subtitle,
                     episode.AnalysisConfigHash,
                     cancellationToken).ConfigureAwait(false);
 
-            if (segment is not null && written > 0)
+            if (written > 0)
             {
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 LogFoundSubtitleSegment(_logger, episode.Name, mode, segment.Start, segment.End);
