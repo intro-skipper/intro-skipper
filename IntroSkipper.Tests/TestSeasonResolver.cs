@@ -554,6 +554,46 @@ public sealed class TestSeasonResolver
         }
     }
 
+    [Fact]
+    public void QueueVerifier_InvalidatesUnknownFileVersionWhenSubtitleSidecarAppears()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var mediaPath = Path.Combine(directory, "episode.mkv");
+        var subtitlePath = Path.Combine(directory, "episode.en.srt");
+        var episodeId = Guid.NewGuid();
+        File.WriteAllText(mediaPath, string.Empty);
+        File.WriteAllText(subtitlePath, "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
+
+        try
+        {
+            var snapshot = new SeasonQueueSnapshot(
+                new Dictionary<(Guid ItemId, AnalysisMode Mode), AnalysisRecord>
+                {
+                    [(episodeId, AnalysisMode.Recap)] = new AnalysisRecord("old-config", null),
+                },
+                new Dictionary<AnalysisMode, AnalyzerAction>(),
+                new Dictionary<Guid, IReadOnlySet<AnalysisMode>>(),
+                new Dictionary<AnalysisMode, IReadOnlySet<Guid>>());
+            var episode = new QueuedEpisode
+            {
+                EpisodeId = episodeId,
+                Path = mediaPath,
+                FileVersion = SubtitleSidecarFiles.FileVersion(mediaPath, null),
+            };
+
+            var verifier = new QueueVerifier(new PluginConfiguration(), [AnalysisMode.Recap], snapshot, true);
+            verifier.Classify(episode);
+
+            Assert.True(episode.FileChanged);
+            Assert.Empty(verifier.FileVersionBackfill);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static SeasonResolver CreateResolver(IReadOnlyList<BaseItem> items)
         => EntrypointTestHelpers.CreateSeasonResolver(FakeLibraryManager.Create([JellyfinItems.Folder("Media")], items));
 }

@@ -62,9 +62,17 @@ internal sealed partial class SubtitleAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
             SubtitleCue[] cues;
+            var extractionIncomplete = false;
+            Exception? extractionFailure = null;
             try
             {
                 cues = await _ffmpegService.ExtractSubtitleCuesAsync(episode, cancellationToken).ConfigureAwait(false);
+            }
+            catch (SubtitleExtractionException ex)
+            {
+                cues = ex.Cues;
+                extractionIncomplete = true;
+                extractionFailure = ex;
             }
             catch (OperationCanceledException)
             {
@@ -72,9 +80,9 @@ internal sealed partial class SubtitleAnalyzer(
             }
             catch (Exception ex)
             {
-                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
-                LogSubtitleExtractionFailed(_logger, ex, episode.Name, mode);
-                continue;
+                cues = [];
+                extractionIncomplete = true;
+                extractionFailure = ex;
             }
 
             (Segment? Segment, bool DetectedWithoutEnd) recapSearch = mode == AnalysisMode.Recap
@@ -84,7 +92,16 @@ internal sealed partial class SubtitleAnalyzer(
 
             if (segment is null)
             {
-                if (!recapSearch.DetectedWithoutEnd)
+                if (extractionIncomplete)
+                {
+                    episode.SubtitleDetectionIncomplete = true;
+                    LogSubtitleExtractionFailed(
+                        _logger,
+                        extractionFailure!,
+                        episode.Name,
+                        mode);
+                }
+                else if (!recapSearch.DetectedWithoutEnd)
                 {
                     await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
                 }
@@ -111,9 +128,13 @@ internal sealed partial class SubtitleAnalyzer(
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 LogFoundSubtitleSegment(_logger, episode.Name, mode, segment.Start, segment.End);
             }
+            else if (extractionIncomplete)
+            {
+                episode.SubtitleDetectionIncomplete = true;
+            }
         }
 
-        return [.. analysisQueue.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)];
+        return analysisQueue;
     }
 
     private bool IsEnabled(AnalysisMode mode)

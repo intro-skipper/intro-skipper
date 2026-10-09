@@ -136,8 +136,10 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 
-    [Fact]
-    public async Task PreviewMode_SubtitleExtractionFailurePreservesStalePreview()
+    [Theory]
+    [InlineData(SegmentSource.Chapter)]
+    [InlineData(SegmentSource.Chromaprint)]
+    public async Task PreviewMode_SubtitleExtractionFailurePreservesStaleFallback(SegmentSource source)
     {
         var config = new PluginConfiguration
         {
@@ -160,7 +162,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             episodeId,
             AnalysisMode.Preview,
             [new Segment(episodeId, new TimeRange(100, 180))],
-            SegmentSource.Subtitle,
+            source,
             configHash: "old-config");
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -173,7 +175,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
-        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(source, preview.Source);
         Assert.Equal("old-config", preview.ConfigHash);
         Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Preview));
     }

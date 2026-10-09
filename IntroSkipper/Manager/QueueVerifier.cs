@@ -175,6 +175,12 @@ internal sealed partial class QueueVerifier
 
             if (record.FileVersion is null)
             {
+                if (SubtitleSidecarFiles.HasSidecars(candidate.Path))
+                {
+                    candidate.FileChanged = true;
+                    return true;
+                }
+
                 needsBackfill = true;
             }
             else if (record.FileVersion != fileVersion)

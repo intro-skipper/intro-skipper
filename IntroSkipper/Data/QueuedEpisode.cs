@@ -130,6 +130,13 @@ public sealed class QueuedEpisode
     public bool FileChanged { get; set; }
 
     /// <summary>
+    /// Gets or sets whether subtitle extraction was incomplete during this mode's analysis.
+    /// Conventional analyzers may still provide fallback segments, but the mode must remain
+    /// retryable because an incomplete subtitle scan cannot establish a reliable no-match.
+    /// </summary>
+    public bool SubtitleDetectionIncomplete { get; set; }
+
+    /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>

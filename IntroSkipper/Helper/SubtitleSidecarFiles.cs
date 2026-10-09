@@ -20,6 +20,13 @@ internal static class SubtitleSidecarFiles
     };
 
     /// <summary>
+    /// Determines whether adjacent subtitle files contribute to the composite file version.
+    /// </summary>
+    /// <param name="mediaPath">Path to the media file.</param>
+    /// <returns>Whether at least one adjacent subtitle file exists.</returns>
+    public static bool HasSidecars(string mediaPath) => FindAll(mediaPath).Length > 0;
+
+    /// <summary>
     /// Gets sidecars that can be passed to FFmpeg as text subtitle sources. A .sub next
     /// to a .idx is a VobSub image stream, not a MicroDVD text stream.
     /// </summary>

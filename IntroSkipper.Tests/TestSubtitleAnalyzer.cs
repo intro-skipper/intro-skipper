@@ -5,6 +5,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -237,6 +238,36 @@ public sealed class TestSubtitleAnalyzer
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task IncompleteSubtitleScanWithoutMatch_PreservesSubtitleRowAndRemainsRetryable()
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(100, 180))],
+            SegmentSource.Subtitle,
+            configHash: "previous-config");
+        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => throw new SubtitleExtractionException(
+                "One subtitle source failed.",
+                [new SubtitleCue(100, 103, "Ordinary dialogue")],
+                new IOException("source failed")),
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config" };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal("previous-config", preview.ConfigHash);
+        Assert.True(episode.SubtitleDetectionIncomplete);
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 

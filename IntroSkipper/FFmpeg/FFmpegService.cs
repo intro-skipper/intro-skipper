@@ -741,9 +741,18 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
         }
 
-        if (!sourceReadSuccessfully && (probeFailure is not null || sourceFailure is not null))
+        if (probeFailure is not null || sourceFailure is not null)
         {
-            throw new InvalidOperationException("Unable to read any embedded or sidecar subtitle source.", sourceFailure ?? probeFailure);
+            var failure = sourceFailure ?? probeFailure!;
+            if (sourceReadSuccessfully)
+            {
+                throw new SubtitleExtractionException(
+                    "One or more subtitle sources could not be read; the returned cues are incomplete.",
+                    [.. cues],
+                    failure);
+            }
+
+            throw new InvalidOperationException("Unable to read any embedded or sidecar subtitle source.", failure);
         }
 
         return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
