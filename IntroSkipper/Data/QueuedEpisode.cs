@@ -12,6 +12,7 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
+    private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -130,11 +131,21 @@ public sealed class QueuedEpisode
     public bool FileChanged { get; set; }
 
     /// <summary>
-    /// Gets or sets whether subtitle extraction was incomplete during this mode's analysis.
-    /// Conventional analyzers may still provide fallback segments, but the mode must remain
-    /// retryable because an incomplete subtitle scan cannot establish a reliable no-match.
+    /// Marks subtitle detection as unresolved for a mode. This includes incomplete extraction and
+    /// a matched recap with no reliable end boundary. Conventional analyzers may still provide
+    /// fallback segments, but the mode remains retryable until a later subtitle pass can settle it.
     /// </summary>
-    public bool SubtitleDetectionIncomplete { get; set; }
+    /// <param name="mode">Analysis mode whose subtitle result is unresolved.</param>
+    public void MarkSubtitleDetectionUnresolved(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether subtitle detection remains unresolved for a mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether that mode must remain retryable.</returns>
+    public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Contains(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

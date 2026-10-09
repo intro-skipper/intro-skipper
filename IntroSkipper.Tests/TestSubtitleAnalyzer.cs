@@ -75,7 +75,7 @@ public sealed class TestSubtitleAnalyzer
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(20), DatabaseTestHelpers.Ticks(30));
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(0), DatabaseTestHelpers.Ticks(20));
         var config = new PluginConfiguration
         {
             EnableSubtitleRecapDetection = true,
@@ -133,6 +133,7 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(5, TickConversions.ToSeconds(recap.StartTicks));
         Assert.Equal(15, TickConversions.ToSeconds(recap.EndTicks));
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Recap));
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Recap));
         Assert.Contains(logger.Messages, message => message.Contains("subtitle recap detected at 30.00s", StringComparison.Ordinal));
     }
 
@@ -288,7 +289,7 @@ public sealed class TestSubtitleAnalyzer
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal("previous-config", preview.ConfigHash);
-        Assert.True(episode.SubtitleDetectionIncomplete);
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 

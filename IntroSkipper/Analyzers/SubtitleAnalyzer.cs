@@ -94,14 +94,18 @@ internal sealed partial class SubtitleAnalyzer(
             {
                 if (extractionIncomplete)
                 {
-                    episode.SubtitleDetectionIncomplete = true;
+                    episode.MarkSubtitleDetectionUnresolved(mode);
                     LogSubtitleExtractionFailed(
                         _logger,
                         extractionFailure!,
                         episode.Name,
                         mode);
                 }
-                else if (!recapSearch.DetectedWithoutEnd)
+                else if (recapSearch.DetectedWithoutEnd)
+                {
+                    episode.MarkSubtitleDetectionUnresolved(mode);
+                }
+                else
                 {
                     await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
                 }
@@ -130,7 +134,7 @@ internal sealed partial class SubtitleAnalyzer(
             }
             else if (extractionIncomplete)
             {
-                episode.SubtitleDetectionIncomplete = true;
+                episode.MarkSubtitleDetectionUnresolved(mode);
             }
         }
 
@@ -154,11 +158,11 @@ internal sealed partial class SubtitleAnalyzer(
         var introStart = (await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
             .Where(segment => segment.Type == AnalysisMode.Introduction && segment.State == SegmentState.Active)
             .Select(segment => TickConversions.ToSeconds(segment.StartTicks))
-            .Where(start => start > 0 && start < episode.Duration)
+            .Where(start => start >= 0 && start < episode.Duration)
             .OrderBy(start => start)
-            .FirstOrDefault();
+            .FirstOrDefault(-1);
 
-        if (introStart <= 0)
+        if (introStart < 0)
         {
             return (null, false);
         }
