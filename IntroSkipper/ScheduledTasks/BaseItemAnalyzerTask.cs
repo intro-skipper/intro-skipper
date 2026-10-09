@@ -343,25 +343,6 @@ public partial class BaseItemAnalyzerTask(
         // Built from the live configuration, not the resolution-time policy: exclusions
         // saved between resolution and this verification must apply.
         var policy = ExclusionPolicy.FromConfiguration(config);
-        var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
-        if (candidates[0].AnalysisPercentOverride is null
-            && candidates[0].AnalysisLengthLimitOverride is null
-            && candidates[0].PreviewFromCreditsEndOverride is null
-            && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
-        {
-            snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
-        }
-
-        var previewFromCreditsEnd = ShouldDerivePreview(candidates[0], config);
-        var verifier = new QueueVerifier(
-            config,
-            modes,
-            snapshot,
-            ffmpegValid,
-            candidates[0].AnalysisPercentOverride,
-            candidates[0].AnalysisLengthLimitOverride,
-            previewFromCreditsEnd);
-
         foreach (var candidate in candidates)
         {
             try
@@ -386,7 +367,6 @@ public partial class BaseItemAnalyzerTask(
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
                 verified.Add(candidate);
-                verifier.Classify(candidate);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -396,6 +376,42 @@ public partial class BaseItemAnalyzerTask(
             {
                 LogSkippingAnalysisException(_logger, candidate.Name, candidate.EpisodeId, ex);
             }
+        }
+
+        if (verified.Count == 0)
+        {
+            return [];
+        }
+
+        var first = verified[0];
+        var episodeIds = verified.Select(c => c.EpisodeId).ToArray();
+        var snapshot = await _database.GetSeasonQueueSnapshotAsync(first.SeasonId, episodeIds, cancellationToken).ConfigureAwait(false);
+        if (first.AnalysisPercentOverride is null
+            && first.AnalysisLengthLimitOverride is null
+            && first.PreviewFromCreditsEndOverride is null
+            && await LegacyAnalysisCompatibility.UpgradeAsync(
+                _database,
+                snapshot,
+                config,
+                ffmpegValid,
+                verified.Count,
+                cancellationToken).ConfigureAwait(false))
+        {
+            snapshot = await _database.GetSeasonQueueSnapshotAsync(first.SeasonId, episodeIds, cancellationToken).ConfigureAwait(false);
+        }
+
+        var verifier = new QueueVerifier(
+            config,
+            modes,
+            snapshot,
+            ffmpegValid,
+            first.AnalysisPercentOverride,
+            first.AnalysisLengthLimitOverride,
+            ShouldDerivePreview(first, config),
+            verified.Count);
+        foreach (var candidate in verified)
+        {
+            verifier.Classify(candidate);
         }
 
         verifier.LogAnalysisReasons(_logger, verified);
@@ -446,7 +462,8 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             first.AnalysisPercentOverride,
             first.AnalysisLengthLimitOverride,
-            ShouldDerivePreview(first, Config));
+            ShouldDerivePreview(first, Config),
+            items.Count);
 
         if (action == AnalyzerAction.None)
         {

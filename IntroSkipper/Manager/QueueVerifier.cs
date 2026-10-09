@@ -51,6 +51,7 @@ internal sealed partial class QueueVerifier
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
     /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
     /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
+    /// <param name="itemCount">Number of items in the analysis season.</param>
     public QueueVerifier(
         PluginConfiguration config,
         IReadOnlyCollection<AnalysisMode> modes,
@@ -58,7 +59,8 @@ internal sealed partial class QueueVerifier
         bool ffmpegValid,
         int? analysisPercentOverride = null,
         int? analysisLengthLimitOverride = null,
-        bool? previewFromCreditsEndOverride = null)
+        bool? previewFromCreditsEndOverride = null,
+        int itemCount = int.MaxValue)
     {
         _config = config;
         _modes = modes;
@@ -71,7 +73,7 @@ internal sealed partial class QueueVerifier
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
-            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid, analysisPercentOverride, analysisLengthLimitOverride, previewFromCreditsEndOverride);
+            _expectedHashByMode[mode] = ConfigHasher.Analysis(config, mode, action, ffmpegValid, analysisPercentOverride, analysisLengthLimitOverride, previewFromCreditsEndOverride, itemCount);
             _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
                 config,
                 mode,
@@ -79,7 +81,8 @@ internal sealed partial class QueueVerifier
                 ffmpegValid: true,
                 analysisPercentOverride: analysisPercentOverride,
                 analysisLengthLimitOverride: analysisLengthLimitOverride,
-                previewFromCreditsEndOverride: previewFromCreditsEndOverride));
+                previewFromCreditsEndOverride: previewFromCreditsEndOverride,
+                itemCount: itemCount));
         }
     }
 

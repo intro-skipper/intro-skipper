@@ -253,6 +253,42 @@ public sealed class TestLegacyAnalysisCompatibility
     }
 
     [Theory]
+    [InlineData(AnalyzerAction.BlackFrame, true, 2)]
+    [InlineData(AnalyzerAction.Chromaprint, true, 1)]
+    [InlineData(AnalyzerAction.Chromaprint, false, 2)]
+    public async Task InactiveAudioSelection_DoesNotBlockCreditsAdoption(
+        AnalyzerAction action,
+        bool ffmpegValid,
+        int itemCount)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+        var ids = Enumerable.Range(0, itemCount).Select(_ => Guid.NewGuid()).ToArray();
+        var seasonId = Guid.NewGuid();
+        await temp.Database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction>
+        {
+            [AnalysisMode.Credits] = action,
+        });
+        await temp.Database.MarkItemsAnalyzedAsync(
+            AnalysisMode.Credits,
+            [ids[0]],
+            LegacyAnalysisCompatibility.AnalysisHash(new PluginConfiguration(), AnalysisMode.Credits, action, ffmpegValid, false));
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
+
+        Assert.True(await LegacyAnalysisCompatibility.UpgradeAsync(
+            temp.Database,
+            snapshot,
+            config,
+            ffmpegValid: ffmpegValid,
+            itemCount: itemCount));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
+        var candidate = new QueuedEpisode { EpisodeId = ids[0] };
+        new QueueVerifier(config, [AnalysisMode.Credits], snapshot, ffmpegValid, itemCount: itemCount).Classify(candidate);
+        Assert.NotEqual(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Credits));
+    }
+
+    [Theory]
     [InlineData(AnalysisMode.Introduction, "offset")]
     [InlineData(AnalysisMode.Credits, "offset")]
     [InlineData(AnalysisMode.Recap, "offset")]

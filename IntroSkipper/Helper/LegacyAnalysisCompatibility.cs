@@ -12,9 +12,9 @@ namespace IntroSkipper.Helper;
 /// <summary>
 /// Adopts completed 10.11.22–24 analysis under the 12.0 baseline without running detection.
 /// The legacy hash inputs are frozen to those releases. Only hashes matching the retained
-/// settings are eligible. A setting introduced in 12.0 blocks adoption exactly where
-/// <see cref="ConfigHasher.Analysis"/> hashes it for the season's mode and action, so changing
-/// it before adoption reanalyzes the same seasons as changing it afterwards.
+/// settings are eligible. A setting introduced in 12.0 blocks adoption only when the active
+/// analyzer path makes it relevant; Credits Chromaprint requires FFmpeg support and multiple
+/// season items.
 /// Rewriting the completion record makes adoption one-time and preserves ordinary
 /// hash invalidation afterwards. Missing records and unknown hashes are never adopted.
 /// </summary>
@@ -24,6 +24,8 @@ internal static class LegacyAnalysisCompatibility
         IntroSkipperDatabase database,
         SeasonQueueSnapshot snapshot,
         PluginConfiguration config,
+        bool ffmpegValid = true,
+        int itemCount = int.MaxValue,
         CancellationToken cancellationToken = default)
     {
         var updated = false;
@@ -31,12 +33,7 @@ internal static class LegacyAnalysisCompatibility
         {
             var mode = modeGroup.Key;
             var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
-            var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
             if (!AnalysisHelpers.IsSupported(mode)
-                || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
-                    || !config.PreferAudioStreamWithMostChannels))
-                || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer
-                    || (config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame)))
                 || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen))
             {
                 continue;
@@ -45,7 +42,40 @@ internal static class LegacyAnalysisCompatibility
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })
             {
-                var currentHash = ConfigHasher.Analysis(config, mode, action, available);
+                var previousChromaprintAvailable = available && itemCount > 1;
+                var currentChromaprintAvailable = ffmpegValid && itemCount > 1;
+                var previousUsesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
+                    || (mode == AnalysisMode.Credits
+                        && previousChromaprintAvailable
+                        && action is not AnalyzerAction.BlackFrame and not AnalyzerAction.None);
+                var currentUsesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Recap
+                    || (mode == AnalysisMode.Credits
+                        && currentChromaprintAvailable
+                        && action is not AnalyzerAction.BlackFrame and not AnalyzerAction.None);
+                var previousUsesBlackFrame = mode == AnalysisMode.Credits
+                    && action != AnalyzerAction.None
+                    && (action != AnalyzerAction.Chromaprint || !previousChromaprintAvailable);
+                var currentUsesBlackFrame = mode == AnalysisMode.Credits
+                    && action != AnalyzerAction.None
+                    && (action != AnalyzerAction.Chromaprint || !currentChromaprintAvailable);
+                var previousUsesChapters = mode == AnalysisMode.Credits
+                    && action is not AnalyzerAction.BlackFrame and not AnalyzerAction.None
+                    && (action != AnalyzerAction.Chromaprint || !previousChromaprintAvailable);
+                var currentUsesChapters = mode == AnalysisMode.Credits
+                    && action is not AnalyzerAction.BlackFrame and not AnalyzerAction.None
+                    && (action != AnalyzerAction.Chromaprint || !currentChromaprintAvailable);
+                if (((previousUsesChromaprint || currentUsesChromaprint)
+                    && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
+                        || !config.PreferAudioStreamWithMostChannels))
+                    || ((previousUsesBlackFrame || currentUsesBlackFrame) && config.UseLegacyBlackFrameAnalyzer)
+                    || ((previousUsesChapters || currentUsesChapters)
+                        && config.EnhanceChapterCredits
+                        && action is not AnalyzerAction.BlackFrame))
+                {
+                    continue;
+                }
+
+                var currentHash = ConfigHasher.Analysis(config, mode, action, ffmpegValid: available, itemCount: itemCount);
                 foreach (var release in new[] { 22, 23, 24 })
                 {
                     if (release < 24 && (config.IncludeIntroStartOffsetWhenSnapping

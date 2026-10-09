@@ -65,6 +65,9 @@ public sealed class TestConfigHasher
         Case("Analysis changes with stream selection policy", Analysis(mostChannels, AnalysisMode.Introduction), Analysis(lowestIndex, AnalysisMode.Introduction), false);
         Case("Introduction analysis changes with preferred language", Analysis(defaults, AnalysisMode.Introduction), Analysis(english, AnalysisMode.Introduction), false);
         Case("Credits analysis changes with preferred language", Analysis(defaults, AnalysisMode.Credits), Analysis(english, AnalysisMode.Credits), false);
+        Case("Credits analysis ignores preferred language under BlackFrame", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, true), ConfigHasher.Analysis(english, AnalysisMode.Credits, AnalyzerAction.BlackFrame, true), true);
+        Case("Credits analysis ignores preferred language without available Chromaprint", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.Chromaprint, true, itemCount: 1), ConfigHasher.Analysis(english, AnalysisMode.Credits, AnalyzerAction.Chromaprint, true, itemCount: 1), true);
+        Case("Credits analysis ignores preferred language without FFmpeg", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.Default, false), ConfigHasher.Analysis(english, AnalysisMode.Credits, AnalyzerAction.Default, false), true);
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
 
         // Toggling card credits changes credits output (when its analyzer is active), so it
@@ -74,6 +77,8 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with DetectNonBlackCredits", Analysis(nonBlackOn, AnalysisMode.Credits), Analysis(nonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis changes when legacy analyzer selected", Analysis(nonBlackOff, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), false);
         Case("Credits analysis ignores DetectNonBlackCredits under legacy analyzer", Analysis(legacyNonBlackOn, AnalysisMode.Credits), Analysis(legacyNonBlackOff, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores legacy analyzer setting under Chromaprint", ConfigHasher.Analysis(nonBlackOff, AnalysisMode.Credits, AnalyzerAction.Chromaprint, true), ConfigHasher.Analysis(legacyNonBlackOff, AnalysisMode.Credits, AnalyzerAction.Chromaprint, true), true);
+        Case("Credits analysis ignores legacy analyzer setting without available Chromaprint", ConfigHasher.Analysis(nonBlackOff, AnalysisMode.Credits, AnalyzerAction.Chromaprint, false), ConfigHasher.Analysis(legacyNonBlackOff, AnalysisMode.Credits, AnalyzerAction.Chromaprint, false), false);
 
         // Chromaprint availability changes what the Chromaprint-backed modes can produce;
         // the chapter-only modes never consult it.
