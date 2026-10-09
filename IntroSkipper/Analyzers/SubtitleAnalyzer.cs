@@ -158,7 +158,14 @@ internal sealed partial class SubtitleAnalyzer(
     private static bool Matches(Regex regex, string text)
     {
         var plainText = SubtitleText(text);
-        return regex.IsMatch(plainText);
+        try
+        {
+            return regex.IsMatch(plainText);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     private static string SubtitleText(string text)
