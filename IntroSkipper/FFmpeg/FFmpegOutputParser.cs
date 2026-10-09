@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -199,6 +200,76 @@ internal static partial class FFmpegOutputParser
         }
 
         return [.. blackIntervals];
+    }
+
+    /// <summary>
+    /// Parses FFmpeg's WebVTT subtitle output. Cue settings and subtitle markup are left in the
+    /// text because the analyzer owns normalization for user-configured expressions.
+    /// </summary>
+    /// <param name="raw">WebVTT output.</param>
+    /// <returns>Well-formed timed cues.</returns>
+    internal static SubtitleCue[] ParseWebVtt(string raw)
+    {
+        var cues = new List<SubtitleCue>();
+        var lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        for (var i = 0; i < lines.Length;)
+        {
+            var timing = lines[i].IndexOf("-->", StringComparison.Ordinal);
+            if (timing < 0)
+            {
+                i++;
+                continue;
+            }
+
+            var startText = lines[i][..timing].Trim();
+            var endText = lines[i][(timing + 3)..].Trim().Split(' ', 2)[0];
+            if (!TryParseVttTime(startText, out var start) || !TryParseVttTime(endText, out var end) || end <= start)
+            {
+                i++;
+                continue;
+            }
+
+            var text = new StringBuilder();
+            i++;
+            while (i < lines.Length && !string.IsNullOrWhiteSpace(lines[i]))
+            {
+                if (text.Length > 0)
+                {
+                    text.Append(' ');
+                }
+
+                text.Append(lines[i].Trim());
+                i++;
+            }
+
+            if (text.Length > 0)
+            {
+                cues.Add(new SubtitleCue(start, end, text.ToString()));
+            }
+        }
+
+        return [.. cues];
+    }
+
+    private static bool TryParseVttTime(string value, out double seconds)
+    {
+        seconds = 0;
+        var parts = value.Split(':');
+        if (parts.Length is not (2 or 3)
+            || !double.TryParse(parts[^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var second)
+            || !double.TryParse(parts[^2], NumberStyles.Float, CultureInfo.InvariantCulture, out var minute))
+        {
+            return false;
+        }
+
+        var hour = 0d;
+        if (parts.Length == 3 && !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out hour))
+        {
+            return false;
+        }
+
+        seconds = (hour * 3600) + (minute * 60) + second;
+        return seconds >= 0;
     }
 
     private static double ParseDouble(string value) => double.Parse(value, CultureInfo.InvariantCulture);

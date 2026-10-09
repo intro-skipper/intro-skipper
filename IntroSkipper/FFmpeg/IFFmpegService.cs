@@ -124,6 +124,15 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Extracts timed text cues from embedded and adjacent text subtitle streams.
+    /// Image subtitles are ignored because they cannot be matched without OCR.
+    /// </summary>
+    /// <param name="episode">Media file whose subtitles should be read.</param>
+    /// <param name="cancellationToken">Token used to cancel subtitle extraction.</param>
+    /// <returns>Subtitle cues in media seconds, ordered by start time.</returns>
+    Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the outcome of the most recent <see cref="CheckFFmpegVersionAsync"/> run for the support bundle.
     /// </summary>
     /// <returns>The status token and the raw output of each probe in check order; <see cref="FFmpegCheckResult.NotRun"/> before the first check.</returns>

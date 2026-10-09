@@ -518,8 +518,12 @@ public partial class BaseItemAnalyzerTask(
     }
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
-        => episode.PreviewFromCreditsEndOverride
-            ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
+        // Subtitle preview detection is a separate strategy. When it is enabled, do not also
+        // derive a competing Preview from Credits; episodes without a matching cue simply have
+        // no subtitle-based Preview.
+        => !config.EnableSubtitlePreviewDetection
+            && (episode.PreviewFromCreditsEndOverride
+                ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd));
 
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
@@ -534,15 +538,19 @@ public partial class BaseItemAnalyzerTask(
         bool isMovie,
         CancellationToken cancellationToken)
     {
-        // Chapters come first. Chromaprint needs a season to compare (no movies) and a
-        // compatible ffmpeg.
+        // Subtitle matching is an opt-in, mode-specific producer. It runs before the existing
+        // analyzers so a matching cue settles the episode without being combined with chapters,
+        // Chromaprint or credits-derived previews. Chromaprint needs a season to compare (no
+        // movies) and a compatible ffmpeg.
+        var subtitle = mode is AnalysisMode.Recap or AnalysisMode.Preview
+            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
+            : null;
         var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
         IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
-        List<IMediaFileAnalyzer?> chain = [chapter, chromaprint];
-        var analyzers = chain.OfType<IMediaFileAnalyzer>().ToList();
+        var conventional = new List<IMediaFileAnalyzer?> { chapter, chromaprint };
 
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
         // the rest keep their relative order. An action naming an analyzer that is not in the
@@ -553,11 +561,13 @@ public partial class BaseItemAnalyzerTask(
             AnalyzerAction.Chromaprint => chromaprint,
             _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
         };
-        if (preferred is not null && analyzers.Remove(preferred))
+        var conventionalAnalyzers = conventional.OfType<IMediaFileAnalyzer>().ToList();
+        if (preferred is not null && conventionalAnalyzers.Remove(preferred))
         {
-            analyzers.Insert(0, preferred);
+            conventionalAnalyzers.Insert(0, preferred);
         }
 
+        List<IMediaFileAnalyzer> analyzers = [.. new[] { subtitle }.OfType<IMediaFileAnalyzer>(), .. conventionalAnalyzers];
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();

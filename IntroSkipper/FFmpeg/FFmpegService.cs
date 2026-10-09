@@ -626,6 +626,103 @@ internal sealed partial class FFmpegService : IFFmpegService
         return null;
     }
 
+    /// <inheritdoc />
+    public async Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        var cues = new List<SubtitleCue>();
+        try
+        {
+            string[] probeArgs =
+            [
+                "-v", "error",
+                "-select_streams", "s",
+                "-show_entries", "stream=index",
+                "-of", "json",
+                episode.Path,
+            ];
+            var probeOutput = Encoding.UTF8.GetString(await _processRunner.RunAsync(
+                GetFFprobePath(), probeArgs, stderr: false, timeout: 10 * 1000, cancellationToken).ConfigureAwait(false));
+
+            using var document = JsonDocument.Parse(probeOutput);
+            if (document.RootElement.TryGetProperty("streams", out var streams))
+            {
+                foreach (var stream in streams.EnumerateArray())
+                {
+                    if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
+                    {
+                        cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+                    }
+                }
+            }
+
+            foreach (var sidecar in FindSubtitleSidecars(episode.Path))
+            {
+                cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogSubtitleExtractionFailed(_logger, ex, episode.Path);
+        }
+
+        return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
+    }
+
+    private async Task<SubtitleCue[]> ExtractWebVttAsync(string path, string map, CancellationToken cancellationToken)
+    {
+        string[] args =
+        [
+            "-i", path,
+            "-map", map,
+            "-c:s", "webvtt",
+            "-f", "webvtt",
+            "-",
+        ];
+        try
+        {
+            var output = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+            return FFmpegOutputParser.ParseWebVtt(output);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogSubtitleStreamExtractionFailed(_logger, ex, path, map);
+            return [];
+        }
+    }
+
+    private static IEnumerable<string> FindSubtitleSidecars(string mediaPath)
+    {
+        var directory = Path.GetDirectoryName(mediaPath);
+        var stem = Path.GetFileNameWithoutExtension(mediaPath);
+        if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(stem) || !Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ass", ".ssa", ".srt", ".sub", ".vtt" };
+        IEnumerable<string> paths;
+        try
+        {
+            paths = Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly);
+        }
+        catch (IOException or UnauthorizedAccessException)
+        {
+            yield break;
+        }
+
+        foreach (var path in paths)
+        {
+            if (allowedExtensions.Contains(Path.GetExtension(path)) && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return path;
+            }
+        }
+    }
+
     /// <summary>
     /// Runs ffmpeg and returns standard output (or error).
     /// </summary>
@@ -952,6 +1049,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to extract subtitles from {File}")]
+    private static partial void LogSubtitleExtractionFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to extract subtitle stream {Stream} from {File}")]
+    private static partial void LogSubtitleStreamExtractionFailed(ILogger logger, Exception ex, string file, string stream);
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.

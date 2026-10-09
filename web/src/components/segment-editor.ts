@@ -38,6 +38,8 @@ export function sourceBadgeText(segment: SegmentDto): string {
             return "combined";
         case "KeyframeVisuals":
             return "card";
+        case "Subtitle":
+            return "subtitle";
         default:
             return segment.Source.toLowerCase();
     }

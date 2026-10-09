@@ -32,6 +32,10 @@ export const chaptersTab: Tab = {
             patternField(form, "ChapterAnalyzerRecapPattern"),
             patternField(form, "ChapterAnalyzerCommercialPattern"),
             form.field("EnableSponsorBlockChapterDetection"),
+            form.field("EnableSubtitleRecapDetection"),
+            patternField(form, "SubtitleRecapPattern"),
+            form.field("EnableSubtitlePreviewDetection"),
+            patternField(form, "SubtitlePreviewPattern"),
         );
     },
 };
