@@ -115,9 +115,10 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the file version Jellyfin currently holds for the item: the ticks of
-    /// the media file's last write time as of its last refresh. Null when Jellyfin holds
-    /// none. Recorded with the analysis so a later file replacement reopens the item.
+    /// Gets or sets the file version for the item: Jellyfin's media-file modification
+    /// ticks, combined with adjacent subtitle sidecar metadata when present. Null when
+    /// neither source provides a version. Recorded with the analysis so a changed media
+    /// file or subtitle sidecar reopens the item.
     /// </summary>
     public long? FileVersion { get; set; }
 

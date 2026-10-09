@@ -5,10 +5,12 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -519,6 +521,37 @@ public sealed class TestSeasonResolver
 
         Assert.Equal(QueuedMediaCategory.AnimeEpisode, queued.Category);
         Assert.Equal(2, queued.FileVersion);
+    }
+
+    [Fact]
+    public void SubtitleSidecarVersions_ReopenFilesAndExcludeVobSubImagesFromTextSources()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var mediaPath = Path.Combine(directory, "episode.mkv");
+        var subtitlePath = Path.Combine(directory, "episode.en.srt");
+        var imageSubtitlePath = Path.Combine(directory, "episode.ja.sub");
+        var imageIndexPath = Path.Combine(directory, "episode.ja.idx");
+
+        try
+        {
+            File.WriteAllText(mediaPath, string.Empty);
+            File.WriteAllText(subtitlePath, "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+            File.WriteAllText(imageSubtitlePath, "image data");
+            File.WriteAllText(imageIndexPath, "VobSub index");
+            var before = SubtitleSidecarFiles.FileVersion(mediaPath, 123);
+            File.SetLastWriteTimeUtc(subtitlePath, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            var after = SubtitleSidecarFiles.FileVersion(mediaPath, 123);
+            string[] expectedTextSources = [subtitlePath];
+
+            Assert.NotEqual(before, after);
+            Assert.Equal(expectedTextSources, SubtitleSidecarFiles.FindTextSources(mediaPath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     private static SeasonResolver CreateResolver(IReadOnlyList<BaseItem> items)

@@ -223,7 +223,11 @@ public partial class BaseItemAnalyzerTask(
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
-            await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken).ConfigureAwait(false);
+            await _database.ResetItemsForReanalysisAsync(
+                changedFiles,
+                AllModes,
+                cancellationToken,
+                GetSubtitleModesToPreserve(modes)).ConfigureAwait(false);
             foreach (var episode in episodes.Where(e => e.FileChanged))
             {
                 foreach (var mode in modes)
@@ -262,7 +266,11 @@ public partial class BaseItemAnalyzerTask(
 
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
-                await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
+                await _database.ResetItemsForReanalysisAsync(
+                    episodeIds,
+                    resetModes,
+                    cancellationToken,
+                    GetSubtitleModesToPreserve(resetModes)).ConfigureAwait(false);
 
                 foreach (var episode in episodes)
                 {
@@ -472,7 +480,8 @@ public partial class BaseItemAnalyzerTask(
             items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            ShouldPreserveSubtitleRows(mode)).ConfigureAwait(false);
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
@@ -527,6 +536,17 @@ public partial class BaseItemAnalyzerTask(
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
+    private bool ShouldPreserveSubtitleRows(AnalysisMode mode)
+        => mode switch
+        {
+            AnalysisMode.Recap => Config.EnableSubtitleRecapDetection && !string.IsNullOrWhiteSpace(Config.SubtitleRecapPattern),
+            AnalysisMode.Preview => Config.EnableSubtitlePreviewDetection && !string.IsNullOrWhiteSpace(Config.SubtitlePreviewPattern),
+            _ => false,
+        };
+
+    private AnalysisMode[] GetSubtitleModesToPreserve(IReadOnlyCollection<AnalysisMode> modes)
+        => [.. modes.Where(ShouldPreserveSubtitleRows)];
+
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
     /// runs in priority order and each skips the episodes an earlier one settled via
@@ -569,7 +589,11 @@ public partial class BaseItemAnalyzerTask(
             conventionalAnalyzers.Insert(0, preferred);
         }
 
-        List<IMediaFileAnalyzer> analyzers = [.. new[] { subtitle }.OfType<IMediaFileAnalyzer>(), .. conventionalAnalyzers];
+        List<IMediaFileAnalyzer> analyzers = [.. conventionalAnalyzers];
+        if (subtitle is not null)
+        {
+            analyzers.Insert(0, subtitle);
+        }
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();

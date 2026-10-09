@@ -136,6 +136,48 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 
+    [Fact]
+    public async Task PreviewMode_SubtitleExtractionFailurePreservesStalePreview()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(100, 180))],
+            SegmentSource.Subtitle,
+            configHash: "old-config");
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal("old-config", preview.ConfigHash);
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
     /// <summary>
     /// The watcher queues changed items by their own id and the run analyzes the season
     /// holding each one. A scan hands over the ids of the episodes it erased.

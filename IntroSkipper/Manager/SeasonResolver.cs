@@ -278,13 +278,15 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         => episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
 
     /// <summary>
-    /// Returns the file version Jellyfin holds for an item: its modification time in
-    /// ticks, or <see langword="null"/> when Jellyfin has none.
+    /// Returns the file version Jellyfin holds for an item, combined with adjacent
+    /// subtitle sidecar versions when present.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The file version.</returns>
     internal static long? FileVersion(BaseItem item)
-        => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+        => SubtitleSidecarFiles.FileVersion(
+            item.Path,
+            item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks);
 
     // Whether Jellyfin has probed the item's file. A library scan creates an item, and
     // raises ItemAdded, before the metadata refresh that probes its runtime and chapters,

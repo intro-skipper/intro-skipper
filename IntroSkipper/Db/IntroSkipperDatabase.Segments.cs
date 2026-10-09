@@ -110,6 +110,42 @@ public sealed partial class IntroSkipperDatabase
             cancellationToken,
             supersedeCreditsDerived: true);
 
+    /// <summary>
+    /// Removes active subtitle-generated segments after a subtitle source was read
+    /// successfully and no replacement cue matched. Other analyzers' rows and every
+    /// tombstone remain intact so their fallback results are still available.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Recap or Preview mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of subtitle rows removed.</returns>
+    public async Task<int> ClearSubtitleSegmentsAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Subtitle segments are only supported for Recap and Preview.");
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var rows = db.Segments.Where(segment =>
+                segment.ItemId == itemId
+                && segment.Type == mode
+                && segment.Source == SegmentSource.Subtitle
+                && segment.State == SegmentState.Active);
+            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, rows, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
+    }
+
     private async Task<int> ReplaceAutoSegmentsCoreAsync(
         Guid itemId,
         AnalysisMode mode,

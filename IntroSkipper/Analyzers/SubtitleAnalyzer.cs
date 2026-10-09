@@ -82,6 +82,7 @@ internal sealed partial class SubtitleAnalyzer(
 
             if (segment is null)
             {
+                await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 

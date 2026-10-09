@@ -41,6 +41,8 @@ Every interactive surface commits through `SegmentChange.ApplyAsync`: the plural
 
 Analyzer and maintenance code calls the facade directly but journals too. Every facade write that changes an item's servable image (`ReplaceAutoSegmentsAsync`, `CleanStaleAutomaticSegmentsAsync`, `EraseItemsAsync`, `DeleteSegmentsByModeAsync`, `ClearCreditsDerivedPreviewsAsync`, `ResetItemsForReanalysisAsync`) enqueues the affected items' markers in its own transaction. Pure bookkeeping, such as analysis records, season state and analyzer actions, journals nothing because Jellyfin serves none of it.
 
+When subtitle detection is enabled, stale subtitle-generated Recap and Preview rows can be retained during cleanup and reanalysis resets. An admitted match replaces the prior automatic result transactionally; a successful no-match clears the stale subtitle row without deleting other analyzers' fallback rows. A failed extraction or rejected replacement leaves the prior servable row untouched.
+
 A re-analysis that reproduces identical boundaries journals nothing either. A Jellyfin row that was hand-deleted or corrupted therefore stays divergent until a journaled change touches the item, an idempotent interactive request re-asserts it, or Jellyfin's own media segment scan pulls current truth through the provider.
 
 Bulk erases go through `ISegmentEraser`: the dashboard's erase endpoints, the manual scan, the mode erase and the cache cleanup task. Each erase journals the affected items in the same transaction as the delete, then converges only those items through `SegmentChange.ProjectItemsAsync` and leaves anything unfinished to the worker. The detection cache cleanup that can follow is best effort, because the main database is already consistent by then.

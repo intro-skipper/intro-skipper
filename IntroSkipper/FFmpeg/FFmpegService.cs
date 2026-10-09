@@ -37,6 +37,15 @@ internal sealed partial class FFmpegService : IFFmpegService
     // stdout capture to grow without bound inside the Jellyfin server process.
     private const long SubtitleMaximumBytes = 16L * 1024 * 1024;
 
+    // A media container can advertise an unbounded number of subtitle streams; cap ffprobe's
+    // JSON response separately from the larger, decoded subtitle-text allowance.
+    private const long SubtitleProbeMaximumBytes = 1024L * 1024;
+
+    private static readonly HashSet<string> ImageSubtitleCodecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "dvb_subtitle", "dvb_teletext", "dvd_subtitle", "hdmv_pgs_subtitle", "xsub",
+    };
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -637,6 +646,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         List<int> embeddedStreams = [];
         Exception? probeFailure = null;
         Exception? sourceFailure = null;
+        var probeOutputExceededLimit = false;
         var sourceReadSuccessfully = false;
         try
         {
@@ -644,19 +654,39 @@ internal sealed partial class FFmpegService : IFFmpegService
             [
                 "-v", "error",
                 "-select_streams", "s",
-                "-show_entries", "stream=index",
+                "-show_entries", "stream=index,codec_name",
                 "-of", "json",
                 episode.Path,
             ];
-            var probeOutput = Encoding.UTF8.GetString(await _processRunner.RunAsync(
-                GetFFprobePath(), probeArgs, stderr: false, timeout: 10 * 1000, cancellationToken).ConfigureAwait(false));
+            var probeCapture = await _processRunner.RunCapturedAsync(
+                GetFFprobePath(),
+                probeArgs,
+                SubtitleProbeMaximumBytes,
+                expectedStdoutBytes: 64 * 1024,
+                timeout: 10 * 1000,
+                cancellationToken).ConfigureAwait(false);
+            if (probeCapture.Truncated)
+            {
+                probeOutputExceededLimit = true;
+                throw new InvalidOperationException($"Subtitle probe output exceeded the {SubtitleProbeMaximumBytes} byte capture limit.");
+            }
 
-            using var document = JsonDocument.Parse(probeOutput);
+            if (probeCapture.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"FFprobe exited with code {probeCapture.ExitCode} while probing subtitles.");
+            }
+
+            using var document = JsonDocument.Parse(Encoding.UTF8.GetString(probeCapture.Stdout.Span));
             if (document.RootElement.TryGetProperty("streams", out var streams))
             {
                 foreach (var stream in streams.EnumerateArray())
                 {
-                    if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
+                    var isImageSubtitle = stream.TryGetProperty("codec_name", out var codec)
+                        && codec.ValueKind == JsonValueKind.String
+                        && ImageSubtitleCodecs.Contains(codec.GetString()!);
+                    if (!isImageSubtitle
+                        && stream.TryGetProperty("index", out var index)
+                        && index.TryGetInt32(out var streamIndex))
                     {
                         embeddedStreams.Add(streamIndex);
                     }
@@ -667,7 +697,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         {
             throw;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        catch (Exception ex) when (!probeOutputExceededLimit
+            && ex is (JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException))
         {
             probeFailure = ex;
             LogSubtitleExtractionFailed(_logger, ex, episode.Path);
@@ -691,7 +722,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
         }
 
-        string[] sidecars = [.. FindSubtitleSidecars(episode.Path)];
+        var sidecars = SubtitleSidecarFiles.FindTextSources(episode.Path);
         foreach (var sidecar in sidecars)
         {
             try
@@ -753,25 +784,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         {
             LogSubtitleStreamExtractionFailed(_logger, ex, path, map);
             throw;
-        }
-    }
-
-    private static IEnumerable<string> FindSubtitleSidecars(string mediaPath)
-    {
-        var directory = Path.GetDirectoryName(mediaPath);
-        var stem = Path.GetFileNameWithoutExtension(mediaPath);
-        if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(stem) || !Directory.Exists(directory))
-        {
-            yield break;
-        }
-
-        var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ass", ".ssa", ".srt", ".sub", ".vtt" };
-        foreach (var path in Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly))
-        {
-            if (allowedExtensions.Contains(Path.GetExtension(path)) && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase))
-            {
-                yield return path;
-            }
         }
     }
 
