@@ -136,6 +136,10 @@ internal sealed partial class SubtitleAnalyzer(
             {
                 episode.MarkSubtitleDetectionUnresolved(mode);
             }
+            else
+            {
+                episode.MarkSubtitleCandidateRejected(mode);
+            }
         }
 
         return analysisQueue;

@@ -13,6 +13,7 @@ public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -146,6 +147,22 @@ public sealed class QueuedEpisode
     /// <returns>Whether that mode must remain retryable.</returns>
     public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
         => _unresolvedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks that a complete subtitle match was rejected by automatic-segment admission.
+    /// Such a rejection preserves standing rows but does not make the episode retryable.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose candidate was rejected.</param>
+    public void MarkSubtitleCandidateRejected(AnalysisMode mode)
+        => _rejectedSubtitleModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether a subtitle candidate was rejected by admission for a mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether the mode has a permanent admission rejection to preserve.</returns>
+    public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
+        => _rejectedSubtitleModes.Contains(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

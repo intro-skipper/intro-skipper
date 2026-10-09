@@ -227,6 +227,8 @@ public sealed class TestSubtitleAnalyzer
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+        Assert.True(episode.HasRejectedSubtitleCandidate(AnalysisMode.Preview));
+        Assert.False(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
     }
 
     [Fact]

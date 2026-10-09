@@ -271,6 +271,60 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.False(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
     }
 
+    [Fact]
+    public async Task RejectedSubtitleMatch_PreservesRowsAndSettlesTheMode()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var episodeId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = seasonId,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(100, 110))],
+            SegmentSource.Chapter);
+        var blocker = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        await database.DeleteSegmentAsync(episodeId, blocker.Id);
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(140, 180))],
+            SegmentSource.CreditsDerived,
+            configHash: "credits");
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")] },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
+        Assert.Equal(episode.AnalysisConfigHash, snapshot.AnalysisRecords[(episodeId, AnalysisMode.Preview)].ConfigHash);
+        var nextPass = new QueuedEpisode { EpisodeId = episodeId };
+        new QueueVerifier(config, [AnalysisMode.Preview], snapshot, false, previewFromCreditsEndOverride: false).Classify(nextPass);
+        Assert.Equal(EpisodeState.Analyzed, nextPass.GetAnalyzed(AnalysisMode.Preview));
+    }
+
     /// <summary>
     /// The watcher queues changed items by their own id and the run analyzes the season
     /// holding each one. A scan hands over the ids of the episodes it erased.

@@ -607,7 +607,9 @@ public partial class BaseItemAnalyzerTask(
         if (subtitle is not null && ShouldPreserveSubtitleRows(mode))
         {
             var completedFallbacks = modeEpisodes
-                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed && !item.HasUnresolvedSubtitleDetection(mode))
+                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed
+                    && !item.HasUnresolvedSubtitleDetection(mode)
+                    && !item.HasRejectedSubtitleCandidate(mode))
                 .ToArray();
             await _database.CleanStaleAutomaticSegmentsAsync(
                 completedFallbacks.Select(item => item.EpisodeId),
@@ -619,6 +621,14 @@ public partial class BaseItemAnalyzerTask(
             foreach (var item in modeEpisodes.Where(item => item.HasUnresolvedSubtitleDetection(mode)))
             {
                 item.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+            }
+
+            foreach (var item in modeEpisodes.Where(item => item.HasRejectedSubtitleCandidate(mode)))
+            {
+                if (item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
+                {
+                    item.SetAnalyzed(mode, EpisodeState.Analyzed);
+                }
             }
         }
     }
