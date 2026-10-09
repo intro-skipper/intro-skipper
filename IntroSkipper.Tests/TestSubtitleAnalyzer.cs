@@ -71,6 +71,12 @@ public sealed class TestSubtitleAnalyzer
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(140, 170))],
+            SegmentSource.CreditsDerived,
+            configHash: "credits");
         var config = new PluginConfiguration
         {
             EnableSubtitlePreviewDetection = true,
@@ -87,6 +93,7 @@ public sealed class TestSubtitleAnalyzer
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal(AnalysisMode.Preview, preview.Type);
+        Assert.NotEqual(SegmentSource.CreditsDerived, preview.Source);
         Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
         Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
         Assert.Equal(SegmentSource.Subtitle, preview.Source);

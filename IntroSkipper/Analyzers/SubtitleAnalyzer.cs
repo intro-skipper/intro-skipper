@@ -65,6 +65,14 @@ internal sealed partial class SubtitleAnalyzer(
                 ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
                 : FindPreview(episode, cues, regex);
 
+            if (mode == AnalysisMode.Preview && segment is not null)
+            {
+                // Preview writes normally preserve the credits-derived pass's rows so the two
+                // producers can coexist. A subtitle match is the explicit, more authoritative
+                // preview strategy, so remove the competing credits-derived row first.
+                await _database.ClearCreditsDerivedPreviewsAsync([episode.EpisodeId], cancellationToken).ConfigureAwait(false);
+            }
+
             await _database.ReplaceAutoSegmentsAsync(
                 episode.EpisodeId,
                 mode,
