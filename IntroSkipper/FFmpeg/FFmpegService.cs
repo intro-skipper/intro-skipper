@@ -704,17 +704,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
 
         var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ass", ".ssa", ".srt", ".sub", ".vtt" };
-        IEnumerable<string> paths;
-        try
-        {
-            paths = Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly);
-        }
-        catch (IOException or UnauthorizedAccessException)
-        {
-            yield break;
-        }
-
-        foreach (var path in paths)
+        foreach (var path in Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly))
         {
             if (allowedExtensions.Contains(Path.GetExtension(path)) && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase))
             {
