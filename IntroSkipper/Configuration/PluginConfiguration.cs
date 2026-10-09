@@ -452,7 +452,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the regular expression used to detect preview subtitle cues.
     /// </summary>
-    public string SubtitlePreviewPattern { get; set; } = @"\b(?:here(?:'|’)?s|now)\s+the\s+preview\b";
+    public string SubtitlePreviewPattern { get; set; } = @"\b(?:(?:here(?:'|’)?s|now)\s+the\s+preview|next\s+time)\b";
 
     // ===== Playback settings =====
 

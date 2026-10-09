@@ -170,15 +170,17 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(SegmentSource.Subtitle, preview.Source);
     }
 
-    [Fact]
-    public async Task DefaultPreviewPattern_MatchesNowThePreview()
+    [Theory]
+    [InlineData("Now the preview")]
+    [InlineData("Next time on the show")]
+    public async Task DefaultPreviewPattern_MatchesSupportedPhrases(string cueText)
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true, MinimumPreviewDuration = 5 };
         var ffmpeg = new StubFFmpegService
         {
-            SubtitleCues = _ => [new SubtitleCue(100, 103, "Now the preview")],
+            SubtitleCues = _ => [new SubtitleCue(100, 103, cueText)],
         };
         var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
