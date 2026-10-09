@@ -838,14 +838,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
     }
 
-    private sealed class SubtitleOutputLimitException : InvalidOperationException
-    {
-        public SubtitleOutputLimitException(string message)
-            : base(message)
-        {
-        }
-    }
-
     /// <summary>
     /// Runs ffmpeg and returns standard output (or error).
     /// </summary>
@@ -1178,6 +1170,14 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to extract subtitle stream {Stream} from {File}")]
     private static partial void LogSubtitleStreamExtractionFailed(ILogger logger, Exception ex, string file, string stream);
+
+    private sealed class SubtitleOutputLimitException : InvalidOperationException
+    {
+        public SubtitleOutputLimitException(string message)
+            : base(message)
+        {
+        }
+    }
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.
