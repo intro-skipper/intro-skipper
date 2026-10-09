@@ -262,9 +262,11 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Recap, TickConversions.FromSeconds(40), TickConversions.FromSeconds(60), SegmentSource.Chapter));
 
             // Automatic credits and the preview derived from them: both deleted, the
-            // preview through the derived-mode expansion. The user preview is preserved.
+            // preview through the derived-mode expansion. A subtitle preview is retained
+            // until its analyzer finishes, and the user preview is preserved.
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Credits, TickConversions.FromSeconds(1000), TickConversions.FromSeconds(1100), SegmentSource.Chapter));
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Preview, TickConversions.FromSeconds(1100), TickConversions.FromSeconds(1320), SegmentSource.CreditsDerived));
+            db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Preview, TickConversions.FromSeconds(1060), TickConversions.FromSeconds(1090), SegmentSource.Subtitle));
             db.Segments.Add(new DbSegment(userPreviewEpisode, AnalysisMode.Preview, TickConversions.FromSeconds(1100), TickConversions.FromSeconds(1320), SegmentSource.User));
 
             db.SeasonStates.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Chromaprint));
@@ -291,7 +293,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         ];
         await _db.Database.ResetItemsForReanalysisAsync(
             [autoEpisode, userEpisode, mixedEpisode, userPreviewEpisode],
-            resetModes);
+            resetModes,
+            preserveSubtitleModes: [AnalysisMode.Preview]);
 
         // The reset reuses the cached fingerprints; only the derived results go.
         using (var cacheDb = DatabaseTestHelpers.CreateCacheContext(cacheDbPath))
@@ -307,7 +310,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             Assert.True(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Recap));
             Assert.Equal(2, db.Segments.Count(s => s.ItemId == mixedEpisode && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active));
             Assert.False(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Credits));
-            Assert.False(db.Segments.Any(s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Preview));
+            Assert.Single(db.Segments, s => s.ItemId == autoEpisode && s.Type == AnalysisMode.Preview && s.Source == SegmentSource.Subtitle);
             Assert.True(db.Segments.Any(s => s.ItemId == userPreviewEpisode && s.Type == AnalysisMode.Preview && s.Source == SegmentSource.User));
 
             // The reset modes' records are gone (every item is NotAnalyzed again); the

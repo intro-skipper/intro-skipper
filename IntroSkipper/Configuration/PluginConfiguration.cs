@@ -257,6 +257,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether a recap is detected from a matching text subtitle
+    /// cue and ends at the beginning of the detected introduction.
+    /// </summary>
+    public bool EnableSubtitleRecapDetection { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a preview is detected from a matching text subtitle
+    /// cue and runs through the end of the episode.
+    /// </summary>
+    public bool EnableSubtitlePreviewDetection { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = DefaultMinimumIntroDuration;
@@ -431,6 +443,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
         @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect recap subtitle cues.
+    /// </summary>
+    public string SubtitleRecapPattern { get; set; } = @"\bpreviously\s+on\b";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect preview subtitle cues.
+    /// </summary>
+    public string SubtitlePreviewPattern { get; set; } = @"\b(?:(?:here(?:'|’)?s|now)\s+the\s+preview|next\s+time)\b";
 
     // ===== Playback settings =====
 

@@ -86,13 +86,74 @@ public sealed partial class IntroSkipperDatabase
         return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, derivedWrite: false, configHash, cancellationToken);
     }
 
+    /// <summary>
+    /// Atomically replaces a subtitle-detected Preview and removes a competing Credits-derived
+    /// Preview only when the subtitle candidate passes automatic-segment admission. A rejected
+    /// candidate leaves both the existing preview and its tombstone blockers untouched.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segment">Subtitle-detected Preview candidate.</param>
+    /// <param name="configHash">Configuration hash that produced the segment.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>1 when the candidate was written or kept; 0 when admission rejected it.</returns>
+    public Task<int> ReplaceSubtitlePreviewAsync(
+        Guid itemId,
+        Segment segment,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+        => ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [new AttributedSegment(segment, SegmentSource.Subtitle)],
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            supersedeCreditsDerived: true);
+
+    /// <summary>
+    /// Removes active subtitle-generated segments after a subtitle source was read
+    /// successfully and no replacement cue matched. Other analyzers' rows and every
+    /// tombstone remain intact so their fallback results are still available.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Recap or Preview mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of subtitle rows removed.</returns>
+    public async Task<int> ClearSubtitleSegmentsAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Subtitle segments are only supported for Recap and Preview.");
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var rows = db.Segments.Where(segment =>
+                segment.ItemId == itemId
+                && segment.Type == mode
+                && segment.Source == SegmentSource.Subtitle
+                && segment.State == SegmentState.Active);
+            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, rows, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
+    }
+
     private async Task<int> ReplaceAutoSegmentsCoreAsync(
         Guid itemId,
         AnalysisMode mode,
         IReadOnlyList<AttributedSegment> segments,
         bool derivedWrite,
         string configHash,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool supersedeCreditsDerived = false)
     {
         ValidateMode(mode);
 
@@ -153,7 +214,7 @@ public sealed partial class IntroSkipperDatabase
                 // An identical range already standing under the other pass keeps that
                 // pass's row; re-inserting it would violate the unique
                 // (ItemId, Type, StartTicks, EndTicks) index.
-                if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                if (!supersedeCreditsDerived && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
                 {
                     continue;
                 }
@@ -176,6 +237,11 @@ public sealed partial class IntroSkipperDatabase
             if (accepted.Count == 0 && rejected > 0)
             {
                 return 0;
+            }
+
+            if (supersedeCreditsDerived && accepted.Count > 0)
+            {
+                autoRows.AddRange(otherPassRows);
             }
 
             // Keep automatic rows whose boundaries are unchanged so their ids stay

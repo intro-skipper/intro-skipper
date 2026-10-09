@@ -74,6 +74,15 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
+            if (mode == AnalysisMode.Recap && currentEpisode.GetAnalyzed(mode) == EpisodeState.Analyzed)
+            {
+                var segments = await _database.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (segments.Any(segment => segment.Type == mode && segment.Source == SegmentSource.Subtitle && segment.State == SegmentState.Active))
+                {
+                    continue;
+                }
+            }
+
             var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!adjustedIntro.Valid)
             {

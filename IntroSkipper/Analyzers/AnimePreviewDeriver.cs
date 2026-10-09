@@ -26,16 +26,27 @@ internal static class AnimePreviewDeriver
     /// An episode with a user-provided Preview is skipped: the admission gate only drops a derived
     /// preview that strictly overlaps it, so without this guard a non-overlapping manual Preview
     /// would gain a second, automatic one beside it, and the episode's UserProvided state would be
-    /// overwritten with Analyzed. A derived preview that overlaps a tombstone is dropped by
-    /// <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed, since
-    /// re-running would not change the gate's answer.
+    /// overwritten with Analyzed. With normal settlement, a derived preview that overlaps a tombstone
+    /// is dropped by <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed,
+    /// since re-running would not change the gate's answer. An active subtitle Preview always takes
+    /// precedence over this derived result. Callers that schedule subtitle Preview analysis can leave
+    /// the Preview state open so the derived row remains a fallback until that pass runs.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
     /// <param name="items">Episodes whose Credits mode was just analyzed.</param>
     /// <param name="minimumDuration">The minimum preview duration in seconds; shorter spans derive nothing.</param>
     /// <param name="cancellationToken">Cancellation token; stops the loop before the next episode.</param>
+    /// <param name="settlePreviewState">
+    /// Whether to mark derived previews as settled for the Preview mode; false also reopens
+    /// non-subtitle results for a scheduled subtitle pass.
+    /// </param>
     /// <returns>A task that completes when every episode has been considered.</returns>
-    internal static async Task DeriveAsync(IntroSkipperDatabase database, IReadOnlyList<QueuedEpisode> items, int minimumDuration, CancellationToken cancellationToken)
+    internal static async Task DeriveAsync(
+        IntroSkipperDatabase database,
+        IReadOnlyList<QueuedEpisode> items,
+        int minimumDuration,
+        CancellationToken cancellationToken,
+        bool settlePreviewState = true)
     {
         foreach (var episode in items)
         {
@@ -48,6 +59,19 @@ internal static class AnimePreviewDeriver
             if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.User))
             {
                 continue;
+            }
+
+            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.Subtitle && s.State == SegmentState.Active))
+            {
+                continue;
+            }
+
+            if (!settlePreviewState)
+            {
+                if (episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
+                {
+                    episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
+                }
             }
 
             // The preview follows the first credits run and ends where the next run starts (a
@@ -77,7 +101,10 @@ internal static class AnimePreviewDeriver
             }
 
             await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-            episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
+            if (settlePreviewState && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
+            {
+                episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
+            }
         }
     }
 

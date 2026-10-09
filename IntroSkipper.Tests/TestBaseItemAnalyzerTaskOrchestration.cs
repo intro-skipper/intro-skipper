@@ -11,9 +11,11 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -73,6 +75,355 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var rows = await database.GetSegmentsAsync(episode.EpisodeId);
         Assert.Equal(SegmentSource.User, Assert.Single(rows, s => s.Type == AnalysisMode.Credits).Source);
         Assert.Equal(expectPreview, rows.Any(s => s.Type == AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task PreviewMode_SubtitlePreviewSupersedesBlackFrameDerivedPreview()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeriesId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            EpisodeNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Name = "Episode 1",
+            Path = "/media/episode-1.mkv",
+            Duration = 180,
+            AnalysisConfigHash = "subtitle-preview",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Credits,
+            [new Segment(episodeId, new TimeRange(140, 160))],
+            SegmentSource.BlackFrame,
+            configHash: "black-frame-credits");
+        await AnimePreviewDeriver.DeriveAsync(
+            database,
+            [episode],
+            config.MinimumPreviewDuration,
+            CancellationToken.None,
+            settlePreviewState: false);
+
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
+        };
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    [Theory]
+    [InlineData(SegmentSource.Chapter)]
+    [InlineData(SegmentSource.Chromaprint)]
+    public async Task PreviewMode_SubtitleExtractionFailurePreservesStaleFallback(SegmentSource source)
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(100, 180))],
+            source,
+            configHash: "old-config");
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(source, preview.Source);
+        Assert.Equal("old-config", preview.ConfigHash);
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task PreviewMode_SubtitleFailureStillDerivesCreditsFallbackAndRemainsRetryable()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Credits,
+            [new Segment(episodeId, new TimeRange(80, 100))],
+            SegmentSource.BlackFrame);
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task PreviewMode_PartialSubtitleMatchRemainsTheOnlyPreviewAndRetryable()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Credits,
+            [new Segment(episodeId, new TimeRange(80, 100))],
+            SegmentSource.BlackFrame);
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService
+            {
+                SubtitleCues = _ => throw new SubtitleExtractionException(
+                    "One subtitle source failed.",
+                    [new SubtitleCue(110, 113, "Here's the preview")],
+                    new IOException("source failed")),
+            },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(110, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task RecapMode_SubtitleDetectionWithoutChapterEndPreservesStaleRecap()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            MinimumRecapDuration = 5,
+            MaximumRecapDuration = 120,
+            ChapterAnalyzerRecapPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Duration = 120,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(20), DatabaseTestHelpers.Ticks(30));
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Recap,
+            [new Segment(episodeId, new TimeRange(5, 15))],
+            SegmentSource.Subtitle,
+            configHash: "old-config");
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")] },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Recap, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var recap = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Recap);
+        Assert.Equal(5, TickConversions.ToSeconds(recap.StartTicks));
+        Assert.Equal(15, TickConversions.ToSeconds(recap.EndTicks));
+        Assert.Equal("old-config", recap.ConfigHash);
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Recap));
+    }
+
+    [Fact]
+    public async Task RecapSubtitleFailure_DoesNotChangePreviewAnalysisState()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerRecapPattern = string.Empty,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var previewTask = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")] },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+        await previewTask.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var recapTask = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+        await recapTask.AnalyzeItemsAsync([episode], AnalysisMode.Recap, AnalyzerAction.Default, false, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Recap));
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Recap));
+        Assert.False(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
+    }
+
+    [Fact]
+    public async Task RejectedSubtitleMatch_PreservesRowsAndSettlesTheMode()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var episodeId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = seasonId,
+            SeasonNumber = 1,
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(100, 110))],
+            SegmentSource.Chapter);
+        var blocker = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        await database.DeleteSegmentAsync(episodeId, blocker.Id);
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Preview,
+            [new Segment(episodeId, new TimeRange(140, 180))],
+            SegmentSource.CreditsDerived,
+            configHash: "credits");
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")] },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
+        Assert.Equal(episode.AnalysisConfigHash, snapshot.AnalysisRecords[(episodeId, AnalysisMode.Preview)].ConfigHash);
+        var nextPass = new QueuedEpisode { EpisodeId = episodeId };
+        new QueueVerifier(config, [AnalysisMode.Preview], snapshot, false, previewFromCreditsEndOverride: false).Classify(nextPass);
+        Assert.Equal(EpisodeState.Analyzed, nextPass.GetAnalyzed(AnalysisMode.Preview));
     }
 
     /// <summary>

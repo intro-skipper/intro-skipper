@@ -45,18 +45,21 @@ public sealed partial class IntroSkipperDatabase
     /// whose <see cref="DbSegment.ConfigHash"/> is non-empty and differs from
     /// <paramref name="configHash"/>. Credits-derived rows belong to the credits pass.
     /// User segments, tombstones, rows with an empty hash and the automatic rows of a
-    /// type the item holds an active user row for are kept. The affected items'
+    /// type the item holds an active user row for are kept. Stale rows can also be
+    /// retained until subtitle and conventional analysis can replace or retire them. The affected items'
     /// projections are journaled with the delete.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
+    /// <param name="preserveStaleRows">Keep all stale automatic rows until subtitle and conventional analysis can replace or retire them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of rows removed.</returns>
     public async Task<int> CleanStaleAutomaticSegmentsAsync(
         IEnumerable<Guid> itemIds,
         AnalysisMode mode,
         string configHash,
+        bool preserveStaleRows = false,
         CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
@@ -84,6 +87,7 @@ public sealed partial class IntroSkipperDatabase
                 && s.State == SegmentState.Active
                 && s.ConfigHash != string.Empty
                 && s.ConfigHash != configHash
+                && !preserveStaleRows
                 && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
                     || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits))
                 && !db.Segments.Any(u => u.ItemId == s.ItemId
@@ -149,16 +153,19 @@ public sealed partial class IntroSkipperDatabase
     /// Clears the items' automatic segments and analysis records for the modes in one
     /// transaction so the current pass re-analyzes them from scratch. User segments,
     /// tombstones and the automatic rows of a type the item holds an active user row
-    /// for are kept. Items whose rows were deleted journal their projections with the
-    /// reset.
+    /// for are kept. Subtitle rows in <paramref name="preserveSubtitleModes"/> also
+    /// stay until those modes successfully reanalyze. Items whose rows were deleted
+    /// journal their projections with the reset.
     /// </summary>
     /// <param name="itemIds">Item IDs to reset.</param>
     /// <param name="modes">Analysis modes to reset.</param>
+    /// <param name="preserveSubtitleModes">Modes whose subtitle rows remain as fallback until the subtitle pass completes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task ResetItemsForReanalysisAsync(
         IEnumerable<Guid> itemIds,
         IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<AnalysisMode>? preserveSubtitleModes = null,
         CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
@@ -183,6 +190,12 @@ public sealed partial class IntroSkipperDatabase
                         && u.Type == s.Type
                         && u.Source == SegmentSource.User
                         && u.State == SegmentState.Active));
+
+            if (preserveSubtitleModes is { Count: > 0 })
+            {
+                var subtitleModes = preserveSubtitleModes.ToArray();
+                doomedRows = doomedRows.Where(s => s.Source != SegmentSource.Subtitle || !subtitleModes.Contains(s.Type));
+            }
 
             // Journaled with the delete; see docs/segments.md.
             await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);

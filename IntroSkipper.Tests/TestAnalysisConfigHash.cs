@@ -18,6 +18,10 @@ public sealed class TestAnalysisConfigHash
         { AnalysisMode.Preview, new PluginConfiguration { AnimePreviewFromCreditsEnd = false }, new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { MaximumFingerprintPointDifferences = new PluginConfiguration().MaximumFingerprintPointDifferences + 1 }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { AnchorRecapToColdOpen = true }, AnalyzerAction.Default },
+        { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalyzerAction.Default },
+        { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalyzerAction.Default },
+        { AnalysisMode.Preview, new PluginConfiguration(), new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalyzerAction.Default },
+        { AnalysisMode.Preview, new PluginConfiguration(), new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalyzerAction.Default },
         { AnalysisMode.Introduction, new PluginConfiguration(), new PluginConfiguration(), AnalyzerAction.Chapter },
     };
 
