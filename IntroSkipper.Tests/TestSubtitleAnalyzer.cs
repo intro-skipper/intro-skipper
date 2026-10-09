@@ -170,6 +170,27 @@ public sealed class TestSubtitleAnalyzer
     }
 
     [Fact]
+    public async Task DefaultPreviewPattern_MatchesNowThePreview()
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true, MinimumPreviewDuration = 5 };
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => [new SubtitleCue(100, 103, "Now the preview")],
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+    }
+
+    [Fact]
     public async Task RejectedPreviewSubtitle_PreservesCreditsDerivedPreview()
     {
         var episodeId = Guid.NewGuid();
