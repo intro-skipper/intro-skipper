@@ -296,6 +296,31 @@ public sealed class TestSubtitleAnalyzer
     }
 
     [Fact]
+    public async Task IncompleteSubtitleScanWithMatch_WritesCandidateAndRemainsRetryable()
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => throw new SubtitleExtractionException(
+                "One subtitle source failed.",
+                [new SubtitleCue(100, 103, "Here's the preview")],
+                new IOException("source failed")),
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config" };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
+    }
+
+    [Fact]
     public async Task PreviewSubtitle_RejectsCandidateLongerThanMaximum()
     {
         var episodeId = Guid.NewGuid();

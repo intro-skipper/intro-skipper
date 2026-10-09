@@ -101,7 +101,7 @@ internal static class AnimePreviewDeriver
             }
 
             await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-            if (settlePreviewState)
+            if (settlePreviewState && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
             {
                 episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
             }

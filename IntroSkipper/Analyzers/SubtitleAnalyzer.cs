@@ -130,6 +130,11 @@ internal sealed partial class SubtitleAnalyzer(
             if (written > 0)
             {
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                if (extractionIncomplete)
+                {
+                    episode.MarkSubtitleDetectionUnresolved(mode);
+                }
+
                 LogFoundSubtitleSegment(_logger, episode.Name, mode, segment.Start, segment.End);
             }
             else if (extractionIncomplete)

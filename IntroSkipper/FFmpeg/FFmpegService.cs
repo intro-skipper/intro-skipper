@@ -33,9 +33,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // a runaway decode or a file whose diagnostics never end.
     private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
 
-    // Subtitle text should be small, but a malformed or malicious stream must not allow FFmpeg's
-    // stdout capture to grow without bound inside the Jellyfin server process.
-    private const long SubtitleMaximumBytes = 16L * 1024 * 1024;
+    // Subtitle text should be small, but a malformed or malicious episode must not allow FFmpeg's
+    // stdout captures to grow without bound across its embedded streams and sidecars.
+    private const long SubtitleEpisodeMaximumBytes = 16L * 1024 * 1024;
 
     // A media container can advertise an unbounded number of subtitle streams; cap ffprobe's
     // JSON response separately from the larger, decoded subtitle-text allowance.
@@ -648,6 +648,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         Exception? sourceFailure = null;
         var probeOutputExceededLimit = false;
         var sourceReadSuccessfully = false;
+        var subtitleBudgetExceeded = false;
+        long subtitleBytesRead = 0;
         try
         {
             string[] probeArgs =
@@ -706,9 +708,22 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         foreach (var streamIndex in embeddedStreams)
         {
+            if (subtitleBudgetExceeded || subtitleBytesRead >= SubtitleEpisodeMaximumBytes)
+            {
+                subtitleBudgetExceeded = true;
+                sourceFailure = new InvalidOperationException($"Subtitle sources exceeded the {SubtitleEpisodeMaximumBytes} byte episode capture limit.");
+                break;
+            }
+
             try
             {
-                cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+                var extracted = await ExtractWebVttAsync(
+                    episode.Path,
+                    $"0:{streamIndex}",
+                    SubtitleEpisodeMaximumBytes - subtitleBytesRead,
+                    cancellationToken).ConfigureAwait(false);
+                cues.AddRange(extracted.Cues);
+                subtitleBytesRead += extracted.BytesRead;
                 sourceReadSuccessfully = true;
             }
             catch (OperationCanceledException)
@@ -719,15 +734,33 @@ internal sealed partial class FFmpegService : IFFmpegService
             {
                 sourceFailure = ex;
                 // ExtractWebVttAsync logged this source's failure; remaining streams may still be usable.
+                if (ex is SubtitleOutputLimitException)
+                {
+                    subtitleBudgetExceeded = true;
+                    break;
+                }
             }
         }
 
         var sidecars = SubtitleSidecarFiles.FindTextSources(episode.Path);
         foreach (var sidecar in sidecars)
         {
+            if (subtitleBudgetExceeded || subtitleBytesRead >= SubtitleEpisodeMaximumBytes)
+            {
+                subtitleBudgetExceeded = true;
+                sourceFailure = new InvalidOperationException($"Subtitle sources exceeded the {SubtitleEpisodeMaximumBytes} byte episode capture limit.");
+                break;
+            }
+
             try
             {
-                cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+                var extracted = await ExtractWebVttAsync(
+                    sidecar,
+                    "0:0",
+                    SubtitleEpisodeMaximumBytes - subtitleBytesRead,
+                    cancellationToken).ConfigureAwait(false);
+                cues.AddRange(extracted.Cues);
+                subtitleBytesRead += extracted.BytesRead;
                 sourceReadSuccessfully = true;
             }
             catch (OperationCanceledException)
@@ -738,6 +771,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             {
                 sourceFailure = ex;
                 // ExtractWebVttAsync logged this source's failure; remaining sidecars may still be usable.
+                if (ex is SubtitleOutputLimitException)
+                {
+                    subtitleBudgetExceeded = true;
+                    break;
+                }
             }
         }
 
@@ -758,7 +796,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
     }
 
-    private async Task<SubtitleCue[]> ExtractWebVttAsync(string path, string map, CancellationToken cancellationToken)
+    private async Task<(SubtitleCue[] Cues, long BytesRead)> ExtractWebVttAsync(
+        string path,
+        string map,
+        long maximumBytes,
+        CancellationToken cancellationToken)
     {
         string[] args =
         [
@@ -773,13 +815,13 @@ internal sealed partial class FFmpegService : IFFmpegService
             var capture = await _processRunner.RunCapturedAsync(
                 FFmpegPath,
                 ProcessArgs(args, "warning"),
-                SubtitleMaximumBytes,
+                maximumBytes,
                 expectedStdoutBytes: 64L * 1024,
                 timeout: ScanTimeout(),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             if (capture.Truncated)
             {
-                throw new InvalidOperationException($"Subtitle output exceeded the {SubtitleMaximumBytes} byte capture limit.");
+                throw new SubtitleOutputLimitException($"Subtitle output exceeded the {maximumBytes} byte capture limit.");
             }
 
             if (capture.ExitCode != 0)
@@ -787,12 +829,20 @@ internal sealed partial class FFmpegService : IFFmpegService
                 throw new InvalidOperationException($"FFmpeg exited with code {capture.ExitCode} while extracting subtitles.");
             }
 
-            return FFmpegOutputParser.ParseWebVtt(Encoding.UTF8.GetString(capture.Stdout.Span));
+            return (FFmpegOutputParser.ParseWebVtt(Encoding.UTF8.GetString(capture.Stdout.Span)), capture.Stdout.Length);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             LogSubtitleStreamExtractionFailed(_logger, ex, path, map);
             throw;
+        }
+    }
+
+    private sealed class SubtitleOutputLimitException : InvalidOperationException
+    {
+        public SubtitleOutputLimitException(string message)
+            : base(message)
+        {
         }
     }
 
