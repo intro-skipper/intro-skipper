@@ -75,6 +75,67 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(expectPreview, rows.Any(s => s.Type == AnalysisMode.Preview));
     }
 
+    [Fact]
+    public async Task PreviewMode_SubtitlePreviewSupersedesBlackFrameDerivedPreview()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            EnableSubtitlePreviewDetection = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episodeId = Guid.NewGuid();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            SeasonId = Guid.NewGuid(),
+            SeriesId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            EpisodeNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Name = "Episode 1",
+            Path = "/media/episode-1.mkv",
+            Duration = 180,
+            AnalysisConfigHash = "subtitle-preview",
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Credits,
+            [new Segment(episodeId, new TimeRange(140, 160))],
+            SegmentSource.BlackFrame,
+            configHash: "black-frame-credits");
+        await AnimePreviewDeriver.DeriveAsync(
+            database,
+            [episode],
+            config.MinimumPreviewDuration,
+            CancellationToken.None,
+            settlePreviewState: false);
+
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
+        };
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
     /// <summary>
     /// The watcher queues changed items by their own id and the run analyzes the season
     /// holding each one. A scan hands over the ids of the episodes it erased.
