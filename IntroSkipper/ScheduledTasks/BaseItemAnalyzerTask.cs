@@ -499,7 +499,7 @@ public partial class BaseItemAnalyzerTask(
         {
             if (mode == AnalysisMode.Credits)
             {
-                var subtitlePreviewWillRun = Config.EnableSubtitlePreviewDetection && modes.Contains(AnalysisMode.Preview);
+                var subtitlePreviewWillRun = Config.EnableSubtitlePreviewDetection && Config.ScanPreview;
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
                     items,
