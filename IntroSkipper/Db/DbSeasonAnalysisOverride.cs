@@ -28,4 +28,9 @@ public sealed class DbSeasonAnalysisOverride
     /// Gets or sets the optional setting that derives a preview from the end of credits.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional setting that detects credits on a black roll.
+    /// </summary>
+    public bool? DetectBlackFrameCredits { get; set; }
 }

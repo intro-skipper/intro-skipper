@@ -54,6 +54,25 @@ export const overrideSchema = {
             { value: false, label: "Disabled" },
         ],
     },
+    DetectBlackFrameCredits: {
+        kind: "select",
+        label: "Detect credits on a black roll",
+        description:
+            "Turn this off when scene transitions that fade to black are being stored as credits.",
+        options: [
+            {
+                value: null,
+                label: () =>
+                    configStore.isLoaded()
+                        ? configStore.get("DetectBlackFrameCredits")
+                            ? "Global: Enabled"
+                            : "Global: Disabled"
+                        : "Global default",
+            },
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
 } as const satisfies FieldSchema;
 
 export type SeasonOverrides = ValuesOf<typeof overrideSchema>;
@@ -65,6 +84,7 @@ const EMPTY: SeasonOverrides = {
     AnalysisPercent: null,
     AnalysisLengthLimit: null,
     PreviewFromCreditsEnd: null,
+    DetectBlackFrameCredits: null,
 };
 
 export type OverrideStore = FieldStore<SeasonOverrides> & {

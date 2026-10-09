@@ -140,6 +140,9 @@ namespace IntroSkipper.Migrations
                     b.Property<int?>("AnalysisPercent")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool?>("DetectBlackFrameCredits")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool?>("PreviewFromCreditsEnd")
                         .HasColumnType("INTEGER");
 

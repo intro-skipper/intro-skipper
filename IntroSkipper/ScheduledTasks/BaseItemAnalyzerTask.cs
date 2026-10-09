@@ -193,6 +193,7 @@ public partial class BaseItemAnalyzerTask(
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
+            episode.DetectBlackFrameCreditsOverride = overrides.DetectBlackFrameCredits;
 
             var config = Config;
             var duration = episode.Duration;
@@ -347,6 +348,7 @@ public partial class BaseItemAnalyzerTask(
         if (candidates[0].AnalysisPercentOverride is null
             && candidates[0].AnalysisLengthLimitOverride is null
             && candidates[0].PreviewFromCreditsEndOverride is null
+            && candidates[0].DetectBlackFrameCreditsOverride is null
             && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
@@ -360,7 +362,8 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             candidates[0].AnalysisPercentOverride,
             candidates[0].AnalysisLengthLimitOverride,
-            previewFromCreditsEnd);
+            previewFromCreditsEnd,
+            candidates[0].DetectBlackFrameCreditsOverride);
 
         foreach (var candidate in candidates)
         {
@@ -446,7 +449,8 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             first.AnalysisPercentOverride,
             first.AnalysisLengthLimitOverride,
-            ShouldDerivePreview(first, Config));
+            ShouldDerivePreview(first, Config),
+            first.DetectBlackFrameCreditsOverride);
 
         if (action == AnalyzerAction.None)
         {

@@ -35,7 +35,7 @@ How library changes become analysis passes, how a pass decides what to analyze, 
    - Preview uses chapters, and can derive a preview from the credits end (`AnimePreviewDeriver`). A season's `PreviewFromCreditsEnd` override decides that; without one, previews derive for anime when `AnimePreviewFromCreditsEnd` is on.
    - `AnalyzerAction.None` skips the mode for the season and records its episodes as analyzed under a hash that includes the action, so the season is not queued again on every pass.
 
-A season key can override `AnalysisPercent`, `AnalysisLengthLimit` and `PreviewFromCreditsEnd` (`DbSeasonAnalysisOverride`); a null value inherits the plugin-wide setting.
+A season key can override `AnalysisPercent`, `AnalysisLengthLimit`, `PreviewFromCreditsEnd` and `DetectBlackFrameCredits` (`DbSeasonAnalysisOverride`); a null value inherits the plugin-wide setting.
 
 ## Analysis records
 

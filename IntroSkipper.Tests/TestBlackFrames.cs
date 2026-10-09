@@ -841,6 +841,25 @@ public class TestBlackFrames
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
     }
 
+    /// <summary>
+    /// The card run reads the black scenes the black-frame rules accept, so its range must match what
+    /// the same scan produces with both candidates on in DetectCreditsAsync_ReturnsBlackFrameAndCardCandidates: card 100 to 154.
+    /// </summary>
+    [Fact]
+    public async Task DetectCreditsAsync_WithoutBlackRollCredits_KeepsTheCardCandidateUnchanged()
+    {
+        var ffmpeg = KeyframeScan(Keyframes(0, 54, 2, (0, 18, 0, KeyframeVisuals.Card), (20, 54, 95, KeyframeVisuals.Black)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: false, detectCardCredits: true);
+
+        var card = Assert.Single(candidates);
+        Assert.Equal(SegmentSource.KeyframeVisuals, card.Source);
+        Assert.Equal(100, card.Segment.Start);
+        Assert.Equal(154, card.Segment.End);
+    }
+
     [Fact]
     public async Task TestDetectCreditsAsync_TooShortScene_ReturnsNull()
     {
@@ -1872,7 +1891,7 @@ public class TestBlackFrames
     /// run fails a test as a wrong black-frame candidate does.
     /// </summary>
     private static async Task<List<(SegmentSource Source, double Start, double End)>> KeyframeCandidates(KeyframeAnalyzer analyzer, QueuedEpisode episode)
-        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
+        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: true, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
 
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {

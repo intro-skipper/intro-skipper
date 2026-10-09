@@ -64,7 +64,7 @@ public class TestLeadInClips
         episode.CreditsFingerprintEnd = 39;
         var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), new PluginConfiguration { RefineCreditsBoundary = true });
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false);
+        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectBlackFrameCredits: true, detectCardCredits: false);
 
         return [.. candidates.Where(c => c.Source == SegmentSource.BlackFrame).Select(c => c.Segment)];
     }

@@ -87,6 +87,11 @@ public sealed class QueuedEpisode
     public bool? PreviewFromCreditsEndOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting that detects credits on a black roll.
+    /// </summary>
+    public bool? DetectBlackFrameCreditsOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }
