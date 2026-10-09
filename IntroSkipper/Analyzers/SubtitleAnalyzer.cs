@@ -60,35 +60,48 @@ internal sealed partial class SubtitleAnalyzer(
         foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var cues = await _ffmpegService.ExtractSubtitleCuesAsync(episode, cancellationToken).ConfigureAwait(false);
+            SubtitleCue[] cues;
+            try
+            {
+                cues = await _ffmpegService.ExtractSubtitleCuesAsync(episode, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                LogSubtitleExtractionFailed(_logger, ex, episode.Name, mode);
+                continue;
+            }
+
             var segment = mode == AnalysisMode.Recap
                 ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
                 : FindPreview(episode, cues, regex);
 
-            if (mode == AnalysisMode.Preview && segment is not null)
-            {
-                // Preview writes normally preserve the credits-derived pass's rows so the two
-                // producers can coexist. A subtitle match is the explicit, more authoritative
-                // preview strategy, so remove the competing credits-derived row first.
-                await _database.ClearCreditsDerivedPreviewsAsync([episode.EpisodeId], cancellationToken).ConfigureAwait(false);
-            }
+            var written = mode == AnalysisMode.Preview && segment is not null
+                ? await _database.ReplaceSubtitlePreviewAsync(
+                    episode.EpisodeId,
+                    segment,
+                    episode.AnalysisConfigHash,
+                    cancellationToken).ConfigureAwait(false)
+                : await _database.ReplaceAutoSegmentsAsync(
+                    episode.EpisodeId,
+                    mode,
+                    segment is null ? [] : [segment],
+                    SegmentSource.Subtitle,
+                    episode.AnalysisConfigHash,
+                    cancellationToken).ConfigureAwait(false);
 
-            await _database.ReplaceAutoSegmentsAsync(
-                episode.EpisodeId,
-                mode,
-                segment is null ? [] : [segment],
-                SegmentSource.Subtitle,
-                episode.AnalysisConfigHash,
-                cancellationToken).ConfigureAwait(false);
-
-            if (segment is not null)
+            if (segment is not null && written > 0)
             {
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 LogFoundSubtitleSegment(_logger, episode.Name, mode, segment.Start, segment.End);
             }
         }
 
-        return analysisQueue;
+        return [.. analysisQueue.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)];
     }
 
     private bool IsEnabled(AnalysisMode mode)
@@ -119,7 +132,7 @@ internal sealed partial class SubtitleAnalyzer(
 
         foreach (var cue in cues.Where(cue => cue.Start < introStart).OrderBy(cue => cue.Start))
         {
-            if (!Matches(regex, cue.Text))
+            if (!Matches(regex, cue.Text, episode.Name, AnalysisMode.Recap))
             {
                 continue;
             }
@@ -140,13 +153,15 @@ internal sealed partial class SubtitleAnalyzer(
     {
         foreach (var cue in cues.OrderByDescending(cue => cue.Start))
         {
-            if (!Matches(regex, cue.Text))
+            if (!Matches(regex, cue.Text, episode.Name, AnalysisMode.Preview))
             {
                 continue;
             }
 
             var segment = new Segment(episode.EpisodeId, new TimeRange(cue.Start, episode.Duration));
-            if (segment.Valid && segment.Duration >= _config.MinimumPreviewDuration)
+            if (segment.Valid
+                && segment.Duration >= _config.MinimumPreviewDuration
+                && segment.Duration <= _config.MaximumPreviewDuration)
             {
                 return segment;
             }
@@ -155,15 +170,16 @@ internal sealed partial class SubtitleAnalyzer(
         return null;
     }
 
-    private static bool Matches(Regex regex, string text)
+    private bool Matches(Regex regex, string text, string episode, AnalysisMode mode)
     {
         var plainText = SubtitleText(text);
         try
         {
             return regex.IsMatch(plainText);
         }
-        catch (RegexMatchTimeoutException)
+        catch (RegexMatchTimeoutException ex)
         {
+            LogSubtitlePatternTimedOut(_logger, ex, episode, mode);
             return false;
         }
     }
@@ -182,4 +198,10 @@ internal sealed partial class SubtitleAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid subtitle {Mode} regular expression: {Message}")]
     private static partial void LogInvalidPattern(ILogger logger, AnalysisMode mode, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Episode}: subtitle {Mode} regular expression timed out; skipping cue")]
+    private static partial void LogSubtitlePatternTimedOut(ILogger logger, Exception ex, string episode, AnalysisMode mode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Episode}: subtitle {Mode} extraction failed; the mode will be retried")]
+    private static partial void LogSubtitleExtractionFailed(ILogger logger, Exception ex, string episode, AnalysisMode mode);
 }

@@ -33,6 +33,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     // a runaway decode or a file whose diagnostics never end.
     private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
 
+    // Subtitle text should be small, but a malformed or malicious stream must not allow FFmpeg's
+    // stdout capture to grow without bound inside the Jellyfin server process.
+    private const long SubtitleMaximumBytes = 16L * 1024 * 1024;
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -629,7 +633,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc />
     public async Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
-        var cues = new List<SubtitleCue>();
+        List<SubtitleCue> cues = [];
+        List<int> embeddedStreams = [];
+        Exception? probeFailure = null;
         try
         {
             string[] probeArgs =
@@ -650,14 +656,9 @@ internal sealed partial class FFmpegService : IFFmpegService
                 {
                     if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
                     {
-                        cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+                        embeddedStreams.Add(streamIndex);
                     }
                 }
-            }
-
-            foreach (var sidecar in FindSubtitleSidecars(episode.Path))
-            {
-                cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
             }
         }
         catch (OperationCanceledException)
@@ -666,7 +667,24 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
+            probeFailure = ex;
             LogSubtitleExtractionFailed(_logger, ex, episode.Path);
+        }
+
+        foreach (var streamIndex in embeddedStreams)
+        {
+            cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+        }
+
+        string[] sidecars = [.. FindSubtitleSidecars(episode.Path)];
+        foreach (var sidecar in sidecars)
+        {
+            cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+        }
+
+        if (probeFailure is not null && sidecars.Length == 0)
+        {
+            throw new InvalidOperationException("ffprobe could not enumerate embedded subtitle streams and no sidecar subtitles were available.", probeFailure);
         }
 
         return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
@@ -684,13 +702,29 @@ internal sealed partial class FFmpegService : IFFmpegService
         ];
         try
         {
-            var output = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
-            return FFmpegOutputParser.ParseWebVtt(output);
+            var capture = await _processRunner.RunCapturedAsync(
+                FFmpegPath,
+                ProcessArgs(args, "warning"),
+                SubtitleMaximumBytes,
+                expectedStdoutBytes: 64L * 1024,
+                timeout: ScanTimeout(),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (capture.Truncated)
+            {
+                throw new InvalidOperationException($"Subtitle output exceeded the {SubtitleMaximumBytes} byte capture limit.");
+            }
+
+            if (capture.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"FFmpeg exited with code {capture.ExitCode} while extracting subtitles.");
+            }
+
+            return FFmpegOutputParser.ParseWebVtt(Encoding.UTF8.GetString(capture.Stdout.Span));
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             LogSubtitleStreamExtractionFailed(_logger, ex, path, map);
-            return [];
+            throw;
         }
     }
 

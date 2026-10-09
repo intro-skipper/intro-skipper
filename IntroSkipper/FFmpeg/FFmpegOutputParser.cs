@@ -210,7 +210,7 @@ internal static partial class FFmpegOutputParser
     /// <returns>Well-formed timed cues.</returns>
     internal static SubtitleCue[] ParseWebVtt(string raw)
     {
-        var cues = new List<SubtitleCue>();
+        List<SubtitleCue> cues = [];
         var lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         for (var i = 0; i < lines.Length;)
         {

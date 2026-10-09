@@ -86,13 +86,38 @@ public sealed partial class IntroSkipperDatabase
         return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, derivedWrite: false, configHash, cancellationToken);
     }
 
+    /// <summary>
+    /// Atomically replaces a subtitle-detected Preview and removes a competing Credits-derived
+    /// Preview only when the subtitle candidate passes automatic-segment admission. A rejected
+    /// candidate leaves both the existing preview and its tombstone blockers untouched.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segment">Subtitle-detected Preview candidate.</param>
+    /// <param name="configHash">Configuration hash that produced the segment.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>1 when the candidate was written or kept; 0 when admission rejected it.</returns>
+    public Task<int> ReplaceSubtitlePreviewAsync(
+        Guid itemId,
+        Segment segment,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+        => ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [new AttributedSegment(segment, SegmentSource.Subtitle)],
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            supersedeCreditsDerived: true);
+
     private async Task<int> ReplaceAutoSegmentsCoreAsync(
         Guid itemId,
         AnalysisMode mode,
         IReadOnlyList<AttributedSegment> segments,
         bool derivedWrite,
         string configHash,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool supersedeCreditsDerived = false)
     {
         ValidateMode(mode);
 
@@ -153,7 +178,7 @@ public sealed partial class IntroSkipperDatabase
                 // An identical range already standing under the other pass keeps that
                 // pass's row; re-inserting it would violate the unique
                 // (ItemId, Type, StartTicks, EndTicks) index.
-                if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                if (!supersedeCreditsDerived && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
                 {
                     continue;
                 }
@@ -176,6 +201,11 @@ public sealed partial class IntroSkipperDatabase
             if (accepted.Count == 0 && rejected > 0)
             {
                 return 0;
+            }
+
+            if (supersedeCreditsDerived && accepted.Count > 0)
+            {
+                autoRows.AddRange(otherPassRows);
             }
 
             // Keep automatic rows whose boundaries are unchanged so their ids stay

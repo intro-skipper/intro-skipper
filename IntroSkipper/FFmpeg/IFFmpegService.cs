@@ -130,6 +130,7 @@ public interface IFFmpegService
     /// <param name="episode">Media file whose subtitles should be read.</param>
     /// <param name="cancellationToken">Token used to cancel subtitle extraction.</param>
     /// <returns>Subtitle cues in media seconds, ordered by start time.</returns>
+    /// <exception cref="InvalidOperationException">The subtitle streams cannot be enumerated or extracted.</exception>
     Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
 
     /// <summary>

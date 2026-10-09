@@ -503,7 +503,7 @@ public partial class BaseItemAnalyzerTask(
             }
             else if (mode == AnalysisMode.Preview)
             {
-                List<QueuedEpisode> unsettled = [.. items.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
+                List<QueuedEpisode> unsettled = [.. items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) == EpisodeState.NotAnalyzed)];
                 await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -518,12 +518,8 @@ public partial class BaseItemAnalyzerTask(
     }
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
-        // Subtitle preview detection is a separate strategy. When it is enabled, do not also
-        // derive a competing Preview from Credits; episodes without a matching cue simply have
-        // no subtitle-based Preview.
-        => !config.EnableSubtitlePreviewDetection
-            && (episode.PreviewFromCreditsEndOverride
-                ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd));
+        => episode.PreviewFromCreditsEndOverride
+            ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
@@ -550,7 +546,7 @@ public partial class BaseItemAnalyzerTask(
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
-        var conventional = new List<IMediaFileAnalyzer?> { chapter, chromaprint };
+        List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];
 
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
         // the rest keep their relative order. An action naming an analyzer that is not in the
@@ -561,7 +557,7 @@ public partial class BaseItemAnalyzerTask(
             AnalyzerAction.Chromaprint => chromaprint,
             _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
         };
-        var conventionalAnalyzers = conventional.OfType<IMediaFileAnalyzer>().ToList();
+        List<IMediaFileAnalyzer> conventionalAnalyzers = [.. conventional.OfType<IMediaFileAnalyzer>()];
         if (preferred is not null && conventionalAnalyzers.Remove(preferred))
         {
             conventionalAnalyzers.Insert(0, preferred);
