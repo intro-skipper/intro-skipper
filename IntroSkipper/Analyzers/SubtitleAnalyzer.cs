@@ -15,8 +15,9 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 /// <remarks>
 /// Subtitle detection is deliberately independent from credits detection. A recap ends at the
-/// beginning of the stored intro, while a preview runs from its matching cue through the episode
-/// duration. When no subtitle cue matches, the normal analyzer chain remains eligible.
+/// beginning of the stored intro when the recap precedes it. If the intro precedes the recap,
+/// only a later chapter boundary can provide a reliable recap end. A preview runs from its matching
+/// cue through the episode duration. When no subtitle cue matches, the normal analyzer chain remains eligible.
 /// </remarks>
 internal sealed partial class SubtitleAnalyzer(
     ILogger<SubtitleAnalyzer> logger,
@@ -76,13 +77,18 @@ internal sealed partial class SubtitleAnalyzer(
                 continue;
             }
 
-            var segment = mode == AnalysisMode.Recap
+            (Segment? Segment, bool DetectedWithoutEnd) recapSearch = mode == AnalysisMode.Recap
                 ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
-                : FindPreview(episode, cues, regex);
+                : (Segment: FindPreview(episode, cues, regex), DetectedWithoutEnd: false);
+            var segment = recapSearch.Segment;
 
             if (segment is null)
             {
-                await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                if (!recapSearch.DetectedWithoutEnd)
+                {
+                    await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                }
+
                 continue;
             }
 
@@ -118,7 +124,7 @@ internal sealed partial class SubtitleAnalyzer(
     private string GetPattern(AnalysisMode mode)
         => mode == AnalysisMode.Recap ? _config.SubtitleRecapPattern : _config.SubtitlePreviewPattern;
 
-    private async Task<Segment?> FindRecapAsync(
+    private async Task<(Segment? Segment, bool DetectedWithoutEnd)> FindRecapAsync(
         QueuedEpisode episode,
         IReadOnlyList<SubtitleCue> cues,
         Regex regex,
@@ -133,26 +139,39 @@ internal sealed partial class SubtitleAnalyzer(
 
         if (introStart <= 0)
         {
-            return null;
+            return (null, false);
         }
 
-        foreach (var cue in cues.Where(cue => cue.Start < introStart).OrderBy(cue => cue.Start))
+        foreach (var cue in cues.OrderBy(cue => cue.Start))
         {
             if (!Matches(regex, cue.Text, episode.Name, AnalysisMode.Recap))
             {
                 continue;
             }
 
-            var segment = new Segment(episode.EpisodeId, new TimeRange(cue.Start, introStart));
+            var recapEnd = cue.Start < introStart
+                ? introStart
+                : Plugin.Instance?.GetChapters(episode.EpisodeId)
+                    .Select(chapter => TickConversions.ToSeconds(chapter.StartPositionTicks))
+                    .Where(start => start > cue.Start && start < episode.Duration)
+                    .OrderBy(start => start)
+                    .FirstOrDefault() ?? 0;
+            if (recapEnd <= cue.Start)
+            {
+                LogSubtitleRecapHasNoEnd(_logger, episode.Name, cue.Start);
+                return (null, true);
+            }
+
+            var segment = new Segment(episode.EpisodeId, new TimeRange(cue.Start, recapEnd));
             if (segment.Valid
                 && segment.Duration >= _config.MinimumRecapDuration
                 && segment.Duration <= _config.MaximumRecapDuration)
             {
-                return segment;
+                return (segment, false);
             }
         }
 
-        return null;
+        return (null, false);
     }
 
     private Segment? FindPreview(QueuedEpisode episode, IReadOnlyList<SubtitleCue> cues, Regex regex)
@@ -201,6 +220,9 @@ internal sealed partial class SubtitleAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Episode}: subtitle {Mode} candidate [{Start:F2}, {End:F2}]")]
     private static partial void LogFoundSubtitleSegment(ILogger logger, string episode, AnalysisMode mode, double start, double end);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Episode}: subtitle recap detected at {Start:F2}s, but no later chapter marker provides a reliable end")]
+    private static partial void LogSubtitleRecapHasNoEnd(ILogger logger, string episode, double start);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid subtitle {Mode} regular expression: {Message}")]
     private static partial void LogInvalidPattern(ILogger logger, AnalysisMode mode, string message);

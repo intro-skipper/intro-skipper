@@ -4,12 +4,15 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -64,6 +67,72 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(10, TickConversions.ToSeconds(recap.StartTicks));
         Assert.Equal(60, TickConversions.ToSeconds(recap.EndTicks));
         Assert.Equal(SegmentSource.Subtitle, recap.Source);
+    }
+
+    [Fact]
+    public async Task RecapSubtitle_AfterIntroUsesLaterChapterAsEnd()
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(20), DatabaseTestHelpers.Ticks(30));
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            MinimumRecapDuration = 5,
+            MaximumRecapDuration = 120,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(
+            config,
+            [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(40) }]);
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")],
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        var recap = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Recap);
+        Assert.Equal(30, TickConversions.ToSeconds(recap.StartTicks));
+        Assert.Equal(40, TickConversions.ToSeconds(recap.EndTicks));
+        Assert.Equal(SegmentSource.Subtitle, recap.Source);
+    }
+
+    [Fact]
+    public async Task RecapSubtitle_AfterIntroWithoutChapterLogsDetectionAndDoesNotWrite()
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(20), DatabaseTestHelpers.Ticks(30));
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Recap,
+            [new Segment(episodeId, new TimeRange(5, 15))],
+            SegmentSource.Subtitle,
+            configHash: "prior-subtitle-config");
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            MinimumRecapDuration = 5,
+            MaximumRecapDuration = 120,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, Array.Empty<ChapterInfo>());
+        var logger = new RecordingLogger();
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")],
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var analyzer = new SubtitleAnalyzer(logger, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        var recap = Assert.Single(await database.GetSegmentsAsync(episodeId), segment => segment.Type == AnalysisMode.Recap);
+        Assert.Equal(5, TickConversions.ToSeconds(recap.StartTicks));
+        Assert.Equal(15, TickConversions.ToSeconds(recap.EndTicks));
+        Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Recap));
+        Assert.Contains(logger.Messages, message => message.Contains("subtitle recap detected at 30.00s", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -220,5 +289,24 @@ public sealed class TestSubtitleAnalyzer
             CancellationToken.None);
 
         Assert.False(extractionCalled);
+    }
+
+    private sealed class RecordingLogger : ILogger<SubtitleAnalyzer>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+            => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Messages.Add(formatter(state, exception));
     }
 }
