@@ -28,9 +28,9 @@ internal static class AnimePreviewDeriver
     /// would gain a second, automatic one beside it, and the episode's UserProvided state would be
     /// overwritten with Analyzed. With normal settlement, a derived preview that overlaps a tombstone
     /// is dropped by <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed,
-    /// since re-running would not change the gate's answer. Callers that schedule subtitle Preview
-    /// analysis can leave the Preview state open so the derived row remains a fallback until that pass
-    /// runs.
+    /// since re-running would not change the gate's answer. An active subtitle Preview always takes
+    /// precedence over this derived result. Callers that schedule subtitle Preview analysis can leave
+    /// the Preview state open so the derived row remains a fallback until that pass runs.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
     /// <param name="items">Episodes whose Credits mode was just analyzed.</param>
@@ -61,13 +61,13 @@ internal static class AnimePreviewDeriver
                 continue;
             }
 
+            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.Subtitle && s.State == SegmentState.Active))
+            {
+                continue;
+            }
+
             if (!settlePreviewState)
             {
-                if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.Subtitle && s.State == SegmentState.Active))
-                {
-                    continue;
-                }
-
                 if (episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
                 {
                     episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
