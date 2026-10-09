@@ -303,18 +303,6 @@ export const configSchema = {
         description:
             "When enabled, a preview segment is created for anime without a detected preview, from the end of the credits to the next credits block or the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
     },
-    EnableSubtitleRecapDetection: {
-        kind: "checkbox",
-        label: "Detect recaps from subtitles",
-        description:
-            "Use a matching text subtitle cue as the recap start and the detected intro start as its end.",
-    },
-    EnableSubtitlePreviewDetection: {
-        kind: "checkbox",
-        label: "Detect previews from subtitles",
-        description:
-            "Use a matching text subtitle cue as the preview start and the episode duration as its end. This is separate from the credits-derived anime preview option.",
-    },
     IntroStartOffset: {
         kind: "number",
         label: "Intro Start Offset (seconds)",
@@ -423,18 +411,6 @@ export const configSchema = {
         description: "Enter a regular expression to detect commercial chapters.",
         default: "(^|\\s)(Ad(vert(isement)?)?|Commercial|Intermission)" + PATTERN_TAIL,
     },
-    SubtitleRecapPattern: {
-        kind: "regex",
-        label: "Subtitle recaps",
-        description: "Enter a regular expression to detect the start of recaps in text subtitles.",
-        default: "\\bpreviously\\s+on\\b",
-    },
-    SubtitlePreviewPattern: {
-        kind: "regex",
-        label: "Subtitle previews",
-        description: "Enter a regular expression to detect the start of previews in text subtitles.",
-        default: "\\bhere(?:'|’)?s\\s+the\\s+preview\\b",
-    },
     EnableSponsorBlockChapterDetection: {
         kind: "checkbox",
         label: "Enable SponsorBlock chapter detection",
@@ -442,6 +418,31 @@ export const configSchema = {
             "Detect known SponsorBlock chapter labels in addition to the regular expressions above.",
     },
 
+    // Subtitles
+    EnableSubtitleRecapDetection: {
+        kind: "checkbox",
+        label: "Detect recaps from subtitles",
+        description:
+            "Use a matching text subtitle cue as the recap start and the detected intro start as its end.",
+    },
+    SubtitleRecapPattern: {
+        kind: "regex",
+        label: "Subtitle recaps",
+        description: "Enter a regular expression to detect the start of recaps in text subtitles.",
+        default: "\\bpreviously\\s+on\\b",
+    },
+    EnableSubtitlePreviewDetection: {
+        kind: "checkbox",
+        label: "Detect previews from subtitles",
+        description:
+            "Use a matching text subtitle cue as the preview start and the episode duration as its end. This is separate from the credits-derived anime preview option.",
+    },
+    SubtitlePreviewPattern: {
+        kind: "regex",
+        label: "Subtitle previews",
+        description: "Enter a regular expression to detect the start of previews in text subtitles.",
+        default: "\\bhere(?:'|’)?s\\s+the\\s+preview\\b",
+    },
     // FFmpeg
     MaxParallelism: {
         kind: "number",
