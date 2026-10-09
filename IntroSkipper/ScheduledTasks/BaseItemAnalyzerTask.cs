@@ -499,7 +499,13 @@ public partial class BaseItemAnalyzerTask(
         {
             if (mode == AnalysisMode.Credits)
             {
-                await AnimePreviewDeriver.DeriveAsync(_database, items, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+                var subtitlePreviewWillRun = Config.EnableSubtitlePreviewDetection && modes.Contains(AnalysisMode.Preview);
+                await AnimePreviewDeriver.DeriveAsync(
+                    _database,
+                    items,
+                    Config.MinimumPreviewDuration,
+                    cancellationToken,
+                    settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);
             }
             else if (mode == AnalysisMode.Preview)
             {
