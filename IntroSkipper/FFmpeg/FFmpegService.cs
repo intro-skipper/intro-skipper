@@ -636,6 +636,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         List<SubtitleCue> cues = [];
         List<int> embeddedStreams = [];
         Exception? probeFailure = null;
+        Exception? sourceFailure = null;
+        var sourceReadSuccessfully = false;
         try
         {
             string[] probeArgs =
@@ -676,6 +678,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             try
             {
                 cues.AddRange(await ExtractWebVttAsync(episode.Path, $"0:{streamIndex}", cancellationToken).ConfigureAwait(false));
+                sourceReadSuccessfully = true;
             }
             catch (OperationCanceledException)
             {
@@ -683,6 +686,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
             {
+                sourceFailure = ex;
                 // ExtractWebVttAsync logged this source's failure; remaining streams may still be usable.
             }
         }
@@ -693,6 +697,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             try
             {
                 cues.AddRange(await ExtractWebVttAsync(sidecar, "0:0", cancellationToken).ConfigureAwait(false));
+                sourceReadSuccessfully = true;
             }
             catch (OperationCanceledException)
             {
@@ -700,13 +705,14 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
             {
+                sourceFailure = ex;
                 // ExtractWebVttAsync logged this source's failure; remaining sidecars may still be usable.
             }
         }
 
-        if (probeFailure is not null && sidecars.Length == 0)
+        if (!sourceReadSuccessfully && (probeFailure is not null || sourceFailure is not null))
         {
-            throw new InvalidOperationException("ffprobe could not enumerate embedded subtitle streams and no sidecar subtitles were available.", probeFailure);
+            throw new InvalidOperationException("Unable to read any embedded or sidecar subtitle source.", sourceFailure ?? probeFailure);
         }
 
         return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
