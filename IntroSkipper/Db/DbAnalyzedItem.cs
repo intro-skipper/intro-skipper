@@ -13,7 +13,9 @@ namespace IntroSkipper.Db;
 /// re-analyzes it otherwise; deleting the record reopens the item for the mode. One row
 /// per (item, mode). The file version ties the record to the media file Jellyfin held
 /// at analysis time: a record whose version differs from the item's current one no
-/// longer describes the file and is re-analyzed. A null version makes no claim and
+/// longer describes the file and is re-analyzed. Shortcut records also retain the
+/// resolved target path, because the shortcut file's own timestamp can stay unchanged
+/// while Jellyfin resolves it to a different target. A null version makes no claim and
 /// matches any file (rows written before versions were recorded).
 /// </summary>
 public sealed class DbAnalyzedItem
@@ -56,8 +58,20 @@ public sealed class DbAnalyzedItem
 
     /// <summary>
     /// Gets the file version the item was analyzed at: the ticks of the last write time
-    /// Jellyfin held for the media file. Null when the record predates versioning or
-    /// Jellyfin held no write time. Written only by the facade's set-based statements.
+    /// Jellyfin held for ordinary media, or a stable resolved-target identity for shortcut
+    /// media. Null when the record predates versioning or Jellyfin held no write time.
+    /// Written only by the facade's set-based statements.
     /// </summary>
     public long? FileVersion { get; private set; }
+
+    /// <summary>
+    /// Gets the resolved shortcut target at analysis time. Null for regular media and records
+    /// written before shortcut identity was persisted.
+    /// </summary>
+    public string? ShortcutPath { get; private set; }
+
+    /// <summary>
+    /// Gets the duration probed for the resolved shortcut target, in seconds.
+    /// </summary>
+    public double? Duration { get; private set; }
 }

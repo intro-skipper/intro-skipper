@@ -307,6 +307,26 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task LibraryRequests_RegularAndShortcutCanWaitTogether_WithoutDroppingEither()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var holding = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+
+        var shortcut = h.Queue.RunLibraryAsync(
+            new RecordingProgress(),
+            CancellationToken.None,
+            shortcutsOnly: true,
+            shortcutBatchSize: 1);
+        var regular = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+
+        h.Ffmpeg.Gate.SetResult();
+
+        await Task.WhenAll(holding, shortcut, regular).WaitAsync(Timeout);
+        Assert.Equal(3, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
     public async Task RepeatedRequests_MergeAndCompleteTogether()
     {
         await using var h = await QueueHarness.StartAsync(gated: true);

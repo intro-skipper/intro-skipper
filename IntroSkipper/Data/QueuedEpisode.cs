@@ -12,6 +12,7 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
+    private readonly HashSet<AnalysisMode> _comparisonPendingModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -47,6 +48,29 @@ public sealed class QueuedEpisode
     /// Gets or sets the full path to episode.
     /// </summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the path Jellyfin resolved for a shortcut media item.
+    /// </summary>
+    public string ShortcutPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this media item is a shortcut.
+    /// </summary>
+    public bool IsShortcut { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this item is an analysis target for the
+    /// current pass. Shortcut-only passes keep non-shortcut siblings in the queue as
+    /// comparison context without analyzing or rewriting them.
+    /// </summary>
+    internal bool IsAnalysisTarget { get; set; } = true;
+
+    /// <summary>
+    /// Gets the path analysis should read. Jellyfin keeps the library path as the shortcut
+    /// file while exposing the resolved target separately.
+    /// </summary>
+    internal string AnalysisPath => IsShortcut && !string.IsNullOrEmpty(ShortcutPath) ? ShortcutPath : Path;
 
     /// <summary>
     /// Gets or sets the name of the episode.
@@ -115,9 +139,10 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the file version Jellyfin currently holds for the item: the ticks of
-    /// the media file's last write time as of its last refresh. Null when Jellyfin holds
-    /// none. Recorded with the analysis so a later file replacement reopens the item.
+    /// Gets or sets the file version Jellyfin currently holds for the item. Ordinary media
+    /// uses the ticks of its last write time; shortcut media uses a stable identity of the
+    /// resolved target and modification time. Recorded with the analysis so a later file
+    /// replacement or target change reopens the item.
     /// </summary>
     public long? FileVersion { get; set; }
 
@@ -136,7 +161,38 @@ public sealed class QueuedEpisode
     public void SetAnalyzed(AnalysisMode mode, EpisodeState value)
     {
         _isAnalyzed[(int)mode] = value;
+        if (value is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)
+        {
+            // A later analyzer may produce a definitive result after Chromaprint could not
+            // compare this item. That result must be allowed to persist its analysis record.
+            SetComparisonPending(mode, false);
+        }
     }
+
+    /// <summary>
+    /// Marks whether the current analysis pass lacked a comparison partner for this mode.
+    /// Such an item must remain retryable instead of being persisted as NoSegments.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="value">Whether comparison is still pending.</param>
+    internal void SetComparisonPending(AnalysisMode mode, bool value)
+    {
+        if (value)
+        {
+            _comparisonPendingModes.Add(mode);
+        }
+        else
+        {
+            _comparisonPendingModes.Remove(mode);
+        }
+    }
+
+    /// <summary>
+    /// Gets whether the current analysis pass lacked a comparison partner for this mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><see langword="true"/> when the result must remain retryable.</returns>
+    internal bool IsComparisonPending(AnalysisMode mode) => _comparisonPendingModes.Contains(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

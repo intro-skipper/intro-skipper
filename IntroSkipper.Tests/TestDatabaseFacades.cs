@@ -503,6 +503,23 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task MarkItemsAnalyzedAsync_RecordsShortcutIdentityAndDuration()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+
+        await database.MarkItemsAnalyzedAsync(
+            AnalysisMode.Introduction,
+            [(itemId, (long?)7, "/remote/episode.mkv", (double?)123.5)],
+            "hash");
+
+        await using var db = _db.Context();
+        var record = Assert.Single(await db.AnalyzedItems.AsNoTracking().ToListAsync());
+        Assert.Equal("/remote/episode.mkv", record.ShortcutPath);
+        Assert.Equal(123.5, record.Duration);
+    }
+
+    [Fact]
     public async Task BackfillFileVersionsAsync_StampsOnlyUnversionedRecords_AcrossStatementChunks()
     {
         var ids = Enumerable.Range(0, MultiRowSql.ChunkSize + 1).Select(_ => Guid.NewGuid()).ToArray();

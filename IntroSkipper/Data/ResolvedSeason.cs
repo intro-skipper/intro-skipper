@@ -11,7 +11,8 @@ namespace IntroSkipper.Data;
 /// <param name="Key">The season key the season's analysis state is stored under.</param>
 /// <param name="SeriesId">The id of the series the season belongs to.</param>
 /// <param name="Episodes">The season's episodes in analysis order; empty for a known season with nothing to analyze.</param>
-internal sealed record ResolvedSeason(Guid Key, Guid SeriesId, IReadOnlyList<QueuedEpisode> Episodes);
+/// <param name="AnalysisItemIds">Optional item ids selected for a shortcut-only batch; all episodes are retained as comparison context.</param>
+internal sealed record ResolvedSeason(Guid Key, Guid SeriesId, IReadOnlyList<QueuedEpisode> Episodes, IReadOnlySet<Guid>? AnalysisItemIds = null);
 
 /// <summary>
 /// Every season of every enabled library, with the number of libraries and series that
