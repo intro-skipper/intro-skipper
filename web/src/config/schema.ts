@@ -441,7 +441,7 @@ export const configSchema = {
         kind: "regex",
         label: "Subtitle previews",
         description: "Enter a regular expression to detect the start of previews in text subtitles.",
-        default: "\\bhere(?:'|’)?s\\s+the\\s+preview\\b",
+        default: "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b",
     },
     // FFmpeg
     MaxParallelism: {
