@@ -117,11 +117,7 @@ export function createOverrideStore(): OverrideStore {
         },
         subscribe: bus.on,
         load(next) {
-            values = {
-                ...next,
-                SubtitleRecapDetection: next.SubtitleRecapDetection ?? false,
-                SubtitlePreviewDetection: next.SubtitlePreviewDetection ?? false,
-            };
+            values = { ...next };
             loaded = true;
             bus.emit("loaded");
             // Saved overrides carry no error; take down what the previous season left showing.
