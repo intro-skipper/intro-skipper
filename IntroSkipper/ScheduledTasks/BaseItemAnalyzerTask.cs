@@ -582,6 +582,8 @@ public partial class BaseItemAnalyzerTask(
         bool isMovie,
         CancellationToken cancellationToken)
     {
+        var modeEpisodes = items;
+
         // Subtitle matching is an opt-in, mode-specific fallback. It runs after the chapter
         // analyzer so chapter matches take precedence, and before the remaining default chain.
         // Chromaprint needs a season to compare (no movies) and a compatible ffmpeg.
@@ -594,7 +596,6 @@ public partial class BaseItemAnalyzerTask(
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
-        var modeEpisodes = items;
         List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];
 
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
