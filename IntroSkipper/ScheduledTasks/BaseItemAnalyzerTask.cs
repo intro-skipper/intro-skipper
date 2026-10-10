@@ -557,7 +557,14 @@ public partial class BaseItemAnalyzerTask(
         }
         else if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
-            await RunAnalyzerChainAsync(conventionalItems, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
+            await RunAnalyzerChainAsync(
+                conventionalItems,
+                mode,
+                action,
+                ffmpegValid,
+                isMovie,
+                cancellationToken,
+                mode == AnalysisMode.Recap ? subtitleOnlyItems : null).ConfigureAwait(false);
         }
 
         if (subtitleOnlyItems.Length > 0)
@@ -706,7 +713,8 @@ public partial class BaseItemAnalyzerTask(
         AnalyzerAction action,
         bool ffmpegValid,
         bool isMovie,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<QueuedEpisode>? chromaprintReferences = null)
     {
         var modeEpisodes = items;
 
@@ -731,7 +739,7 @@ public partial class BaseItemAnalyzerTask(
                 Config,
                 enableChapterDetection: false)
             : null;
-        IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
+        ChromaprintAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
@@ -767,7 +775,9 @@ public partial class BaseItemAnalyzerTask(
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+            items = analyzer == chromaprint && chromaprintReferences is { Count: > 0 }
+                ? await chromaprint!.AnalyzeMediaFiles(items, mode, chromaprintReferences, cancellationToken).ConfigureAwait(false)
+                : await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
         if (subtitle is not null)

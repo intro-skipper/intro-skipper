@@ -77,9 +77,9 @@ internal sealed partial class CreditsPass(
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
-        // Episodes the chapter pre-pass decided, whatever the outcome. Offset-consumed and
-        // failed ones still need analysis by state, so the main loop skips them by id rather
-        // than falling back to combined detection.
+        // A chapter match owns the episode even if admission rejects its write: falling through
+        // to an empty combined result could otherwise clear standing Credits rows. Offset-
+        // consumed, rejected, and failed episodes remain unsettled according to their state.
         HashSet<Guid> chapterHandled = [];
         if (chapter is not null && !_config.EnhanceChapterCredits)
         {
@@ -96,10 +96,7 @@ internal sealed partial class CreditsPass(
 
                     var chapterState = await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
                     episode.SetAnalyzed(Mode, chapterState);
-                    if (chapterState != EpisodeState.NotAnalyzed)
-                    {
-                        chapterHandled.Add(episode.EpisodeId);
-                    }
+                    chapterHandled.Add(episode.EpisodeId);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

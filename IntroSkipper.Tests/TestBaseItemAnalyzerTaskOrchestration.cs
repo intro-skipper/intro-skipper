@@ -90,6 +90,65 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         }
     }
 
+    [Fact]
+    public async Task SubtitleOnlyRecapEpisode_RemainsChromaprintComparisonReference()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            ChapterAnalyzerRecapPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var seasonId = Guid.NewGuid();
+        var subtitleOnly = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = seasonId,
+            SeasonNumber = 1,
+            EpisodeNumber = 1,
+            Name = "Subtitle-only episode",
+            Duration = 180,
+            Path = "/media/episode-1.mkv",
+        };
+        var conventional = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = seasonId,
+            SeasonNumber = 1,
+            EpisodeNumber = 2,
+            Name = "Conventional episode",
+            Duration = 180,
+            Path = "/media/episode-2.mkv",
+        };
+        await database.ReplaceAutoSegmentsAsync(
+            subtitleOnly.EpisodeId,
+            AnalysisMode.Recap,
+            [new Segment(subtitleOnly.EpisodeId, new TimeRange(20, 40))],
+            SegmentSource.Chromaprint,
+            "previous-hash");
+        subtitleOnly.MarkSubtitleOnlyReanalysis(AnalysisMode.Recap);
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (_, _) => [1, 2, 3, 4],
+            SubtitleCues = _ => [],
+        };
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([subtitleOnly, conventional], AnalysisMode.Recap, AnalyzerAction.Default, true, CancellationToken.None);
+
+        Assert.Equal(2, ffmpeg.FingerprintCalls);
+        Assert.Equal(EpisodeState.Analyzed, subtitleOnly.GetAnalyzed(AnalysisMode.Recap));
+        Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(subtitleOnly.EpisodeId)).Source);
+    }
+
     [Theory]
     [InlineData(AnalyzerAction.Chromaprint, false, true)]
     [InlineData(AnalyzerAction.Default, true, true)]

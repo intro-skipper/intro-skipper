@@ -116,6 +116,35 @@ public sealed class TestCreditsPass
         Assert.Equal(0, ffmpeg.KeyframeScanCalls);
     }
 
+    [Fact]
+    public async Task RejectedChapterCandidate_PreservesStandingCreditsWhenCombinedPassFindsNothing()
+    {
+        using var scope = Scope(Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950));
+        var (episodes, ffmpeg, database) = CreateSeason(spans: [], sharedAudioLastPoint: SharedAudioFirstPoint - 1);
+        var episode = episodes[0];
+        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(episode.EpisodeId, new TimeRange(900, 950))],
+            SegmentSource.Chapter));
+        var chapter = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+        await database.DeleteSegmentAsync(episode.EpisodeId, chapter.Id);
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(episode.EpisodeId, new TimeRange(700, 800))],
+            SegmentSource.BlackFrame);
+        var standingRow = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var preservedRow = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+        Assert.Equal(standingRow.Id, preservedRow.Id);
+        Assert.Equal(SegmentSource.BlackFrame, preservedRow.Source);
+        Assert.Equal((700, 800), (preservedRow.ToSegment().Start, preservedRow.ToSegment().End));
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Credits));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
