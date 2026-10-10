@@ -183,8 +183,9 @@ internal sealed partial class QueueVerifier
     /// </list>
     /// A version the episode does not have cannot be compared: without a media version
     /// (Jellyfin holds no write time) a record keeps its verdict and nothing is stamped,
-    /// except a Recap or Preview record whose mode records the sidecar version, which still
-    /// compares that version.
+    /// except a Recap or Preview record whose mode records the sidecar version. That record
+    /// still compares the sidecar version, and reopens its mode when the version is gone
+    /// because the last sidecar was removed.
     /// </remarks>
     /// <returns>Whether a record shows the media file was replaced, and the Recap and Preview
     /// modes whose records carry a version other than the one they record now.</returns>
@@ -206,15 +207,24 @@ internal sealed partial class QueueVerifier
             }
             else if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
             {
-                if (_config.RecordedFileVersion(candidate, mode) is not { } current || recorded == current)
+                var current = _config.RecordedFileVersion(candidate, mode);
+                if (recorded == current)
                 {
                     continue;
                 }
 
-                if (_config.ActiveSubtitlePattern(mode) is null && HashMatches(record, mode))
+                if (_config.ActiveSubtitlePattern(mode) is null)
                 {
-                    candidate.FileChanged = true;
-                    return (true, reopened);
+                    if (current is null)
+                    {
+                        continue;
+                    }
+
+                    if (HashMatches(record, mode))
+                    {
+                        candidate.FileChanged = true;
+                        return (true, reopened);
+                    }
                 }
 
                 reopened.Add(mode);

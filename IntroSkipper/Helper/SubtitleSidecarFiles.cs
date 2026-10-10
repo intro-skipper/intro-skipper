@@ -93,8 +93,18 @@ internal static class SubtitleSidecarFiles
             return [];
         }
 
-        return [.. Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly)
-            .Where(path => Extensions.Contains(Path.GetExtension(path)) && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase))
+        // A literal prefix match, as Jellyfin's own external-file lookup does: a stem can hold
+        // characters that a search pattern would treat as wildcards.
+        return [.. Directory.EnumerateFiles(directory)
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path);
+                return name.Length > stem.Length
+                    && name.StartsWith(stem, StringComparison.OrdinalIgnoreCase)
+                    && name[stem.Length] == '.'
+                    && Extensions.Contains(Path.GetExtension(path))
+                    && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase);
+            })
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ThenBy(path => path, StringComparer.Ordinal)];
     }

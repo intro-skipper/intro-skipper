@@ -203,6 +203,28 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(textVersion, SubtitleSidecarFiles.FileVersion(mediaPath, 2, SubtitleLanguageSelection.Parse(null)));
     }
 
+    // The lookup matches the media file's name literally, so a name holding a wildcard
+    // character neither picks up a sibling's sidecar nor fails on a sibling shorter than
+    // the name. Only Linux allows * in a file name, so the case runs there (as on CI).
+    [Fact]
+    public void SubtitleSidecarFiles_MatchTheMediaNameLiterally()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var directory = new TempDirectory();
+        var mediaPath = directory.Join("episode*.mkv");
+        var ownPath = directory.Join("episode*.en.srt");
+        File.WriteAllText(mediaPath, string.Empty);
+        File.WriteAllText(ownPath, "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+        File.WriteAllText(directory.Join("episode.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+        File.WriteAllText(directory.Join("episode2.en.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+
+        Assert.Equal([ownPath], SubtitleSidecarFiles.FindTextSources(mediaPath, SubtitleLanguageSelection.Parse(null)));
+    }
+
     // A matching cue starts a recap that ends at the detected intro's start. The default
     // pattern matches the recap title cards of translation tracks once markup is removed.
     // Apart from English and Italian, a wording must open the cue, since some of them also

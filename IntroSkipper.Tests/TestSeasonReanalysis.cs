@@ -460,14 +460,15 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     /// detection is turned off, even when a sidecar changes before Recap is recorded again.
     /// No case flags the file as changed, which would reset the item's other modes and
     /// discard its fingerprints. The sidecar version is compared even when Jellyfin holds
-    /// no media write time (file version 0 here).
+    /// no media write time (file version 0 here), including when the last sidecar is removed.
     /// </summary>
     [Theory]
-    [InlineData(false, true, 2L)]
-    [InlineData(false, true, 0L)]
-    [InlineData(true, false, 2L)]
-    [InlineData(true, true, 2L)]
-    public async Task VerifyQueueAsync_SubtitleDetectingRecord_ReopensOnlyItsMode(bool turnDetectionOff, bool rewriteSidecar, long fileVersion)
+    [InlineData(false, "rewrite", 2L)]
+    [InlineData(false, "rewrite", 0L)]
+    [InlineData(false, "delete", 0L)]
+    [InlineData(true, "none", 2L)]
+    [InlineData(true, "rewrite", 2L)]
+    public async Task VerifyQueueAsync_SubtitleDetectingRecord_ReopensOnlyItsMode(bool turnDetectionOff, string sidecarChange, long fileVersion)
     {
         var config = SubtitleRecapConfig();
         using var fixture = new VerifyQueueFixture(config, fileVersion);
@@ -477,9 +478,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(EpisodeState.NoSegments, settled.GetAnalyzed(AnalysisMode.Recap));
 
         config.EnableSubtitleRecapDetection = !turnDetectionOff;
-        if (rewriteSidecar)
+        if (sidecarChange == "rewrite")
         {
             await File.AppendAllTextAsync(sidecar, "\n2\n00:00:03,000 --> 00:00:04,000\nA new line\n");
+        }
+        else if (sidecarChange == "delete")
+        {
+            File.Delete(sidecar);
         }
 
         var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
