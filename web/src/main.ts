@@ -3,6 +3,7 @@ import "./styles/layout.css";
 import "./styles/forms.css";
 
 import { createAppShell } from "./components/app-shell.ts";
+import { DASHBOARD_CLASS } from "./components/dom.ts";
 import { Router } from "./router/router.ts";
 import { configStore } from "./store/config-store.ts";
 import { abortable } from "./lifecycle.ts";
@@ -85,6 +86,7 @@ function bindPage(rootEl: HTMLElement): void {
     }
 
     rootEl.dataset.introSkipperBound = "true";
+    rootEl.classList.add(DASHBOARD_CLASS);
     boundRoot = rootEl;
 
     const page = getPageElement(rootEl);

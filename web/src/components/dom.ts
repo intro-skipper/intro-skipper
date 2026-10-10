@@ -1,3 +1,10 @@
+/**
+ * Marks the dashboard's root elements, including dialogs appended to
+ * `document.body`. Jellyfin keeps the stylesheet loaded after navigating away,
+ * so every rule is scoped under `:where(.is-dashboard)` (no added specificity).
+ */
+export const DASHBOARD_CLASS = "is-dashboard";
+
 export function el<K extends keyof HTMLElementTagNameMap>(
     tag: K,
     attrs?: Record<string, string>,
