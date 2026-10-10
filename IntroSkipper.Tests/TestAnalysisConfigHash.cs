@@ -56,6 +56,24 @@ public sealed class TestAnalysisConfigHash
     }
 
     [Theory]
+    [InlineData(AnalysisMode.Recap, true)]
+    [InlineData(AnalysisMode.Preview, false)]
+    public void SubtitleDisabled_UsesConventionalHashAndRecognizesPriorSubtitleHash(AnalysisMode mode, bool recap)
+    {
+        var config = new PluginConfiguration();
+        var conventionalHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
+        var defaultHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true);
+        var previouslyEnabled = recap
+            ? new PluginConfiguration { EnableSubtitleRecapDetection = true }
+            : new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var previousHash = ConfigHasher.Analysis(previouslyEnabled, mode, AnalyzerAction.Default, true);
+
+        Assert.Equal(conventionalHash, defaultHash);
+        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(conventionalHash, conventionalHash));
+        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(previousHash, conventionalHash));
+    }
+
+    [Theory]
     [InlineData(AnalysisMode.Introduction)]
     [InlineData(AnalysisMode.Credits)]
     [InlineData(AnalysisMode.Commercial)]

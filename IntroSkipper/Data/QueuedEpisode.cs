@@ -192,6 +192,13 @@ public sealed class QueuedEpisode
         => _subtitleOnlyReanalysisModes.Contains(mode);
 
     /// <summary>
+    /// Clears the subtitle-only shortcut when conventional output is being regenerated.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose conventional result is being reset.</param>
+    public void ClearSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Remove(mode);
+
+    /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>

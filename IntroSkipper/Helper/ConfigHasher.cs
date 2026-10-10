@@ -43,7 +43,7 @@ internal static class ConfigHasher
     /// <param name="subtitleRecapDetectionOverride">Optional season-level setting for subtitle recap detection.</param>
     /// <param name="subtitlePreviewDetectionOverride">Optional season-level setting for subtitle preview detection.</param>
     /// <param name="includeSubtitleSettings">Whether to include subtitle settings in the mode hash. Disabling this returns the conventional-settings hash used to recognize subtitle-only changes.</param>
-    /// <returns>A compact hash, with separate conventional and subtitle components for Recap and Preview.</returns>
+    /// <returns>A compact hash; enabled subtitle detection adds a separate subtitle component to Recap or Preview.</returns>
     public static string Analysis(
         PluginConfiguration config,
         AnalysisMode mode,
@@ -115,6 +115,12 @@ internal static class ConfigHasher
             return hash;
         }
 
+        var subtitleDetectionEnabled = mode == AnalysisMode.Recap ? subtitleRecapDetection : subtitlePreviewDetection;
+        if (!subtitleDetectionEnabled)
+        {
+            return hash;
+        }
+
         var conventionalHash = Analysis(
             config,
             mode,
@@ -138,6 +144,11 @@ internal static class ConfigHasher
     /// <returns>Whether only the subtitle settings changed.</returns>
     public static bool IsSubtitleOnlyHashChange(string storedHash, string conventionalHash)
     {
+        if (string.Equals(storedHash, conventionalHash, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
         if (!storedHash.StartsWith(SubtitleHashPrefix, StringComparison.Ordinal))
         {
             return false;

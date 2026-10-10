@@ -157,8 +157,8 @@ internal sealed partial class ChapterAnalyzer(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="matches">The unadjusted chapter matches.</param>
     /// <param name="timeAdjustmentHelper">Adjustment helper initialized for <paramref name="mode"/>.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="source">The analyzer source that produced the candidates.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see cref="EpisodeState.Analyzed"/> when at least one match survived adjustment, otherwise <see cref="EpisodeState.NoSegments"/>.</returns>
     internal async Task<EpisodeState> StoreMatchesAsync(
         QueuedEpisode episode,

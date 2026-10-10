@@ -23,6 +23,14 @@ internal static class LegacyAnalysisCompatibility
         SeasonQueueSnapshot snapshot,
         PluginConfiguration config,
         CancellationToken cancellationToken = default)
+        => await UpgradeAsync(database, snapshot, config, excludedModes: null, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<bool> UpgradeAsync(
+        IntroSkipperDatabase database,
+        SeasonQueueSnapshot snapshot,
+        PluginConfiguration config,
+        IReadOnlySet<AnalysisMode>? excludedModes,
+        CancellationToken cancellationToken = default)
     {
         var updated = false;
         foreach (var modeGroup in snapshot.AnalysisRecords.GroupBy(pair => pair.Key.Mode))
@@ -32,6 +40,7 @@ internal static class LegacyAnalysisCompatibility
             // The chapter-before-subtitle precedence changed stored Recap and Preview output;
             // adopting an older hash would hide the precedence token and skip that reanalysis.
             if (!AnalysisHelpers.IsSupported(mode)
+                || excludedModes?.Contains(mode) == true
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))

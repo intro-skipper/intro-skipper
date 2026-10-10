@@ -113,6 +113,7 @@ internal sealed partial class QueueVerifier
                     subtitlePreviewDetectionOverride: subtitlePreviewDetectionOverride,
                     includeSubtitleSettings: false));
             }
+
             _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
                 config,
                 mode,

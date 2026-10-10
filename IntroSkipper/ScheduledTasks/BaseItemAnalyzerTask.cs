@@ -280,6 +280,7 @@ public partial class BaseItemAnalyzerTask(
                         if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
                         {
                             episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            episode.ClearSubtitleOnlyReanalysis(resetMode);
                         }
                     }
                 }
@@ -353,12 +354,13 @@ public partial class BaseItemAnalyzerTask(
         // saved between resolution and this verification must apply.
         var policy = ExclusionPolicy.FromConfiguration(config);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
-        if (candidates[0].AnalysisPercentOverride is null
-            && candidates[0].AnalysisLengthLimitOverride is null
-            && candidates[0].PreviewFromCreditsEndOverride is null
-            && candidates[0].SubtitleRecapDetectionOverride is null
-            && candidates[0].SubtitlePreviewDetectionOverride is null
-            && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
+        var legacyExcludedModes = GetLegacyHashAdoptionExclusions(candidates[0], config);
+        if (await LegacyAnalysisCompatibility.UpgradeAsync(
+                _database,
+                snapshot,
+                config,
+                legacyExcludedModes,
+                cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         }
@@ -415,6 +417,43 @@ public partial class BaseItemAnalyzerTask(
         await _database.BackfillFileVersionsAsync(verifier.FileVersionBackfill, cancellationToken).ConfigureAwait(false);
 
         return verified;
+    }
+
+    private static IReadOnlySet<AnalysisMode> GetLegacyHashAdoptionExclusions(QueuedEpisode episode, PluginConfiguration config)
+    {
+        var excludedModes = new HashSet<AnalysisMode>();
+        if (episode.AnalysisPercentOverride is { } analysisPercent && analysisPercent != config.AnalysisPercent)
+        {
+            excludedModes.Add(AnalysisMode.Introduction);
+            excludedModes.Add(AnalysisMode.Recap);
+        }
+
+        if (episode.AnalysisLengthLimitOverride is { } analysisLengthLimit && analysisLengthLimit != config.AnalysisLengthLimit)
+        {
+            excludedModes.Add(AnalysisMode.Introduction);
+            excludedModes.Add(AnalysisMode.Recap);
+        }
+
+        if (episode.PreviewFromCreditsEndOverride is { } previewFromCreditsEnd
+            && previewFromCreditsEnd != config.AnimePreviewFromCreditsEnd)
+        {
+            excludedModes.Add(AnalysisMode.Credits);
+            excludedModes.Add(AnalysisMode.Preview);
+        }
+
+        if (episode.SubtitleRecapDetectionOverride is { } subtitleRecapDetection
+            && subtitleRecapDetection != config.EnableSubtitleRecapDetection)
+        {
+            excludedModes.Add(AnalysisMode.Recap);
+        }
+
+        if (episode.SubtitlePreviewDetectionOverride is { } subtitlePreviewDetection
+            && subtitlePreviewDetection != config.EnableSubtitlePreviewDetection)
+        {
+            excludedModes.Add(AnalysisMode.Preview);
+        }
+
+        return excludedModes;
     }
 
     /// <summary>
@@ -523,7 +562,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (subtitleOnlyItems.Length > 0)
         {
-            await RunSubtitleOnlyAnalysisAsync(subtitleOnlyItems, mode, cancellationToken).ConfigureAwait(false);
+            await RunSubtitleOnlyAnalysisAsync(subtitleOnlyItems, mode, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
 
         // Credits-derived previews are generated right after a credits result lands, and again
@@ -562,6 +601,8 @@ public partial class BaseItemAnalyzerTask(
     private async Task RunSubtitleOnlyAnalysisAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        AnalyzerAction action,
+        bool ffmpegValid,
         CancellationToken cancellationToken)
     {
         var subtitleCandidates = new List<QueuedEpisode>(items.Count);
@@ -572,10 +613,17 @@ public partial class BaseItemAnalyzerTask(
             var hasChapterResult = segments.Any(segment => segment.Type == mode
                 && segment.Source == SegmentSource.Chapter
                 && segment.State == SegmentState.Active);
+            var chromaprintHasPriority = mode == AnalysisMode.Recap
+                && ffmpegValid
+                && (action == AnalyzerAction.Chromaprint
+                    || (action == AnalyzerAction.Default && Config.PreferChromaprint));
+            var hasPreferredChromaprintResult = chromaprintHasPriority && segments.Any(segment => segment.Type == mode
+                && segment.Source == SegmentSource.Chromaprint
+                && segment.State == SegmentState.Active);
             var enabled = IsSubtitleDetectionEnabled(episode, mode, Config);
             var pattern = mode == AnalysisMode.Recap ? Config.SubtitleRecapPattern : Config.SubtitlePreviewPattern;
 
-            if (hasChapterResult || !enabled || string.IsNullOrWhiteSpace(pattern))
+            if (hasChapterResult || hasPreferredChromaprintResult || !enabled || string.IsNullOrWhiteSpace(pattern))
             {
                 if (segments.Any(segment => segment.Type == mode
                     && segment.Source == SegmentSource.Subtitle

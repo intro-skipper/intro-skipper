@@ -270,6 +270,36 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.Equal(adopted ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalysisRecords[(id, mode)].ConfigHash);
     }
 
+    [Fact]
+    public async Task SubtitleModeExclusions_DoNotBlockLegacyAdoptionForOtherModes()
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration();
+        var seasonId = Guid.NewGuid();
+        var introductionId = Guid.NewGuid();
+        var commercialId = Guid.NewGuid();
+        var recapId = Guid.NewGuid();
+        var introductionHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, false, 22);
+        var commercialHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Commercial, AnalyzerAction.Default, true, false, 22);
+        var recapHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Recap, AnalyzerAction.Default, true, false, 22);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [introductionId], introductionHash);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Commercial, [commercialId], commercialHash);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [recapId], recapHash);
+        var ids = new[] { introductionId, commercialId, recapId };
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
+
+        Assert.True(await LegacyAnalysisCompatibility.UpgradeAsync(
+            temp.Database,
+            snapshot,
+            config,
+            new HashSet<AnalysisMode> { AnalysisMode.Recap, AnalysisMode.Preview }));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
+        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(introductionId, AnalysisMode.Introduction)].ConfigHash);
+        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Commercial, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(commercialId, AnalysisMode.Commercial)].ConfigHash);
+        Assert.Equal(recapHash, snapshot.AnalysisRecords[(recapId, AnalysisMode.Recap)].ConfigHash);
+    }
+
     [Theory]
     [InlineData(22)]
     [InlineData(23)]

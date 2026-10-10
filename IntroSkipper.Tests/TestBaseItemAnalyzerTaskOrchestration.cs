@@ -89,6 +89,49 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         }
     }
 
+    [Theory]
+    [InlineData(AnalyzerAction.Chromaprint, false)]
+    [InlineData(AnalyzerAction.Default, true)]
+    public async Task SubtitleOnlyRecapRefresh_PreservesPreferredChromaprintResult(AnalyzerAction action, bool preferChromaprint)
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            PreferChromaprint = preferChromaprint,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            Name = "Episode",
+            Duration = 180,
+        };
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Recap,
+            [new Segment(episode.EpisodeId, new TimeRange(20, 40))],
+            SegmentSource.Chromaprint,
+            "old-hash");
+        episode.MarkSubtitleOnlyReanalysis(AnalysisMode.Recap);
+        var extractionCalled = false;
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService { SubtitleCues = _ => { extractionCalled = true; return []; } },
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Recap, action, true, CancellationToken.None);
+
+        Assert.False(extractionCalled);
+        Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Recap));
+        var recap = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+        Assert.Equal(SegmentSource.Chromaprint, recap.Source);
+    }
+
     /// <summary>
     /// Credits the user authored never enter the credits pass, so the Preview mode has to
     /// refresh the derived preview when the preview minimum changes: a stale one goes, an
