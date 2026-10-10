@@ -6,10 +6,10 @@
     padding-bottom: calc(52px + env(safe-area-inset-bottom));
 }
 
+:where(.is-app-shell, .is-confirm-dialog) {
 /* One keyboard focus ring for every control. Plain checkboxes keep the browser
    ring; the search and filter inputs use a box-shadow instead. Zero-specificity
    wrappers let a plain class rule adjust the offset or radius. */
-:where(.is-app-shell, .is-confirm-dialog)
     :where(button, select, summary, a, input):where(
         :not(.ts-search-input, .ts-filter-input, [type="checkbox"]),
         .ts-episode-disable-toggle
@@ -405,7 +405,7 @@
 }
 
 @media (max-width: 768px) {
-    .is-app-shell {
+    &.is-app-shell {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto 1fr;
     }
@@ -538,4 +538,5 @@
     .ts-season-tab {
         transition: none;
     }
+}
 }

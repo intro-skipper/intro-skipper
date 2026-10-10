@@ -1,3 +1,4 @@
+:where(.is-app-shell, .is-confirm-dialog) {
 .input-container {
     margin-bottom: 16px;
 }
@@ -914,6 +915,7 @@ a {
 .ts-status-msg {
     font-size: 0.85em;
     padding: 8px 0;
+}
 }
 
 /* Confirm dialog (used for destructive actions with optional checkbox). */
