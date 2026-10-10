@@ -193,6 +193,8 @@ public partial class BaseItemAnalyzerTask(
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
+            episode.SubtitleRecapDetectionOverride = overrides.SubtitleRecapDetection;
+            episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
 
             var config = Config;
             var duration = episode.Duration;
@@ -227,7 +229,7 @@ public partial class BaseItemAnalyzerTask(
             await _database.ResetItemsForReanalysisAsync(
                 changedFiles,
                 AllModes,
-                GetSubtitleModesToPreserve(modes, seasonStates),
+                GetSubtitleModesToPreserve(modes, seasonStates, episodes),
                 cancellationToken).ConfigureAwait(false);
             foreach (var episode in episodes.Where(e => e.FileChanged))
             {
@@ -268,7 +270,7 @@ public partial class BaseItemAnalyzerTask(
                 await _database.ResetItemsForReanalysisAsync(
                     episodeIds,
                     resetModes,
-                    GetSubtitleModesToPreserve(resetModes, seasonStates),
+                    GetSubtitleModesToPreserve(resetModes, seasonStates, episodes),
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (var episode in episodes)
@@ -354,6 +356,8 @@ public partial class BaseItemAnalyzerTask(
         if (candidates[0].AnalysisPercentOverride is null
             && candidates[0].AnalysisLengthLimitOverride is null
             && candidates[0].PreviewFromCreditsEndOverride is null
+            && candidates[0].SubtitleRecapDetectionOverride is null
+            && candidates[0].SubtitlePreviewDetectionOverride is null
             && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
@@ -367,7 +371,9 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             candidates[0].AnalysisPercentOverride,
             candidates[0].AnalysisLengthLimitOverride,
-            previewFromCreditsEnd);
+            previewFromCreditsEnd,
+            candidates[0].SubtitleRecapDetectionOverride,
+            candidates[0].SubtitlePreviewDetectionOverride);
 
         foreach (var candidate in candidates)
         {
@@ -453,7 +459,9 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             first.AnalysisPercentOverride,
             first.AnalysisLengthLimitOverride,
-            ShouldDerivePreview(first, Config));
+            ShouldDerivePreview(first, Config),
+            IsSubtitleDetectionEnabled(first, AnalysisMode.Recap, Config),
+            IsSubtitleDetectionEnabled(first, AnalysisMode.Preview, Config));
 
         if (action == AnalyzerAction.None)
         {
@@ -475,12 +483,17 @@ public partial class BaseItemAnalyzerTask(
 
         // The cleanup journals the removed rows' projections, so they reach the
         // mirror even if the analyzers below detect nothing new.
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
-            mode,
-            configHash,
-            ShouldPreserveSubtitleRows(mode),
-            cancellationToken).ConfigureAwait(false);
+        foreach (var eligibleItems in items
+            .Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided)
+            .GroupBy(item => ShouldPreserveSubtitleRows(item, mode)))
+        {
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                eligibleItems.Select(e => e.EpisodeId),
+                mode,
+                configHash,
+                eligibleItems.Key,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
@@ -507,7 +520,7 @@ public partial class BaseItemAnalyzerTask(
         {
             if (mode == AnalysisMode.Credits)
             {
-                var subtitlePreviewWillRun = Config.EnableSubtitlePreviewDetection && Config.ScanPreview;
+                var subtitlePreviewWillRun = IsSubtitleDetectionEnabled(first, AnalysisMode.Preview, Config) && Config.ScanPreview;
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
                     items,
@@ -535,18 +548,25 @@ public partial class BaseItemAnalyzerTask(
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
-    private bool ShouldPreserveSubtitleRows(AnalysisMode mode)
+    private bool ShouldPreserveSubtitleRows(QueuedEpisode episode, AnalysisMode mode)
         => mode switch
         {
-            AnalysisMode.Recap => Config.EnableSubtitleRecapDetection && !string.IsNullOrWhiteSpace(Config.SubtitleRecapPattern),
-            AnalysisMode.Preview => Config.EnableSubtitlePreviewDetection && !string.IsNullOrWhiteSpace(Config.SubtitlePreviewPattern),
+            AnalysisMode.Recap => IsSubtitleDetectionEnabled(episode, mode, Config) && !string.IsNullOrWhiteSpace(Config.SubtitleRecapPattern),
+            AnalysisMode.Preview => IsSubtitleDetectionEnabled(episode, mode, Config) && !string.IsNullOrWhiteSpace(Config.SubtitlePreviewPattern),
             _ => false,
         };
 
+    private static bool IsSubtitleDetectionEnabled(QueuedEpisode episode, AnalysisMode mode, PluginConfiguration config)
+        => mode == AnalysisMode.Recap
+            ? episode.SubtitleRecapDetectionOverride ?? config.EnableSubtitleRecapDetection
+            : mode == AnalysisMode.Preview
+                && (episode.SubtitlePreviewDetectionOverride ?? config.EnableSubtitlePreviewDetection);
+
     private AnalysisMode[] GetSubtitleModesToPreserve(
         IReadOnlyCollection<AnalysisMode> modes,
-        IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> seasonStates)
-        => [.. modes.Where(mode => ShouldPreserveSubtitleRows(mode)
+        IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> seasonStates,
+        IReadOnlyList<QueuedEpisode> episodes)
+        => [.. modes.Where(mode => episodes.Any(episode => ShouldPreserveSubtitleRows(episode, mode))
             && (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None))];
 
     /// <summary>
@@ -565,7 +585,8 @@ public partial class BaseItemAnalyzerTask(
         // Subtitle matching is an opt-in, mode-specific fallback. It runs after the chapter
         // analyzer so chapter matches take precedence, and before the remaining default chain.
         // Chromaprint needs a season to compare (no movies) and a compatible ffmpeg.
-        var subtitle = mode is AnalysisMode.Recap or AnalysisMode.Preview
+        var subtitleEpisodes = modeEpisodes.Where(item => ShouldPreserveSubtitleRows(item, mode)).ToArray();
+        var subtitle = subtitleEpisodes.Length > 0
             ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
             : null;
         var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
@@ -603,9 +624,9 @@ public partial class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        if (subtitle is not null && ShouldPreserveSubtitleRows(mode))
+        if (subtitle is not null)
         {
-            var completedFallbacks = modeEpisodes
+            var completedFallbacks = subtitleEpisodes
                 .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed
                     && !item.HasUnresolvedSubtitleDetection(mode)
                     && !item.HasRejectedSubtitleCandidate(mode))

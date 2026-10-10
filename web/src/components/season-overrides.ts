@@ -10,6 +10,13 @@ function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => stri
         configStore.isLoaded() ? "Global: " + String(configStore.get(key)) : "Global default";
 }
 
+function globalEnabledValue(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): () => string {
+    return () =>
+        configStore.isLoaded()
+            ? "Global: " + (configStore.get(key) ? "Enabled" : "Disabled")
+            : "Global default";
+}
+
 /**
  * The per-season analysis overrides the action bar edits. Same limits as the
  * global fields, so an override can never be a value the global setting would
@@ -39,7 +46,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Set after credits scene as preview",
         description:
-            "Create a preview segment from the post credits duration",
+            "Use the post-credits duration as a fallback preview when no other preview is detected.",
         options: [
             {
                 value: null,
@@ -50,6 +57,26 @@ export const overrideSchema = {
                             : "Global: Disabled"
                         : "Global default",
             },
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
+    SubtitleRecapDetection: {
+        kind: "select",
+        label: "Subtitle-based recap detection",
+        description: "Override the global subtitle recap setting for this season.",
+        options: [
+            { value: null, label: globalEnabledValue("EnableSubtitleRecapDetection") },
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
+    SubtitlePreviewDetection: {
+        kind: "select",
+        label: "Subtitle-based preview detection",
+        description: "Override the global subtitle preview setting for this season.",
+        options: [
+            { value: null, label: globalEnabledValue("EnableSubtitlePreviewDetection") },
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
         ],
@@ -65,6 +92,8 @@ const EMPTY: SeasonOverrides = {
     AnalysisPercent: null,
     AnalysisLengthLimit: null,
     PreviewFromCreditsEnd: null,
+    SubtitleRecapDetection: null,
+    SubtitlePreviewDetection: null,
 };
 
 export type OverrideStore = FieldStore<SeasonOverrides> & {

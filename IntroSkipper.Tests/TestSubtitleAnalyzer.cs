@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -191,6 +192,39 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(100, TickConversions.ToSeconds(preview.StartTicks));
         Assert.Equal(180, TickConversions.ToSeconds(preview.EndTicks));
         Assert.Equal(SegmentSource.Subtitle, preview.Source);
+    }
+
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    public async Task PreviewSubtitle_SeasonOverrideTakesPrecedence(bool globalEnabled, bool seasonOverride, bool expectedDetected)
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = globalEnabled, MinimumPreviewDuration = 5 };
+        var extractionCalled = false;
+        var ffmpeg = new StubFFmpegService
+        {
+            SubtitleCues = _ =>
+            {
+                extractionCalled = true;
+                return [new SubtitleCue(100, 103, "Here's the preview")];
+            },
+        };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 180,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+            SubtitlePreviewDetectionOverride = seasonOverride,
+        };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
+
+        Assert.Equal(expectedDetected, extractionCalled);
+        Assert.Equal(expectedDetected, (await database.GetSegmentsAsync(episodeId)).Any(segment => segment.Type == AnalysisMode.Preview));
     }
 
     [Fact]

@@ -33,4 +33,25 @@ public sealed class TestAnalysisConfigHash
             ConfigHasher.Analysis(before, mode, AnalyzerAction.Default, ffmpegValid: true),
             ConfigHasher.Analysis(after, mode, afterAction, ffmpegValid: true));
     }
+
+    [Fact]
+    public void Analysis_SeasonSubtitleOverridesOnlyAffectTheirOwnMode()
+    {
+        var config = new PluginConfiguration();
+        var recapDefault = ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, true);
+        var previewDefault = ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true);
+
+        Assert.NotEqual(
+            recapDefault,
+            ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, true, subtitleRecapDetectionOverride: true));
+        Assert.NotEqual(
+            previewDefault,
+            ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true, subtitlePreviewDetectionOverride: true));
+        Assert.Equal(
+            recapDefault,
+            ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, true, subtitlePreviewDetectionOverride: true));
+        Assert.Equal(
+            previewDefault,
+            ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true, subtitleRecapDetectionOverride: true));
+    }
 }

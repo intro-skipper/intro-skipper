@@ -198,7 +198,14 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return BadRequest("Analysis overrides are outside the supported range.");
         }
 
-        await _database.SetAnalysisOverridesAsync(request.Id, request.AnalysisPercent, request.AnalysisLengthLimit, request.PreviewFromCreditsEnd, cancellationToken).ConfigureAwait(false);
+        await _database.SetAnalysisOverridesAsync(
+            request.Id,
+            request.AnalysisPercent,
+            request.AnalysisLengthLimit,
+            request.PreviewFromCreditsEnd,
+            request.SubtitleRecapDetection,
+            request.SubtitlePreviewDetection,
+            cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 

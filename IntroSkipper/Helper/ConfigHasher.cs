@@ -37,6 +37,8 @@ internal static class ConfigHasher
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
     /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
     /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
+    /// <param name="subtitleRecapDetectionOverride">Optional season-level setting for subtitle recap detection.</param>
+    /// <param name="subtitlePreviewDetectionOverride">Optional season-level setting for subtitle preview detection.</param>
     /// <returns>A compact hex hash.</returns>
     public static string Analysis(
         PluginConfiguration config,
@@ -45,11 +47,15 @@ internal static class ConfigHasher
         bool ffmpegValid,
         int? analysisPercentOverride = null,
         int? analysisLengthLimitOverride = null,
-        bool? previewFromCreditsEndOverride = null)
+        bool? previewFromCreditsEndOverride = null,
+        bool? subtitleRecapDetectionOverride = null,
+        bool? subtitlePreviewDetectionOverride = null)
     {
         var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
         var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
         var previewFromCreditsEnd = previewFromCreditsEndOverride ?? config.AnimePreviewFromCreditsEnd;
+        var subtitleRecapDetection = subtitleRecapDetectionOverride ?? config.EnableSubtitleRecapDetection;
+        var subtitlePreviewDetection = subtitlePreviewDetectionOverride ?? config.EnableSubtitlePreviewDetection;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -77,13 +83,13 @@ internal static class ConfigHasher
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"|subtitle={config.EnableSubtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}",
+                $"|subtitle={subtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
                 $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
-                $"|animePreview={previewFromCreditsEnd}|subtitle={config.EnableSubtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}",
+                $"|animePreview={previewFromCreditsEnd}|subtitle={subtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(

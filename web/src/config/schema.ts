@@ -301,7 +301,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Set after credits scene as preview for anime",
         description:
-            "When enabled, create a preview segment for the post-credits duration, from the end of the last credits block to the end of the episode, when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled, create a preview segment from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",

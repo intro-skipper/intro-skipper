@@ -89,6 +89,16 @@ public sealed class QueuedEpisode
     public bool? PreviewFromCreditsEndOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetectionOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetectionOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }

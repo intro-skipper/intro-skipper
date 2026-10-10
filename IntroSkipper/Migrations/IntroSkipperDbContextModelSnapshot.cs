@@ -143,6 +143,12 @@ namespace IntroSkipper.Migrations
                     b.Property<bool?>("PreviewFromCreditsEnd")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool?>("SubtitlePreviewDetection")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("SubtitleRecapDetection")
+                        .HasColumnType("INTEGER");
+
                     b.HasKey("SeasonId");
 
                     b.ToTable("SeasonAnalysisOverrides", (string)null);
