@@ -12,7 +12,9 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
-    private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
+    private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -88,6 +90,16 @@ public sealed class QueuedEpisode
     public bool? PreviewFromCreditsEndOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetectionOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetectionOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }
@@ -145,25 +157,57 @@ public sealed class QueuedEpisode
     public bool FileChanged { get; set; }
 
     /// <summary>
-    /// Sets the subtitle analyzer's outcome for a mode in this pass. The analyzer chain reads
-    /// it after every analyzer has run to decide which stale rows to keep and how the mode settles.
+    /// Marks subtitle detection unresolved for a mode, keeping it eligible for a later retry.
     /// </summary>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="outcome">One of the enumeration values that specifies the outcome.</param>
-    public void SetSubtitleOutcome(AnalysisMode mode, SubtitleOutcome outcome)
-    {
-        _subtitleOutcomes[(int)mode] = outcome;
-    }
+    /// <param name="mode">Analysis mode whose subtitle scan is incomplete.</param>
+    public void MarkSubtitleDetectionUnresolved(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Add(mode);
 
     /// <summary>
-    /// Gets the subtitle analyzer's outcome for a mode in this pass.
+    /// Determines whether subtitle detection remains unresolved for a mode.
     /// </summary>
-    /// <param name="mode">Analysis mode.</param>
-    /// <returns>The outcome; <see cref="SubtitleOutcome.None"/> when the analyzer recorded none.</returns>
-    public SubtitleOutcome GetSubtitleOutcome(AnalysisMode mode)
-    {
-        return _subtitleOutcomes[(int)mode];
-    }
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether that mode must remain retryable.</returns>
+    public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks a subtitle candidate rejected by admission, so it can settle without retrying.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose candidate was rejected.</param>
+    public void MarkSubtitleCandidateRejected(AnalysisMode mode)
+        => _rejectedSubtitleModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether automatic-segment admission rejected a subtitle candidate.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether the standing rows should be retained without retrying.</returns>
+    public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
+        => _rejectedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks that only subtitle settings changed since this mode was analyzed. The
+    /// conventional result remains valid and is retained while subtitle detection is refreshed.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose subtitle settings changed.</param>
+    public void MarkSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether only subtitle settings changed for this mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether conventional analyzer output can be reused.</returns>
+    public bool NeedsSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Contains(mode);
+
+    /// <summary>
+    /// Clears the subtitle-only shortcut when conventional output is being regenerated.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose conventional result is being reset.</param>
+    public void ClearSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Remove(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

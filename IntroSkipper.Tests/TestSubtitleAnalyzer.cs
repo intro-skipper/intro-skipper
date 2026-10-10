@@ -363,7 +363,7 @@ public sealed class TestSubtitleAnalyzer
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal("previous-config", preview.ConfigHash);
-        Assert.Equal(SubtitleOutcome.Unresolved, episode.GetSubtitleOutcome(AnalysisMode.Preview));
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 

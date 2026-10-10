@@ -260,13 +260,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether a recap is detected from a matching text subtitle
     /// cue. It ends at the start of the detected introduction, or at the next chapter when no
-    /// introduction follows the cue.
+    /// introduction follows the cue. Retained for existing configurations.
     /// </summary>
     public bool EnableSubtitleRecapDetection { get; set; } = false;
 
     /// <summary>
     /// Gets or sets a value indicating whether a preview is detected from a matching text subtitle
-    /// cue and runs through the end of the episode.
+    /// cue and runs through the end of the episode. Retained for existing configurations.
     /// </summary>
     public bool EnableSubtitlePreviewDetection { get; set; } = false;
 
@@ -624,5 +624,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <see cref="QueuedEpisode.FileVersion"/>.
     /// </returns>
     public long? RecordedFileVersion(QueuedEpisode episode, AnalysisMode mode)
-        => ActiveSubtitlePattern(mode) is null ? episode.FileVersion : episode.SubtitleFileVersion;
+    {
+        var enabled = mode switch
+        {
+            AnalysisMode.Recap => episode.SubtitleRecapDetectionOverride ?? EnableSubtitleRecapDetection,
+            AnalysisMode.Preview => episode.SubtitlePreviewDetectionOverride ?? EnableSubtitlePreviewDetection,
+            _ => false,
+        };
+        var pattern = mode == AnalysisMode.Recap ? SubtitleRecapPattern : SubtitlePreviewPattern;
+        return enabled && !string.IsNullOrWhiteSpace(pattern) ? episode.SubtitleFileVersion : episode.FileVersion;
+    }
 }

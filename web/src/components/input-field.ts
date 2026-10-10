@@ -148,7 +148,10 @@ function select(
                 if (typeof choice.label === "function") optionEls[index].textContent = choice.label();
             });
             const current = store.get(id);
-            const index = spec.options.findIndex((choice) => choice.value === current);
+            const displayedValue = current === null && spec.nullDisplayValue
+                ? spec.nullDisplayValue()
+                : current;
+            const index = spec.options.findIndex((choice) => choice.value === displayedValue);
             control.value = index >= 0 ? String(index) : "";
         },
     });

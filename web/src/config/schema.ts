@@ -299,9 +299,9 @@ export const configSchema = {
     },
     AnimePreviewFromCreditsEnd: {
         kind: "checkbox",
-        label: "Set after credits scene as preview for anime",
+        label: "Set post-credits scene as preview for anime",
         description:
-            "When enabled, create a preview from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled, create a preview segment from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",
@@ -419,29 +419,19 @@ export const configSchema = {
     },
 
     // Subtitles
-    EnableSubtitleRecapDetection: {
-        kind: "checkbox",
-        label: "Detect recaps from subtitles",
-        description:
-            "Use a matching text subtitle cue as the recap start and the following intro start, or the next chapter start, as its end.",
-    },
     SubtitleRecapPattern: {
         kind: "regex",
         label: "Subtitle recaps",
-        description: "Enter a regular expression to detect the start of recaps in text subtitles.",
+        description:
+            "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
         default:
             "\\bpreviously\\s+on|^\\W*(?:zuvor\\s+bei|zuletzt\\s+bei|was\\s+bisher\\s+geschah|bisher\\s+bei|anteriormente|previamente|précédemment|wat\\s+voorafging)|episodio?\\s+precedent[ei]",
-    },
-    EnableSubtitlePreviewDetection: {
-        kind: "checkbox",
-        label: "Detect previews from subtitles",
-        description:
-            "Use a matching text subtitle cue as the preview start and the episode duration as its end. A subtitle preview replaces a credits-derived preview.",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Subtitle previews",
-        description: "Enter a regular expression to detect the start of previews in text subtitles.",
+        description:
+            "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
         default:
             "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
     },

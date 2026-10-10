@@ -41,7 +41,14 @@ internal sealed partial class SubtitleAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (_config.ActiveSubtitlePattern(mode) is not { } expression)
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+        {
+            return analysisQueue;
+        }
+
+        var expression = mode == AnalysisMode.Recap ? _config.SubtitleRecapPattern : _config.SubtitlePreviewPattern;
+        var enabledEpisodes = analysisQueue.Where(item => item.NeedsAnalysis(mode) && IsEnabled(item, mode)).ToArray();
+        if (enabledEpisodes.Length == 0 || string.IsNullOrWhiteSpace(expression))
         {
             return analysisQueue;
         }
@@ -58,15 +65,15 @@ internal sealed partial class SubtitleAnalyzer(
             // row that had just blocked the other analyzers' writes, and the mode would settle
             // with no segment.
             LogInvalidPattern(_logger, mode, ex.Message);
-            foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode)))
+            foreach (var episode in enabledEpisodes)
             {
-                episode.SetSubtitleOutcome(mode, SubtitleOutcome.Unresolved);
+                episode.MarkSubtitleDetectionUnresolved(mode);
             }
 
             return analysisQueue;
         }
 
-        foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode)))
+        foreach (var episode in enabledEpisodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var scan = await _ffmpegService.ExtractSubtitleCuesAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -80,14 +87,14 @@ internal sealed partial class SubtitleAnalyzer(
             {
                 if (!scan.Complete)
                 {
-                    episode.SetSubtitleOutcome(mode, SubtitleOutcome.Unresolved);
+                    episode.MarkSubtitleDetectionUnresolved(mode);
                     LogSubtitleScanIncomplete(_logger, episode.Name, mode);
                 }
                 else if (recapSearch.DetectedWithoutEnd)
                 {
                     // Every retry would find the same cue without an end, so the episode
                     // settles with its standing rows, as for a rejected match.
-                    episode.SetSubtitleOutcome(mode, SubtitleOutcome.Rejected);
+                    episode.MarkSubtitleCandidateRejected(mode);
                 }
                 else
                 {
@@ -97,13 +104,19 @@ internal sealed partial class SubtitleAnalyzer(
                 continue;
             }
 
-            var written = await _database.ReplaceAutoSegmentsAsync(
-                episode.EpisodeId,
-                mode,
-                [segment],
-                SegmentSource.Subtitle,
-                episode.AnalysisConfigHash,
-                cancellationToken).ConfigureAwait(false);
+            var written = mode == AnalysisMode.Preview
+                ? await _database.ReplaceSubtitlePreviewAsync(
+                    episode.EpisodeId,
+                    segment,
+                    episode.AnalysisConfigHash,
+                    cancellationToken).ConfigureAwait(false)
+                : await _database.ReplaceAutoSegmentsAsync(
+                    episode.EpisodeId,
+                    mode,
+                    [segment],
+                    SegmentSource.Subtitle,
+                    episode.AnalysisConfigHash,
+                    cancellationToken).ConfigureAwait(false);
 
             if (written > 0)
             {
@@ -115,16 +128,21 @@ internal sealed partial class SubtitleAnalyzer(
             // hold a better cue. A complete match that admission rejected settles the mode.
             if (!scan.Complete)
             {
-                episode.SetSubtitleOutcome(mode, SubtitleOutcome.Unresolved);
+                episode.MarkSubtitleDetectionUnresolved(mode);
             }
             else if (written == 0)
             {
-                episode.SetSubtitleOutcome(mode, SubtitleOutcome.Rejected);
+                episode.MarkSubtitleCandidateRejected(mode);
             }
         }
 
         return analysisQueue;
     }
+
+    private bool IsEnabled(QueuedEpisode episode, AnalysisMode mode)
+        => mode == AnalysisMode.Recap
+            ? episode.SubtitleRecapDetectionOverride ?? _config.EnableSubtitleRecapDetection
+            : episode.SubtitlePreviewDetectionOverride ?? _config.EnableSubtitlePreviewDetection;
 
     private async Task<(Segment? Segment, bool DetectedWithoutEnd)> FindRecapAsync(
         QueuedEpisode episode,

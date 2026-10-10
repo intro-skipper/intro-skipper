@@ -23,18 +23,30 @@ internal static class LegacyAnalysisCompatibility
         SeasonQueueSnapshot snapshot,
         PluginConfiguration config,
         CancellationToken cancellationToken = default)
+        => await UpgradeAsync(database, snapshot, config, excludedModes: null, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+    internal static async Task<bool> UpgradeAsync(
+        IntroSkipperDatabase database,
+        SeasonQueueSnapshot snapshot,
+        PluginConfiguration config,
+        IReadOnlySet<AnalysisMode>? excludedModes,
+        CancellationToken cancellationToken = default)
     {
         var updated = false;
         foreach (var modeGroup in snapshot.AnalysisRecords.GroupBy(pair => pair.Key.Mode))
         {
             var mode = modeGroup.Key;
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+            // The chapter-before-subtitle precedence changed stored Recap and Preview output;
+            // adopting an older hash would hide the precedence token and skip that reanalysis.
             if (!AnalysisHelpers.IsSupported(mode)
+                || excludedModes?.Contains(mode) == true
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))
-                || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen)
-                || config.ActiveSubtitlePattern(mode) is not null)
+                || (mode is AnalysisMode.Recap or AnalysisMode.Preview)
+                || (mode == AnalysisMode.Recap && (config.AnchorRecapToColdOpen || config.EnableSubtitleRecapDetection))
+                || (mode == AnalysisMode.Preview && config.EnableSubtitlePreviewDetection))
             {
                 continue;
             }

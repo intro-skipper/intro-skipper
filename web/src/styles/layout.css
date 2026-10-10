@@ -479,6 +479,10 @@
         grid-template-columns: 1fr;
     }
 
+    .ts-subtitle-override-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .ts-analysis-window input,
     .ts-analysis-window select {
         max-width: none;
