@@ -13,6 +13,7 @@ export const subtitlesTab: Tab = {
             patternField(form, "SubtitleRecapPattern"),
             form.field("EnableSubtitlePreviewDetection"),
             patternField(form, "SubtitlePreviewPattern"),
+            form.field("SubtitleLanguages"),
         );
     },
 };

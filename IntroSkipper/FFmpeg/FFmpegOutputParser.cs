@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -28,6 +30,17 @@ internal static partial class FFmpegOutputParser
     private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
     private static readonly Regex _showInfoRegex = ShowInfoRegex();
+
+    // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
+    // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
+    // (dvb_subtitle, dvd_subtitle, hdmv_pgs_subtitle, xsub), which would need OCR, and the
+    // codecs neither build can decode (arib_caption, dvb_teletext, hdmv_text_subtitle,
+    // ivtv_vbi, ttml).
+    private static readonly FrozenSet<string> _textSubtitleCodecs = new[]
+    {
+        "ass", "eia_608", "jacosub", "microdvd", "mov_text", "mpl2", "pjs", "realtext", "sami",
+        "srt", "ssa", "stl", "subrip", "subviewer", "subviewer1", "text", "vplayer", "webvtt",
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
@@ -203,8 +216,34 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Parses FFmpeg's WebVTT subtitle output. Cue settings and subtitle markup are left in the
-    /// text because the analyzer owns normalization for user-configured expressions.
+    /// Picks the subtitle streams to read out of ffprobe's
+    /// <c>-show_entries stream=index,codec_name:stream_tags=language -of csv=p=0</c> listing:
+    /// those ffmpeg can decode to text, in a language of <paramref name="languages"/>.
+    /// </summary>
+    /// <param name="raw">ffprobe output, one <c>index,codec_name,language</c> line per subtitle stream; an untagged stream's line ends after the codec.</param>
+    /// <param name="languages">The languages to read.</param>
+    /// <returns>The stream indexes of the selected text subtitle streams, in listing order.</returns>
+    internal static int[] ParseTextSubtitleStreams(string raw, SubtitleLanguageSelection languages)
+    {
+        List<int> streams = [];
+        foreach (var line in raw.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.Split(',', 3) is [var index, var codec, .. var language]
+                && _textSubtitleCodecs.Contains(codec)
+                && languages.Includes(language.FirstOrDefault())
+                && int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out var streamIndex))
+            {
+                streams.Add(streamIndex);
+            }
+        }
+
+        return [.. streams];
+    }
+
+    /// <summary>
+    /// Parses FFmpeg's WebVTT subtitle output. Cue settings after the end time are dropped;
+    /// subtitle markup stays in the text because the analyzer owns normalization for
+    /// user-configured expressions.
     /// </summary>
     /// <param name="raw">WebVTT output.</param>
     /// <returns>Well-formed timed cues.</returns>

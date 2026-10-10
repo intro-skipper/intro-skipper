@@ -56,8 +56,11 @@ public sealed class DbAnalyzedItem
 
     /// <summary>
     /// Gets the file version the item was analyzed at: the ticks of the last write time
-    /// Jellyfin held for the media file. Null when the record predates versioning or
-    /// Jellyfin held no write time. Written only by the facade's set-based statements.
+    /// Jellyfin held for the media file. A mode analyzed with subtitle detection active
+    /// stores a hash of that write time and the adjacent text subtitle sidecars' names,
+    /// lengths and write times instead, when it read any sidecar. Null when the record
+    /// predates versioning, or Jellyfin held no write time and no sidecar was read. Written
+    /// only by the facade's set-based statements.
     /// </summary>
     public long? FileVersion { get; private set; }
 }

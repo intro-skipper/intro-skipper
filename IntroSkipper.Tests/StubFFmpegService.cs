@@ -32,7 +32,7 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<string, double?>? AudioDuration { get; init; }
 
-    public Func<QueuedEpisode, SubtitleCue[]>? SubtitleCues { get; init; }
+    public Func<QueuedEpisode, SubtitleScan>? Subtitles { get; init; }
 
     public Func<QueuedEpisode, AnalysisMode, uint[]>? Fingerprints { get; init; }
 
@@ -124,10 +124,10 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
-    public virtual Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public virtual Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(SubtitleCues)(episode));
+        return Task.FromResult(Hook(Subtitles)(episode));
     }
 
     public virtual FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;

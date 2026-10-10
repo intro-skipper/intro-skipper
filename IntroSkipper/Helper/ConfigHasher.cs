@@ -76,14 +76,13 @@ internal static class ConfigHasher
             AnalysisMode.Recap => Invariant(
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
-                $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"|subtitle={config.EnableSubtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}",
+                $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}{SubtitlePatternToken(config, mode)}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
                 $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
-                $"|animePreview={previewFromCreditsEnd}|subtitle={config.EnableSubtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}",
+                $"|animePreview={previewFromCreditsEnd}{PreviewAnchorToken(previewFromCreditsEnd)}{SubtitlePatternToken(config, mode)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(
@@ -250,6 +249,27 @@ internal static class ConfigHasher
     // the option existed and does not re-analyze every recap on upgrade.
     private static string RecapColdOpenToken(PluginConfiguration config)
         => config.AnchorRecapToColdOpen ? "|coldOpen=True" : string.Empty;
+
+    // Only present while the mode's subtitle detection is active, so the default-off
+    // configuration keeps the hash it had before the option existed, and editing a pattern or
+    // the languages while detection is off re-analyzes nothing. The languages are normalized,
+    // so writing ger for deu changes nothing, and appear only when some are selected.
+    private static string SubtitlePatternToken(PluginConfiguration config, AnalysisMode mode)
+    {
+        if (config.ActiveSubtitlePattern(mode) is not { } pattern)
+        {
+            return string.Empty;
+        }
+
+        var languages = SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized;
+        return "|subtitlePattern=" + pattern + (languages.Length > 0 ? "|subtitleLanguages=" + languages : string.Empty);
+    }
+
+    // Credits-derived previews run from the end of the last credits run to the episode end;
+    // they used to run from the first credits run to the next one. Only present when the
+    // season derives previews, so those seasons re-derive once and no other season reopens.
+    private static string PreviewAnchorToken(bool previewFromCreditsEnd)
+        => previewFromCreditsEnd ? "|previewAnchor=lastCredits" : string.Empty;
 
     // Only present when enabled so the default-off configuration keeps the hash it had before
     // the option existed. A BlackFrame action restricts the credits pass to that analyzer, which

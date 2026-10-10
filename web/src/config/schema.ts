@@ -301,7 +301,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Set after credits scene as preview for anime",
         description:
-            "When enabled, create a preview segment for the post-credits duration, from the end of the last credits block to the end of the episode, when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled, create a preview from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",
@@ -423,26 +423,33 @@ export const configSchema = {
         kind: "checkbox",
         label: "Detect recaps from subtitles",
         description:
-            "Use a matching text subtitle cue as the recap start and the detected intro start as its end.",
+            "Use a matching text subtitle cue as the recap start and the following intro start, or the next chapter start, as its end.",
     },
     SubtitleRecapPattern: {
         kind: "regex",
         label: "Subtitle recaps",
         description: "Enter a regular expression to detect the start of recaps in text subtitles.",
-        default: "\\bpreviously\\s+on\\b",
+        default:
+            "\\bpreviously\\s+on|^\\W*(?:zuvor\\s+bei|zuletzt\\s+bei|was\\s+bisher\\s+geschah|bisher\\s+bei|anteriormente|previamente|précédemment|wat\\s+voorafging)|episodio?\\s+precedent[ei]",
     },
     EnableSubtitlePreviewDetection: {
         kind: "checkbox",
         label: "Detect previews from subtitles",
         description:
-            "Use a matching text subtitle cue as the preview start and the episode duration as its end. This is separate from the credits-derived anime preview option.",
+            "Use a matching text subtitle cue as the preview start and the episode duration as its end. A subtitle preview replaces a credits-derived preview.",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Subtitle previews",
-        description:
-            'Enter a regular expression to detect the start of previews in text subtitles. The default matches phrases like "here\'s the preview", "now the preview", and "next time".',
-        default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
+        description: "Enter a regular expression to detect the start of previews in text subtitles.",
+        default:
+            "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
+    },
+    SubtitleLanguages: {
+        kind: "text",
+        label: "Subtitle languages",
+        placeholder: "ger, eng",
+        description: "Comma-separated language codes to read. Empty reads all.",
     },
     // FFmpeg
     MaxParallelism: {

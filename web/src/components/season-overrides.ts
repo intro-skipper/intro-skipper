@@ -39,7 +39,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Set after credits scene as preview",
         description:
-            "Create a preview segment from the post credits duration",
+            "Create a preview from the end of the last credits block to the end of the episode.",
         options: [
             {
                 value: null,

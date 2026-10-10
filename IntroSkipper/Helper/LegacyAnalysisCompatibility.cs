@@ -33,8 +33,8 @@ internal static class LegacyAnalysisCompatibility
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))
-                || (mode == AnalysisMode.Recap && (config.AnchorRecapToColdOpen || config.EnableSubtitleRecapDetection))
-                || (mode == AnalysisMode.Preview && config.EnableSubtitlePreviewDetection))
+                || (mode == AnalysisMode.Recap && config.AnchorRecapToColdOpen)
+                || config.ActiveSubtitlePattern(mode) is not null)
             {
                 continue;
             }

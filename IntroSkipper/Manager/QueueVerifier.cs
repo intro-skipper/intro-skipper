@@ -14,10 +14,13 @@ namespace IntroSkipper.Manager;
 /// mode (<see cref="EpisodeState.Analyzed"/> with segments,
 /// <see cref="EpisodeState.NoSegments"/> without), user segments always settle it, and
 /// anything else stays <see cref="EpisodeState.NotAnalyzed"/>. A record whose file
-/// version differs from the episode's current one no longer describes the file: the
-/// episode is flagged <see cref="QueuedEpisode.FileChanged"/> and stays open. The
-/// expected hash depends on the season's analyzer action and the mode, not on the
-/// episode, so every per-mode value is computed once per instance.
+/// version differs from the episode's current one no longer describes the file. A Recap or
+/// Preview record, whose version can also cover the text subtitle sidecars, then reopens
+/// only its mode unless it proves the media file was replaced; any other record flags the
+/// episode <see cref="QueuedEpisode.FileChanged"/>, and it stays open. The expected hash depends
+/// on the season's analyzer action and the mode, not on the episode, so it is computed once
+/// per instance for every mode, including those the pass does not run: the file-version
+/// check judges their records too.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -36,6 +39,10 @@ internal sealed partial class QueueVerifier
     // reason log can quote the hash that caused the reprocessing.
     private readonly Dictionary<AnalysisMode, (string Stored, bool Mismatch)> _storedHashByMode = [];
 
+    // Pending episodes per mode whose record still matches the configuration but not the
+    // version the mode records, for the reason log.
+    private readonly Dictionary<AnalysisMode, int> _reopenedByVersionByMode = [];
+
     // Episodes whose records predate file versioning, with the version to stamp on them.
     private readonly Dictionary<Guid, long> _fileVersionBackfill = [];
 
@@ -45,7 +52,7 @@ internal sealed partial class QueueVerifier
     /// Initializes a new instance of the <see cref="QueueVerifier"/> class.
     /// </summary>
     /// <param name="config">Plugin configuration.</param>
-    /// <param name="modes">Analysis modes of the run.</param>
+    /// <param name="modes">Analysis modes of the pass.</param>
     /// <param name="snapshot">The season's stored analysis state.</param>
     /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
@@ -64,10 +71,13 @@ internal sealed partial class QueueVerifier
         _modes = modes;
         _snapshot = snapshot;
         _ffmpegValid = ffmpegValid;
-        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(modes.Count);
-        _expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
-        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(modes.Count);
-        foreach (var mode in modes)
+        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(AllModes.Length);
+        _expectedHashByMode = new Dictionary<AnalysisMode, string>(AllModes.Length);
+        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(AllModes.Length);
+
+        // Every mode, not only the pass's: ClassifyFileVersion judges the records of the
+        // modes the pass does not run by their hash too.
+        foreach (var mode in AllModes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
@@ -95,31 +105,16 @@ internal sealed partial class QueueVerifier
     /// <param name="candidate">A queued episode that exists on disk and is not excluded.</param>
     public void Classify(QueuedEpisode candidate)
     {
-        var fileChanged = ClassifyFileVersion(candidate);
+        var (fileChanged, reopenedModes) = ClassifyFileVersion(candidate);
         foreach (var mode in _modes)
         {
             // An empty hash is equivalent to no durable analysis state. It can be present on
             // rows created before hashing was recorded and must not settle an item forever.
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
-            var hashMatches = hasAnalyzedHash && string.Equals(record.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal);
+            var hashMatches = hasAnalyzedHash && HashMatches(record, mode);
 
-            // A failed FFmpeg capability probe must not invalidate good Chromaprint results.
-            // Availability is an upward invalidation: a later successful probe can reopen a
-            // season that was settled without Chromaprint, but a transient failed probe cannot
-            // discard results produced while it was available.
-            if (!hashMatches && hasAnalyzedHash && _availableHashByMode is { } availableHashByMode)
-            {
-                hashMatches = string.Equals(record.ConfigHash, availableHashByMode[mode], StringComparison.Ordinal);
-            }
-
-            // A record made for a different version of the file settles nothing, whatever its
-            // hash says.
-            if (fileChanged)
-            {
-                hashMatches = false;
-            }
-
+            // A replaced media file voids the record, so its hash explains nothing.
             if (hasAnalyzedHash && !fileChanged)
             {
                 var mismatch = !hashMatches;
@@ -127,6 +122,15 @@ internal sealed partial class QueueVerifier
                 {
                     _storedHashByMode[mode] = (record.ConfigHash, mismatch);
                 }
+            }
+
+            // A record made for a different version of the file, or of the text sidecars a
+            // subtitle-detecting mode reads, settles nothing, whatever its hash says. One whose
+            // hash matches was reopened by its version alone, and the reason log says so.
+            var reopenedByVersion = !fileChanged && hashMatches && reopenedModes.Contains(mode);
+            if (fileChanged || reopenedModes.Contains(mode))
+            {
+                hashMatches = false;
             }
 
             if (_snapshot.SegmentModesByEpisodeId.TryGetValue(candidate.EpisodeId, out var modesWithSegments) &&
@@ -146,23 +150,48 @@ internal sealed partial class QueueVerifier
             {
                 candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
             }
+
+            if (reopenedByVersion && candidate.NeedsAnalysis(mode))
+            {
+                _reopenedByVersionByMode[mode] = _reopenedByVersionByMode.GetValueOrDefault(mode) + 1;
+            }
         }
     }
 
     /// <summary>
     /// Compares the episode's file version with every record the item has, whatever the
     /// record's mode: a record of a disabled mode still proves the file changed, and its
-    /// stale segments still have to go. A record without a version predates versioning and
-    /// is stamped with the version seen now, unless the file changed, in which case the
-    /// reset rewrites it. An episode without a version (Jellyfin holds no write time)
-    /// cannot be compared and keeps every record's verdict.
+    /// stale segments still have to go.
     /// </summary>
-    /// <returns>Whether any record was made for a different version of the file.</returns>
-    private bool ClassifyFileVersion(QueuedEpisode candidate)
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description>A record without a version predates versioning and is stamped with
+    /// the media version seen now, unless the file changed, in which case the reset rewrites
+    /// it.</description></item>
+    /// <item><description>A Recap or Preview record must carry the version its mode records
+    /// now: <see cref="QueuedEpisode.SubtitleFileVersion"/> while the mode's subtitle detection
+    /// is active, the media version otherwise. A mismatch reopens only that mode. It can come
+    /// from a rewritten sidecar, which changes what subtitle detection reads but not the media
+    /// the other modes and the fingerprints describe, or from a record written before subtitle
+    /// detection was turned on or off. One exception: with the mode's subtitle detection off,
+    /// a record whose hash still matches was written under today's settings, so its version can
+    /// only differ because the media file was replaced, and the episode is flagged
+    /// <see cref="QueuedEpisode.FileChanged"/>. That holds whether or not the pass runs the
+    /// mode.</description></item>
+    /// <item><description>Any other record must carry the media version, or the episode is
+    /// flagged <see cref="QueuedEpisode.FileChanged"/>.</description></item>
+    /// </list>
+    /// An episode without a media version (Jellyfin holds no write time) cannot be compared
+    /// and keeps every record's verdict.
+    /// </remarks>
+    /// <returns>Whether a record shows the media file was replaced, and the Recap and Preview
+    /// modes whose records carry a version other than the one they record now.</returns>
+    private (bool FileChanged, IReadOnlySet<AnalysisMode> ReopenedModes) ClassifyFileVersion(QueuedEpisode candidate)
     {
+        HashSet<AnalysisMode> reopened = [];
         if (candidate.FileVersion is not { } fileVersion)
         {
-            return false;
+            return (false, reopened);
         }
 
         var needsBackfill = false;
@@ -173,20 +202,29 @@ internal sealed partial class QueueVerifier
                 continue;
             }
 
-            if (record.FileVersion is null)
+            if (record.FileVersion is not { } recorded)
             {
-                if (SubtitleSidecarFiles.HasSidecars(candidate.Path))
-                {
-                    candidate.FileChanged = true;
-                    return true;
-                }
-
                 needsBackfill = true;
             }
-            else if (record.FileVersion != fileVersion)
+            else if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
+            {
+                if (recorded == _config.RecordedFileVersion(candidate, mode))
+                {
+                    continue;
+                }
+
+                if (_config.ActiveSubtitlePattern(mode) is null && HashMatches(record, mode))
+                {
+                    candidate.FileChanged = true;
+                    return (true, reopened);
+                }
+
+                reopened.Add(mode);
+            }
+            else if (recorded != fileVersion)
             {
                 candidate.FileChanged = true;
-                return true;
+                return (true, reopened);
             }
         }
 
@@ -195,13 +233,30 @@ internal sealed partial class QueueVerifier
             _fileVersionBackfill.TryAdd(candidate.EpisodeId, fileVersion);
         }
 
-        return false;
+        return (false, reopened);
     }
 
     /// <summary>
-    /// Logs why a verified season still contains pending work. Hash changes are information-level
-    /// events because they explain unexpected reprocessing; normal first scans and newly added items
-    /// remain debug-level noise.
+    /// Whether the record's hash describes the current configuration of the mode, under the
+    /// season's saved analyzer action. Answers for every mode, including those the pass does
+    /// not run.
+    /// </summary>
+    /// <remarks>
+    /// A failed FFmpeg capability probe must not invalidate good Chromaprint results.
+    /// Availability is an upward invalidation: a later successful probe can reopen a season
+    /// that was settled without Chromaprint, but a transient failed probe cannot discard
+    /// results produced while it was available.
+    /// </remarks>
+    private bool HashMatches(AnalysisRecord record, AnalysisMode mode)
+        => string.Equals(record.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal)
+            || (_availableHashByMode is { } availableHashByMode
+                && string.Equals(record.ConfigHash, availableHashByMode[mode], StringComparison.Ordinal));
+
+    /// <summary>
+    /// Logs why a verified season still contains pending work. Hash and file changes are
+    /// information-level events because they explain unexpected reprocessing; normal first scans
+    /// and newly added items remain debug-level noise. A Recap or Preview mode that only its
+    /// file version reopened logs that the files changed.
     /// </summary>
     /// <param name="logger">Logger.</param>
     /// <param name="verified">The classified episodes of the season.</param>
@@ -246,6 +301,10 @@ internal sealed partial class QueueVerifier
                     _expectedHashByMode[mode],
                     ChromaprintAffectsMode(mode) ? _ffmpegValid.ToString() : "n/a");
             }
+            else if (_reopenedByVersionByMode.TryGetValue(mode, out var reopened))
+            {
+                LogSeasonModeFilesChanged(logger, mode, reopened, verified.Count, first.SeriesName, first.SeasonNumber);
+            }
             else
             {
                 LogSeasonQueuedForAnalysis(
@@ -271,4 +330,7 @@ internal sealed partial class QueueVerifier
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing {Count} of {Total} items in {Name} season {Season}: media file changed since analysis")]
     private static partial void LogSeasonFilesChanged(ILogger logger, int count, int total, string name, int season);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Re-analyzing {Count} of {Total} items in {Name} season {Season}: media or subtitle files changed since analysis")]
+    private static partial void LogSeasonModeFilesChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season);
 }

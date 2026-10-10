@@ -63,6 +63,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _pluginManager = pluginManager;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
+        TempDirectory = applicationPaths.TempDirectory;
 
         // Creates the plugin data directory when missing.
         IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
@@ -76,6 +77,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the full path to FFmpeg.
     /// </summary>
     internal string FFmpegPath { get; }
+
+    /// <summary>
+    /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.
+    /// </summary>
+    internal string TempDirectory { get; }
 
     /// <inheritdoc />
     public override string Name => ProviderName;

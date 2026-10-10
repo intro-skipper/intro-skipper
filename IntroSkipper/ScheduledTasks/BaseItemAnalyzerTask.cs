@@ -211,24 +211,24 @@ public partial class BaseItemAnalyzerTask(
 
         var first = episodes[0];
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+
+        // One season-state read serves the resets, the settle decision and every mode's
+        // analyzer action below.
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
-        // mode, not only the ones this run covers. The fingerprints go first: the records
-        // are the only evidence the file changed, so if the reset does not commit the
-        // mismatch persists and the next run retries both. The reset journals its
-        // deletions' projections. Every mode of the episode then reopens in memory too,
-        // or a mode whose record matched would keep its settled state after its segments
-        // were deleted and be recorded again with nothing behind it.
+        // mode, not only the ones this run covers. Subtitle rows go too: they were timed
+        // against the old file, so they are no fallback for the new one. The fingerprints
+        // go first: the records are the only evidence the file changed, so if the reset
+        // does not commit the mismatch persists and the next run retries both. The reset
+        // journals its deletions' projections. Every mode of the episode then reopens in
+        // memory too, or a mode whose record matched would keep its settled state after
+        // its segments were deleted and be recorded again with nothing behind it.
         var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
-            await _database.ResetItemsForReanalysisAsync(
-                changedFiles,
-                AllModes,
-                GetSubtitleModesToPreserve(modes, seasonStates),
-                cancellationToken).ConfigureAwait(false);
+            await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken: cancellationToken).ConfigureAwait(false);
             foreach (var episode in episodes.Where(e => e.FileChanged))
             {
                 foreach (var mode in modes)
@@ -254,7 +254,6 @@ public partial class BaseItemAnalyzerTask(
             await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
         }
 
-        // The season-state snapshot serves the settle decision and every mode's analyzer action.
         if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
@@ -333,7 +332,7 @@ public partial class BaseItemAnalyzerTask(
     /// analyzed under a stale id, path or file version.
     /// </summary>
     /// <param name="candidates">One season's resolved episodes.</param>
-    /// <param name="modes">Analysis modes of the run.</param>
+    /// <param name="modes">Analysis modes of the pass.</param>
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
@@ -360,6 +359,8 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var previewFromCreditsEnd = ShouldDerivePreview(candidates[0], config);
+        var detectsSubtitles = modes.Any(mode => config.ActiveSubtitlePattern(mode) is not null);
+        var subtitleLanguages = SubtitleLanguageSelection.Parse(config.SubtitleLanguages);
         var verifier = new QueueVerifier(
             config,
             modes,
@@ -392,8 +393,9 @@ public partial class BaseItemAnalyzerTask(
 
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
-                verified.Add(candidate);
+                candidate.SubtitleFileVersion = detectsSubtitles ? SubtitleSidecarFiles.FileVersion(path, candidate.FileVersion, subtitleLanguages) : null;
                 verifier.Classify(candidate);
+                verified.Add(candidate);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -460,11 +462,7 @@ public partial class BaseItemAnalyzerTask(
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
             // The disabled action is part of the hash. Persist it as settled so the same season is not
             // queued and skipped forever on every subsequent run.
-            await _database.MarkItemsAnalyzedAsync(
-                mode,
-                items.Select(i => (i.EpisodeId, i.FileVersion)),
-                configHash,
-                cancellationToken).ConfigureAwait(false);
+            await _database.MarkItemsAnalyzedAsync(mode, VersionedItems(items, mode), configHash, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -473,14 +471,21 @@ public partial class BaseItemAnalyzerTask(
             item.AnalysisConfigHash = configHash;
         }
 
+        // The episodes this pass analyzes for the mode. The cleanup after a subtitle chain
+        // covers only these, so an episode an earlier pass settled keeps its rows.
+        List<QueuedEpisode> pending = [.. items.Where(item => item.NeedsAnalysis(mode))];
+
         // The cleanup journals the removed rows' projections, so they reach the
-        // mirror even if the analyzers below detect nothing new.
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
-            mode,
-            configHash,
-            ShouldPreserveSubtitleRows(mode),
-            cancellationToken).ConfigureAwait(false);
+        // mirror even if the analyzers below detect nothing new. With subtitle detection
+        // active, RunAnalyzerChainAsync cleans up after the chain instead.
+        if (Config.ActiveSubtitlePattern(mode) is null)
+        {
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
@@ -495,19 +500,23 @@ public partial class BaseItemAnalyzerTask(
         }
         else
         {
-            await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
+            await RunAnalyzerChainAsync(items, pending, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
         }
 
         // Credits-derived previews are generated right after a credits result lands, and again
         // in the Preview mode for episodes no preview analyzer settled, since a season whose
         // credits are all user-provided never enters the credits pass but its derived previews
-        // still go stale when the preview settings change.
+        // still go stale when the preview settings change. An episode a chapter or subtitle
+        // match settled is left out, since a derived preview ranks below both and that
+        // match's write retired it (docs/segments.md).
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
         if (previewFromCreditsEnd)
         {
             if (mode == AnalysisMode.Credits)
             {
-                var subtitlePreviewWillRun = Config.EnableSubtitlePreviewDetection && Config.ScanPreview;
+                // Subtitle detection in the Preview mode later in this pass can still supersede
+                // the derived preview, so the derive leaves the Preview state to it.
+                var subtitlePreviewWillRun = Config.ScanPreview && Config.ActiveSubtitlePattern(AnalysisMode.Preview) is not null;
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
                     items,
@@ -526,7 +535,7 @@ public partial class BaseItemAnalyzerTask(
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed).Select(item => (item.EpisodeId, item.FileVersion)),
+            VersionedItems(items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed), mode),
             configHash,
             cancellationToken).ConfigureAwait(false);
     }
@@ -535,18 +544,19 @@ public partial class BaseItemAnalyzerTask(
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
-    private bool ShouldPreserveSubtitleRows(AnalysisMode mode)
-        => mode switch
-        {
-            AnalysisMode.Recap => Config.EnableSubtitleRecapDetection && !string.IsNullOrWhiteSpace(Config.SubtitleRecapPattern),
-            AnalysisMode.Preview => Config.EnableSubtitlePreviewDetection && !string.IsNullOrWhiteSpace(Config.SubtitlePreviewPattern),
-            _ => false,
-        };
+    private static IEnumerable<(Guid ItemId, long? FileVersion)> VersionedItems(IEnumerable<QueuedEpisode> items, AnalysisMode mode)
+    {
+        var config = Config;
+        return items.Select(item => (item.EpisodeId, config.RecordedFileVersion(item, mode)));
+    }
 
-    private AnalysisMode[] GetSubtitleModesToPreserve(
+    // A settled-season reset keeps the subtitle rows of the modes with active subtitle
+    // detection that the season does not skip, as the fallback. The file is unchanged, so
+    // they still describe it.
+    private static AnalysisMode[] GetSubtitleModesToPreserve(
         IReadOnlyCollection<AnalysisMode> modes,
         IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> seasonStates)
-        => [.. modes.Where(mode => ShouldPreserveSubtitleRows(mode)
+        => [.. modes.Where(mode => Config.ActiveSubtitlePattern(mode) is not null
             && (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None))];
 
     /// <summary>
@@ -554,45 +564,63 @@ public partial class BaseItemAnalyzerTask(
     /// runs in priority order and each skips the episodes an earlier one settled via
     /// <see cref="QueuedEpisode.NeedsAnalysis"/>.
     /// </summary>
+    /// <remarks>
+    /// With subtitle detection active for the mode, the subtitle analyzer runs first, and its
+    /// outcomes (<see cref="QueuedEpisode.GetSubtitleOutcome"/>) settle the mode once the chain
+    /// is done. The stale-row cleanup that the caller skipped before the chain runs here over
+    /// <paramref name="pending"/> and journals its deletes. It keeps the stale rows of episodes
+    /// whose outcome is unresolved or rejected, as their fallback, and never reaches an episode
+    /// an earlier pass settled, whose row a rejected match may have kept. Unresolved episodes
+    /// are marked <see cref="EpisodeState.AnalysisFailed"/> so a later pass retries them;
+    /// rejected ones still <see cref="EpisodeState.NotAnalyzed"/> are marked
+    /// <see cref="EpisodeState.Analyzed"/>, since a retry would end the same way.
+    /// </remarks>
+    /// <param name="items">The season's episodes.</param>
+    /// <param name="pending">The episodes of <paramref name="items"/> that needed analysis for the mode before the chain ran.</param>
+    /// <param name="mode">The analysis mode, any but Credits.</param>
+    /// <param name="action">The season's analyzer action for the mode.</param>
+    /// <param name="ffmpegValid">Whether ffmpeg supports Chromaprint.</param>
+    /// <param name="isMovie">Whether the season is a movie, which Chromaprint cannot compare.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     private async Task RunAnalyzerChainAsync(
         IReadOnlyList<QueuedEpisode> items,
+        IReadOnlyList<QueuedEpisode> pending,
         AnalysisMode mode,
         AnalyzerAction action,
         bool ffmpegValid,
         bool isMovie,
         CancellationToken cancellationToken)
     {
-        // Subtitle matching is an opt-in, mode-specific producer. It runs before the existing
-        // analyzers so a matching cue settles the episode without being combined with chapters,
-        // Chromaprint or credits-derived previews. Chromaprint needs a season to compare (no
-        // movies) and a compatible ffmpeg.
-        var subtitle = mode is AnalysisMode.Recap or AnalysisMode.Preview
-            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
-            : null;
+        // Chapters come before Chromaprint, which needs a season to compare (no movies) and a
+        // compatible ffmpeg. The subtitle analyzer exists only while the mode's subtitle
+        // detection is active.
         var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
         IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
+        var subtitle = Config.ActiveSubtitlePattern(mode) is not null
+            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
+            : null;
 
-        var modeEpisodes = items;
-        List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];
+        List<IMediaFileAnalyzer?> chain = [chapter, chromaprint];
+        var analyzers = chain.OfType<IMediaFileAnalyzer>().ToList();
 
-        // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
-        // the rest keep their relative order. An action naming an analyzer that is not in the
-        // chain (Chromaprint without ffmpeg) changes nothing.
+        // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front
+        // of the chapter and Chromaprint analyzers; the rest keep their relative order. An action
+        // naming an analyzer that is not in the chain (Chromaprint without ffmpeg) changes nothing.
         var preferred = action switch
         {
             AnalyzerAction.Chapter => chapter,
             AnalyzerAction.Chromaprint => chromaprint,
             _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
         };
-        List<IMediaFileAnalyzer> conventionalAnalyzers = [.. conventional.OfType<IMediaFileAnalyzer>()];
-        if (preferred is not null && conventionalAnalyzers.Remove(preferred))
+        if (preferred is not null && analyzers.Remove(preferred))
         {
-            conventionalAnalyzers.Insert(0, preferred);
+            analyzers.Insert(0, preferred);
         }
 
-        List<IMediaFileAnalyzer> analyzers = [.. conventionalAnalyzers];
+        // A matching cue settles the episode before the other analyzers run, so it is never
+        // combined with a chapter, Chromaprint or credits-derived result.
         if (subtitle is not null)
         {
             analyzers.Insert(0, subtitle);
@@ -604,31 +632,29 @@ public partial class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        if (subtitle is not null && ShouldPreserveSubtitleRows(mode))
+        if (subtitle is null)
         {
-            var completedFallbacks = modeEpisodes
-                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed
-                    && !item.HasUnresolvedSubtitleDetection(mode)
-                    && !item.HasRejectedSubtitleCandidate(mode))
-                .ToArray();
-            await _database.CleanStaleAutomaticSegmentsAsync(
-                completedFallbacks.Select(item => item.EpisodeId),
-                mode,
-                modeEpisodes[0].AnalysisConfigHash,
-                preserveStaleRows: false,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return;
+        }
 
-            foreach (var item in modeEpisodes.Where(item => item.HasUnresolvedSubtitleDetection(mode)))
-            {
-                item.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
-            }
+        await _database.CleanStaleAutomaticSegmentsAsync(
+            pending
+                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed && item.GetSubtitleOutcome(mode) == SubtitleOutcome.None)
+                .Select(item => item.EpisodeId),
+            mode,
+            items[0].AnalysisConfigHash,
+            cancellationToken).ConfigureAwait(false);
 
-            foreach (var item in modeEpisodes.Where(item => item.HasRejectedSubtitleCandidate(mode)))
+        foreach (var item in items)
+        {
+            switch (item.GetSubtitleOutcome(mode))
             {
-                if (item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
-                {
+                case SubtitleOutcome.Unresolved:
+                    item.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                    break;
+                case SubtitleOutcome.Rejected when item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed:
                     item.SetAnalyzed(mode, EpisodeState.Analyzed);
-                }
+                    break;
             }
         }
     }

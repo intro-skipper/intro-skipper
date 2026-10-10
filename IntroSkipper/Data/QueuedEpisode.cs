@@ -12,8 +12,7 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
-    private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
-    private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
+    private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -117,52 +116,54 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the file version for the item: Jellyfin's media-file modification
-    /// ticks, combined with adjacent subtitle sidecar metadata when present. Null when
-    /// neither source provides a version. Recorded with the analysis so a changed media
-    /// file or subtitle sidecar reopens the item.
+    /// Gets or sets the file version Jellyfin currently holds for the item: the ticks of
+    /// the media file's last write time as of its last refresh. Null when Jellyfin holds
+    /// none. Recorded with the analysis so a later file replacement reopens the item.
     /// </summary>
     public long? FileVersion { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether a stored analysis record carries a different
-    /// file version than <see cref="FileVersion"/>. The pass then discards the item's
-    /// automatic segments and fingerprints before analyzing it again.
+    /// Gets or sets <see cref="FileVersion"/> extended with the item's adjacent text
+    /// subtitle sidecars (<c>SubtitleSidecarFiles.FileVersion</c>). It equals
+    /// <see cref="FileVersion"/> when there are none, and is null when no mode of the pass
+    /// has active subtitle detection. <c>PluginConfiguration.RecordedFileVersion</c> picks it
+    /// for a mode whose subtitle detection is active, so a changed sidecar reopens only that
+    /// mode.
+    /// </summary>
+    public long? SubtitleFileVersion { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a stored analysis record shows the media file
+    /// was replaced: a record of a mode other than Recap or Preview carries a file version
+    /// other than <see cref="FileVersion"/>, or a Recap or Preview record whose mode has
+    /// subtitle detection off carries another version under a hash that still matches the
+    /// configuration. The pass then discards the item's automatic segments and fingerprints
+    /// before analyzing it again. Any other mismatched Recap or Preview record leaves it unset
+    /// and reopens only its own mode, since its version can also cover the sidecars
+    /// (<see cref="SubtitleFileVersion"/>) or predate a change to subtitle detection.
     /// </summary>
     public bool FileChanged { get; set; }
 
     /// <summary>
-    /// Marks subtitle detection as unresolved for a mode. This includes incomplete extraction and
-    /// a matched recap with no reliable end boundary. Conventional analyzers may still provide
-    /// fallback segments, but the mode remains retryable until a later subtitle pass can settle it.
+    /// Sets the subtitle analyzer's outcome for a mode in this pass. The analyzer chain reads
+    /// it after every analyzer has run to decide which stale rows to keep and how the mode settles.
     /// </summary>
-    /// <param name="mode">Analysis mode whose subtitle result is unresolved.</param>
-    public void MarkSubtitleDetectionUnresolved(AnalysisMode mode)
-        => _unresolvedSubtitleModes.Add(mode);
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="outcome">One of the enumeration values that specifies the outcome.</param>
+    public void SetSubtitleOutcome(AnalysisMode mode, SubtitleOutcome outcome)
+    {
+        _subtitleOutcomes[(int)mode] = outcome;
+    }
 
     /// <summary>
-    /// Determines whether subtitle detection remains unresolved for a mode.
+    /// Gets the subtitle analyzer's outcome for a mode in this pass.
     /// </summary>
-    /// <param name="mode">Analysis mode to inspect.</param>
-    /// <returns>Whether that mode must remain retryable.</returns>
-    public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
-        => _unresolvedSubtitleModes.Contains(mode);
-
-    /// <summary>
-    /// Marks that a complete subtitle match was rejected by automatic-segment admission.
-    /// Such a rejection preserves standing rows but does not make the episode retryable.
-    /// </summary>
-    /// <param name="mode">Analysis mode whose candidate was rejected.</param>
-    public void MarkSubtitleCandidateRejected(AnalysisMode mode)
-        => _rejectedSubtitleModes.Add(mode);
-
-    /// <summary>
-    /// Determines whether a subtitle candidate was rejected by admission for a mode.
-    /// </summary>
-    /// <param name="mode">Analysis mode to inspect.</param>
-    /// <returns>Whether the mode has a permanent admission rejection to preserve.</returns>
-    public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
-        => _rejectedSubtitleModes.Contains(mode);
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The outcome; <see cref="SubtitleOutcome.None"/> when the analyzer recorded none.</returns>
+    public SubtitleOutcome GetSubtitleOutcome(AnalysisMode mode)
+    {
+        return _subtitleOutcomes[(int)mode];
+    }
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

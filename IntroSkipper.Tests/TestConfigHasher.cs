@@ -92,6 +92,28 @@ public sealed class TestConfigHasher
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
+        // Frozen to what 12.0.5 wrote, so seasons with subtitle detection off do not
+        // re-analyze on upgrade. Only seasons that derive previews from credits re-derive
+        // once, under the last-credits-run anchor.
+        Case("Recap analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Recap), "9F39FAF9AB4D7445", true);
+        Case("Preview analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Preview), "19C776EE18C06441", true);
+        Case("Preview analysis re-derives under the last-credits anchor", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "2735F6E29B514900", false);
+        Case("Recap analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Recap), Analysis(new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalysisMode.Recap), true);
+        Case("Preview analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalysisMode.Preview), true);
+
+        // The subtitle languages reopen only the modes whose subtitle detection reads them,
+        // and any ISO 639 form of a language hashes the same.
+        var recapSubtitles = new PluginConfiguration { EnableSubtitleRecapDetection = true };
+        var recapSubtitlesGermanEnglish = new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleLanguages = "ger, eng" };
+        Case("Recap analysis changes with the subtitle languages while detection is on", Analysis(recapSubtitles, AnalysisMode.Recap), Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Recap), false);
+        Case("Recap analysis normalizes the subtitle languages", Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Recap), Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleLanguages = "en,DEU" }, AnalysisMode.Recap), true);
+        Case("Preview analysis ignores the subtitle languages while its detection is off", Analysis(recapSubtitles, AnalysisMode.Preview), Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Preview), true);
+
+        // Builds without the recap window let a subtitle recap start anywhere in the episode.
+        // The pinned value is the hash they wrote for this configuration, so the seasons they
+        // analyzed with subtitle recap detection on re-analyze once.
+        Case("Recap analysis re-analyzes subtitle recaps found without the recap window", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = "previously" }, AnalysisMode.Recap), "C31E1D58EC11922A", false);
+
         return data;
     }
 
