@@ -1,4 +1,5 @@
-:root {
+/* Every rule stays scoped; see DASHBOARD_CLASS in components/dom.ts. */
+:where(.is-dashboard) {
     color-scheme: dark;
 
     /* Layout tokens. */

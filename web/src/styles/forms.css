@@ -1,923 +1,988 @@
-.input-container {
-    margin-bottom: 16px;
-}
-
-.input-label {
-    display: block;
-    font-size: 0.9em;
-    margin-bottom: 4px;
-    color: var(--is-text);
-}
-
-.field-description {
-    font-size: 0.85em;
-    color: var(--is-text-muted);
-    margin-top: 4px;
-}
-
-.field-warning {
-    font-size: 0.85em;
-    color: var(--is-warning);
-    margin-top: 4px;
-}
-
-.field-error {
-    font-size: 0.85em;
-    color: var(--is-error);
-    margin-top: 4px;
-}
-
-.field-error-active {
-    border-color: var(--is-error);
-}
-
-.checkbox-container {
-    margin-bottom: 12px;
-}
-
-.checkbox-container-withDescription {
-    margin-bottom: 16px;
-}
-
-.checkbox-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-}
-
-.analyze-for {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-}
-
-.analyze-for-group {
-    border: 0;
-    padding: 0;
-    margin: 0 0 16px;
-    min-inline-size: 0;
-}
-
-.analyze-for-legend {
-    padding: 0;
-}
-
-.analyze-for .title {
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.action-button {
-    padding: 8px 16px;
-    margin-top: 8px;
-}
-
-.action-button:disabled {
-    opacity: 0.6;
-}
-
-.select-container {
-    margin-bottom: 16px;
-}
-
-.select-label {
-    display: block;
-    font-size: 0.9em;
-    margin-bottom: 4px;
-    color: var(--is-text);
-}
-
-.disabled-block {
-    opacity: 0.6;
-}
-
-.disabled-block input,
-.disabled-block select,
-.disabled-block button {
-    pointer-events: none;
-}
-
-.disabled-block label {
-    font-style: italic;
-}
-
-.side-by-side {
-    display: flex;
-    gap: 24px;
-}
-
-.side-by-side > * {
-    flex: 1;
-}
-
-input[type="number"],
-input[type="text"],
-select {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid var(--is-input-border);
-    background: var(--is-input-bg);
-    color: var(--is-text);
-    border-radius: 4px;
-    box-sizing: border-box;
-    font-size: 1em;
-}
-
-input[type="number"]:focus-visible,
-input[type="text"]:focus-visible,
-select:focus-visible {
-    border-color: var(--is-input-focus);
-}
-
-input[type="number"]:focus:not(:focus-visible),
-input[type="text"]:focus:not(:focus-visible),
-select:focus:not(:focus-visible) {
-    border-color: var(--is-input-focus);
-    outline: none;
-}
-
-.exclusion-input-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-}
-
-.exclusion-input-row input[type="text"] {
-    flex: 1;
-    min-width: 0;
-}
-
-.exclusion-add-button,
-.exclusion-remove-button {
-    color: var(--is-text);
-    font: inherit;
-}
-
-.exclusion-add-button {
-    padding: 8px 14px;
-}
-
-.exclusion-add-button:hover,
-.exclusion-remove-button:hover {
-    background: var(--is-hover-strong);
-}
-
-.exclusion-list-values {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    list-style: none;
-    margin: 8px 0 0;
-    padding: 0;
-}
-
-.exclusion-list-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    min-width: 0;
-    padding: 4px 6px 4px 8px;
-    border: 1px solid var(--is-border);
-    border-radius: 4px;
-    background: var(--is-hover);
-}
-
-.exclusion-list-value {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.exclusion-remove-button {
-    flex: 0 0 auto;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    line-height: 1;
-}
-
-.exclusion-list-empty {
-    margin-top: 8px;
-    color: var(--is-text-muted);
-    font-size: 0.85em;
-}
-
-fieldset {
-    border: 1px solid var(--is-border);
-    border-radius: 4px;
-    padding: 16px;
-    margin-bottom: 16px;
-}
-
-legend {
-    font-weight: 600;
-    padding: 0 8px;
-}
-
-textarea {
-    width: 100%;
-    background: var(--is-input-bg);
-    color: var(--is-text);
-    border: 1px solid var(--is-input-border);
-    border-radius: 4px;
-    padding: 8px;
-    font-family: monospace;
-    box-sizing: border-box;
-}
-
-.status-message {
-    margin-top: 8px;
-    font-size: 0.9em;
-}
-
-.tab-readonly-section + .tab-readonly-section {
-    margin-top: 24px;
-}
-
-.pattern-field {
-    margin-bottom: 16px;
-}
-
-.reset-button {
-    font-size: 0.85em;
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--is-input-border);
-    color: var(--is-text-muted);
-    cursor: pointer;
-    border-radius: 4px;
-    margin-top: 4px;
-}
-
-.reset-button:hover {
-    background: var(--is-hover);
-    color: var(--is-text);
-}
-
-.checkbox-list-label {
-    font-weight: 600;
-    margin-bottom: 4px;
-}
-
-.raised.block {
-    display: block;
-    width: 100%;
-}
-
-.tab-warning {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 10px 12px;
-    margin-bottom: 16px;
-    background: rgba(232, 168, 54, 0.08);
-    border: 1px solid rgba(232, 168, 54, 0.25);
-    border-radius: 4px;
-    font-size: 0.85em;
-    color: var(--is-warning);
-    line-height: 1.4;
-}
-
-.tab-warning-icon {
-    flex-shrink: 0;
-}
-
-a {
-    color: var(--is-accent);
-}
-
-/* Support log (information tab). */
-
-.support-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.support-head .checkbox-list-label {
-    margin: 0;
-}
-
-.support-title {
-    font-size: 0.75em;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--is-text-muted);
-    margin: 14px 0 6px;
-}
-
-.support-grid {
-    margin: 0;
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    column-gap: 18px;
-    row-gap: 2px;
-    font-size: 0.9em;
-}
-
-.support-grid dt {
-    color: var(--is-text-muted);
-    white-space: nowrap;
-}
-
-.support-grid dd {
-    margin: 0;
-    min-width: 0;
-    overflow-wrap: anywhere;
-}
-
-.support-none {
-    font-size: 0.9em;
-    color: var(--is-text-muted);
-}
-
-.support-fold {
-    border-top: 1px solid var(--is-border);
-}
-
-.support-fold:last-child {
-    border-bottom: 1px solid var(--is-border);
-}
-
-.support-fold summary {
-    cursor: pointer;
-    padding: 7px 0;
-    font-size: 0.9em;
-    list-style: none;
-}
-
-.support-fold summary::-webkit-details-marker {
-    display: none;
-}
-
-.support-fold summary::before {
-    content: "\25B8";
-    display: inline-block;
-    width: 14px;
-    color: var(--is-text-muted);
-}
-
-.support-fold[open] > summary::before {
-    content: "\25BE";
-}
-
-.support-fold-meta {
-    margin-left: 8px;
-    font-size: 0.85em;
-    color: var(--is-text-muted);
-}
-
-.support-pre {
-    margin: 0;
-    padding: 6px 0 10px 14px;
-    font-family: monospace;
-    font-size: 0.8em;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--is-text);
-}
-
-@media (max-width: 520px) {
+/* Every rule stays scoped; see DASHBOARD_CLASS in components/dom.ts. */
+:where(.is-dashboard) {
+    .input-container {
+        margin-bottom: 16px;
+    }
+
+    .input-label {
+        display: block;
+        font-size: 0.9em;
+        margin-bottom: 4px;
+        color: var(--is-text);
+    }
+
+    .field-description {
+        font-size: 0.85em;
+        color: var(--is-text-muted);
+        margin-top: 4px;
+    }
+
+    .field-warning {
+        font-size: 0.85em;
+        color: var(--is-warning);
+        margin-top: 4px;
+    }
+
+    .field-error {
+        font-size: 0.85em;
+        color: var(--is-error);
+        margin-top: 4px;
+    }
+
+    .field-error-active {
+        border-color: var(--is-error);
+    }
+
+    .checkbox-container {
+        margin-bottom: 12px;
+    }
+
+    .checkbox-container-withDescription {
+        margin-bottom: 16px;
+    }
+
+    .checkbox-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+    }
+
+    .analyze-for {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+    }
+
+    .analyze-for-group {
+        border: 0;
+        padding: 0;
+        margin: 0 0 16px;
+        min-inline-size: 0;
+    }
+
+    .analyze-for-legend {
+        padding: 0;
+    }
+
+    .analyze-for .title {
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .action-button {
+        padding: 8px 16px;
+        margin-top: 8px;
+    }
+
+    .action-button:disabled {
+        opacity: 0.6;
+    }
+
+    .select-container {
+        margin-bottom: 16px;
+    }
+
+    .select-label {
+        display: block;
+        font-size: 0.9em;
+        margin-bottom: 4px;
+        color: var(--is-text);
+    }
+
+    .disabled-block {
+        opacity: 0.6;
+    }
+
+    .disabled-block input,
+    .disabled-block select,
+    .disabled-block button {
+        pointer-events: none;
+    }
+
+    .disabled-block label {
+        font-style: italic;
+    }
+
+    .side-by-side {
+        display: flex;
+        gap: 24px;
+    }
+
+    .side-by-side > * {
+        flex: 1;
+    }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--is-input-border);
+        background: var(--is-input-bg);
+        color: var(--is-text);
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 1em;
+    }
+
+    input[type="number"]:focus-visible,
+    input[type="text"]:focus-visible,
+    select:focus-visible {
+        border-color: var(--is-input-focus);
+    }
+
+    input[type="number"]:focus:not(:focus-visible),
+    input[type="text"]:focus:not(:focus-visible),
+    select:focus:not(:focus-visible) {
+        border-color: var(--is-input-focus);
+        outline: none;
+    }
+
+    .exclusion-input-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+    }
+
+    .exclusion-input-row input[type="text"] {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .exclusion-add-button,
+    .exclusion-remove-button {
+        color: var(--is-text);
+        font: inherit;
+    }
+
+    .exclusion-add-button {
+        padding: 8px 14px;
+    }
+
+    .exclusion-add-button:hover,
+    .exclusion-remove-button:hover {
+        background: var(--is-hover-strong);
+    }
+
+    .exclusion-list-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 0;
+    }
+
+    .exclusion-list-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 100%;
+        min-width: 0;
+        padding: 4px 6px 4px 8px;
+        border: 1px solid var(--is-border);
+        border-radius: 4px;
+        background: var(--is-hover);
+    }
+
+    .exclusion-list-value {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .exclusion-remove-button {
+        flex: 0 0 auto;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .exclusion-list-empty {
+        margin-top: 8px;
+        color: var(--is-text-muted);
+        font-size: 0.85em;
+    }
+
+    fieldset {
+        border: 1px solid var(--is-border);
+        border-radius: 4px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    legend {
+        font-weight: 600;
+        padding: 0 8px;
+    }
+
+    textarea {
+        width: 100%;
+        background: var(--is-input-bg);
+        color: var(--is-text);
+        border: 1px solid var(--is-input-border);
+        border-radius: 4px;
+        padding: 8px;
+        font-family: monospace;
+        box-sizing: border-box;
+    }
+
+    .status-message {
+        margin-top: 8px;
+        font-size: 0.9em;
+    }
+
+    .tab-readonly-section + .tab-readonly-section {
+        margin-top: 24px;
+    }
+
+    .pattern-field {
+        margin-bottom: 16px;
+    }
+
+    .reset-button {
+        font-size: 0.85em;
+        padding: 4px 12px;
+        background: transparent;
+        border: 1px solid var(--is-input-border);
+        color: var(--is-text-muted);
+        cursor: pointer;
+        border-radius: 4px;
+        margin-top: 4px;
+    }
+
+    .reset-button:hover {
+        background: var(--is-hover);
+        color: var(--is-text);
+    }
+
+    .checkbox-list-label {
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .raised.block {
+        display: block;
+        width: 100%;
+    }
+
+    .tab-warning {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 12px;
+        margin-bottom: 16px;
+        background: rgba(232, 168, 54, 0.08);
+        border: 1px solid rgba(232, 168, 54, 0.25);
+        border-radius: 4px;
+        font-size: 0.85em;
+        color: var(--is-warning);
+        line-height: 1.4;
+    }
+
+    .tab-warning-icon {
+        flex-shrink: 0;
+    }
+
+    a {
+        color: var(--is-accent);
+    }
+
+    /* Support log (information tab). */
+
+    .support-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+    }
+
+    .support-head .checkbox-list-label {
+        margin: 0;
+    }
+
+    .support-title {
+        font-size: 0.75em;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--is-text-muted);
+        margin: 14px 0 6px;
+    }
+
     .support-grid {
-        grid-template-columns: 1fr;
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 18px;
+        row-gap: 2px;
+        font-size: 0.9em;
     }
 
     .support-grid dt {
-        margin-top: 6px;
+        color: var(--is-text-muted);
+        white-space: nowrap;
     }
-}
 
-/* Storage usage list (information tab). */
+    .support-grid dd {
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
 
-.storage-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
+    .support-none {
+        font-size: 0.9em;
+        color: var(--is-text-muted);
+    }
 
-.storage-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--is-border);
-}
+    .support-fold {
+        border-top: 1px solid var(--is-border);
+    }
 
-.storage-item-body {
-    flex: 1;
-    min-width: 0;
-}
+    .support-fold:last-child {
+        border-bottom: 1px solid var(--is-border);
+    }
 
-.storage-item-name {
-    font-size: 0.875em;
-}
+    .support-fold summary {
+        cursor: pointer;
+        padding: 7px 0;
+        font-size: 0.9em;
+        list-style: none;
+    }
 
-.storage-item-path {
-    font-size: 0.8em;
-    color: var(--is-text-muted);
-    margin: 1px 0 4px;
-}
+    .support-fold summary::-webkit-details-marker {
+        display: none;
+    }
 
-.storage-bar-track {
-    height: 4px;
-    background: var(--is-input-bg);
-    border-radius: 2px;
-    overflow: hidden;
-}
+    .support-fold summary::before {
+        content: "\25B8";
+        display: inline-block;
+        width: 14px;
+        color: var(--is-text-muted);
+    }
 
-.storage-bar-fill {
-    height: 100%;
-    border-radius: 2px;
-}
+    .support-fold[open] > summary::before {
+        content: "\25BE";
+    }
 
-.storage-item-usage {
-    font-size: 0.75em;
-    color: var(--is-text-muted);
-    margin-top: 2px;
-}
+    .support-fold-meta {
+        margin-left: 8px;
+        font-size: 0.85em;
+        color: var(--is-text-muted);
+    }
 
-@media (max-width: 768px) {
-    .side-by-side {
+    .support-pre {
+        margin: 0;
+        padding: 6px 0 10px 14px;
+        font-family: monospace;
+        font-size: 0.8em;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--is-text);
+    }
+
+    @media (max-width: 520px) {
+        .support-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .support-grid dt {
+            margin-top: 6px;
+        }
+    }
+
+    /* Storage usage list (information tab). */
+
+    .storage-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .storage-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--is-border);
+    }
+
+    .storage-item-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .storage-item-name {
+        font-size: 0.875em;
+    }
+
+    .storage-item-path {
+        font-size: 0.8em;
+        color: var(--is-text-muted);
+        margin: 1px 0 4px;
+    }
+
+    .storage-bar-track {
+        height: 4px;
+        background: var(--is-input-bg);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .storage-bar-fill {
+        height: 100%;
+        border-radius: 2px;
+    }
+
+    .storage-item-usage {
+        font-size: 0.75em;
+        color: var(--is-text-muted);
+        margin-top: 2px;
+    }
+
+    @media (max-width: 768px) {
+        .side-by-side {
+            flex-direction: column;
+            gap: 0;
+        }
+    }
+
+    /* Timestamp tab action bar. */
+
+    .ts-action-bar {
+        background: var(--is-surface);
+        padding: 16px;
+        border: 1px solid var(--is-border);
+        margin-bottom: 12px;
+        border-radius: 8px;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+    }
+
+    .ts-action-bar.open {
+        display: block;
+    }
+
+    .ts-action-top-row,
+    .ts-action-bottom-row {
+        display: flex;
+        gap: 16px;
+    }
+
+    .ts-action-top-row {
+        align-items: flex-end;
+        flex-wrap: wrap;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--is-border);
+    }
+
+    .ts-action-bottom-row {
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 14px;
+    }
+
+    .ts-action-scope {
+        display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 4px;
+        min-width: 132px;
+    }
+
+    .ts-full-series {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        font-size: 0.9em;
+        color: var(--is-text);
+        cursor: pointer;
+    }
+
+    .ts-analyzer-group {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        flex: 1 1 480px;
+    }
+
+    .ts-analyzer-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .ts-analyzer-label {
+        font-size: 0.7em;
+        color: var(--is-text-muted);
+        text-transform: uppercase;
+    }
+
+    .ts-action-buttons {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-left: auto;
+    }
+
+    .ts-action-btn {
+        padding: 7px 12px;
+        border-radius: 5px;
+        font-size: 0.82em;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+        color: var(--is-text);
+    }
+
+    .ts-action-btn.scan {
+        background: rgba(76, 175, 80, 0.2);
+    }
+
+    .ts-action-btn.erase {
+        background: rgba(244, 67, 54, 0.2);
+    }
+
+    .ts-action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .ts-action-editor-link {
+        align-self: flex-start;
+        flex: 0 0 auto;
+        margin-left: auto;
+        color: var(--is-accent);
+        font-size: 0.8em;
+        text-decoration: underline;
+    }
+
+    .ts-action-editor-link:focus-visible {
+        border-radius: 2px;
+    }
+
+    .ts-action-status {
+        margin-top: 8px;
+        font-size: 0.85em;
+    }
+
+    .ts-action-scope-hint,
+    .ts-action-description {
+        color: var(--is-text-muted);
+        font-size: 0.8em;
+    }
+
+    .ts-action-scope-hint {
+        padding-left: 24px;
+    }
+
+    .ts-analysis-window {
+        margin: 14px 0 0;
+        padding: 12px 14px 10px;
+        border-color: var(--is-border);
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    .ts-analysis-window legend {
+        font-size: 0.85em;
+        color: var(--is-text);
+    }
+
+    .ts-action-description {
+        margin: 0 0 12px;
+        line-height: 1.4;
+    }
+
+    .ts-analysis-window-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    /* The override fields are ordinary form controls, packed tighter than on the settings tabs. */
+    .ts-analysis-window .input-container,
+    .ts-analysis-window .select-container {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        margin: 0;
+    }
+
+    .ts-analysis-window .select-container {
+        margin-top: 12px;
+        max-width: 520px;
+    }
+
+    .ts-analysis-window .input-label,
+    .ts-analysis-window .select-label {
+        font-size: 0.82em;
+        margin: 0;
+        color: var(--is-text);
+    }
+
+    .ts-analysis-window input,
+    .ts-analysis-window select {
+        max-width: 260px;
+    }
+
+    .ts-analysis-window .field-description {
+        margin: 0;
+        font-size: 0.8em;
+        line-height: 1.35;
+    }
+
+    .ts-reset-overrides {
+        margin-top: 10px;
+        padding: 5px 9px;
+        color: var(--is-text-muted);
+        background: transparent;
+        border: 1px solid var(--is-border);
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.78em;
+    }
+
+    .ts-reset-overrides:hover {
+        color: var(--is-text);
+        background: var(--is-hover);
+    }
+
+    /* Timestamp tab episode list. */
+
+    .ts-filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .ts-filter-input {
+        flex: 1;
+        padding: 5px 10px;
+    }
+
+    .ts-episode-count {
+        color: var(--is-text-muted);
+        font-size: 0.85em;
+        white-space: nowrap;
+    }
+
+    .ts-episode-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--is-surface);
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+    }
+
+    .ts-episode-card-button {
+        width: 100%;
+        border: 1px solid transparent;
+        appearance: none;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    .ts-episode-card-button:hover {
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .ts-episode-card.error {
+        border-left: 3px solid var(--is-error);
+    }
+
+    .ts-episode-thumb {
+        width: 64px;
+        height: 38px;
+        border-radius: 3px;
+        flex-shrink: 0;
+        object-fit: cover;
+        background: var(--is-hover);
+    }
+
+    .ts-episode-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .ts-episode-header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+
+    .ts-episode-name {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--is-text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ts-episode-runtime {
+        font-size: 0.8em;
+        color: var(--is-text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ts-episode-timestamps {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+        flex-wrap: wrap;
+    }
+
+    .ts-timestamp-pill {
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 0.8em;
+        background: rgba(76, 175, 80, 0.15);
+        color: var(--is-success);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ts-timestamp-missing {
+        padding: 2px 8px;
+        font-size: 0.8em;
+        color: var(--is-text-muted);
+    }
+
+    .ts-timestamp-pill.user {
+        background: rgba(33, 150, 243, 0.15);
+        color: var(--is-accent);
+        border: 1px solid rgba(33, 150, 243, 0.4);
+    }
+
+    .ts-pill-source {
+        margin-left: 6px;
+        font-size: 0.85em;
+        opacity: 0.7;
+    }
+
+    .ts-edit-btn {
+        margin-left: auto;
+        font-size: 0.8em;
+    }
+
+    .ts-edit-btn:focus-visible {
+        outline-offset: 1px;
+    }
+
+    /* The toggle owns the single auto margin when both are present; Edit then
+       follows at a fixed gap instead of splitting the free space with it. */
+    .ts-episode-disable-toggle ~ .ts-edit-btn {
+        margin-left: 8px;
+    }
+
+    /* Pill switch controlling whether an item's automatic segments reach Jellyfin.
+       Checked means enabled; the switch sits right-aligned before the Edit button. */
+    .ts-episode-disable-toggle {
+        appearance: none;
+        width: 34px;
+        height: 18px;
+        margin: 0 0 0 auto;
+        align-self: center;
+        flex-shrink: 0;
+        border: 1px solid var(--is-text-muted);
+        border-radius: 999px;
+        background: var(--is-surface);
+        position: relative;
+        cursor: pointer;
+    }
+
+    .ts-episode-disable-toggle::after {
+        content: "";
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--is-text-muted);
+        transition: transform 0.15s ease;
+    }
+
+    .ts-episode-disable-toggle:checked {
+        border-color: var(--is-accent);
+        background: var(--is-accent);
+    }
+
+    .ts-episode-disable-toggle:checked::after {
+        transform: translateX(16px);
+        background: var(--is-text);
+    }
+
+    .ts-episode-card.ts-episode-disabled {
+        opacity: 0.6;
+    }
+
+    .ts-segment-editor {
+        margin-top: 8px;
+        padding: 8px;
+        border: 1px solid var(--is-border, rgba(128, 128, 128, 0.25));
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .ts-segment-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 0.85em;
+    }
+
+    .ts-segment-row.suppressed {
+        opacity: 0.6;
+    }
+
+    .ts-segment-mode {
+        min-width: 72px;
+        font-weight: 500;
+    }
+
+    .ts-segment-input {
+        width: 7.5em;
+        padding: 2px 6px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ts-segment-select {
+        min-width: 72px;
+        padding: 2px 4px;
+    }
+
+    .ts-segment-btn {
+        font-size: 0.9em;
+    }
+
+    .ts-segment-btn.danger {
+        color: var(--is-error);
+        border-color: var(--is-error);
+    }
+
+    .ts-segment-error {
+        color: var(--is-error);
+        font-size: 0.9em;
+    }
+
+    .ts-segment-hint {
+        color: var(--is-text-muted);
+        font-size: 0.9em;
+    }
+
+    .ts-segment-status {
+        font-size: 0.85em;
+    }
+
+    .ts-episode-error {
+        font-size: 0.8em;
+        color: var(--is-error);
+        margin-top: 4px;
+    }
+
+    .ts-retry-link {
+        color: var(--is-accent);
+        cursor: pointer;
+        margin-left: 8px;
+        text-decoration: underline;
+        background: none;
+        border: none;
+        font: inherit;
+        font-size: inherit;
+        padding: 2px 4px;
+        margin: -2px 0 -2px 4px;
+    }
+
+    .ts-retry-link:focus-visible {
+        border-radius: 2px;
+    }
+
+    .ts-status-msg {
+        font-size: 0.85em;
+        padding: 8px 0;
+    }
+
+    /* Confirm dialog (used for destructive actions with optional checkbox). */
+
+    .is-confirm-title {
+        margin: 0 0 8px;
+        font-size: 1.1em;
+        font-weight: 600;
+    }
+
+    .is-confirm-body {
+        margin: 0 0 16px;
+        font-size: 0.9em;
+        color: var(--is-text-muted);
+        line-height: 1.5;
+    }
+
+    .is-confirm-checkbox-row {
+        margin-bottom: 20px;
+        padding: 10px 12px;
+        background: var(--is-hover);
+        border: 1px solid var(--is-border);
+        border-radius: 4px;
+    }
+
+    .is-confirm-checkbox-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 0.9em;
+    }
+
+    .is-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .is-confirm-btn {
+        padding: 7px 16px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+    }
+
+    .is-confirm-btn.cancel {
+        color: var(--is-text);
+    }
+
+    .is-confirm-btn.cancel:hover {
+        background: var(--is-hover-strong);
+    }
+
+    .is-confirm-btn.confirm {
+        background: rgba(244, 67, 54, 0.2);
+        color: var(--is-error);
+    }
+
+    .is-confirm-btn.confirm:hover {
+        background: rgba(244, 67, 54, 0.3);
     }
 }
 
-/* Timestamp tab action bar. */
-
-.ts-action-bar {
-    background: var(--is-surface);
-    padding: 16px;
-    border: 1px solid var(--is-border);
-    margin-bottom: 12px;
-    border-radius: 8px;
-    display: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
-}
-
-.ts-action-bar.open {
-    display: block;
-}
-
-.ts-action-top-row,
-.ts-action-bottom-row {
-    display: flex;
-    gap: 16px;
-}
-
-.ts-action-top-row {
-    align-items: flex-end;
-    flex-wrap: wrap;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--is-border);
-}
-
-.ts-action-bottom-row {
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 14px;
-}
-
-.ts-action-scope {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 132px;
-}
-
-.ts-full-series {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    font-size: 0.9em;
-    color: var(--is-text);
-    cursor: pointer;
-}
-
-.ts-analyzer-group {
-    display: flex;
-    align-items: flex-end;
-    gap: 10px;
-    flex-wrap: wrap;
-    flex: 1 1 480px;
-}
-
-.ts-analyzer-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.ts-analyzer-label {
-    font-size: 0.7em;
-    color: var(--is-text-muted);
-    text-transform: uppercase;
-}
-
-.ts-action-buttons {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-left: auto;
-}
-
-.ts-action-btn {
-    padding: 7px 12px;
-    border-radius: 5px;
-    font-size: 0.82em;
-    cursor: pointer;
-    border: none;
-    font-family: inherit;
-    color: var(--is-text);
-}
-
-.ts-action-btn.scan {
-    background: rgba(76, 175, 80, 0.2);
-}
-
-.ts-action-btn.erase {
-    background: rgba(244, 67, 54, 0.2);
-}
-
-.ts-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.ts-action-editor-link {
-    align-self: flex-start;
-    flex: 0 0 auto;
-    margin-left: auto;
-    color: var(--is-accent);
-    font-size: 0.8em;
-    text-decoration: underline;
-}
-
-.ts-action-editor-link:focus-visible {
-    border-radius: 2px;
-}
-
-.ts-action-status {
-    margin-top: 8px;
-    font-size: 0.85em;
-}
-
-.ts-action-scope-hint,
-.ts-action-description {
-    color: var(--is-text-muted);
-    font-size: 0.8em;
-}
-
-.ts-action-scope-hint {
-    padding-left: 24px;
-}
-
-.ts-analysis-window {
-    margin: 14px 0 0;
-    padding: 12px 14px 10px;
-    border-color: var(--is-border);
-    background: rgba(0, 0, 0, 0.1);
-}
-
-.ts-analysis-window legend {
-    font-size: 0.85em;
-    color: var(--is-text);
-}
-
-.ts-action-description {
-    margin: 0 0 12px;
-    line-height: 1.4;
-}
-
-.ts-analysis-window-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-}
-
-/* The override fields are ordinary form controls, packed tighter than on the settings tabs. */
-.ts-analysis-window .input-container,
-.ts-analysis-window .select-container {
-    display: grid;
-    gap: 4px;
-    min-width: 0;
-    margin: 0;
-}
-
-.ts-analysis-window .select-container {
-    margin-top: 12px;
-    max-width: 520px;
-}
-
-.ts-analysis-window .input-label,
-.ts-analysis-window .select-label {
-    font-size: 0.82em;
-    margin: 0;
-    color: var(--is-text);
-}
-
-.ts-analysis-window input,
-.ts-analysis-window select {
-    max-width: 260px;
-}
-
-.ts-analysis-window .field-description {
-    margin: 0;
-    font-size: 0.8em;
-    line-height: 1.35;
-}
-
-.ts-reset-overrides {
-    margin-top: 10px;
-    padding: 5px 9px;
-    color: var(--is-text-muted);
-    background: transparent;
-    border: 1px solid var(--is-border);
-    border-radius: 4px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.78em;
-}
-
-.ts-reset-overrides:hover {
-    color: var(--is-text);
-    background: var(--is-hover);
-}
-
-/* Timestamp tab episode list. */
-
-.ts-filter-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-
-.ts-filter-input {
-    flex: 1;
-    padding: 5px 10px;
-}
-
-.ts-episode-count {
-    color: var(--is-text-muted);
-    font-size: 0.85em;
-    white-space: nowrap;
-}
-
-.ts-episode-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: var(--is-surface);
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-bottom: 6px;
-}
-
-.ts-episode-card-button {
-    width: 100%;
-    border: 1px solid transparent;
-    appearance: none;
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    touch-action: manipulation;
-}
-
-.ts-episode-card-button:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.ts-episode-card.error {
-    border-left: 3px solid var(--is-error);
-}
-
-.ts-episode-thumb {
-    width: 64px;
-    height: 38px;
-    border-radius: 3px;
-    flex-shrink: 0;
-    object-fit: cover;
-    background: var(--is-hover);
-}
-
-.ts-episode-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.ts-episode-header {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-}
-
-.ts-episode-name {
-    font-size: 0.95em;
-    font-weight: 600;
-    color: var(--is-text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.ts-episode-runtime {
-    font-size: 0.8em;
-    color: var(--is-text-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-}
-
-.ts-episode-timestamps {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-    flex-wrap: wrap;
-}
-
-.ts-timestamp-pill {
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.8em;
-    background: rgba(76, 175, 80, 0.15);
-    color: var(--is-success);
-    font-variant-numeric: tabular-nums;
-}
-
-.ts-timestamp-missing {
-    padding: 2px 8px;
-    font-size: 0.8em;
-    color: var(--is-text-muted);
-}
-
-.ts-timestamp-pill.user {
-    background: rgba(33, 150, 243, 0.15);
-    color: var(--is-accent);
-    border: 1px solid rgba(33, 150, 243, 0.4);
-}
-
-.ts-pill-source {
-    margin-left: 6px;
-    font-size: 0.85em;
-    opacity: 0.7;
-}
-
-.ts-edit-btn {
-    margin-left: auto;
-    font-size: 0.8em;
-}
-
-.ts-edit-btn:focus-visible {
-    outline-offset: 1px;
-}
-
-/* The toggle owns the single auto margin when both are present; Edit then
-   follows at a fixed gap instead of splitting the free space with it. */
-.ts-episode-disable-toggle ~ .ts-edit-btn {
-    margin-left: 8px;
-}
-
-/* Pill switch controlling whether an item's automatic segments reach Jellyfin.
-   Checked means enabled; the switch sits right-aligned before the Edit button. */
-.ts-episode-disable-toggle {
-    appearance: none;
-    width: 34px;
-    height: 18px;
-    margin: 0 0 0 auto;
-    align-self: center;
-    flex-shrink: 0;
-    border: 1px solid var(--is-text-muted);
-    border-radius: 999px;
-    background: var(--is-surface);
-    position: relative;
-    cursor: pointer;
-}
-
-.ts-episode-disable-toggle::after {
-    content: "";
-    position: absolute;
-    top: 1px;
-    left: 1px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--is-text-muted);
-    transition: transform 0.15s ease;
-}
-
-.ts-episode-disable-toggle:checked {
-    border-color: var(--is-accent);
-    background: var(--is-accent);
-}
-
-.ts-episode-disable-toggle:checked::after {
-    transform: translateX(16px);
-    background: var(--is-text);
-}
-
-.ts-episode-card.ts-episode-disabled {
-    opacity: 0.6;
-}
-
-.ts-segment-editor {
-    margin-top: 8px;
-    padding: 8px;
-    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.25));
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.ts-segment-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-size: 0.85em;
-}
-
-.ts-segment-row.suppressed {
-    opacity: 0.6;
-}
-
-.ts-segment-mode {
-    min-width: 72px;
-    font-weight: 500;
-}
-
-.ts-segment-input {
-    width: 7.5em;
-    padding: 2px 6px;
-    font-variant-numeric: tabular-nums;
-}
-
-.ts-segment-select {
-    min-width: 72px;
-    padding: 2px 4px;
-}
-
-.ts-segment-btn {
-    font-size: 0.9em;
-}
-
-.ts-segment-btn.danger {
-    color: var(--is-error);
-    border-color: var(--is-error);
-}
-
-.ts-segment-error {
-    color: var(--is-error);
-    font-size: 0.9em;
-}
-
-.ts-segment-hint {
-    color: var(--is-text-muted);
-    font-size: 0.9em;
-}
-
-.ts-segment-status {
-    font-size: 0.85em;
-}
-
-.ts-episode-error {
-    font-size: 0.8em;
-    color: var(--is-error);
-    margin-top: 4px;
-}
-
-.ts-retry-link {
-    color: var(--is-accent);
-    cursor: pointer;
-    margin-left: 8px;
-    text-decoration: underline;
-    background: none;
-    border: none;
-    font: inherit;
-    font-size: inherit;
-    padding: 2px 4px;
-    margin: -2px 0 -2px 4px;
-}
-
-.ts-retry-link:focus-visible {
-    border-radius: 2px;
-}
-
-.ts-status-msg {
-    font-size: 0.85em;
-    padding: 8px 0;
-}
-
-/* Confirm dialog (used for destructive actions with optional checkbox). */
-
+/* The dialog is itself a .is-dashboard root, so it sits outside the wrapper. */
 .is-confirm-dialog {
     background: var(--is-surface);
     color: var(--is-text);
@@ -931,65 +996,4 @@ a {
 
 .is-confirm-dialog::backdrop {
     background: rgba(0, 0, 0, 0.6);
-}
-
-.is-confirm-title {
-    margin: 0 0 8px;
-    font-size: 1.1em;
-    font-weight: 600;
-}
-
-.is-confirm-body {
-    margin: 0 0 16px;
-    font-size: 0.9em;
-    color: var(--is-text-muted);
-    line-height: 1.5;
-}
-
-.is-confirm-checkbox-row {
-    margin-bottom: 20px;
-    padding: 10px 12px;
-    background: var(--is-hover);
-    border: 1px solid var(--is-border);
-    border-radius: 4px;
-}
-
-.is-confirm-checkbox-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    font-size: 0.9em;
-}
-
-.is-confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-.is-confirm-btn {
-    padding: 7px 16px;
-    border-radius: 4px;
-    font-size: 0.85em;
-    cursor: pointer;
-    border: none;
-    font-family: inherit;
-}
-
-.is-confirm-btn.cancel {
-    color: var(--is-text);
-}
-
-.is-confirm-btn.cancel:hover {
-    background: var(--is-hover-strong);
-}
-
-.is-confirm-btn.confirm {
-    background: rgba(244, 67, 54, 0.2);
-    color: var(--is-error);
-}
-
-.is-confirm-btn.confirm:hover {
-    background: rgba(244, 67, 54, 0.3);
 }

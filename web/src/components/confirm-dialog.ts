@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { el, DASHBOARD_CLASS } from "./dom.ts";
 
 /**
  * A custom confirmation dialog that supports an optional checkbox,
@@ -38,7 +38,7 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
         const titleId = "is-confirm-title-" + uid;
         const bodyId = "is-confirm-body-" + uid;
 
-        const dialog = el("dialog", { className: "is-confirm-dialog" });
+        const dialog = el("dialog", { className: `is-confirm-dialog ${DASHBOARD_CLASS}` });
         dialog.setAttribute("aria-labelledby", titleId);
         dialog.setAttribute("aria-describedby", bodyId);
 
