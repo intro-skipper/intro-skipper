@@ -181,19 +181,17 @@ internal sealed partial class QueueVerifier
     /// <item><description>Any other record must carry the media version, or the episode is
     /// flagged <see cref="QueuedEpisode.FileChanged"/>.</description></item>
     /// </list>
-    /// An episode without a media version (Jellyfin holds no write time) cannot be compared
-    /// and keeps every record's verdict.
+    /// A version the episode does not have cannot be compared: without a media version
+    /// (Jellyfin holds no write time) a record keeps its verdict and nothing is stamped,
+    /// except a Recap or Preview record whose mode records the sidecar version, which still
+    /// compares that version.
     /// </remarks>
     /// <returns>Whether a record shows the media file was replaced, and the Recap and Preview
     /// modes whose records carry a version other than the one they record now.</returns>
     private (bool FileChanged, IReadOnlySet<AnalysisMode> ReopenedModes) ClassifyFileVersion(QueuedEpisode candidate)
     {
         HashSet<AnalysisMode> reopened = [];
-        if (candidate.FileVersion is not { } fileVersion)
-        {
-            return (false, reopened);
-        }
-
+        var fileVersion = candidate.FileVersion;
         var needsBackfill = false;
         foreach (var mode in AllModes)
         {
@@ -208,7 +206,7 @@ internal sealed partial class QueueVerifier
             }
             else if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
             {
-                if (recorded == _config.RecordedFileVersion(candidate, mode))
+                if (_config.RecordedFileVersion(candidate, mode) is not { } current || recorded == current)
                 {
                     continue;
                 }
@@ -221,16 +219,16 @@ internal sealed partial class QueueVerifier
 
                 reopened.Add(mode);
             }
-            else if (recorded != fileVersion)
+            else if (fileVersion is { } media && recorded != media)
             {
                 candidate.FileChanged = true;
                 return (true, reopened);
             }
         }
 
-        if (needsBackfill)
+        if (needsBackfill && fileVersion is { } version)
         {
-            _fileVersionBackfill.TryAdd(candidate.EpisodeId, fileVersion);
+            _fileVersionBackfill.TryAdd(candidate.EpisodeId, version);
         }
 
         return (false, reopened);

@@ -459,16 +459,18 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     /// on carries the sidecars in its version, which still reopens only Recap after the
     /// detection is turned off, even when a sidecar changes before Recap is recorded again.
     /// No case flags the file as changed, which would reset the item's other modes and
-    /// discard its fingerprints.
+    /// discard its fingerprints. The sidecar version is compared even when Jellyfin holds
+    /// no media write time (file version 0 here).
     /// </summary>
     [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task VerifyQueueAsync_SubtitleDetectingRecord_ReopensOnlyItsMode(bool turnDetectionOff, bool rewriteSidecar)
+    [InlineData(false, true, 2L)]
+    [InlineData(false, true, 0L)]
+    [InlineData(true, false, 2L)]
+    [InlineData(true, true, 2L)]
+    public async Task VerifyQueueAsync_SubtitleDetectingRecord_ReopensOnlyItsMode(bool turnDetectionOff, bool rewriteSidecar, long fileVersion)
     {
         var config = SubtitleRecapConfig();
-        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        using var fixture = new VerifyQueueFixture(config, fileVersion);
         var sidecar = fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
         await fixture.SettleIntroductionAndRecapAsync();
         var settled = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
