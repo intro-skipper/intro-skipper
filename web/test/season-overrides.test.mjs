@@ -13,7 +13,7 @@ test("subtitle override selects contain only enabled and disabled", () => {
     }
 });
 
-test("unset subtitle overrides display and save as disabled", () => {
+test("unset subtitle overrides retain null for global inheritance", () => {
     const store = createOverrideStore();
     store.load({
         AnalysisPercent: null,
@@ -23,10 +23,16 @@ test("unset subtitle overrides display and save as disabled", () => {
         SubtitlePreviewDetection: null,
     });
 
-    assert.equal(store.get("SubtitleRecapDetection"), false);
-    assert.equal(store.get("SubtitlePreviewDetection"), false);
-    assert.equal(store.values().SubtitleRecapDetection, false);
-    assert.equal(store.values().SubtitlePreviewDetection, false);
+    assert.equal(store.get("SubtitleRecapDetection"), null);
+    assert.equal(store.get("SubtitlePreviewDetection"), null);
+    assert.equal(store.values().SubtitleRecapDetection, null);
+    assert.equal(store.values().SubtitlePreviewDetection, null);
+    assert.equal(overrideSchema.SubtitleRecapDetection.nullDisplayValue(), false);
+    assert.equal(overrideSchema.SubtitlePreviewDetection.nullDisplayValue(), false);
+
+    store.set("AnalysisPercent", 30);
+    assert.equal(store.values().SubtitleRecapDetection, null);
+    assert.equal(store.values().SubtitlePreviewDetection, null);
 });
 
 test("subtitle overrides preserve explicit enabled and disabled values", () => {

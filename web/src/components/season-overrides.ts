@@ -5,6 +5,11 @@ import { eventBus } from "../lifecycle.ts";
 import { configStore } from "../store/config-store.ts";
 import type { AnalysisOverrides } from "../types.ts";
 
+function legacySubtitleDefault(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
+    if (!configStore.isLoaded()) return false;
+    return (configStore.getAll() as unknown as Record<string, unknown>)[key] === true;
+}
+
 // What the global setting currently is, shown where a blank override falls back to it.
 function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => string {
     return () =>
@@ -58,6 +63,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Subtitle-based recap detection",
         description: "Enable subtitle-based recap detection for this season or show.",
+        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitleRecapDetection"),
         options: [
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
@@ -67,6 +73,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Subtitle-based preview detection",
         description: "Enable subtitle-based preview detection for this season or show.",
+        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitlePreviewDetection"),
         options: [
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
@@ -117,11 +124,7 @@ export function createOverrideStore(): OverrideStore {
         },
         subscribe: bus.on,
         load(next) {
-            values = {
-                ...next,
-                SubtitleRecapDetection: next.SubtitleRecapDetection ?? false,
-                SubtitlePreviewDetection: next.SubtitlePreviewDetection ?? false,
-            };
+            values = { ...next };
             loaded = true;
             bus.emit("loaded");
             // Saved overrides carry no error; take down what the previous season left showing.
