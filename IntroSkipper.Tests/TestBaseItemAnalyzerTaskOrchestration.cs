@@ -18,6 +18,7 @@ using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static IntroSkipper.Tests.StubFFmpegService;
 
 public sealed class TestBaseItemAnalyzerTaskOrchestration
 {
