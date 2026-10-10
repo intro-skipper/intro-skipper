@@ -55,7 +55,8 @@ public sealed partial class IntroSkipperDatabase
             [.. segments.Select(s => new AttributedSegment(s, source))],
             derivedWrite: source == SegmentSource.CreditsDerived,
             configHash,
-            cancellationToken);
+            cancellationToken,
+            replacementSource: source);
     }
 
     /// <summary>
@@ -83,13 +84,20 @@ public sealed partial class IntroSkipperDatabase
             throw new ArgumentException("Per-segment analysis writes must not use the User or CreditsDerived source.", nameof(segments));
         }
 
-        return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, derivedWrite: false, configHash, cancellationToken);
+        return ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            mode,
+            segments,
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            replacementSource: segments.Count > 0 ? segments[0].Source : null);
     }
 
     /// <summary>
-    /// Atomically replaces a subtitle-detected Preview and removes a competing Credits-derived
-    /// Preview only when the subtitle candidate passes automatic-segment admission. A rejected
-    /// candidate leaves both the existing preview and its tombstone blockers untouched.
+    /// Atomically replaces a subtitle-detected Preview only when no higher-priority Chapter
+    /// Preview stands and automatic-segment admission accepts the candidate. An admitted subtitle
+    /// supersedes lower-priority automatic previews, including Credits-derived previews.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="segment">Subtitle-detected Preview candidate.</param>
@@ -108,7 +116,8 @@ public sealed partial class IntroSkipperDatabase
             derivedWrite: false,
             configHash,
             cancellationToken,
-            supersedeCreditsDerived: true);
+            supersedeCreditsDerived: true,
+            replacementSource: SegmentSource.Subtitle);
 
     /// <summary>
     /// Atomically replaces an admitted chapter Preview and supersedes competing automatic
@@ -132,7 +141,8 @@ public sealed partial class IntroSkipperDatabase
             derivedWrite: false,
             configHash,
             cancellationToken,
-            supersedeCreditsDerived: true);
+            supersedeCreditsDerived: true,
+            replacementSource: SegmentSource.Chapter);
 
     /// <summary>
     /// Removes active subtitle-generated segments after a subtitle source was read
@@ -177,7 +187,8 @@ public sealed partial class IntroSkipperDatabase
         bool derivedWrite,
         string configHash,
         CancellationToken cancellationToken,
-        bool supersedeCreditsDerived = false)
+        bool supersedeCreditsDerived = false,
+        SegmentSource? replacementSource = null)
     {
         ValidateMode(mode);
 
@@ -196,19 +207,27 @@ public sealed partial class IntroSkipperDatabase
                 .ConfigureAwait(false);
             var existing = itemRows.Where(s => s.Type == mode).ToList();
 
-            // Credits-derived previews belong to the credits pass and every other
-            // automatic row to its own mode's pass (the attribution rule of
-            // CleanStaleAutomaticSegmentsAsync), so a write replaces only the rows
-            // its own pass produced. Without the split, the Preview pass and the
-            // credits derive would each delete the other's preview row.
             var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
-            var autoRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
-            var otherPassRows = activeAutoRows.Where(s => (s.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
+            var rankedPreviewWrite = mode is (AnalysisMode.Recap or AnalysisMode.Preview) && replacementSource is not null;
+            var replacementRank = rankedPreviewWrite ? AutomaticSourceRank(mode, replacementSource!.Value) : 0;
+            var autoRows = rankedPreviewWrite
+                ? activeAutoRows.Where(row => AutomaticSourceRank(mode, row.Source) <= replacementRank).ToList()
+                : activeAutoRows.Where(row => (row.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
+            var otherPassRows = rankedPreviewWrite
+                ? activeAutoRows.Where(row => AutomaticSourceRank(mode, row.Source) > replacementRank).ToList()
+                : activeAutoRows.Where(row => (row.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
 
             var accepted = new List<DbSegment>();
             var rejected = 0;
             foreach (var (segment, source) in segments.OrderBy(s => s.Segment.Start))
             {
+                if (rankedPreviewWrite
+                    && activeAutoRows.Any(row => AutomaticSourceRank(mode, row.Source) > AutomaticSourceRank(mode, source)))
+                {
+                    rejected++;
+                    continue;
+                }
+
                 if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                 {
                     rejected++;
@@ -238,7 +257,9 @@ public sealed partial class IntroSkipperDatabase
                 // An identical range already standing under the other pass keeps that
                 // pass's row; re-inserting it would violate the unique
                 // (ItemId, Type, StartTicks, EndTicks) index.
-                if (!supersedeCreditsDerived && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                if (!rankedPreviewWrite
+                    && !supersedeCreditsDerived
+                    && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
                 {
                     continue;
                 }
@@ -263,16 +284,22 @@ public sealed partial class IntroSkipperDatabase
                 return 0;
             }
 
-            if (supersedeCreditsDerived && accepted.Count > 0)
+            if (!rankedPreviewWrite && supersedeCreditsDerived && accepted.Count > 0)
             {
                 autoRows.AddRange(otherPassRows);
             }
+
+            // For Recap and Preview, an empty write clears only its own priority tier;
+            // a successful non-empty write may also retire lower-priority fallback rows.
+            var rowsToReplace = rankedPreviewWrite && accepted.Count == 0
+                ? autoRows.Where(row => AutomaticSourceRank(mode, row.Source) == replacementRank).ToList()
+                : autoRows;
 
             // Keep automatic rows whose boundaries are unchanged so their ids stay
             // stable across re-analysis (Jellyfin rows keep the same Guids); replace
             // the rest.
             var kept = 0;
-            foreach (var row in autoRows)
+            foreach (var row in rowsToReplace)
             {
                 var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
                 if (match is not null)
@@ -292,7 +319,7 @@ public sealed partial class IntroSkipperDatabase
 
             // Journal only when the servable image changed: kept rows rewrite
             // bookkeeping the mirror does not carry.
-            if (accepted.Count > 0 || autoRows.Count > kept)
+            if (accepted.Count > 0 || rowsToReplace.Count > kept)
             {
                 await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
             }
@@ -301,6 +328,22 @@ public sealed partial class IntroSkipperDatabase
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return kept + accepted.Count;
         }
+    }
+
+    private static int AutomaticSourceRank(AnalysisMode mode, SegmentSource source)
+    {
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+        {
+            return 1;
+        }
+
+        return source switch
+        {
+            SegmentSource.Chapter => 3,
+            SegmentSource.Subtitle => 2,
+            SegmentSource.CreditsDerived => 0,
+            _ => 1,
+        };
     }
 
     /// <summary>

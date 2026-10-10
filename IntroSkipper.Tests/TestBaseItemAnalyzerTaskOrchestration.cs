@@ -62,7 +62,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Assert.True(episode.NeedsSubtitleOnlyReanalysis(AnalysisMode.Recap));
         }
 
-        var ffmpeg = new StubFFmpegService { SubtitleCues = _ => [] };
+        var ffmpeg = new StubFFmpegService { Subtitles = _ => new([], Complete: true) };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
@@ -133,7 +133,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (_, _) => [1, 2, 3, 4],
-            SubtitleCues = _ => [],
+            Subtitles = _ => new([], Complete: true),
         };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -227,7 +227,14 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => { extractionCalled = true; return []; } },
+            new StubFFmpegService
+            {
+                Subtitles = _ =>
+                {
+                    extractionCalled = true;
+                    return new([], Complete: true);
+                },
+            },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -338,7 +345,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
         var ffmpeg = new StubFFmpegService
         {
-            SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
+            Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true),
         };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -418,10 +425,12 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var subtitleWasExtracted = false;
         var ffmpeg = new StubFFmpegService
         {
-            SubtitleCues = _ =>
+            Subtitles = _ =>
             {
                 subtitleWasExtracted = true;
-                return [new SubtitleCue(subtitleStart, subtitleStart + 3, isRecap ? "Previously on the show" : "Here's the preview")];
+                return new(
+                    [new SubtitleCue(subtitleStart, subtitleStart + 3, isRecap ? "Previously on the show" : "Here's the preview")],
+                    Complete: true);
             },
             KeyFrames = (_, _, _) => [],
         };
@@ -450,6 +459,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             MinimumPreviewDuration = 5,
             MaximumPreviewDuration = 120,
             EnableSponsorBlockChapterDetection = false,
+            SnapToKeyframe = false,
         };
         using var scope = EntrypointTestHelpers.CreatePluginScope(
             config,
@@ -492,8 +502,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         };
         var ffmpeg = new StubFFmpegService
         {
-            KeyFrames = (_, _, _) => [],
-            SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
+            Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true),
         };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -535,12 +544,13 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             SeasonId = Guid.NewGuid(),
             SeasonNumber = 1,
             Duration = 180,
+            IntroFingerprintEnd = 120,
             Path = "/media/episode-1.mkv",
             AnalysisConfigHash = "subtitle-recap",
         };
         var ffmpeg = new StubFFmpegService
         {
-            SubtitleCues = _ => [new SubtitleCue(10, 13, "Previously on the show")],
+            Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on the show")], Complete: true),
         };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -589,7 +599,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            new StubFFmpegService { Subtitles = _ => new([], Complete: false) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -633,7 +643,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            new StubFFmpegService { Subtitles = _ => new([], Complete: false) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -680,10 +690,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             null!,
             new StubFFmpegService
             {
-                SubtitleCues = _ => throw new SubtitleExtractionException(
-                    "One subtitle source failed.",
-                    [new SubtitleCue(110, 113, "Here's the preview")],
-                    new IOException("source failed")),
+                Subtitles = _ => new([new SubtitleCue(110, 113, "Here's the preview")], Complete: false),
             },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
@@ -730,7 +737,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")] },
+            new StubFFmpegService { Subtitles = _ => new([new SubtitleCue(30, 33, "Previously on the story")], Complete: false) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -769,7 +776,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var previewTask = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")] },
+            new StubFFmpegService { Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -778,7 +785,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var recapTask = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => throw new IOException("subtitle extraction failed") },
+            new StubFFmpegService { Subtitles = _ => new([], Complete: false) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);
@@ -828,7 +835,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
             null!,
-            new StubFFmpegService { SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")] },
+            new StubFFmpegService { Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true) },
             DatabaseTestHelpers.CreateTempCacheService(),
             null!,
             database);

@@ -536,9 +536,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         }
     }
 
-    // A rewritten sidecar reopens the mode under a matching hash, and the verifier logs that
-    // the files changed at Information level, as it does for a replaced file. When the hash
-    // is stale too, it logs the hash change instead.
+    // A sidecar version change reopens the mode under a matching hash and is logged at
+    // Information level. When the hash is stale too, the hash change is the useful reason.
     [Theory]
     [InlineData(true, "files changed")]
     [InlineData(false, "configuration hash changed")]

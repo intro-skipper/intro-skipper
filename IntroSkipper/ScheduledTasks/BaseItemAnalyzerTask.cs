@@ -229,7 +229,7 @@ public partial class BaseItemAnalyzerTask(
             await _database.ResetItemsForReanalysisAsync(
                 changedFiles,
                 AllModes,
-                GetSubtitleModesToPreserve(modes, seasonStates, episodes),
+                [],
                 cancellationToken).ConfigureAwait(false);
             foreach (var episode in episodes.Where(e => e.FileChanged))
             {
@@ -408,6 +408,7 @@ public partial class BaseItemAnalyzerTask(
                         candidate.FileVersion,
                         SubtitleLanguageSelection.Parse(Config.SubtitleLanguages));
                 }
+
                 verified.Add(candidate);
                 verifier.Classify(candidate);
             }
@@ -537,17 +538,14 @@ public partial class BaseItemAnalyzerTask(
             .Where(item => !item.NeedsSubtitleOnlyReanalysis(mode))
             .ToArray();
 
-        foreach (var eligibleItems in conventionalItems
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided)
-            .GroupBy(item => ShouldPreserveSubtitleRows(item, mode)))
-        {
-            await _database.CleanStaleAutomaticSegmentsAsync(
-                eligibleItems.Select(e => e.EpisodeId),
-                mode,
-                configHash,
-                eligibleItems.Key,
-                cancellationToken).ConfigureAwait(false);
-        }
+        var cleanableItems = conventionalItems
+            .Where(item => item.GetAnalyzed(mode) != EpisodeState.UserProvided
+                && !ShouldPreserveSubtitleRows(item, mode));
+        await _database.CleanStaleAutomaticSegmentsAsync(
+            cleanableItems.Select(item => item.EpisodeId),
+            mode,
+            configHash,
+            cancellationToken).ConfigureAwait(false);
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
@@ -800,8 +798,7 @@ public partial class BaseItemAnalyzerTask(
                 completedFallbacks.Select(item => item.EpisodeId),
                 mode,
                 modeEpisodes[0].AnalysisConfigHash,
-                preserveStaleRows: false,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
 
             foreach (var item in modeEpisodes.Where(item => item.HasUnresolvedSubtitleDetection(mode)))
             {

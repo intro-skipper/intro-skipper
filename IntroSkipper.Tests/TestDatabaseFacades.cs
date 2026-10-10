@@ -403,12 +403,11 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     /// <summary>
-    /// A mode serves one automatic result. Subtitle rows outrank the other analyzers, and
-    /// credits-derived previews rank below them all. A write that a higher rank blocks changes
-    /// nothing, and only a write that leaves a segment of its own standing retires a lower rank.
+    /// Chapter rows outrank subtitle rows, which outrank other automatic results and
+    /// credits-derived previews. Higher-ranked rows block lower-ranked writes.
     /// </summary>
     [Fact]
-    public async Task ReplaceAutoSegmentsAsync_PreviewRows_RankSubtitleOverChapterOverCreditsDerived()
+    public async Task ReplaceAutoSegmentsAsync_PreviewRows_RankChapterOverSubtitleOverCreditsDerived()
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
@@ -423,24 +422,30 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(100, 110))], SegmentSource.Chapter, configHash: "preview-hash"));
         Assert.Equal(derived.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // A chapter match retires it, and while the chapter preview stands a derive changes nothing.
-        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Chapter, configHash: "preview-hash"));
+        // A chapter match retires it, and lower-ranked sources cannot add beside it.
+        Assert.Equal(1, await database.ReplaceChapterPreviewAsync(
+            itemId,
+            [new Segment(itemId, new TimeRange(1350, 1440))],
+            configHash: "preview-hash"));
         var chapter = Assert.Single(await database.GetSegmentsAsync(itemId));
         Assert.Equal(SegmentSource.Chapter, chapter.Source);
         Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash"));
+        Assert.Equal(0, await database.ReplaceSubtitlePreviewAsync(itemId, new Segment(itemId, new TimeRange(1350, 1440)), configHash: "preview-hash"));
         Assert.Equal(chapter.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // A subtitle match replaces it. On the same range the row keeps its id.
-        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Subtitle, configHash: "preview-hash"));
+        // Clearing the chapter tier removes only the chapter result. Subtitle can then
+        // replace a derived fallback and retains its id when boundaries are unchanged.
+        Assert.Equal(0, await database.ReplaceChapterPreviewAsync(itemId, [], configHash: "preview-hash"));
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var freshDerived = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(1, await database.ReplaceSubtitlePreviewAsync(itemId, new Segment(itemId, new TimeRange(1380, 1440)), configHash: "preview-hash"));
         var subtitle = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal((chapter.Id, SegmentSource.Subtitle), (subtitle.Id, subtitle.Source));
+        Assert.Equal((freshDerived.Id, SegmentSource.Subtitle), (subtitle.Id, subtitle.Source));
 
-        // While it stands, the lower ranks change nothing, an empty write included.
-        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash"));
-        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1300, 1440))], SegmentSource.Chapter, configHash: "preview-hash"));
-        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1300, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash"));
-        var standing = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal((subtitle.Id, SegmentSource.Subtitle), (standing.Id, standing.Source));
+        // An admitted chapter result supersedes the subtitle row.
+        Assert.Equal(1, await database.ReplaceChapterPreviewAsync(itemId, [new Segment(itemId, new TimeRange(1300, 1440))], configHash: "preview-hash"));
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(itemId)).Source);
     }
 
     [Fact]

@@ -762,13 +762,26 @@ internal sealed partial class FFmpegService : IFFmpegService
             var capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "warning"), SubtitleLogMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
             if (capture.Truncated || capture.ExitCode != 0)
             {
-                LogSubtitleRunUnusable(string.Join(", ", sources.Select(source => source.Path).Distinct(StringComparer.OrdinalIgnoreCase)), capture.ExitCode, capture.Truncated);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    LogSubtitleRunUnusable(
+                        sources[0].Path,
+                        capture.ExitCode,
+                        capture.Truncated);
+                }
+
                 complete = false;
             }
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
-            LogSubtitleRunFailed(ex, string.Join(", ", sources.Select(source => source.Path).Distinct(StringComparer.OrdinalIgnoreCase)));
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                LogSubtitleRunFailed(
+                    ex,
+                    sources[0].Path);
+            }
+
             complete = false;
         }
 

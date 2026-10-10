@@ -93,11 +93,11 @@ public sealed class TestConfigHasher
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
         // Frozen to what 12.0.5 wrote, so seasons with subtitle detection off do not
-        // re-analyze on upgrade. Only seasons that derive previews from credits re-derive
-        // once, under the last-credits-run anchor.
+        // re-analyze on upgrade. Changing the credits-derived preview endpoint does not
+        // iterate that mode's hash; only enabling subtitle detection adds its own hash.
         Case("Recap analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Recap), "9F39FAF9AB4D7445", true);
         Case("Preview analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Preview), "19C776EE18C06441", true);
-        Case("Preview analysis re-derives under the last-credits anchor", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "2735F6E29B514900", false);
+        Case("Preview analysis hash stays pinned for credits-derived previews", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "2735F6E29B514900", true);
         Case("Recap analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Recap), Analysis(new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalysisMode.Recap), true);
         Case("Preview analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalysisMode.Preview), true);
 
