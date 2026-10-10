@@ -53,7 +53,7 @@ _Avoid_: Keyframe kind, page type
 ### Analysis
 
 **File version**:
-The last write time Jellyfin observed for an item's media file, recorded with each analysis record. An analysis whose file version differs from the item's current one no longer describes the file.
+The last write time Jellyfin observed for an item's media file, recorded with each analysis record. A mode with active subtitle detection records a version that also covers the text subtitle files it reads next to the media file. An analysis whose file version differs from the item's current one no longer describes the files it read.
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
 
 **Season key**:

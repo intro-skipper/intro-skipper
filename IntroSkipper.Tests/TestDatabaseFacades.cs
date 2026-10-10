@@ -402,41 +402,50 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Empty(await database.GetSegmentsAsync(itemId));
     }
 
+    /// <summary>
+    /// Chapter rows outrank subtitle rows, which outrank other automatic results and
+    /// credits-derived previews. Higher-ranked rows block lower-ranked writes.
+    /// </summary>
     [Fact]
-    public async Task ReplaceAutoSegmentsAsync_PreviewPasses_DoNotDeleteEachOthersRows()
+    public async Task ReplaceAutoSegmentsAsync_PreviewRows_RankChapterOverSubtitleOverCreditsDerived()
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
-
-        // The credits pass derives a preview, then the preview pass stores a chapter
-        // preview with different boundaries. The passes share the Preview mode but
-        // own only their own rows, so neither write may delete the other's.
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(100, 110))], SegmentSource.Chapter);
+        await database.DeleteSegmentAsync(itemId, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
+        var derived = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-        var segments = await database.GetSegmentsAsync(itemId);
-        Assert.Equal(2, segments.Count);
-        Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived);
-        Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+        // A chapter write that leaves none of its segments standing keeps the derived preview:
+        // an empty one, which is the analyzer clearing its own result, and one the tombstone rejects.
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(100, 110))], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Equal(derived.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // A re-derive replaces only the derived row; the chapter row stands.
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
-        segments = await database.GetSegmentsAsync(itemId);
-        Assert.Equal(2, segments.Count);
-        Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived && s.StartTicks == Ticks(1390));
-        Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+        // A chapter match retires it, and lower-ranked sources cannot add beside it.
+        Assert.Equal(1, await database.ReplaceChapterPreviewAsync(
+            itemId,
+            [new Segment(itemId, new TimeRange(1350, 1440))],
+            configHash: "preview-hash"));
+        var chapter = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(SegmentSource.Chapter, chapter.Source);
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash"));
+        Assert.Equal(0, await database.ReplaceSubtitlePreviewAsync(itemId, new Segment(itemId, new TimeRange(1350, 1440)), configHash: "preview-hash"));
+        Assert.Equal(chapter.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // An empty preview-pass write clears only the pass's own (chapter) row.
-        var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash");
-        Assert.Equal(0, stored);
-        var remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+        // Clearing the chapter tier removes only the chapter result. Subtitle can then
+        // replace a derived fallback and retains its id when boundaries are unchanged.
+        Assert.Equal(0, await database.ReplaceChapterPreviewAsync(itemId, [], configHash: "preview-hash"));
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var freshDerived = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(1, await database.ReplaceSubtitlePreviewAsync(itemId, new Segment(itemId, new TimeRange(1380, 1440)), configHash: "preview-hash"));
+        var subtitle = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal((freshDerived.Id, SegmentSource.Subtitle), (subtitle.Id, subtitle.Source));
 
-        // A chapter preview landing exactly on the derived range leaves the derived
-        // row standing instead of violating the unique quadruple index.
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
-        remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+        // An admitted chapter result supersedes the subtitle row.
+        Assert.Equal(1, await database.ReplaceChapterPreviewAsync(itemId, [new Segment(itemId, new TimeRange(1300, 1440))], configHash: "preview-hash"));
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(itemId)).Source);
     }
 
     [Fact]

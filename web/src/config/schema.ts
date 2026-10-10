@@ -424,14 +424,22 @@ export const configSchema = {
         label: "Subtitle recaps",
         description:
             "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
-        default: "\\bpreviously\\s+on\\b",
+        default:
+            "\\bpreviously\\s+on|^\\W*(?:zuvor\\s+bei|zuletzt\\s+bei|was\\s+bisher\\s+geschah|bisher\\s+bei|anteriormente|previamente|précédemment|wat\\s+voorafging)|episodio?\\s+precedent[ei]",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Subtitle previews",
         description:
             "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
-        default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
+        default:
+            "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
+    },
+    SubtitleLanguages: {
+        kind: "text",
+        label: "Subtitle languages",
+        placeholder: "ger, eng",
+        description: "Comma-separated language codes to read. Empty reads all.",
     },
     // FFmpeg
     MaxParallelism: {

@@ -11,6 +11,7 @@ export const subtitlesTab: Tab = {
         container.append(
             patternField(form, "SubtitleRecapPattern"),
             patternField(form, "SubtitlePreviewPattern"),
+            form.field("SubtitleLanguages"),
         );
     },
 };

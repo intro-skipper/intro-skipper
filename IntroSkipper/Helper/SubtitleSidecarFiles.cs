@@ -9,8 +9,8 @@ using System.Text;
 namespace IntroSkipper.Helper;
 
 /// <summary>
-/// Finds adjacent subtitle files and incorporates their filesystem versions into the
-/// queued media version so adding or updating a sidecar reopens analysis.
+/// Finds the text subtitle files next to a media file, for subtitle extraction and for the
+/// file version that subtitle-detecting modes record.
 /// </summary>
 internal static class SubtitleSidecarFiles
 {
@@ -20,21 +20,22 @@ internal static class SubtitleSidecarFiles
     };
 
     /// <summary>
-    /// Determines whether adjacent subtitle files contribute to the composite file version.
+    /// Gets the sidecars that subtitle extraction passes to FFmpeg as text subtitle sources: the
+    /// text sidecars in a selected language. A .sub next to a .idx is a VobSub image stream, not
+    /// a MicroDVD text stream. A sidecar's language comes from the dot-separated segments between
+    /// the media file's name and the extension (<c>Episode.de.srt</c>, <c>Episode.en.hi.srt</c>);
+    /// a sidecar without a language segment is always read.
     /// </summary>
+    /// <remarks>
+    /// Enumerates the media file's directory synchronously. IO exceptions propagate.
+    /// </remarks>
     /// <param name="mediaPath">Path to the media file.</param>
-    /// <returns>Whether at least one adjacent subtitle file exists.</returns>
-    public static bool HasSidecars(string mediaPath) => FindAll(mediaPath).Length > 0;
-
-    /// <summary>
-    /// Gets sidecars that can be passed to FFmpeg as text subtitle sources. A .sub next
-    /// to a .idx is a VobSub image stream, not a MicroDVD text stream.
-    /// </summary>
-    /// <param name="mediaPath">Path to the media file.</param>
-    /// <returns>Readable text subtitle sidecars.</returns>
-    public static string[] FindTextSources(string mediaPath)
+    /// <param name="languages">The subtitle languages to read.</param>
+    /// <returns>The selected text subtitle sidecars, ordered by path.</returns>
+    public static string[] FindTextSources(string mediaPath, SubtitleLanguageSelection languages)
     {
         var files = FindAll(mediaPath);
+        var stem = Path.GetFileNameWithoutExtension(mediaPath);
         var imageSubtitleStems = files
             .Where(path => string.Equals(Path.GetExtension(path), ".idx", StringComparison.OrdinalIgnoreCase))
             .Select(path => Path.GetFileNameWithoutExtension(path))
@@ -42,19 +43,27 @@ internal static class SubtitleSidecarFiles
         return [.. files.Where(path =>
             !string.Equals(Path.GetExtension(path), ".idx", StringComparison.OrdinalIgnoreCase)
             && !(string.Equals(Path.GetExtension(path), ".sub", StringComparison.OrdinalIgnoreCase)
-                && imageSubtitleStems.Contains(Path.GetFileNameWithoutExtension(path))))];
+                && imageSubtitleStems.Contains(Path.GetFileNameWithoutExtension(path)))
+            && languages.IncludesSidecar(Path.GetFileNameWithoutExtension(path)[stem.Length..]))];
     }
 
     /// <summary>
-    /// Combines Jellyfin's media-file version with sidecar names, lengths and write times.
-    /// Without sidecars, the original version is returned unchanged.
+    /// Combines Jellyfin's media-file version with the names, lengths and write times of the
+    /// sidecars <see cref="FindTextSources"/> returns, so adding or rewriting one that subtitle
+    /// extraction reads changes the version. VobSub sidecars and sidecars in an unselected
+    /// language are never read and never change it.
     /// </summary>
+    /// <remarks>
+    /// Enumerates the media file's directory and stats each text sidecar synchronously. IO
+    /// exceptions propagate; the caller's per-episode verification owns recovery.
+    /// </remarks>
     /// <param name="mediaPath">Path to the media file.</param>
     /// <param name="mediaVersion">Jellyfin's media-file version.</param>
-    /// <returns>A stable composite version, or the media version when no sidecars exist.</returns>
-    public static long? FileVersion(string mediaPath, long? mediaVersion)
+    /// <param name="languages">The subtitle languages to read.</param>
+    /// <returns>A stable composite version, or <paramref name="mediaVersion"/> unchanged when no sidecar is read.</returns>
+    public static long? FileVersion(string mediaPath, long? mediaVersion, SubtitleLanguageSelection languages)
     {
-        var files = FindAll(mediaPath);
+        var files = FindTextSources(mediaPath, languages);
         if (files.Length == 0)
         {
             return mediaVersion;
@@ -84,8 +93,18 @@ internal static class SubtitleSidecarFiles
             return [];
         }
 
-        return [.. Directory.EnumerateFiles(directory, stem + ".*", SearchOption.TopDirectoryOnly)
-            .Where(path => Extensions.Contains(Path.GetExtension(path)) && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase))
+        // A literal prefix match, as Jellyfin's own external-file lookup does: a stem can hold
+        // characters that a search pattern would treat as wildcards.
+        return [.. Directory.EnumerateFiles(directory)
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path);
+                return name.Length > stem.Length
+                    && name.StartsWith(stem, StringComparison.OrdinalIgnoreCase)
+                    && name[stem.Length] == '.'
+                    && Extensions.Contains(Path.GetExtension(path))
+                    && !string.Equals(path, mediaPath, StringComparison.OrdinalIgnoreCase);
+            })
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ThenBy(path => path, StringComparer.Ordinal)];
     }

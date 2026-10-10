@@ -104,16 +104,16 @@ internal static class ConfigHasher
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(
-                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}{ChapterBeforeSubtitlePrecedenceToken}",
+                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"{(includeSubtitleSettingsForMode ? $"|subtitle={subtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}" : string.Empty)}",
+                $"{(includeSubtitleSettingsForMode ? $"|subtitle={subtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}" : string.Empty)}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
-                $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}{ChapterBeforeSubtitlePrecedenceToken}",
-                $"|animePreview={previewFromCreditsEnd}{(includeSubtitleSettingsForMode ? $"|subtitle={subtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}" : string.Empty)}",
+                $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",
+                $"|animePreview={previewFromCreditsEnd}{(includeSubtitleSettingsForMode ? $"|subtitle={subtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}" : string.Empty)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Commercial => Invariant(

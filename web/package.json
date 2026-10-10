@@ -4,8 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "tsc && vite build",
-        "test": "node --experimental-strip-types --test test/season-overrides.test.mjs"
+        "build": "tsc && vite build"
     },
     "devDependencies": {
         "typescript": "~6.0.3",

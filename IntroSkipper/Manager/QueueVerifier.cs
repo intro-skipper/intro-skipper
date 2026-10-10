@@ -70,11 +70,11 @@ internal sealed partial class QueueVerifier
         _modes = modes;
         _snapshot = snapshot;
         _ffmpegValid = ffmpegValid;
-        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(modes.Count);
-        _expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
-        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(modes.Count);
+        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(AllModes.Length);
+        _expectedHashByMode = new Dictionary<AnalysisMode, string>(AllModes.Length);
+        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(AllModes.Length);
         _availableSubtitleIndependentHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>();
-        foreach (var mode in modes)
+        foreach (var mode in AllModes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
@@ -147,6 +147,11 @@ internal sealed partial class QueueVerifier
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
             var hashMatches = hasAnalyzedHash && string.Equals(record.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal);
+            if (candidate.NeedsSubtitleOnlyReanalysis(mode))
+            {
+                hashMatches = false;
+            }
+
             var subtitleOnlyHashChange = hasAnalyzedHash
                 && !hashMatches
                 && ((_subtitleIndependentHashByMode.TryGetValue(mode, out var conventionalHash)
@@ -210,17 +215,13 @@ internal sealed partial class QueueVerifier
     /// record's mode: a record of a disabled mode still proves the file changed, and its
     /// stale segments still have to go. A record without a version predates versioning and
     /// is stamped with the version seen now, unless the file changed, in which case the
-    /// reset rewrites it. An episode without a version (Jellyfin holds no write time)
-    /// cannot be compared and keeps every record's verdict.
+    /// reset rewrites it. Even when Jellyfin has no media write time, Recap and Preview
+    /// records can still be compared against the subtitle-sidecar version.
     /// </summary>
     /// <returns>Whether any record was made for a different version of the file.</returns>
     private bool ClassifyFileVersion(QueuedEpisode candidate)
     {
-        if (candidate.FileVersion is not { } fileVersion)
-        {
-            return false;
-        }
-
+        var fileVersion = candidate.FileVersion;
         var needsBackfill = false;
         foreach (var mode in AllModes)
         {
@@ -229,18 +230,42 @@ internal sealed partial class QueueVerifier
                 continue;
             }
 
+            var recordedVersion = _config.RecordedFileVersion(candidate, mode);
             if (record.FileVersion is null)
             {
-                if (SubtitleSidecarFiles.HasSidecars(candidate.Path))
+                if (mode is AnalysisMode.Recap or AnalysisMode.Preview
+                    && IsSubtitleFileVersionActive(candidate, mode)
+                    && recordedVersion != fileVersion)
                 {
-                    candidate.FileChanged = true;
-                    return true;
+                    candidate.MarkSubtitleOnlyReanalysis(mode);
+                    continue;
                 }
 
-                needsBackfill = true;
+                needsBackfill |= fileVersion is not null;
             }
-            else if (record.FileVersion != fileVersion)
+            else if (record.FileVersion != recordedVersion)
             {
+                if (mode is AnalysisMode.Recap or AnalysisMode.Preview
+                    && IsSubtitleFileVersionActive(candidate, mode))
+                {
+                    candidate.MarkSubtitleOnlyReanalysis(mode);
+                    continue;
+                }
+
+                // With subtitle detection disabled, a Recap or Preview record may still
+                // carry the old composite media/sidecar version. Only a current hash proves
+                // it was written using the media-only version and can establish replacement.
+                if (mode is AnalysisMode.Recap or AnalysisMode.Preview
+                    && !IsCurrentHash(record.ConfigHash, mode))
+                {
+                    continue;
+                }
+
+                if (fileVersion is null)
+                {
+                    continue;
+                }
+
                 candidate.FileChanged = true;
                 return true;
             }
@@ -248,11 +273,26 @@ internal sealed partial class QueueVerifier
 
         if (needsBackfill)
         {
-            _fileVersionBackfill.TryAdd(candidate.EpisodeId, fileVersion);
+            _fileVersionBackfill.TryAdd(candidate.EpisodeId, fileVersion!.Value);
         }
 
         return false;
     }
+
+    private bool IsSubtitleFileVersionActive(QueuedEpisode candidate, AnalysisMode mode)
+        => mode switch
+        {
+            AnalysisMode.Recap => (candidate.SubtitleRecapDetectionOverride ?? _config.EnableSubtitleRecapDetection)
+                && !string.IsNullOrWhiteSpace(_config.SubtitleRecapPattern),
+            AnalysisMode.Preview => (candidate.SubtitlePreviewDetectionOverride ?? _config.EnableSubtitlePreviewDetection)
+                && !string.IsNullOrWhiteSpace(_config.SubtitlePreviewPattern),
+            _ => false,
+        };
+
+    private bool IsCurrentHash(string hash, AnalysisMode mode)
+        => string.Equals(hash, _expectedHashByMode[mode], StringComparison.Ordinal)
+            || (_availableHashByMode is { } availableHashByMode
+                && string.Equals(hash, availableHashByMode[mode], StringComparison.Ordinal));
 
     /// <summary>
     /// Logs why a verified season still contains pending work. Hash changes are information-level
@@ -289,7 +329,19 @@ internal sealed partial class QueueVerifier
                 continue;
             }
 
-            if (_storedHashByMode.TryGetValue(mode, out var stored) && stored.Mismatch)
+            var subtitleOnlyItems = verified
+                .Where(episode => !episode.FileChanged && episode.NeedsSubtitleOnlyReanalysis(mode))
+                .ToArray();
+            var sidecarVersionChanged = subtitleOnlyItems.Length > 0
+                && subtitleOnlyItems.All(episode =>
+                    _snapshot.AnalysisRecords.TryGetValue((episode.EpisodeId, mode), out var subtitleRecord)
+                    && string.Equals(subtitleRecord.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal));
+            var hasStoredHash = _storedHashByMode.TryGetValue(mode, out var stored);
+            if (sidecarVersionChanged)
+            {
+                LogSeasonSubtitleFilesChanged(logger, mode, pending, verified.Count, first.SeriesName, first.SeasonNumber);
+            }
+            else if (hasStoredHash && stored.Mismatch)
             {
                 LogSeasonConfigHashChanged(
                     logger,
@@ -324,6 +376,9 @@ internal sealed partial class QueueVerifier
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (chromaprint available: {ChromaprintAvailable})")]
     private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: subtitle files changed since analysis")]
+    private static partial void LogSeasonSubtitleFilesChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing {Count} of {Total} items in {Name} season {Season}: media file changed since analysis")]
     private static partial void LogSeasonFilesChanged(ILogger logger, int count, int total, string name, int season);
