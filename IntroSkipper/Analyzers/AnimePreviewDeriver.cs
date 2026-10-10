@@ -7,8 +7,7 @@ using IntroSkipper.Db;
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
-/// Derives an episode's Preview segment: the span after the first credits block, up to
-/// the next credits block (a trailing dubbing or sponsor card) or the end of the episode.
+/// Derives an episode's Preview segment from the end of its last credits block to the end of the episode.
 /// </summary>
 internal static class AnimePreviewDeriver
 {
@@ -74,13 +73,10 @@ internal static class AnimePreviewDeriver
                 }
             }
 
-            // The preview follows the first credits run and ends where the next run starts (a
-            // trailing dubbing or sponsor card) or at the end of the episode. Rows that touch or
-            // overlap, as adjusted neighbours can, count as one run, and a row's source does not
-            // matter: a card the user edited is still the boundary it was.
-            var runs = CreditsRuns(dbSegments);
-            var credits = runs.FirstOrDefault();
-            var previewEnd = runs.Count > 1 ? runs[1].Start : episode.Duration;
+            // Rows that touch or overlap, as adjusted neighbours can, form one credits run. The
+            // post-credits preview begins after the last run and reaches the episode end.
+            var credits = CreditsRuns(dbSegments).LastOrDefault();
+            var previewEnd = episode.Duration;
             List<Segment> previews = [.. dbSegments
                 .Where(s => s.Type == AnalysisMode.Preview)
                 .Select(s => s.ToSegment())];
@@ -137,13 +133,13 @@ internal static class AnimePreviewDeriver
     /// <remarks>
     /// Returns a new Segment when the Preview is missing, its Start no longer matches the current
     /// credits.End (e.g. because settings changed and Credits was re-analyzed), or its End no longer
-    /// matches <paramref name="previewEnd"/> (e.g. because the underlying media file was replaced).
+    /// matches the episode end (e.g. because the underlying media file was replaced).
     /// Returns <see langword="null"/> when there are no valid credits, less than
     /// <paramref name="minimumDuration"/> remains before the preview end, or any existing Preview
     /// already matches both the current credits.End and the preview end within <see cref="StartTolerance"/>.
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
-    /// <param name="previewEnd">Where the preview ends in seconds: the next credits block's start, or the episode duration.</param>
+    /// <param name="previewEnd">Episode duration, which is the end of the post-credits preview.</param>
     /// <param name="credits">The credits run feeding the preview, or <see langword="null"/>.</param>
     /// <param name="existingPreviews">All current Preview segments of the episode.</param>
     /// <param name="minimumDuration">The minimum preview duration in seconds.</param>

@@ -251,8 +251,8 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether content after credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment is created for anime from the end of credits to the next credits block
-    /// (a trailing dubbing or sponsor card) or the end of the episode. Individual seasons can override this setting.
+    /// When enabled, a Preview segment is created for anime from the end of the last credits block through
+    /// the end of the episode. Individual seasons can override this setting.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 

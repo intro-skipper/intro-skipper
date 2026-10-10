@@ -32,7 +32,7 @@ Order carries no information: shared audio before, inside or after a black roll 
 
 ### Derived previews
 
-When previews derive from the credits end (see `docs/analysis.md`), `AnimePreviewDeriver` starts the preview at the end of the first credits run, counting rows that overlap or touch as one whatever their source. It ends where the next run starts or at the end of the episode, and only when at least `MinimumPreviewDuration` fits. It derives right after a credits result lands, and again in the Preview mode for episodes no preview analyzer settled, so a season whose credits are all user-provided still refreshes its previews when the preview settings change. Where credits split around a mid-credits scene, that scene becomes the preview.
+When previews derive from the credits end (see `docs/analysis.md`), `AnimePreviewDeriver` starts the preview at the end of the last credits run, counting rows that overlap or touch as one whatever their source. It runs through the end of the episode, and only when at least `MinimumPreviewDuration` fits after the last run. It derives right after a credits result lands, and again in the Preview mode for episodes no preview analyzer settled, so a season whose credits are all user-provided still refreshes its previews when the preview settings change. If credits are split around a mid-credits scene, the preview starts after the final credits block, not at that scene.
 
 ## The keyframe analyzer
 
