@@ -25,6 +25,8 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="enableChapterDetection">Whether to detect chapter-based segments.</param>
+/// <param name="enableRecapBlackFrameFallback">Whether recap detection may fall back to black-frame analysis.</param>
 internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
