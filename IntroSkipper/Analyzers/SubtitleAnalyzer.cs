@@ -36,7 +36,7 @@ internal sealed partial class SubtitleAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview) || !IsEnabled(mode))
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
         {
             return analysisQueue;
         }
@@ -55,10 +55,15 @@ internal sealed partial class SubtitleAnalyzer(
         catch (ArgumentException ex)
         {
             LogInvalidPattern(_logger, mode, ex.Message);
+            foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode) && IsEnabled(item, mode)))
+            {
+                episode.MarkSubtitleDetectionUnresolved(mode);
+            }
+
             return analysisQueue;
         }
 
-        foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode)))
+        foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode) && IsEnabled(item, mode)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             SubtitleCue[] cues;
@@ -150,10 +155,10 @@ internal sealed partial class SubtitleAnalyzer(
         return analysisQueue;
     }
 
-    private bool IsEnabled(AnalysisMode mode)
+    private bool IsEnabled(QueuedEpisode episode, AnalysisMode mode)
         => mode == AnalysisMode.Recap
-            ? _config.EnableSubtitleRecapDetection
-            : _config.EnableSubtitlePreviewDetection;
+            ? episode.SubtitleRecapDetectionOverride ?? _config.EnableSubtitleRecapDetection
+            : episode.SubtitlePreviewDetectionOverride ?? _config.EnableSubtitlePreviewDetection;
 
     private string GetPattern(AnalysisMode mode)
         => mode == AnalysisMode.Recap ? _config.SubtitleRecapPattern : _config.SubtitlePreviewPattern;

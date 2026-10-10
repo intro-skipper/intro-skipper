@@ -14,6 +14,7 @@ public sealed class QueuedEpisode
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
     private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -87,6 +88,16 @@ public sealed class QueuedEpisode
     /// end of Credits.
     /// </summary>
     public bool? PreviewFromCreditsEndOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetectionOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetectionOverride { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
@@ -163,6 +174,29 @@ public sealed class QueuedEpisode
     /// <returns>Whether the mode has a permanent admission rejection to preserve.</returns>
     public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
         => _rejectedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks that only subtitle settings changed since this mode was analyzed. The
+    /// conventional result remains valid and is retained while subtitle detection is refreshed.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose subtitle settings changed.</param>
+    public void MarkSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether only subtitle settings changed for this mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether conventional analyzer output can be reused.</returns>
+    public bool NeedsSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Contains(mode);
+
+    /// <summary>
+    /// Clears the subtitle-only shortcut when conventional output is being regenerated.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose conventional result is being reset.</param>
+    public void ClearSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Remove(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

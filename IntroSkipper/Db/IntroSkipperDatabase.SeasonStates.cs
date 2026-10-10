@@ -25,13 +25,25 @@ public sealed partial class IntroSkipperDatabase
         var result = await db.SeasonAnalysisOverrides
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
-            .Select(s => new { s.AnalysisPercent, s.AnalysisLengthLimit, s.PreviewFromCreditsEnd })
+            .Select(s => new
+            {
+                s.AnalysisPercent,
+                s.AnalysisLengthLimit,
+                s.PreviewFromCreditsEnd,
+                s.SubtitleRecapDetection,
+                s.SubtitlePreviewDetection
+            })
             .SingleOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return result is null
-            ? new AnalysisOverrides(null, null, null)
-            : new AnalysisOverrides(result.AnalysisPercent, result.AnalysisLengthLimit, result.PreviewFromCreditsEnd);
+            ? new AnalysisOverrides(null, null, null, null, null)
+            : new AnalysisOverrides(
+                result.AnalysisPercent,
+                result.AnalysisLengthLimit,
+                result.PreviewFromCreditsEnd,
+                result.SubtitleRecapDetection,
+                result.SubtitlePreviewDetection);
     }
 
     /// <summary>Stores or clears the optional analysis-window overrides for a season.</summary>
@@ -39,14 +51,27 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
     /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit.</param>
+    /// <param name="subtitleRecapDetection">Whether to enable subtitle recap detection, or null to inherit.</param>
+    /// <param name="subtitlePreviewDetection">Whether to enable subtitle preview detection, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
-    public async Task SetAnalysisOverridesAsync(Guid seasonId, int? analysisPercent, int? analysisLengthLimit, bool? previewFromCreditsEnd, CancellationToken cancellationToken = default)
+    public async Task SetAnalysisOverridesAsync(
+        Guid seasonId,
+        int? analysisPercent,
+        int? analysisLengthLimit,
+        bool? previewFromCreditsEnd,
+        bool? subtitleRecapDetection,
+        bool? subtitlePreviewDetection,
+        CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        if (analysisPercent is null && analysisLengthLimit is null && previewFromCreditsEnd is null)
+        if (analysisPercent is null
+            && analysisLengthLimit is null
+            && previewFromCreditsEnd is null
+            && subtitleRecapDetection is null
+            && subtitlePreviewDetection is null)
         {
             await db.SeasonAnalysisOverrides
                 .Where(s => s.SeasonId == seasonId)
@@ -57,12 +82,14 @@ public sealed partial class IntroSkipperDatabase
 
         await db.Database.ExecuteSqlAsync(
             $"""
-            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "AnalysisPercent", "AnalysisLengthLimit", "PreviewFromCreditsEnd")
-            VALUES ({seasonId}, {analysisPercent}, {analysisLengthLimit}, {previewFromCreditsEnd})
+            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "AnalysisPercent", "AnalysisLengthLimit", "PreviewFromCreditsEnd", "SubtitleRecapDetection", "SubtitlePreviewDetection")
+            VALUES ({seasonId}, {analysisPercent}, {analysisLengthLimit}, {previewFromCreditsEnd}, {subtitleRecapDetection}, {subtitlePreviewDetection})
             ON CONFLICT("SeasonId") DO UPDATE SET
                 "AnalysisPercent" = excluded."AnalysisPercent",
                 "AnalysisLengthLimit" = excluded."AnalysisLengthLimit",
-                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd"
+                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd",
+                "SubtitleRecapDetection" = excluded."SubtitleRecapDetection",
+                "SubtitlePreviewDetection" = excluded."SubtitlePreviewDetection"
             """,
             cancellationToken).ConfigureAwait(false);
     }

@@ -258,13 +258,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether a recap is detected from a matching text subtitle
-    /// cue and ends at the beginning of the detected introduction.
+    /// cue and ends at the beginning of the detected introduction. Retained for existing configurations.
     /// </summary>
     public bool EnableSubtitleRecapDetection { get; set; } = false;
 
     /// <summary>
     /// Gets or sets a value indicating whether a preview is detected from a matching text subtitle
-    /// cue and runs through the end of the episode.
+    /// cue and runs through the end of the episode. Retained for existing configurations.
     /// </summary>
     public bool EnableSubtitlePreviewDetection { get; set; } = false;
 

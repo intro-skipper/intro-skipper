@@ -3,6 +3,12 @@ import { configSchema } from "../config/schema.ts";
 import { validateSpec } from "../config/validate.ts";
 import { eventBus } from "../lifecycle.ts";
 import { configStore } from "../store/config-store.ts";
+import type { AnalysisOverrides } from "../types.ts";
+
+function legacySubtitleDefault(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
+    if (!configStore.isLoaded()) return false;
+    return (configStore.getAll() as unknown as Record<string, unknown>)[key] === true;
+}
 
 // What the global setting currently is, shown where a blank override falls back to it.
 function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => string {
@@ -11,9 +17,8 @@ function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => stri
 }
 
 /**
- * The per-season analysis overrides the action bar edits. Same limits as the
- * global fields, so an override can never be a value the global setting would
- * reject; null means "inherit the global setting".
+ * The per-season analysis overrides the action bar edits. Analysis limits
+ * inherit global values when null; subtitle detection defaults to disabled.
  */
 export const overrideSchema = {
     AnalysisPercent: {
@@ -37,9 +42,9 @@ export const overrideSchema = {
     },
     PreviewFromCreditsEnd: {
         kind: "select",
-        label: "Set after credits scene as preview",
+        label: "Set post-credits scene as preview",
         description:
-            "Create a preview segment from the post credits duration",
+            "Use the post-credits duration as a fallback preview when no other preview is detected.",
         options: [
             {
                 value: null,
@@ -54,9 +59,31 @@ export const overrideSchema = {
             { value: false, label: "Disabled" },
         ],
     },
+    SubtitleRecapDetection: {
+        kind: "select",
+        label: "Subtitle-based recap detection",
+        description: "Enable subtitle-based recap detection for this season or show.",
+        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitleRecapDetection"),
+        options: [
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
+    SubtitlePreviewDetection: {
+        kind: "select",
+        label: "Subtitle-based preview detection",
+        description: "Enable subtitle-based preview detection for this season or show.",
+        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitlePreviewDetection"),
+        options: [
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
 } as const satisfies FieldSchema;
 
-export type SeasonOverrides = ValuesOf<typeof overrideSchema>;
+type SchemaValues = ValuesOf<typeof overrideSchema>;
+export type SeasonOverrides = Omit<SchemaValues, "SubtitleRecapDetection" | "SubtitlePreviewDetection">
+    & Pick<AnalysisOverrides, "SubtitleRecapDetection" | "SubtitlePreviewDetection">;
 type OverrideKey = keyof SeasonOverrides;
 
 export const overrideKeys = Object.keys(overrideSchema) as OverrideKey[];
@@ -65,11 +92,13 @@ const EMPTY: SeasonOverrides = {
     AnalysisPercent: null,
     AnalysisLengthLimit: null,
     PreviewFromCreditsEnd: null,
+    SubtitleRecapDetection: false,
+    SubtitlePreviewDetection: false,
 };
 
 export type OverrideStore = FieldStore<SeasonOverrides> & {
     /** Replaces every value with the season's saved overrides and marks the store loaded. */
-    load(values: SeasonOverrides): void;
+    load(values: AnalysisOverrides): void;
     values(): SeasonOverrides;
     /** The message of the first field that fails its rules, or null when all pass. */
     firstError(): string | null;

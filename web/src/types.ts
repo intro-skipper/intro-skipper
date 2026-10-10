@@ -23,6 +23,8 @@ export type AnalysisOverrides = {
     AnalysisPercent: number | null;
     AnalysisLengthLimit: number | null;
     PreviewFromCreditsEnd: boolean | null;
+    SubtitleRecapDetection: boolean | null;
+    SubtitlePreviewDetection: boolean | null;
 };
 
 // One stored segment as returned by the plural segments API. The Id is shared with

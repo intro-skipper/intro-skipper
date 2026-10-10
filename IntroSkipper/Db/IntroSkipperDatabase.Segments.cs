@@ -111,6 +111,30 @@ public sealed partial class IntroSkipperDatabase
             supersedeCreditsDerived: true);
 
     /// <summary>
+    /// Atomically replaces an admitted chapter Preview and supersedes competing automatic
+    /// Preview rows, including subtitle and credits-derived fallbacks. Rejected chapter
+    /// candidates leave every standing Preview row untouched.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segments">Chapter Preview candidates.</param>
+    /// <param name="configHash">Configuration hash that produced the candidates.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of chapter Preview rows written or kept; 0 for a fully rejected write.</returns>
+    public Task<int> ReplaceChapterPreviewAsync(
+        Guid itemId,
+        IReadOnlyList<Segment> segments,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+        => ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [.. segments.Select(segment => new AttributedSegment(segment, SegmentSource.Chapter))],
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            supersedeCreditsDerived: true);
+
+    /// <summary>
     /// Removes active subtitle-generated segments after a subtitle source was read
     /// successfully and no replacement cue matched. Other analyzers' rows and every
     /// tombstone remain intact so their fallback results are still available.

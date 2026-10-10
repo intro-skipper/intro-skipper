@@ -47,12 +47,37 @@ internal sealed partial class ChromaprintAnalyzer(
     private AnalysisMode _analysisMode;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
+        => AnalyzeMediaFiles(analysisQueue, mode, [], cancellationToken);
+
+    /// <summary>
+    /// Analyzes the write targets while allowing other queued episodes to contribute cached or
+    /// freshly extracted fingerprints to the season comparison without receiving result writes.
+    /// </summary>
+    /// <param name="analysisQueue">Episodes eligible for analysis and result writes.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="comparisonReferences">Additional episodes used only as fingerprint neighbors.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episodes still eligible for analysis.</returns>
+    internal async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+        IReadOnlyList<QueuedEpisode> analysisQueue,
+        AnalysisMode mode,
+        IReadOnlyList<QueuedEpisode> comparisonReferences,
+        CancellationToken cancellationToken)
     {
-        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(analysisQueue, mode, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<QueuedEpisode> comparisonQueue = analysisQueue;
+        if (comparisonReferences.Count > 0)
+        {
+            var combinedQueue = analysisQueue.ToList();
+            var includedIds = analysisQueue.Select(episode => episode.EpisodeId).ToHashSet();
+            combinedQueue.AddRange(comparisonReferences.Where(episode => includedIds.Add(episode.EpisodeId)));
+            comparisonQueue = combinedQueue;
+        }
+
+        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
         foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
         {
             episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);

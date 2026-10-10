@@ -4,7 +4,7 @@
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Stores optional analysis-window overrides for one season key. A null value inherits
+/// Stores optional analysis overrides for one season key. A null value inherits
 /// the corresponding plugin-wide setting.
 /// </summary>
 public sealed class DbSeasonAnalysisOverride
@@ -28,4 +28,14 @@ public sealed class DbSeasonAnalysisOverride
     /// Gets or sets the optional setting that derives a preview from the end of credits.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional setting that enables subtitle-based recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetection { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional setting that enables subtitle-based preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetection { get; set; }
 }
