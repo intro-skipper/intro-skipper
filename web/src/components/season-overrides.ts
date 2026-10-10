@@ -3,6 +3,7 @@ import { configSchema } from "../config/schema.ts";
 import { validateSpec } from "../config/validate.ts";
 import { eventBus } from "../lifecycle.ts";
 import { configStore } from "../store/config-store.ts";
+import type { AnalysisOverrides } from "../types.ts";
 
 // What the global setting currently is, shown where a blank override falls back to it.
 function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => string {
@@ -58,7 +59,6 @@ export const overrideSchema = {
         label: "Subtitle-based recap detection",
         description: "Enable subtitle-based recap detection for this season or show.",
         options: [
-            { value: null, label: "Disabled (default)" },
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
         ],
@@ -68,14 +68,15 @@ export const overrideSchema = {
         label: "Subtitle-based preview detection",
         description: "Enable subtitle-based preview detection for this season or show.",
         options: [
-            { value: null, label: "Disabled (default)" },
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
         ],
     },
 } as const satisfies FieldSchema;
 
-export type SeasonOverrides = ValuesOf<typeof overrideSchema>;
+type SchemaValues = ValuesOf<typeof overrideSchema>;
+export type SeasonOverrides = Omit<SchemaValues, "SubtitleRecapDetection" | "SubtitlePreviewDetection">
+    & Pick<AnalysisOverrides, "SubtitleRecapDetection" | "SubtitlePreviewDetection">;
 type OverrideKey = keyof SeasonOverrides;
 
 export const overrideKeys = Object.keys(overrideSchema) as OverrideKey[];
@@ -84,13 +85,13 @@ const EMPTY: SeasonOverrides = {
     AnalysisPercent: null,
     AnalysisLengthLimit: null,
     PreviewFromCreditsEnd: null,
-    SubtitleRecapDetection: null,
-    SubtitlePreviewDetection: null,
+    SubtitleRecapDetection: false,
+    SubtitlePreviewDetection: false,
 };
 
 export type OverrideStore = FieldStore<SeasonOverrides> & {
     /** Replaces every value with the season's saved overrides and marks the store loaded. */
-    load(values: SeasonOverrides): void;
+    load(values: AnalysisOverrides): void;
     values(): SeasonOverrides;
     /** The message of the first field that fails its rules, or null when all pass. */
     firstError(): string | null;
@@ -116,7 +117,11 @@ export function createOverrideStore(): OverrideStore {
         },
         subscribe: bus.on,
         load(next) {
-            values = { ...next };
+            values = {
+                ...next,
+                SubtitleRecapDetection: next.SubtitleRecapDetection ?? false,
+                SubtitlePreviewDetection: next.SubtitlePreviewDetection ?? false,
+            };
             loaded = true;
             bus.emit("loaded");
             // Saved overrides carry no error; take down what the previous season left showing.
