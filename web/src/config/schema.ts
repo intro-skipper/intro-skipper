@@ -423,14 +423,14 @@ export const configSchema = {
         kind: "regex",
         label: "Subtitle recaps",
         description:
-            "Matches text-subtitle cues announcing a recap (for example, ‘Previously on’). Enable recap matching for a season or show in Timestamps > Manage.",
+            "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
         default: "\\bpreviously\\s+on\\b",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Subtitle previews",
         description:
-            'Matches text-subtitle cues announcing a preview (for example, "here’s the preview", "now the preview", or "next time"). Enable preview matching for a season or show in Timestamps > Manage.',
+            "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
         default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
     },
     // FFmpeg
