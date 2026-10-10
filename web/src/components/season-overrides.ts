@@ -44,7 +44,7 @@ export const overrideSchema = {
     },
     PreviewFromCreditsEnd: {
         kind: "select",
-        label: "Set after credits scene as preview",
+        label: "Set post-credits scene as preview",
         description:
             "Use the post-credits duration as a fallback preview when no other preview is detected.",
         options: [
