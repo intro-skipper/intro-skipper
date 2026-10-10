@@ -90,9 +90,11 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     }
 
     [Theory]
-    [InlineData(AnalyzerAction.Chromaprint, false)]
-    [InlineData(AnalyzerAction.Default, true)]
-    public async Task SubtitleOnlyRecapRefresh_PreservesPreferredChromaprintResult(AnalyzerAction action, bool preferChromaprint)
+    [InlineData(AnalyzerAction.Chromaprint, false, true)]
+    [InlineData(AnalyzerAction.Default, true, true)]
+    [InlineData(AnalyzerAction.Chromaprint, false, false)]
+    [InlineData(AnalyzerAction.Default, true, false)]
+    public async Task SubtitleOnlyRecapRefresh_PreservesPreferredChromaprintResult(AnalyzerAction action, bool preferChromaprint, bool ffmpegValid)
     {
         var config = new PluginConfiguration
         {
@@ -124,7 +126,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             null!,
             database);
 
-        await task.AnalyzeItemsAsync([episode], AnalysisMode.Recap, action, true, CancellationToken.None);
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Recap, action, ffmpegValid, CancellationToken.None);
 
         Assert.False(extractionCalled);
         Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Recap));

@@ -543,7 +543,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
-            LogAnalyzingFiles(_logger, mode, conventionalItems.Count, first.SeriesName, first.SeasonNumber);
+            LogAnalyzingFiles(_logger, mode, conventionalItems.Length, first.SeriesName, first.SeasonNumber);
         }
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed) && mode == AnalysisMode.Credits)
@@ -562,7 +562,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (subtitleOnlyItems.Length > 0)
         {
-            await RunSubtitleOnlyAnalysisAsync(subtitleOnlyItems, mode, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await RunSubtitleOnlyAnalysisAsync(subtitleOnlyItems, mode, action, cancellationToken).ConfigureAwait(false);
         }
 
         // Credits-derived previews are generated right after a credits result lands, and again
@@ -602,7 +602,6 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
-        bool ffmpegValid,
         CancellationToken cancellationToken)
     {
         var subtitleCandidates = new List<QueuedEpisode>(items.Count);
@@ -614,7 +613,6 @@ public partial class BaseItemAnalyzerTask(
                 && segment.Source == SegmentSource.Chapter
                 && segment.State == SegmentState.Active);
             var chromaprintHasPriority = mode == AnalysisMode.Recap
-                && ffmpegValid
                 && (action == AnalyzerAction.Chromaprint
                     || (action == AnalyzerAction.Default && Config.PreferChromaprint));
             var hasPreferredChromaprintResult = chromaprintHasPriority && segments.Any(segment => segment.Type == mode
