@@ -48,18 +48,9 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             await database.ReplaceAutoSegmentsAsync(
                 episode.EpisodeId,
                 AnalysisMode.Recap,
-                [new Segment(episode.EpisodeId, new TimeRange(5, 15))],
-                SegmentSource.Chromaprint,
+                [new Segment(episode.EpisodeId, new TimeRange(subtitleEnabled ? 5 : 30, subtitleEnabled ? 15 : 40))],
+                subtitleEnabled ? SegmentSource.Chromaprint : SegmentSource.Subtitle,
                 previousHash);
-            if (!subtitleEnabled)
-            {
-                await database.ReplaceAutoSegmentsAsync(
-                    episode.EpisodeId,
-                    AnalysisMode.Recap,
-                    [new Segment(episode.EpisodeId, new TimeRange(30, 40))],
-                    SegmentSource.Subtitle,
-                    previousHash);
-            }
 
             await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [episode.EpisodeId], previousHash);
         }
@@ -83,10 +74,20 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await task.AnalyzeItemsAsync(episodes, AnalysisMode.Recap, AnalyzerAction.Default, true, CancellationToken.None);
 
         Assert.Equal(0, ffmpeg.FingerprintCalls);
-        Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Recap)));
+        Assert.All(episodes, episode => Assert.Equal(
+            subtitleEnabled ? EpisodeState.Analyzed : EpisodeState.NoSegments,
+            episode.GetAnalyzed(AnalysisMode.Recap)));
         foreach (var episode in episodes)
         {
-            Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).Source);
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            if (subtitleEnabled)
+            {
+                Assert.Equal(SegmentSource.Chromaprint, Assert.Single(segments).Source);
+            }
+            else
+            {
+                Assert.Empty(segments);
+            }
         }
     }
 
@@ -164,6 +165,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         {
             EpisodeId = Guid.NewGuid(),
             SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
             Name = "Episode",
             Duration = 180,
         };
@@ -210,6 +212,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         {
             EpisodeId = Guid.NewGuid(),
             SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
             Name = "Episode",
             Duration = 180,
         };
@@ -420,6 +423,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 subtitleWasExtracted = true;
                 return [new SubtitleCue(subtitleStart, subtitleStart + 3, isRecap ? "Previously on the show" : "Here's the preview")];
             },
+            KeyFrames = (_, _, _) => [],
         };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
