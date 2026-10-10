@@ -492,6 +492,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         };
         var ffmpeg = new StubFFmpegService
         {
+            KeyFrames = (_, _, _) => [],
             SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
         };
         var task = new BaseItemAnalyzerTask(
