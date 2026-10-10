@@ -18,10 +18,6 @@ public sealed class TestAnalysisConfigHash
         { AnalysisMode.Preview, new PluginConfiguration { AnimePreviewFromCreditsEnd = false }, new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { MaximumFingerprintPointDifferences = new PluginConfiguration().MaximumFingerprintPointDifferences + 1 }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { AnchorRecapToColdOpen = true }, AnalyzerAction.Default },
-        { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalyzerAction.Default },
-        { AnalysisMode.Recap, new PluginConfiguration { EnableSubtitleRecapDetection = true }, new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = "previously" }, AnalyzerAction.Default },
-        { AnalysisMode.Preview, new PluginConfiguration(), new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalyzerAction.Default },
-        { AnalysisMode.Preview, new PluginConfiguration { EnableSubtitlePreviewDetection = true }, new PluginConfiguration { EnableSubtitlePreviewDetection = true, SubtitlePreviewPattern = "preview" }, AnalyzerAction.Default },
         { AnalysisMode.Introduction, new PluginConfiguration(), new PluginConfiguration(), AnalyzerAction.Chapter },
     };
 
@@ -68,15 +64,33 @@ public sealed class TestAnalysisConfigHash
         Assert.Equal(previewDefault, ConfigHasher.Analysis(changedDisabledPatterns, AnalysisMode.Preview, AnalyzerAction.Default, true));
 
         var enabledRecapHash = ConfigHasher.Analysis(
-            new PluginConfiguration { EnableSubtitleRecapDetection = true },
+            new PluginConfiguration(),
             AnalysisMode.Recap,
             AnalyzerAction.Default,
-            true);
+            true,
+            subtitleRecapDetectionOverride: true);
         var enabledPreviewHash = ConfigHasher.Analysis(
-            new PluginConfiguration { EnableSubtitlePreviewDetection = true },
+            new PluginConfiguration(),
             AnalysisMode.Preview,
             AnalyzerAction.Default,
-            true);
+            true,
+            subtitlePreviewDetectionOverride: true);
+        Assert.NotEqual(
+            enabledRecapHash,
+            ConfigHasher.Analysis(
+                changedDisabledPatterns,
+                AnalysisMode.Recap,
+                AnalyzerAction.Default,
+                true,
+                subtitleRecapDetectionOverride: true));
+        Assert.NotEqual(
+            enabledPreviewHash,
+            ConfigHasher.Analysis(
+                changedDisabledPatterns,
+                AnalysisMode.Preview,
+                AnalyzerAction.Default,
+                true,
+                subtitlePreviewDetectionOverride: true));
         Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(enabledRecapHash, recapDefault));
         Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(enabledPreviewHash, previewDefault));
     }
@@ -90,8 +104,8 @@ public sealed class TestAnalysisConfigHash
         var before = new PluginConfiguration();
         var after = new PluginConfiguration
         {
-            EnableSubtitleRecapDetection = true,
-            EnableSubtitlePreviewDetection = true,
+            SubtitleRecapPattern = "recap",
+            SubtitlePreviewPattern = "preview",
         };
 
         Assert.Equal(

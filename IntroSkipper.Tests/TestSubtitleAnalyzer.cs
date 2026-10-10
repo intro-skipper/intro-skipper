@@ -49,7 +49,6 @@ public sealed class TestSubtitleAnalyzer
 
         var config = new PluginConfiguration
         {
-            EnableSubtitleRecapDetection = true,
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
@@ -57,7 +56,7 @@ public sealed class TestSubtitleAnalyzer
         {
             SubtitleCues = _ => [new SubtitleCue(10, 13, "[Narrator] Previously on the story")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitleRecapDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
@@ -79,7 +78,6 @@ public sealed class TestSubtitleAnalyzer
         await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(0), DatabaseTestHelpers.Ticks(20));
         var config = new PluginConfiguration
         {
-            EnableSubtitleRecapDetection = true,
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
@@ -90,7 +88,7 @@ public sealed class TestSubtitleAnalyzer
         {
             SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitleRecapDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
@@ -115,7 +113,6 @@ public sealed class TestSubtitleAnalyzer
             configHash: "prior-subtitle-config");
         var config = new PluginConfiguration
         {
-            EnableSubtitleRecapDetection = true,
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
@@ -125,7 +122,7 @@ public sealed class TestSubtitleAnalyzer
         {
             SubtitleCues = _ => [new SubtitleCue(30, 33, "Previously on the story")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitleRecapDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(logger, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
@@ -151,14 +148,13 @@ public sealed class TestSubtitleAnalyzer
             configHash: "credits");
         var config = new PluginConfiguration
         {
-            EnableSubtitlePreviewDetection = true,
             MinimumPreviewDuration = 5,
         };
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => [new SubtitleCue(100, 103, "[Name] here's the preview")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -178,12 +174,12 @@ public sealed class TestSubtitleAnalyzer
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true, MinimumPreviewDuration = 5 };
+        var config = new PluginConfiguration { MinimumPreviewDuration = 5 };
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => [new SubtitleCue(100, 103, cueText)],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -195,13 +191,13 @@ public sealed class TestSubtitleAnalyzer
     }
 
     [Theory]
-    [InlineData(false, true, true)]
-    [InlineData(true, false, false)]
-    public async Task PreviewSubtitle_SeasonOverrideTakesPrecedence(bool globalEnabled, bool seasonOverride, bool expectedDetected)
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task PreviewSubtitle_SeasonOverrideControlsDetection(bool seasonOverride, bool expectedDetected)
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = globalEnabled, MinimumPreviewDuration = 5 };
+        var config = new PluginConfiguration { MinimumPreviewDuration = 5 };
         var extractionCalled = false;
         var ffmpeg = new StubFFmpegService
         {
@@ -248,14 +244,13 @@ public sealed class TestSubtitleAnalyzer
 
         var config = new PluginConfiguration
         {
-            EnableSubtitlePreviewDetection = true,
             MinimumPreviewDuration = 5,
         };
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -286,12 +281,12 @@ public sealed class TestSubtitleAnalyzer
             SegmentSource.Subtitle,
             configHash: "old-subtitle-config");
 
-        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var config = new PluginConfiguration();
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => [new SubtitleCue(100, 103, "A normal line")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "subtitle", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -312,7 +307,7 @@ public sealed class TestSubtitleAnalyzer
             [new Segment(episodeId, new TimeRange(100, 180))],
             SegmentSource.Subtitle,
             configHash: "previous-config");
-        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var config = new PluginConfiguration();
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => throw new SubtitleExtractionException(
@@ -320,7 +315,7 @@ public sealed class TestSubtitleAnalyzer
                 [new SubtitleCue(100, 103, "Ordinary dialogue")],
                 new IOException("source failed")),
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -336,7 +331,7 @@ public sealed class TestSubtitleAnalyzer
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = true };
+        var config = new PluginConfiguration();
         var ffmpeg = new StubFFmpegService
         {
             SubtitleCues = _ => throw new SubtitleExtractionException(
@@ -344,7 +339,7 @@ public sealed class TestSubtitleAnalyzer
                 [new SubtitleCue(100, 103, "Here's the preview")],
                 new IOException("source failed")),
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", AnalysisConfigHash = "new-config", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
@@ -363,7 +358,6 @@ public sealed class TestSubtitleAnalyzer
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var config = new PluginConfiguration
         {
-            EnableSubtitlePreviewDetection = true,
             MinimumPreviewDuration = 5,
             MaximumPreviewDuration = 60,
         };
@@ -371,7 +365,7 @@ public sealed class TestSubtitleAnalyzer
         {
             SubtitleCues = _ => [new SubtitleCue(100, 103, "Here's the preview")],
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv" };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 180, Path = "episode.mkv", SubtitlePreviewDetectionOverride = true };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);

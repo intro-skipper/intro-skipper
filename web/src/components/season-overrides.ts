@@ -10,17 +10,9 @@ function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => stri
         configStore.isLoaded() ? "Global: " + String(configStore.get(key)) : "Global default";
 }
 
-function globalEnabledValue(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): () => string {
-    return () =>
-        configStore.isLoaded()
-            ? "Global: " + (configStore.get(key) ? "Enabled" : "Disabled")
-            : "Global default";
-}
-
 /**
- * The per-season analysis overrides the action bar edits. Same limits as the
- * global fields, so an override can never be a value the global setting would
- * reject; null means "inherit the global setting".
+ * The per-season analysis overrides the action bar edits. Analysis limits
+ * inherit global values when null; subtitle detection defaults to disabled.
  */
 export const overrideSchema = {
     AnalysisPercent: {
@@ -64,9 +56,9 @@ export const overrideSchema = {
     SubtitleRecapDetection: {
         kind: "select",
         label: "Subtitle-based recap detection",
-        description: "Override the global subtitle recap setting for this season.",
+        description: "Enable subtitle-based recap detection for this season or show.",
         options: [
-            { value: null, label: globalEnabledValue("EnableSubtitleRecapDetection") },
+            { value: null, label: "Disabled (default)" },
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
         ],
@@ -74,9 +66,9 @@ export const overrideSchema = {
     SubtitlePreviewDetection: {
         kind: "select",
         label: "Subtitle-based preview detection",
-        description: "Override the global subtitle preview setting for this season.",
+        description: "Enable subtitle-based preview detection for this season or show.",
         options: [
-            { value: null, label: globalEnabledValue("EnableSubtitlePreviewDetection") },
+            { value: null, label: "Disabled (default)" },
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
         ],

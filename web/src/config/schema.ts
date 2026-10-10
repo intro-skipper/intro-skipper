@@ -419,29 +419,18 @@ export const configSchema = {
     },
 
     // Subtitles
-    EnableSubtitleRecapDetection: {
-        kind: "checkbox",
-        label: "Detect recaps from subtitles",
-        description:
-            "Use a matching text subtitle cue as the recap start and the detected intro start as its end.",
-    },
     SubtitleRecapPattern: {
         kind: "regex",
         label: "Subtitle recaps",
-        description: "Enter a regular expression to detect the start of recaps in text subtitles.",
-        default: "\\bpreviously\\s+on\\b",
-    },
-    EnableSubtitlePreviewDetection: {
-        kind: "checkbox",
-        label: "Detect previews from subtitles",
         description:
-            "Use a matching text subtitle cue as the preview start and the episode duration as its end. This is separate from the credits-derived anime preview option.",
+            "Matches text-subtitle cues announcing a recap (for example, ‘Previously on’). Enable recap matching for a season or show in Timestamps > Manage.",
+        default: "\\bpreviously\\s+on\\b",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Subtitle previews",
         description:
-            'Enter a regular expression to detect the start of previews in text subtitles. The default matches phrases like "here\'s the preview", "now the preview", and "next time".',
+            'Matches text-subtitle cues announcing a preview (for example, "here’s the preview", "now the preview", or "next time"). Enable preview matching for a season or show in Timestamps > Manage.',
         default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
     },
     // FFmpeg
