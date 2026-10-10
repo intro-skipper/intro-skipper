@@ -55,6 +55,11 @@ internal sealed partial class SubtitleAnalyzer(
         catch (ArgumentException ex)
         {
             LogInvalidPattern(_logger, mode, ex.Message);
+            foreach (var episode in analysisQueue.Where(item => item.NeedsAnalysis(mode) && IsEnabled(item, mode)))
+            {
+                episode.MarkSubtitleDetectionUnresolved(mode);
+            }
+
             return analysisQueue;
         }
 

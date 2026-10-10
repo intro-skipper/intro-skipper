@@ -748,7 +748,7 @@ public partial class BaseItemAnalyzerTask(
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
         // the rest keep their relative order. An action naming an analyzer that is not in the
         // chain (Chromaprint without ffmpeg) changes nothing.
-        var preferred = action switch
+        IMediaFileAnalyzer? preferred = action switch
         {
             AnalyzerAction.Chapter => chapter,
             AnalyzerAction.Chromaprint => chromaprint,

@@ -149,6 +149,49 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(subtitleOnly.EpisodeId)).Source);
     }
 
+    [Fact]
+    public async Task SubtitleOnlyRecapRefresh_InvalidPatternDoesNotSettleNewHash()
+    {
+        const string previousHash = "previous-subtitle-hash";
+        var config = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            SubtitleRecapPattern = "[",
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            Name = "Episode",
+            Duration = 180,
+        };
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Recap,
+            [new Segment(episode.EpisodeId, new TimeRange(30, 45))],
+            SegmentSource.Subtitle,
+            previousHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [episode.EpisodeId], previousHash);
+        episode.MarkSubtitleOnlyReanalysis(AnalysisMode.Recap);
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            null!,
+            new StubFFmpegService(),
+            DatabaseTestHelpers.CreateTempCacheService(),
+            null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Recap, AnalyzerAction.Default, false, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Recap));
+        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Recap));
+        Assert.Equal(SegmentSource.Subtitle, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).Source);
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]);
+        Assert.Equal(previousHash, snapshot.AnalysisRecords[(episode.EpisodeId, AnalysisMode.Recap)].ConfigHash);
+    }
+
     [Theory]
     [InlineData(AnalyzerAction.Chromaprint, false, true)]
     [InlineData(AnalyzerAction.Default, true, true)]
