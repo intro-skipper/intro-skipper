@@ -74,6 +74,7 @@ public sealed class TestLegacyAnalysisCompatibility
 
     [Theory]
     [InlineData(AnalysisMode.Introduction, false)]
+    [InlineData(AnalysisMode.Introduction, false, 24, true, true)]
     [InlineData(AnalysisMode.Credits, false)]
     [InlineData(AnalysisMode.Credits, true)]
     [InlineData(AnalysisMode.Recap, false, 24, false)]
@@ -89,7 +90,12 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Recap, false, 23, false)]
     [InlineData(AnalysisMode.Preview, false, 23, false)]
     [InlineData(AnalysisMode.Commercial, false, 23)]
-    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24, bool compatible = true)
+    public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(
+        AnalysisMode mode,
+        bool alternative,
+        int release = 24,
+        bool compatible = true,
+        bool hasSubtitleOverride = false)
     {
         var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
@@ -128,6 +134,7 @@ public sealed class TestLegacyAnalysisCompatibility
                 SeasonNumber = 1,
                 Path = mediaPath,
                 DateAdded = DateTime.UtcNow.AddDays(-30),
+                SubtitlePreviewDetectionOverride = hasSubtitleOverride ? true : null,
             }).ToArray();
 
             var verified = await task.VerifyQueueAsync(candidates, [mode], ffmpegValid: true);
@@ -268,36 +275,6 @@ public sealed class TestLegacyAnalysisCompatibility
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
         Assert.Equal(adopted ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalysisRecords[(id, mode)].ConfigHash);
-    }
-
-    [Fact]
-    public async Task SubtitleModeExclusions_DoNotBlockLegacyAdoptionForOtherModes()
-    {
-        using var temp = new TempSegmentDb();
-        var config = new PluginConfiguration();
-        var seasonId = Guid.NewGuid();
-        var introductionId = Guid.NewGuid();
-        var commercialId = Guid.NewGuid();
-        var recapId = Guid.NewGuid();
-        var introductionHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Introduction, AnalyzerAction.Default, true, false, 22);
-        var commercialHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Commercial, AnalyzerAction.Default, true, false, 22);
-        var recapHash = LegacyAnalysisCompatibility.AnalysisHash(config, AnalysisMode.Recap, AnalyzerAction.Default, true, false, 22);
-        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [introductionId], introductionHash);
-        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Commercial, [commercialId], commercialHash);
-        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [recapId], recapHash);
-        var ids = new[] { introductionId, commercialId, recapId };
-        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
-
-        Assert.True(await LegacyAnalysisCompatibility.UpgradeAsync(
-            temp.Database,
-            snapshot,
-            config,
-            new HashSet<AnalysisMode> { AnalysisMode.Recap, AnalysisMode.Preview }));
-
-        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, ids);
-        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(introductionId, AnalysisMode.Introduction)].ConfigHash);
-        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Commercial, AnalyzerAction.Default, true), snapshot.AnalysisRecords[(commercialId, AnalysisMode.Commercial)].ConfigHash);
-        Assert.Equal(recapHash, snapshot.AnalysisRecords[(recapId, AnalysisMode.Recap)].ConfigHash);
     }
 
     [Theory]

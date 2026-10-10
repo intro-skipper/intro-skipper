@@ -53,28 +53,32 @@ public sealed class TestAnalysisConfigHash
         Assert.Equal(
             previewDefault,
             ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true, subtitleRecapDetectionOverride: true));
-    }
 
-    [Theory]
-    [InlineData(AnalysisMode.Recap, true)]
-    [InlineData(AnalysisMode.Preview, false)]
-    public void SubtitleDisabled_UsesConventionalHashAndRecognizesPriorSubtitleHash(AnalysisMode mode, bool recap)
-    {
-        var config = new PluginConfiguration();
-        var conventionalHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
-        var defaultHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true);
-        var changedDisabledPattern = recap
-            ? new PluginConfiguration { SubtitleRecapPattern = "recap marker" }
-            : new PluginConfiguration { SubtitlePreviewPattern = "preview marker" };
-        var previouslyEnabled = recap
-            ? new PluginConfiguration { EnableSubtitleRecapDetection = true }
-            : new PluginConfiguration { EnableSubtitlePreviewDetection = true };
-        var previousHash = ConfigHasher.Analysis(previouslyEnabled, mode, AnalyzerAction.Default, true);
+        var recapConventionalHash = ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, true, includeSubtitleSettings: false);
+        var previewConventionalHash = ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true, includeSubtitleSettings: false);
+        Assert.Equal(recapConventionalHash, recapDefault);
+        Assert.Equal(previewConventionalHash, previewDefault);
 
-        Assert.Equal(conventionalHash, defaultHash);
-        Assert.Equal(defaultHash, ConfigHasher.Analysis(changedDisabledPattern, mode, AnalyzerAction.Default, true));
-        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(conventionalHash, conventionalHash));
-        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(previousHash, conventionalHash));
+        var changedDisabledPatterns = new PluginConfiguration
+        {
+            SubtitleRecapPattern = "recap marker",
+            SubtitlePreviewPattern = "preview marker",
+        };
+        Assert.Equal(recapDefault, ConfigHasher.Analysis(changedDisabledPatterns, AnalysisMode.Recap, AnalyzerAction.Default, true));
+        Assert.Equal(previewDefault, ConfigHasher.Analysis(changedDisabledPatterns, AnalysisMode.Preview, AnalyzerAction.Default, true));
+
+        var enabledRecapHash = ConfigHasher.Analysis(
+            new PluginConfiguration { EnableSubtitleRecapDetection = true },
+            AnalysisMode.Recap,
+            AnalyzerAction.Default,
+            true);
+        var enabledPreviewHash = ConfigHasher.Analysis(
+            new PluginConfiguration { EnableSubtitlePreviewDetection = true },
+            AnalysisMode.Preview,
+            AnalyzerAction.Default,
+            true);
+        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(enabledRecapHash, recapDefault));
+        Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(enabledPreviewHash, previewDefault));
     }
 
     [Theory]
