@@ -63,6 +63,23 @@ internal static class ConfigHasher
         var subtitlePreviewDetection = subtitlePreviewDetectionOverride ?? config.EnableSubtitlePreviewDetection;
         var includeSubtitleSettingsForMode = includeSubtitleSettings
             && (mode == AnalysisMode.Recap ? subtitleRecapDetection : mode == AnalysisMode.Preview && subtitlePreviewDetection);
+        if (includeSubtitleSettings
+            && mode is (AnalysisMode.Recap or AnalysisMode.Preview)
+            && !includeSubtitleSettingsForMode)
+        {
+            return Analysis(
+                config,
+                mode,
+                action,
+                ffmpegValid,
+                analysisPercentOverride,
+                analysisLengthLimitOverride,
+                previewFromCreditsEndOverride,
+                subtitleRecapDetectionOverride,
+                subtitlePreviewDetectionOverride,
+                includeSubtitleSettings: false);
+        }
+
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(

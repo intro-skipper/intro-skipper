@@ -19,9 +19,9 @@ public sealed class TestAnalysisConfigHash
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { MaximumFingerprintPointDifferences = new PluginConfiguration().MaximumFingerprintPointDifferences + 1 }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { AnchorRecapToColdOpen = true }, AnalyzerAction.Default },
         { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalyzerAction.Default },
-        { AnalysisMode.Recap, new PluginConfiguration(), new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalyzerAction.Default },
+        { AnalysisMode.Recap, new PluginConfiguration { EnableSubtitleRecapDetection = true }, new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = "previously" }, AnalyzerAction.Default },
         { AnalysisMode.Preview, new PluginConfiguration(), new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalyzerAction.Default },
-        { AnalysisMode.Preview, new PluginConfiguration(), new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalyzerAction.Default },
+        { AnalysisMode.Preview, new PluginConfiguration { EnableSubtitlePreviewDetection = true }, new PluginConfiguration { EnableSubtitlePreviewDetection = true, SubtitlePreviewPattern = "preview" }, AnalyzerAction.Default },
         { AnalysisMode.Introduction, new PluginConfiguration(), new PluginConfiguration(), AnalyzerAction.Chapter },
     };
 
@@ -63,12 +63,16 @@ public sealed class TestAnalysisConfigHash
         var config = new PluginConfiguration();
         var conventionalHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
         var defaultHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true);
+        var changedDisabledPattern = recap
+            ? new PluginConfiguration { SubtitleRecapPattern = "recap marker" }
+            : new PluginConfiguration { SubtitlePreviewPattern = "preview marker" };
         var previouslyEnabled = recap
             ? new PluginConfiguration { EnableSubtitleRecapDetection = true }
             : new PluginConfiguration { EnableSubtitlePreviewDetection = true };
         var previousHash = ConfigHasher.Analysis(previouslyEnabled, mode, AnalyzerAction.Default, true);
 
         Assert.Equal(conventionalHash, defaultHash);
+        Assert.Equal(defaultHash, ConfigHasher.Analysis(changedDisabledPattern, mode, AnalyzerAction.Default, true));
         Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(conventionalHash, conventionalHash));
         Assert.True(ConfigHasher.IsSubtitleOnlyHashChange(previousHash, conventionalHash));
     }
