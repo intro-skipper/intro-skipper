@@ -54,4 +54,28 @@ public sealed class TestAnalysisConfigHash
             previewDefault,
             ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, true, subtitleRecapDetectionOverride: true));
     }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void SubtitleDetectionSettings_DoNotInvalidateUnrelatedModesOrChromaprintCache(AnalysisMode mode)
+    {
+        var before = new PluginConfiguration();
+        var after = new PluginConfiguration
+        {
+            EnableSubtitleRecapDetection = true,
+            EnableSubtitlePreviewDetection = true,
+        };
+
+        Assert.Equal(
+            ConfigHasher.Analysis(before, mode, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(after, mode, AnalyzerAction.Default, ffmpegValid: true));
+        Assert.Equal(
+            ConfigHasher.DetectionCache(before, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(after, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+        Assert.Equal(
+            ConfigHasher.DetectionCache(before, CacheEntryType.Chromaprint, AnalysisMode.Recap),
+            ConfigHasher.DetectionCache(after, CacheEntryType.Chromaprint, AnalysisMode.Recap));
+    }
 }

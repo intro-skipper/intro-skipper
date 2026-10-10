@@ -27,6 +27,8 @@ internal sealed partial class QueueVerifier
     private readonly bool _ffmpegValid;
     private readonly Dictionary<AnalysisMode, AnalyzerAction> _actionByMode;
     private readonly Dictionary<AnalysisMode, string> _expectedHashByMode;
+    private readonly Dictionary<AnalysisMode, string> _subtitleIndependentHashByMode = [];
+    private readonly Dictionary<AnalysisMode, string>? _availableSubtitleIndependentHashByMode;
 
     // The hash the same configuration produces with Chromaprint available; only
     // consulted while the probe failed, see Classify.
@@ -71,6 +73,7 @@ internal sealed partial class QueueVerifier
         _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(modes.Count);
         _expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
         _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(modes.Count);
+        _availableSubtitleIndependentHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>();
         foreach (var mode in modes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
@@ -85,6 +88,31 @@ internal sealed partial class QueueVerifier
                 previewFromCreditsEndOverride,
                 subtitleRecapDetectionOverride,
                 subtitlePreviewDetectionOverride);
+            if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
+            {
+                _subtitleIndependentHashByMode[mode] = ConfigHasher.Analysis(
+                    config,
+                    mode,
+                    action,
+                    ffmpegValid,
+                    analysisPercentOverride,
+                    analysisLengthLimitOverride,
+                    previewFromCreditsEndOverride,
+                    subtitleRecapDetectionOverride,
+                    subtitlePreviewDetectionOverride,
+                    includeSubtitleSettings: false);
+                _availableSubtitleIndependentHashByMode?.Add(mode, ConfigHasher.Analysis(
+                    config,
+                    mode,
+                    action,
+                    ffmpegValid: true,
+                    analysisPercentOverride: analysisPercentOverride,
+                    analysisLengthLimitOverride: analysisLengthLimitOverride,
+                    previewFromCreditsEndOverride: previewFromCreditsEndOverride,
+                    subtitleRecapDetectionOverride: subtitleRecapDetectionOverride,
+                    subtitlePreviewDetectionOverride: subtitlePreviewDetectionOverride,
+                    includeSubtitleSettings: false));
+            }
             _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
                 config,
                 mode,
@@ -118,6 +146,12 @@ internal sealed partial class QueueVerifier
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
             var hashMatches = hasAnalyzedHash && string.Equals(record.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal);
+            var subtitleOnlyHashChange = hasAnalyzedHash
+                && !hashMatches
+                && ((_subtitleIndependentHashByMode.TryGetValue(mode, out var conventionalHash)
+                        && ConfigHasher.IsSubtitleOnlyHashChange(record.ConfigHash, conventionalHash))
+                    || (_availableSubtitleIndependentHashByMode?.TryGetValue(mode, out var availableConventionalHash) == true
+                        && ConfigHasher.IsSubtitleOnlyHashChange(record.ConfigHash, availableConventionalHash)));
 
             // A failed FFmpeg capability probe must not invalidate good Chromaprint results.
             // Availability is an upward invalidation: a later successful probe can reopen a
@@ -133,6 +167,7 @@ internal sealed partial class QueueVerifier
             if (fileChanged)
             {
                 hashMatches = false;
+                subtitleOnlyHashChange = false;
             }
 
             if (hasAnalyzedHash && !fileChanged)
@@ -160,6 +195,11 @@ internal sealed partial class QueueVerifier
             else if (hashMatches)
             {
                 candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
+            }
+
+            if (subtitleOnlyHashChange && candidate.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
+            {
+                candidate.MarkSubtitleOnlyReanalysis(mode);
             }
         }
     }

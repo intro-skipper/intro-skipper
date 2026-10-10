@@ -94,8 +94,12 @@ internal sealed partial class CreditsPass(
                         continue;
                     }
 
-                    chapterHandled.Add(episode.EpisodeId);
-                    episode.SetAnalyzed(Mode, await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, cancellationToken).ConfigureAwait(false));
+                    var chapterState = await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
+                    episode.SetAnalyzed(Mode, chapterState);
+                    if (chapterState != EpisodeState.NotAnalyzed)
+                    {
+                        chapterHandled.Add(episode.EpisodeId);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

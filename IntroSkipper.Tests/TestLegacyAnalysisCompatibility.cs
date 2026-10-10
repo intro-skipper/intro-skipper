@@ -76,17 +76,17 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Introduction, false)]
     [InlineData(AnalysisMode.Credits, false)]
     [InlineData(AnalysisMode.Credits, true)]
-    [InlineData(AnalysisMode.Recap, false)]
+    [InlineData(AnalysisMode.Recap, false, 24, false)]
     [InlineData(AnalysisMode.Introduction, false, 22)]
     [InlineData(AnalysisMode.Credits, false, 22, false)]
     [InlineData(AnalysisMode.Credits, true, 22, false)]
-    [InlineData(AnalysisMode.Recap, false, 22)]
+    [InlineData(AnalysisMode.Recap, false, 22, false)]
     [InlineData(AnalysisMode.Preview, false, 22, false)]
     [InlineData(AnalysisMode.Commercial, false, 22)]
     [InlineData(AnalysisMode.Introduction, false, 23)]
     [InlineData(AnalysisMode.Credits, false, 23, false)]
     [InlineData(AnalysisMode.Credits, true, 23, false)]
-    [InlineData(AnalysisMode.Recap, false, 23)]
+    [InlineData(AnalysisMode.Recap, false, 23, false)]
     [InlineData(AnalysisMode.Preview, false, 23, false)]
     [InlineData(AnalysisMode.Commercial, false, 23)]
     public async Task ImportedCompletedSeason_AdoptsHashesWithoutDetection(AnalysisMode mode, bool alternative, int release = 24, bool compatible = true)
@@ -254,7 +254,7 @@ public sealed class TestLegacyAnalysisCompatibility
     [Theory]
     [InlineData(AnalysisMode.Preview)]
     [InlineData(AnalysisMode.Commercial)]
-    public async Task ChapterOnlyModes_AdoptOlderHashesRegardlessOfAudioSelection(AnalysisMode mode)
+    public async Task PreviewAndCommercialLegacyHashes_RespectAnalyzerPrecedenceAndAudioSelection(AnalysisMode mode)
     {
         using var temp = new TempSegmentDb();
         var config = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = false };
@@ -263,10 +263,11 @@ public sealed class TestLegacyAnalysisCompatibility
         await temp.Database.MarkItemsAnalyzedAsync(mode, [id], hash);
         var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
 
-        Assert.Equal(mode == AnalysisMode.Commercial, await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+        var adopted = await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config);
+        Assert.Equal(mode == AnalysisMode.Commercial, adopted);
 
         snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
-        Assert.Equal(mode == AnalysisMode.Commercial ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalysisRecords[(id, mode)].ConfigHash);
+        Assert.Equal(adopted ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true) : hash, snapshot.AnalysisRecords[(id, mode)].ConfigHash);
     }
 
     [Theory]

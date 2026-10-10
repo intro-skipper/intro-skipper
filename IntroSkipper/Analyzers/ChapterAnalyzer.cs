@@ -29,12 +29,16 @@ internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
     IntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null,
+    bool enableChapterDetection = true,
+    bool enableRecapBlackFrameFallback = true) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly bool _enableChapterDetection = enableChapterDetection;
+    private readonly bool _enableRecapBlackFrameFallback = enableRecapBlackFrameFallback;
 
     // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which
     // skips them all, treats them as a match.
@@ -79,10 +83,12 @@ internal sealed partial class ChapterAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
-        var expression = GetExpression(mode);
+        var enableRecapBlackFrameFallback = _enableRecapBlackFrameFallback && mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
+        var enableChapterDetection = _enableChapterDetection;
+        var enableSponsorBlock = enableChapterDetection && _config.EnableSponsorBlockChapterDetection;
+        var expression = enableChapterDetection ? GetExpression(mode) : string.Empty;
 
-        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
+        if (string.IsNullOrWhiteSpace(expression) && !enableSponsorBlock && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;
         }
@@ -95,8 +101,9 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var matches = FindChapterCandidates(episode, mode);
+            IReadOnlyList<Segment> matches = enableChapterDetection ? FindChapterCandidates(episode, mode) : [];
 
+            var source = SegmentSource.Chapter;
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
                 Segment? fallback;
@@ -118,6 +125,7 @@ internal sealed partial class ChapterAnalyzer(
                 if (fallback is not null && fallback.Valid)
                 {
                     matches = [fallback];
+                    source = SegmentSource.BlackFrame;
                 }
             }
 
@@ -128,34 +136,36 @@ internal sealed partial class ChapterAnalyzer(
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, cancellationToken).ConfigureAwait(false));
+            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, source, cancellationToken).ConfigureAwait(false));
         }
 
         return analysisQueue;
     }
 
     /// <summary>
-    /// Adjusts chapter matches and writes them as the episode's automatic segments for the
-    /// mode. Shared by the first-wins chain and the credits pass so a chapter result is stored
-    /// the same way whichever path found it.
+    /// Adjusts chapter or black-frame recap matches and writes them as the episode's automatic
+    /// segments for the mode. Shared by the first-wins chain and the credits pass so a result is
+    /// stored the same way whichever path found it.
     /// </summary>
     /// <remarks>
     /// A chapter range already sits on authored boundaries, so it is not snapped to another
-    /// chapter but does receive the configured playback adjustments. When those consume every
-    /// match, the episode's stale automatic rows are still cleared, so it settles without a
-    /// segment rather than keeping one the adjustment rules no longer produce.
+    /// chapter but does receive the configured playback adjustments. A rejected non-empty
+    /// candidate leaves the episode open for the next analyzer; when adjustments consume every
+    /// match, the episode's stale automatic rows are still cleared.
     /// </remarks>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="matches">The unadjusted chapter matches.</param>
     /// <param name="timeAdjustmentHelper">Adjustment helper initialized for <paramref name="mode"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="source">The analyzer source that produced the candidates.</param>
     /// <returns><see cref="EpisodeState.Analyzed"/> when at least one match survived adjustment, otherwise <see cref="EpisodeState.NoSegments"/>.</returns>
     internal async Task<EpisodeState> StoreMatchesAsync(
         QueuedEpisode episode,
         AnalysisMode mode,
         IReadOnlyList<Segment> matches,
         TimeAdjustmentHelper timeAdjustmentHelper,
+        SegmentSource source,
         CancellationToken cancellationToken)
     {
         var adjusted = new List<Segment>(matches.Count);
@@ -173,8 +183,15 @@ internal sealed partial class ChapterAnalyzer(
             LogFoundChapter(episode.Name, mode, segment.Start, segment.End);
         }
 
-        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, SegmentSource.Chapter, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-        return adjusted.Count == 0 ? EpisodeState.NoSegments : EpisodeState.Analyzed;
+        var written = mode == AnalysisMode.Preview && source == SegmentSource.Chapter
+            ? await _database.ReplaceChapterPreviewAsync(episode.EpisodeId, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false)
+            : await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, source, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        if (adjusted.Count == 0)
+        {
+            return EpisodeState.NoSegments;
+        }
+
+        return written > 0 ? EpisodeState.Analyzed : EpisodeState.NotAnalyzed;
     }
 
     /// <summary>
@@ -229,6 +246,19 @@ internal sealed partial class ChapterAnalyzer(
         if (count == 0)
         {
             return matches;
+        }
+
+        if (!string.IsNullOrWhiteSpace(expression))
+        {
+            try
+            {
+                _ = Regex.IsMatch(string.Empty, expression, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            }
+            catch (ArgumentException ex)
+            {
+                LogInvalidChapterPattern(mode, ex.Message);
+                expression = string.Empty;
+            }
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
@@ -419,4 +449,7 @@ internal sealed partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid chapter pattern for {Mode}; skipping regex chapter matches: {Message}")]
+    private partial void LogInvalidChapterPattern(AnalysisMode mode, string message);
 }

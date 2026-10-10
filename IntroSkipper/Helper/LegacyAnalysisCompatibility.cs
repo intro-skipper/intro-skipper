@@ -29,10 +29,13 @@ internal static class LegacyAnalysisCompatibility
         {
             var mode = modeGroup.Key;
             var usesChromaprint = mode is AnalysisMode.Introduction or AnalysisMode.Credits or AnalysisMode.Recap;
+            // The chapter-before-subtitle precedence changed stored Recap and Preview output;
+            // adopting an older hash would hide the precedence token and skip that reanalysis.
             if (!AnalysisHelpers.IsSupported(mode)
                 || (usesChromaprint && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                     || !config.PreferAudioStreamWithMostChannels))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits))
+                || (mode is AnalysisMode.Recap or AnalysisMode.Preview)
                 || (mode == AnalysisMode.Recap && (config.AnchorRecapToColdOpen || config.EnableSubtitleRecapDetection))
                 || (mode == AnalysisMode.Preview && config.EnableSubtitlePreviewDetection))
             {
