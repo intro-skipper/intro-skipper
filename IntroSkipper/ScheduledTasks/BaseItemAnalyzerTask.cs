@@ -562,10 +562,9 @@ public partial class BaseItemAnalyzerTask(
         bool isMovie,
         CancellationToken cancellationToken)
     {
-        // Subtitle matching is an opt-in, mode-specific producer. It runs before the existing
-        // analyzers so a matching cue settles the episode without being combined with chapters,
-        // Chromaprint or credits-derived previews. Chromaprint needs a season to compare (no
-        // movies) and a compatible ffmpeg.
+        // Subtitle matching is an opt-in, mode-specific fallback. It runs after the chapter
+        // analyzer so chapter matches take precedence, and before the remaining default chain.
+        // Chromaprint needs a season to compare (no movies) and a compatible ffmpeg.
         var subtitle = mode is AnalysisMode.Recap or AnalysisMode.Preview
             ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
             : null;
@@ -595,7 +594,7 @@ public partial class BaseItemAnalyzerTask(
         List<IMediaFileAnalyzer> analyzers = [.. conventionalAnalyzers];
         if (subtitle is not null)
         {
-            analyzers.Insert(0, subtitle);
+            analyzers.Insert(analyzers.IndexOf(chapter) + 1, subtitle);
         }
 
         foreach (var analyzer in analyzers)
