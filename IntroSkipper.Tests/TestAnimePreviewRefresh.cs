@@ -71,8 +71,9 @@ public class TestAnimePreviewRefresh
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
-        var remaining = Assert.Single(await database.GetSegmentsAsync(EpisodeId));
-        Assert.Equal(AnalysisMode.Credits, remaining.Type);
+        var remaining = await database.GetSegmentsAsync(EpisodeId);
+        Assert.Equal(2, remaining.Count);
+        Assert.All(remaining, s => Assert.Equal(AnalysisMode.Credits, s.Type));
     }
 
     [Fact]
@@ -84,13 +85,13 @@ public class TestAnimePreviewRefresh
         await database.ReplaceAutoSegmentsAsync(
             EpisodeId,
             AnalysisMode.Credits,
-            [new Segment(EpisodeId, new TimeRange(1020, 1110)), new Segment(EpisodeId, new TimeRange(1300, 1310))],
+            [new Segment(EpisodeId, new TimeRange(1020, 1110)), new Segment(EpisodeId, new TimeRange(1290, 1300))],
             SegmentSource.BlackFrame);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((1310, EpisodeDuration), (preview.Start, preview.End));
+        Assert.Equal((1300, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Fact]
