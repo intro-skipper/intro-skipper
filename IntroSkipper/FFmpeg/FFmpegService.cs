@@ -689,9 +689,19 @@ internal sealed partial class FFmpegService : IFFmpegService
 
                 for (var i = 0; i < sidecars.Length; i++)
                 {
-                    var outputPrefix = Path.Join(directory.FullName, i.ToString(CultureInfo.InvariantCulture));
-                    var source = await ReadableSidecarAsync(sidecars[i], outputPrefix, cancellationToken).ConfigureAwait(false);
-                    complete &= await ExtractWebVttAsync(source, null, null, [0], outputPrefix, outputLimit, cues, cancellationToken).ConfigureAwait(false);
+                    // A sidecar that cannot be read, like one ffmpeg cannot open, fails only
+                    // itself: the scan goes on with the next one and ends incomplete.
+                    try
+                    {
+                        var outputPrefix = Path.Join(directory.FullName, i.ToString(CultureInfo.InvariantCulture));
+                        var source = await ReadableSidecarAsync(sidecars[i], outputPrefix, cancellationToken).ConfigureAwait(false);
+                        complete &= await ExtractWebVttAsync(source, null, null, [0], outputPrefix, outputLimit, cues, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        LogSubtitleScanFailed(ex, sidecars[i]);
+                        complete = false;
+                    }
                 }
             }
             finally
@@ -701,8 +711,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Listing or reading the sidecars, creating the output directory or reading an
-            // output can fail on one episode's files. The scan then ends with the cues read so far and
+            // Listing the sidecars, creating the output directory or reading an embedded output
+            // can fail on one episode's files. The scan then ends with the cues read so far and
             // is incomplete, so the episode is retried; thrown, it would end the season's pass.
             LogSubtitleScanFailed(ex, episode.Path);
             complete = false;

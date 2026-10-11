@@ -214,20 +214,25 @@ public sealed class TestSubtitleAnalyzer
         Assert.Empty(tempDirectory.EnumerateFileSystemInfos());
     }
 
-    // A sidecar ffmpeg cannot open fails only its own run: the embedded streams and the other
-    // sidecar are still read, and the scan is incomplete, so the episode is retried.
+    // A sidecar that ffmpeg cannot open, or that cannot be read at all, fails only itself: the
+    // embedded streams and the sidecar after it are still read, and the scan is incomplete, so
+    // the episode is retried.
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ExtractSubtitleCuesAsync_BrokenSidecar_KeepsTheOtherCues(bool empty)
+    [InlineData("garbage")]
+    [InlineData("empty")]
+    [InlineData("locked")]
+    public async Task ExtractSubtitleCuesAsync_BrokenSidecar_KeepsTheOtherCues(string broken)
     {
         using var directory = new TempDirectory();
         var mediaPath = await MuxEpisodeAsync(directory);
         await File.WriteAllTextAsync(directory.Join("episode.fr.srt"), "1\n00:00:08,000 --> 00:00:09,000\nPrecedemment\n");
         var garbage = new byte[4096];
         new Random(1).NextBytes(garbage);
-        await File.WriteAllBytesAsync(directory.Join("episode.de.srt"), empty ? [] : garbage);
+        var brokenPath = directory.Join("episode.de.srt");
+        await File.WriteAllBytesAsync(brokenPath, broken == "empty" ? [] : garbage);
 
+        // An exclusive handle makes reading the sidecar throw, on Linux through .NET's advisory lock.
+        using var lockHandle = broken == "locked" ? new FileStream(brokenPath, FileMode.Open, FileAccess.Read, FileShare.None) : null;
         var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "episode", Path = mediaPath });
 
         Assert.Equal(["Zuvor bei der Serie", "Previously on the show", "Precedemment"], scan.Cues.Select(cue => cue.Text));
