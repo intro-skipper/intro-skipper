@@ -134,6 +134,25 @@ public sealed class TestSubtitleAnalyzer
         Assert.True(windowed.Complete);
     }
 
+    // The embedded streams and the sidecars share one ffmpeg run, also when the run seeks on a
+    // file whose clock starts at 7.5 s. -copyts and -start_at_zero then apply to the sidecar
+    // too, and its cue keeps its time.
+    [Fact]
+    public async Task ExtractSubtitleCuesAsync_SeekingWindow_ReadsTheSidecarInTheSameRun()
+    {
+        using var directory = new TempDirectory();
+        var episode = new QueuedEpisode { Name = "long", Path = await MuxLongEpisodeAsync(directory), Duration = 300 };
+        await File.WriteAllTextAsync(directory.Join("long.fr.srt"), "1\n00:04:15,000 --> 00:04:16,000\nLa prochaine fois\n");
+        var logger = new CapturingLogger<FFmpegService>();
+        var ffmpeg = new FFmpegService(logger, DatabaseTestHelpers.CreateTempCacheService(), null, null);
+
+        var scan = await ffmpeg.ExtractSubtitleCuesAsync(episode, new TimeRange(180, 300));
+
+        Assert.Equal([new SubtitleCue(250, 252, "Next time on the show"), new SubtitleCue(255, 256, "La prochaine fois")], scan.Cues);
+        Assert.True(scan.Complete);
+        Assert.Single(logger.Entries, entry => entry.Message.StartsWith("Starting ffmpeg", StringComparison.Ordinal) && entry.Message.Contains("webvtt", StringComparison.Ordinal));
+    }
+
     // Each mode reads its own window of the file: the recap window at the start, and the last
     // MaximumPreviewDuration seconds for a preview. Each window holds its mode's cue, and a
     // chapter at 70 s ends the recap.
