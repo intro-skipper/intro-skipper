@@ -70,11 +70,11 @@ internal sealed partial class QueueVerifier
         _modes = modes;
         _snapshot = snapshot;
         _ffmpegValid = ffmpegValid;
-        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(modes.Count);
-        _expectedHashByMode = new Dictionary<AnalysisMode, string>(modes.Count);
-        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(modes.Count);
+        _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(AllModes.Length);
+        _expectedHashByMode = new Dictionary<AnalysisMode, string>(AllModes.Length);
+        _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(AllModes.Length);
         _availableSubtitleIndependentHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>();
-        foreach (var mode in modes)
+        foreach (var mode in AllModes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
@@ -139,37 +139,15 @@ internal sealed partial class QueueVerifier
     /// <param name="candidate">A queued episode that exists on disk and is not excluded.</param>
     public void Classify(QueuedEpisode candidate)
     {
-        var fileChanged = ClassifyFileVersion(candidate);
+        var (fileChanged, reopened) = ClassifyFileVersion(candidate);
         foreach (var mode in _modes)
         {
             // An empty hash is equivalent to no durable analysis state. It can be present on
             // rows created before hashing was recorded and must not settle an item forever.
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
-            var hashMatches = hasAnalyzedHash && string.Equals(record.ConfigHash, _expectedHashByMode[mode], StringComparison.Ordinal);
-            var subtitleOnlyHashChange = hasAnalyzedHash
-                && !hashMatches
-                && ((_subtitleIndependentHashByMode.TryGetValue(mode, out var conventionalHash)
-                        && ConfigHasher.IsSubtitleOnlyHashChange(record.ConfigHash, conventionalHash))
-                    || (_availableSubtitleIndependentHashByMode?.TryGetValue(mode, out var availableConventionalHash) == true
-                        && ConfigHasher.IsSubtitleOnlyHashChange(record.ConfigHash, availableConventionalHash)));
-
-            // A failed FFmpeg capability probe must not invalidate good Chromaprint results.
-            // Availability is an upward invalidation: a later successful probe can reopen a
-            // season that was settled without Chromaprint, but a transient failed probe cannot
-            // discard results produced while it was available.
-            if (!hashMatches && hasAnalyzedHash && _availableHashByMode is { } availableHashByMode)
-            {
-                hashMatches = string.Equals(record.ConfigHash, availableHashByMode[mode], StringComparison.Ordinal);
-            }
-
-            // A record made for a different version of the file settles nothing, whatever its
-            // hash says.
-            if (fileChanged)
-            {
-                hashMatches = false;
-                subtitleOnlyHashChange = false;
-            }
+            var hashMatches = hasAnalyzedHash && IsCurrentHash(record.ConfigHash, mode);
+            var subtitleOnlyHashChange = hasAnalyzedHash && !hashMatches && IsConventionalHashCurrent(record.ConfigHash, mode);
 
             if (hasAnalyzedHash && !fileChanged)
             {
@@ -178,6 +156,18 @@ internal sealed partial class QueueVerifier
                 {
                     _storedHashByMode[mode] = (record.ConfigHash, mismatch);
                 }
+            }
+
+            // A record made for a different version of the file, or of the sidecars a
+            // subtitle-detecting mode reads, settles nothing, whatever its hash says.
+            if (fileChanged || reopened.Contains(mode))
+            {
+                hashMatches = false;
+                subtitleOnlyHashChange = false;
+            }
+            else if (candidate.NeedsSubtitleOnlyReanalysis(mode))
+            {
+                hashMatches = false;
             }
 
             if (_snapshot.SegmentModesByEpisodeId.TryGetValue(candidate.EpisodeId, out var modesWithSegments) &&
@@ -206,22 +196,41 @@ internal sealed partial class QueueVerifier
     }
 
     /// <summary>
-    /// Compares the episode's file version with every record the item has, whatever the
+    /// Compares the episode's file versions with every record the item has, whatever the
     /// record's mode: a record of a disabled mode still proves the file changed, and its
-    /// stale segments still have to go. A record without a version predates versioning and
-    /// is stamped with the version seen now, unless the file changed, in which case the
-    /// reset rewrites it. An episode without a version (Jellyfin holds no write time)
-    /// cannot be compared and keeps every record's verdict.
+    /// stale segments still have to go.
     /// </summary>
-    /// <returns>Whether any record was made for a different version of the file.</returns>
-    private bool ClassifyFileVersion(QueuedEpisode candidate)
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description>A record of a mode that records the media version (every mode but a
+    /// Recap or Preview with active subtitle detection) flags
+    /// <see cref="QueuedEpisode.FileChanged"/> when it carries another media version, except a
+    /// Recap or Preview record whose hash is not current: it may still carry the sidecar version
+    /// a subtitle-detecting pass recorded.</description></item>
+    /// <item><description>A Recap or Preview record whose subtitle detection is active must carry
+    /// <see cref="QueuedEpisode.SubtitleFileVersion"/>. A record that does not (a sidecar was
+    /// added, rewritten or removed, or detection was off when it was written) reopens its mode.
+    /// The mode reruns subtitle detection alone when another record confirms the media version
+    /// and the record's conventional hash is still current, and its full chain otherwise.</description></item>
+    /// <item><description>Neither exception can tell a sidecar change from a replaced media file,
+    /// so without a record that confirms the media version, either one flags
+    /// <see cref="QueuedEpisode.FileChanged"/>.</description></item>
+    /// <item><description>A record without a version predates versioning and is stamped with
+    /// the media version, unless the file changed, in which case the reset rewrites it.</description></item>
+    /// </list>
+    /// Without a media version (Jellyfin holds no write time) no record can show a replaced
+    /// file: a media-versioned record keeps its verdict, nothing is stamped, and a sidecar
+    /// mismatch only reopens its mode.
+    /// </remarks>
+    /// <returns>Whether a record shows the media file was replaced, and the Recap and Preview
+    /// modes reopened for their full chain by a sidecar version mismatch.</returns>
+    private (bool FileChanged, IReadOnlySet<AnalysisMode> Reopened) ClassifyFileVersion(QueuedEpisode candidate)
     {
-        if (candidate.FileVersion is not { } fileVersion)
-        {
-            return false;
-        }
-
+        var fileVersion = candidate.FileVersion;
         var needsBackfill = false;
+        var mediaConfirmed = false;
+        var ambiguousMismatch = false;
+        List<(AnalysisMode Mode, string Hash)> sidecarMismatches = [];
         foreach (var mode in AllModes)
         {
             if (!_snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record))
@@ -229,30 +238,99 @@ internal sealed partial class QueueVerifier
                 continue;
             }
 
-            if (record.FileVersion is null)
+            var subtitleVersioned = _config.ActiveSubtitlePattern(candidate, mode) is not null;
+            if (record.FileVersion is not { } recorded)
             {
-                if (SubtitleSidecarFiles.HasSidecars(candidate.Path))
+                // A record without a version cannot have covered a sidecar.
+                if (subtitleVersioned && candidate.SubtitleFileVersion != fileVersion)
+                {
+                    sidecarMismatches.Add((mode, record.ConfigHash));
+                }
+                else
+                {
+                    needsBackfill = true;
+                }
+            }
+            else if (subtitleVersioned)
+            {
+                // The sidecar version embeds the media version, so a match confirms it too.
+                if (recorded == candidate.SubtitleFileVersion)
+                {
+                    mediaConfirmed = true;
+                }
+                else
+                {
+                    sidecarMismatches.Add((mode, record.ConfigHash));
+                }
+            }
+            else if (fileVersion is { } media)
+            {
+                if (recorded == media)
+                {
+                    mediaConfirmed = true;
+                }
+                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview) || IsCurrentHash(record.ConfigHash, mode))
                 {
                     candidate.FileChanged = true;
-                    return true;
+                    return (true, new HashSet<AnalysisMode>());
                 }
-
-                needsBackfill = true;
-            }
-            else if (record.FileVersion != fileVersion)
-            {
-                candidate.FileChanged = true;
-                return true;
+                else
+                {
+                    // Written under other settings, possibly with the sidecar version.
+                    ambiguousMismatch = true;
+                }
             }
         }
 
-        if (needsBackfill)
+        // Neither mismatch can tell a sidecar change from a replaced media file.
+        if (fileVersion is not null && !mediaConfirmed && (ambiguousMismatch || sidecarMismatches.Count > 0))
         {
-            _fileVersionBackfill.TryAdd(candidate.EpisodeId, fileVersion);
+            candidate.FileChanged = true;
+            return (true, new HashSet<AnalysisMode>());
         }
 
-        return false;
+        if (needsBackfill && fileVersion is { } version)
+        {
+            _fileVersionBackfill.TryAdd(candidate.EpisodeId, version);
+        }
+
+        HashSet<AnalysisMode> reopened = [];
+        foreach (var (mode, hash) in sidecarMismatches)
+        {
+            if (mediaConfirmed && IsConventionalHashCurrent(hash, mode))
+            {
+                candidate.MarkSubtitleOnlyReanalysis(mode);
+            }
+            else
+            {
+                reopened.Add(mode);
+            }
+        }
+
+        return (false, reopened);
     }
+
+    /// <summary>
+    /// Whether the hash describes the current configuration of the mode, under the season's
+    /// saved analyzer action. A failed FFmpeg capability probe must not invalidate good
+    /// Chromaprint results: availability is an upward invalidation, so a later successful
+    /// probe can reopen a season settled without Chromaprint, but a transient failed probe
+    /// cannot discard results produced while it was available.
+    /// </summary>
+    private bool IsCurrentHash(string hash, AnalysisMode mode)
+        => string.Equals(hash, _expectedHashByMode[mode], StringComparison.Ordinal)
+            || (_availableHashByMode is { } availableHashByMode
+                && string.Equals(hash, availableHashByMode[mode], StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether a Recap or Preview hash still matches the current configuration in everything
+    /// but the subtitle settings, so only subtitle detection needs to run again.
+    /// </summary>
+    private bool IsConventionalHashCurrent(string hash, AnalysisMode mode)
+        => (_subtitleIndependentHashByMode.TryGetValue(mode, out var conventionalHash)
+                && ConfigHasher.IsSubtitleOnlyHashChange(hash, conventionalHash))
+            || (_availableSubtitleIndependentHashByMode?.TryGetValue(mode, out var availableConventionalHash) == true
+                && ConfigHasher.IsSubtitleOnlyHashChange(hash, availableConventionalHash));
 
     /// <summary>
     /// Logs why a verified season still contains pending work. Hash changes are information-level
@@ -289,7 +367,18 @@ internal sealed partial class QueueVerifier
                 continue;
             }
 
-            if (_storedHashByMode.TryGetValue(mode, out var stored) && stored.Mismatch)
+            // A pending episode whose record hash is current was reopened by its sidecar version.
+            var hasStoredHash = _storedHashByMode.TryGetValue(mode, out var stored);
+            var sidecarVersionChanged = !(hasStoredHash && stored.Mismatch)
+                && verified.Any(episode => !episode.FileChanged
+                    && episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed
+                    && _snapshot.AnalysisRecords.TryGetValue((episode.EpisodeId, mode), out var record)
+                    && IsCurrentHash(record.ConfigHash, mode));
+            if (sidecarVersionChanged)
+            {
+                LogSeasonSubtitleFilesChanged(logger, mode, pending, verified.Count, first.SeriesName, first.SeasonNumber);
+            }
+            else if (hasStoredHash && stored.Mismatch)
             {
                 LogSeasonConfigHashChanged(
                     logger,
@@ -324,6 +413,9 @@ internal sealed partial class QueueVerifier
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: analysis configuration hash changed from \"{StoredHash}\" to \"{ExpectedHash}\" (chromaprint available: {ChromaprintAvailable})")]
     private static partial void LogSeasonConfigHashChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season, string storedHash, string expectedHash, string chromaprintAvailable);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Queuing {Count} of {Total} items in {Name} season {Season} for analysis: subtitle files changed since analysis")]
+    private static partial void LogSeasonSubtitleFilesChanged(ILogger logger, AnalysisMode mode, int count, int total, string name, int season);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing {Count} of {Total} items in {Name} season {Season}: media file changed since analysis")]
     private static partial void LogSeasonFilesChanged(ILogger logger, int count, int total, string name, int season);

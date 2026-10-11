@@ -424,14 +424,23 @@ export const configSchema = {
         label: "Recap regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
-        default: "\\bpreviously\\s+on\\b",
+        default:
+            "\\bpreviously\\s+on|^\\W*(?:zuvor\\s+bei|zuletzt\\s+bei|was\\s+bisher\\s+geschah|bisher\\s+bei|anteriormente|previamente|précédemment|wat\\s+voorafging)|episodio?\\s+precedent[ei]|^\\W*前回までは|前情提要|지난\\s*이야기\\W*$",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Preview regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
-        default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
+        default:
+            "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
+    },
+    SubtitleLanguages: {
+        kind: "text",
+        label: "Subtitle languages",
+        placeholder: "ger, eng",
+        description:
+            "Comma-separated language codes to read. Empty reads all. Recap title cards are often subtitled only in translation tracks, so reading only the audio language can miss them.",
     },
     // FFmpeg
     MaxParallelism: {
@@ -509,10 +518,14 @@ export type ConfigKey = keyof ConfigSchema;
 
 /**
  * The plugin configuration as the server sends it. Every schema key is
- * editable; FileTransformationPluginEnabled is set by the server and only read.
+ * editable. The rest are only read: FileTransformationPluginEnabled is set by
+ * the server, and the subtitle detection values are what a season without its
+ * own subtitle override inherits.
  */
 export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
+    readonly EnableSubtitleRecapDetection: boolean;
+    readonly EnableSubtitlePreviewDetection: boolean;
 };
 
 /** Config keys whose value has type V, so a control binds only to keys it can hold. */

@@ -5,9 +5,9 @@ import { eventBus } from "../lifecycle.ts";
 import { configStore } from "../store/config-store.ts";
 import type { AnalysisOverrides } from "../types.ts";
 
-function legacySubtitleDefault(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
-    if (!configStore.isLoaded()) return false;
-    return (configStore.getAll() as unknown as Record<string, unknown>)[key] === true;
+// The plugin-wide value a season without its own subtitle override inherits.
+function inheritedSubtitleDetection(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
+    return configStore.isLoaded() && configStore.get(key);
 }
 
 // What the global setting currently is, shown where a blank override falls back to it.
@@ -18,7 +18,7 @@ function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => stri
 
 /**
  * The per-season analysis overrides the action bar edits. Analysis limits
- * inherit global values when null; subtitle detection defaults to disabled.
+ * and subtitle detection inherit the plugin-wide values when null.
  */
 export const overrideSchema = {
     AnalysisPercent: {
@@ -63,7 +63,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Subtitle-based recap detection",
         description: "Enable subtitle-based recap detection for this season or show.",
-        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitleRecapDetection"),
+        nullDisplayValue: () => inheritedSubtitleDetection("EnableSubtitleRecapDetection"),
         options: [
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },
@@ -73,7 +73,7 @@ export const overrideSchema = {
         kind: "select",
         label: "Subtitle-based preview detection",
         description: "Enable subtitle-based preview detection for this season or show.",
-        nullDisplayValue: () => legacySubtitleDefault("EnableSubtitlePreviewDetection"),
+        nullDisplayValue: () => inheritedSubtitleDetection("EnableSubtitlePreviewDetection"),
         options: [
             { value: true, label: "Enabled" },
             { value: false, label: "Disabled" },

@@ -25,19 +25,21 @@ internal static class AnimePreviewDeriver
     /// An episode with a user-provided Preview is skipped: the admission gate only drops a derived
     /// preview that strictly overlaps it, so without this guard a non-overlapping manual Preview
     /// would gain a second, automatic one beside it, and the episode's UserProvided state would be
-    /// overwritten with Analyzed. With normal settlement, a derived preview that overlaps a tombstone
-    /// is dropped by <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed,
-    /// since re-running would not change the gate's answer. An active subtitle Preview always takes
-    /// precedence over this derived result. Callers that schedule subtitle Preview analysis can leave
-    /// the Preview state open so the derived row remains a fallback until that pass runs.
+    /// overwritten with Analyzed. A derived preview that overlaps a tombstone is dropped by
+    /// <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed, since
+    /// re-running would not change the gate's answer. An episode with any other automatic
+    /// Preview, a subtitle or chapter match, is skipped too. The facade ranks a derived preview
+    /// below both and would refuse the write, and the episode stays unsettled so its Preview
+    /// pass can retire that row once it is stale and then derive the preview.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
-    /// <param name="items">Episodes whose Credits mode was just analyzed.</param>
+    /// <param name="items">Episodes whose Credits or Preview mode was just analyzed.</param>
     /// <param name="minimumDuration">The minimum preview duration in seconds; shorter spans derive nothing.</param>
     /// <param name="cancellationToken">Cancellation token; stops the loop before the next episode.</param>
     /// <param name="settlePreviewState">
-    /// Whether to mark derived previews as settled for the Preview mode; false also reopens
-    /// non-subtitle results for a scheduled subtitle pass.
+    /// <see langword="true"/> to mark each episode that gets a derived preview as analyzed for
+    /// Preview; <see langword="false"/> to leave every Preview state as it is, for a credits pass
+    /// followed by subtitle Preview detection, which can still supersede the derived preview.
     /// </param>
     /// <returns>A task that completes when every episode has been considered.</returns>
     internal static async Task DeriveAsync(
@@ -54,23 +56,13 @@ internal static class AnimePreviewDeriver
                 break;
             }
 
+            // Any other preview wins, and the episode stays unsettled: its Preview pass may
+            // delete a stale chapter or subtitle row, and only an unsettled episode gets that
+            // pass's analyzers and derive afterwards.
             var dbSegments = await database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.User))
+            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source != SegmentSource.CreditsDerived))
             {
                 continue;
-            }
-
-            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.Source == SegmentSource.Subtitle && s.State == SegmentState.Active))
-            {
-                continue;
-            }
-
-            if (!settlePreviewState)
-            {
-                if (episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.AnalysisFailed)
-                {
-                    episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
-                }
             }
 
             // Rows that touch or overlap, as adjusted neighbours can, form one credits run. The

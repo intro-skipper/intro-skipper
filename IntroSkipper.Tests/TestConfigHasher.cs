@@ -92,6 +92,35 @@ public sealed class TestConfigHasher
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
+        // Frozen to what 12.0.5 wrote for seasons that do not derive previews, so with subtitle
+        // detection off they do not re-analyze Preview on upgrade. Seasons that derive previews
+        // carry the anchor token and re-derive once (12.0.5 wrote 2735F6E29B514900 for them).
+        // Enabling subtitle detection adds its own hash.
+        Case("Preview analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Preview), "19C776EE18C06441", true);
+        Case("Preview analysis re-derives under the last-credits anchor", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "EEAC9F1E9F57CD47", true);
+
+        // 12.0.5 wrote 9F39FAF9AB4D7445 here, when a Chromaprint recap ended at the latest black
+        // frame. The sting end token reruns Recap once in every season.
+        Case("Recap analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Recap), "584E57B3CA358E11", true);
+        Case("Recap analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Recap), Analysis(new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalysisMode.Recap), true);
+        Case("Preview analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalysisMode.Preview), true);
+
+        // With subtitle detection on, the hash is "subtitle-v1:", the conventional hash, ":" and a
+        // hash of every setting. The pins keep a refactor of the hasher from changing what a
+        // stored record means. A blank pattern detects nothing, so it hashes as detection off.
+        Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:584E57B3CA358E11:034582192926BF24", true);
+        Case("Preview analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalysisMode.Preview), "subtitle-v1:19C776EE18C06441:ED1EF897C859EA54", true);
+        Case("Recap analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = " " }, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap), true);
+        Case("Preview analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true, SubtitlePreviewPattern = string.Empty }, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview), true);
+
+        // The subtitle languages reopen only the modes whose subtitle detection reads them,
+        // and any ISO 639 form of a language hashes the same.
+        var recapSubtitles = new PluginConfiguration { EnableSubtitleRecapDetection = true };
+        var recapSubtitlesGermanEnglish = new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleLanguages = "ger, eng" };
+        Case("Recap analysis changes with the subtitle languages while detection is on", Analysis(recapSubtitles, AnalysisMode.Recap), Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Recap), false);
+        Case("Recap analysis normalizes the subtitle languages", Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Recap), Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleLanguages = "en,DEU" }, AnalysisMode.Recap), true);
+        Case("Preview analysis ignores the subtitle languages while its detection is off", Analysis(recapSubtitles, AnalysisMode.Preview), Analysis(recapSubtitlesGermanEnglish, AnalysisMode.Preview), true);
+
         return data;
     }
 

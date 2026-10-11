@@ -21,6 +21,14 @@ internal static class RecapDetectionHelper
     private const double ColdOpenLeadInWindow = 10;
 
     /// <summary>
+    /// Seconds of black that end a Chromaprint or subtitle recap. The black that ends a recap is
+    /// usually longer than the cuts inside it, though no length separates them every time, and
+    /// taking the first long enough run errs early rather than late. Both recap end tokens in
+    /// <c>ConfigHasher</c> name it, so changing it bumps both.
+    /// </summary>
+    internal const double MinimumEndingBlackRun = 2;
+
+    /// <summary>
     /// Gets the latest timestamp that recap boundary detection should scan.
     /// </summary>
     /// <param name="database">Segment database facade.</param>
@@ -105,22 +113,26 @@ internal static class RecapDetectionHelper
     }
 
     /// <summary>
-    /// Builds a recap around a shared Chromaprint sting. The end is the latest black frame before
-    /// the boundary, as for the black-frame fallback. The start is 0 unless
-    /// <paramref name="anchorToColdOpen"/> is set and the sting begins after
+    /// Builds a recap around a shared Chromaprint sting. The end is the start of the first black
+    /// run of at least <see cref="MinimumEndingBlackRun"/> seconds (<see cref="FirstBlackRunStart"/>)
+    /// that starts after both the sting and <paramref name="minimumRecapDuration"/>, and no later
+    /// than the boundary. The latest black frame before the boundary, where the black-frame
+    /// fallback ends, often lies in a dark cold open or a network card after the recap. The start
+    /// is 0 unless <paramref name="anchorToColdOpen"/> is set and the sting begins after
     /// <see cref="ColdOpenStartThreshold"/>; then it is the latest black frame within
     /// <see cref="ColdOpenLeadInWindow"/> before the sting, or the sting start when there is none.
     /// An anchored recap shorter than <paramref name="minimumRecapDuration"/> is rejected.
     /// The caller still runs the result through <see cref="TimeAdjustmentHelper"/>, so a start
     /// within the configured snap threshold of 0 snaps back to 0 and the intro start offset applies.
+    /// Changing the end rule needs a new recap sting end token in <c>ConfigHasher</c>.
     /// </summary>
     /// <param name="episodeId">Episode id.</param>
     /// <param name="sting">Shared sting region for this episode.</param>
-    /// <param name="blackFrames">Black frames from the recap scan window.</param>
+    /// <param name="blackFrames">Black frames from the recap scan window, in frame order.</param>
     /// <param name="minimumRecapDuration">Minimum recap length in seconds.</param>
     /// <param name="maximumRecapBoundary">Latest allowed recap end in seconds.</param>
     /// <param name="anchorToColdOpen">Whether a leading cold open moves the start off 0.</param>
-    /// <returns>The recap, or <see langword="null"/> when no black frame closes it or it is too short.</returns>
+    /// <returns>The recap, or <see langword="null"/> when no black run closes it or it is too short.</returns>
     internal static Segment? BuildRecapFromSting(
         Guid episodeId,
         Segment sting,
@@ -129,18 +141,65 @@ internal static class RecapDetectionHelper
         double maximumRecapBoundary,
         bool anchorToColdOpen)
     {
-        var recap = BuildRecapFromBlackFrames(
-            episodeId,
+        var end = FirstBlackRunStart(
             blackFrames,
+            MinimumEndingBlackRun,
             Math.Max(minimumRecapDuration, Math.Ceiling(sting.End)),
             maximumRecapBoundary);
-        if (recap is null || !anchorToColdOpen || sting.Start <= ColdOpenStartThreshold)
+        if (end is null)
+        {
+            return null;
+        }
+
+        var recap = new Segment(episodeId, new TimeRange(0, end.Value));
+        if (!anchorToColdOpen || sting.Start <= ColdOpenStartThreshold)
         {
             return recap;
         }
 
         recap.Start = LatestBlackFrameTime(blackFrames, sting.Start - ColdOpenLeadInWindow, sting.Start) ?? sting.Start;
         return recap.Duration < minimumRecapDuration ? null : recap;
+    }
+
+    /// <summary>
+    /// Finds the first black run of at least <paramref name="minimumLength"/> seconds that starts
+    /// in the closed interval [<paramref name="earliest"/>, <paramref name="latest"/>].
+    /// </summary>
+    /// <remarks>
+    /// A run is a sequence of black frames with consecutive frame numbers; the recap scan numbers
+    /// every decoded frame. A run of n frames lasts n frame intervals, through the start of the
+    /// frame after its last, so 48 frames at 23.976 fps make a 2.002 s run. A single frame has no
+    /// measurable interval and never counts.
+    /// </remarks>
+    /// <param name="blackFrames">The black frames from the recap scan, in frame order.</param>
+    /// <param name="minimumLength">The shortest run, in seconds, that counts.</param>
+    /// <param name="earliest">The earliest run start in seconds.</param>
+    /// <param name="latest">The latest run start in seconds.</param>
+    /// <returns>The start of the run in seconds, or <see langword="null"/> when no run qualifies.</returns>
+    internal static double? FirstBlackRunStart(IReadOnlyList<BlackFrame> blackFrames, double minimumLength, double earliest, double latest)
+    {
+        var runFirst = 0;
+        for (var next = 1; next <= blackFrames.Count; next++)
+        {
+            if (next < blackFrames.Count && blackFrames[next].Frame == blackFrames[next - 1].Frame + 1)
+            {
+                continue;
+            }
+
+            var start = blackFrames[runFirst].Time;
+            var frames = next - runFirst;
+            if (start >= earliest
+                && start <= latest
+                && frames > 1
+                && (blackFrames[next - 1].Time - start) * frames / (frames - 1) >= minimumLength)
+            {
+                return start;
+            }
+
+            runFirst = next;
+        }
+
+        return null;
     }
 
     // The latest black frame time in the closed interval [minimum, maximum], if any.

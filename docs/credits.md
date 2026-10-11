@@ -32,7 +32,13 @@ Order carries no information: shared audio before, inside or after a black roll 
 
 ### Derived previews
 
-When previews derive from the credits end (see `docs/analysis.md`), `AnimePreviewDeriver` starts the preview at the end of the last credits run, counting rows that overlap or touch as one whatever their source. It runs through the end of the episode, and only when at least `MinimumPreviewDuration` fits after the last run. It derives right after a credits result lands, and again in the Preview mode for episodes no preview analyzer settled, so a season whose credits are all user-provided still refreshes its previews when the preview settings change. If credits are split around a mid-credits scene, the preview starts after the final credits block, not at that scene.
+When previews derive from the credits end (see `docs/analysis.md`), `AnimePreviewDeriver` starts the preview at the end of the last credits run, counting rows that overlap or touch as one whatever their source. It runs through the end of the episode, and only when at least `MinimumPreviewDuration` fits after the last run. Credits split around a mid-credits scene therefore give a preview after the final run, not that scene. `ConfigHasher` adds a token for this rule to the Preview hash of a season that derives previews. Changing the rule means bumping that token, which re-derives those seasons' previews and reopens no other season.
+
+The deriver runs right after a credits result lands, and again in the Preview mode for episodes no preview analyzer settled, so a season whose credits are all user-provided still refreshes its previews when the preview settings change or the derivation token is bumped. With `ScanPreview` off the Preview mode never runs, so a season keeps its derived previews until its Credits mode runs again.
+
+A derived preview ranks below chapter and subtitle previews (`docs/segments.md`). A chapter or subtitle match written in the Preview mode retires the episode's derived preview, and the deriver skips an episode that holds either kind of preview. It leaves that episode unsettled, so the Preview mode can still derive a preview there once it has deleted a stale chapter or subtitle row. When subtitle Preview detection runs later in the same pass, the derive after the credits result leaves every Preview state to it.
+
+12.0.5.0 could store a chapter preview and a derived preview for the same episode. The derivation token reopens the Preview mode of every season that derives previews. With `ScanPreview` on, the first pass after the upgrade writes the chapter match again, which retires the derived row, so the episode keeps only the chapter preview. Seasons that do not derive previews hold no derived rows.
 
 ## The keyframe analyzer
 

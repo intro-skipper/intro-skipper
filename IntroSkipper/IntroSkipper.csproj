@@ -20,6 +20,9 @@
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- The server ships this version and the plugin loads the server's copy; the release
+         zip holds only IntroSkipper.dll. Keep it equal to the server's. -->
+    <PackageReference Include="UTF.Unknown" Version="2.7.0" />
   </ItemGroup>
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />

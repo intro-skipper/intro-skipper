@@ -20,11 +20,13 @@ using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -196,7 +198,8 @@ internal static class EntrypointTestHelpers
         }
     }
 
-    // IServerConfigurationManager stub that answers the given configuration and nothing else.
+    // IServerConfigurationManager stub that answers the given configuration and application
+    // paths whose internal metadata folder is InternalMetadataRoot, and nothing else.
     private class ServerConfigurationProxy : DispatchProxy
     {
         private ServerConfiguration _configuration = new();
@@ -208,9 +211,31 @@ internal static class EntrypointTestHelpers
             return proxy;
         }
 
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) => targetMethod?.Name switch
+        {
+            "get_" + nameof(IServerConfigurationManager.Configuration) => _configuration,
+            "get_" + nameof(IServerConfigurationManager.ApplicationPaths) => ApplicationPathsProxy.Create(),
+            _ => throw new NotImplementedException(targetMethod?.Name),
+        };
+    }
+
+    private class NoRecordingsProxy : DispatchProxy
+    {
+        public static IRecordingsManager Create() => Create<IRecordingsManager, NoRecordingsProxy>();
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-            => targetMethod?.Name == $"get_{nameof(IServerConfigurationManager.Configuration)}"
-                ? _configuration
+            => targetMethod?.Name == nameof(IRecordingsManager.GetActiveRecordingInfo)
+                ? null
+                : throw new NotImplementedException(targetMethod?.Name);
+    }
+
+    private class ApplicationPathsProxy : DispatchProxy
+    {
+        public static IServerApplicationPaths Create() => Create<IServerApplicationPaths, ApplicationPathsProxy>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == "get_" + nameof(IServerApplicationPaths.InternalMetadataPath)
+                ? InternalMetadataRoot
                 : throw new NotImplementedException(targetMethod?.Name);
     }
 
@@ -357,6 +382,23 @@ internal static class EntrypointTestHelpers
     // that answers "yes" for every path (anything else it is asked throws).
     internal static void EnsureLocationTypeResolvable()
         => BaseItem.FileSystem ??= FileSystemProxy.Create();
+
+    /// <summary>
+    /// Gets the folder that test-built items keep their internal metadata folders under
+    /// (<see cref="BaseItem.GetInternalMetadataPath()"/>), one per item id.
+    /// </summary>
+    internal static string InternalMetadataRoot { get; } = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", "metadata");
+
+    // BaseItem.GetInternalMetadataPath reads the server's metadata root from the static
+    // BaseItem.ConfigurationManager, and a video's folder depends on whether the static
+    // Video.RecordingsManager reports it as an active recording. Jellyfin sets both at server
+    // start, so test-built items need stand-ins: a metadata root at InternalMetadataRoot, and no
+    // active recordings.
+    internal static void EnsureInternalMetadataPathResolvable()
+    {
+        BaseItem.ConfigurationManager ??= ServerConfigurationProxy.Create(new ServerConfiguration());
+        Video.RecordingsManager ??= NoRecordingsProxy.Create();
+    }
 
     private class FileSystemProxy : DispatchProxy
     {

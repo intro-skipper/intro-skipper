@@ -72,11 +72,19 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(new PluginConfiguration(), mode, AnalyzerAction.Default, available, alternative, release));
     }
 
+    /// <summary>
+    /// Adopts a completed 10.11 season, or leaves it open where adoption is not allowed:
+    /// Recap and Preview never adopt, nor Credits from .22 and .23. A subtitle override does
+    /// not block another mode. 10.11 derived previews for anime only, so with derived
+    /// previews on, the Credits record of a season that is not anime adopts the hash the
+    /// pass expects for it, which does not derive previews.
+    /// </summary>
     [Theory]
     [InlineData(AnalysisMode.Introduction, false)]
     [InlineData(AnalysisMode.Introduction, false, 24, true, true)]
     [InlineData(AnalysisMode.Credits, false)]
     [InlineData(AnalysisMode.Credits, true)]
+    [InlineData(AnalysisMode.Credits, false, 24, true, false, true)]
     [InlineData(AnalysisMode.Recap, false, 24, false)]
     [InlineData(AnalysisMode.Introduction, false, 22)]
     [InlineData(AnalysisMode.Credits, false, 22, false)]
@@ -95,9 +103,10 @@ public sealed class TestLegacyAnalysisCompatibility
         bool alternative,
         int release = 24,
         bool compatible = true,
-        bool hasSubtitleOverride = false)
+        bool hasSubtitleOverride = false,
+        bool animePreview = false)
     {
-        var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
+        var config = new PluginConfiguration { ReanalyzeSettledSeasons = true, AnimePreviewFromCreditsEnd = animePreview };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -111,7 +120,7 @@ public sealed class TestLegacyAnalysisCompatibility
             var seasonId = Guid.NewGuid();
             var action = AnalyzerAction.Chapter;
             var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, action, true, alternative, release);
-            var currentHash = ConfigHasher.Analysis(config, mode, action, true);
+            var currentHash = ConfigHasher.Analysis(config, mode, action, true, previewFromCreditsEndOverride: false);
             var episodeIdsJson = JsonSerializer.Serialize(ids);
             LegacySchemaFixtures.CreateV5(
                 legacyPath,
@@ -190,7 +199,6 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "legacy")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
-    [InlineData(AnalysisMode.Recap, "cold-open")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -208,7 +216,6 @@ public sealed class TestLegacyAnalysisCompatibility
             case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
-            case "cold-open": config.AnchorRecapToColdOpen = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
@@ -223,11 +230,8 @@ public sealed class TestLegacyAnalysisCompatibility
     [Theory]
     [InlineData(AnalysisMode.Introduction, "offset")]
     [InlineData(AnalysisMode.Credits, "offset")]
-    [InlineData(AnalysisMode.Recap, "offset")]
-    [InlineData(AnalysisMode.Preview, "offset")]
     [InlineData(AnalysisMode.Commercial, "offset")]
     [InlineData(AnalysisMode.Credits, "minimum")]
-    [InlineData(AnalysisMode.Preview, "derived")]
     public async Task SettingsAbsentFromOlderHashes_BlockOlderAdoption(AnalysisMode mode, string setting)
     {
         using var temp = new TempSegmentDb();
@@ -243,7 +247,6 @@ public sealed class TestLegacyAnalysisCompatibility
         {
             case "offset": config.IncludeIntroStartOffsetWhenSnapping = true; break;
             case "minimum": config.MinimumIntroDuration++; break;
-            case "derived": config.AnimePreviewFromCreditsEnd = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(setting));
         }
 

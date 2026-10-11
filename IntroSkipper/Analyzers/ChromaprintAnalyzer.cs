@@ -99,15 +99,6 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            if (mode == AnalysisMode.Recap && currentEpisode.GetAnalyzed(mode) == EpisodeState.Analyzed)
-            {
-                var segments = await _database.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (segments.Any(segment => segment.Type == mode && segment.Source == SegmentSource.Subtitle && segment.State == SegmentState.Active))
-                {
-                    continue;
-                }
-            }
-
             var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!adjustedIntro.Valid)
             {
@@ -116,8 +107,13 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [adjustedIntro], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            // A write a tombstone, a user segment or a higher-ranked current row refused leaves
+            // the episode to the analyzers after this one, as a refused chapter write does.
+            var written = await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [adjustedIntro], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            if (written > 0)
+            {
+                currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
+            }
         }
 
         return analysisQueue;
@@ -396,10 +392,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     /// <summary>
     /// Decides whether a candidate found in a later episode pair replaces the one already saved
-    /// for the same episode. Longer wins. The exception is an anchored recap: recap candidates
-    /// for one episode share their end (the last black frame before the boundary), so a start
-    /// beyond the start snap threshold means a sting past the cold open was found, and it beats
-    /// a candidate that snaps to 0:00 even though that one is longer.
+    /// for the same episode. Longer wins. The exception is an anchored recap: a start beyond the
+    /// start snap threshold means a sting past the cold open was found, and it beats a candidate
+    /// that snaps to 0:00 whichever is longer.
     /// </summary>
     /// <param name="candidate">Newly found segment.</param>
     /// <param name="saved">Segment already saved for the same episode.</param>

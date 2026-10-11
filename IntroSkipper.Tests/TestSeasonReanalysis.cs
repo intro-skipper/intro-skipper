@@ -17,7 +17,9 @@ using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -184,6 +186,8 @@ public sealed class TestSeasonReanalysisPlanner
 
 public sealed class TestSeasonReanalysisReset : IDisposable
 {
+    private static readonly AnalysisMode[] IntroductionAndRecap = [AnalysisMode.Introduction, AnalysisMode.Recap];
+
     private readonly TempSegmentDb _db = new();
 
     public void Dispose() => _db.Dispose();
@@ -436,6 +440,9 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, recordedVersion)], hash);
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(fixture.EpisodeId, recordedVersion)], hash);
 
+        // A text sidecar is read only by subtitle detection, which is off here.
+        fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
+
         var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true));
 
         Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
@@ -445,6 +452,357 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         // of the file is noticed even for modes this run did not cover.
         using var verifyDb = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath);
         Assert.All(await verifyDb.AnalyzedItems.AsNoTracking().ToListAsync(), record => Assert.Equal(2, record.FileVersion));
+    }
+
+    /// <summary>
+    /// A rewritten text sidecar changes what subtitle detection reads, not the media, so it
+    /// reopens only the Recap mode that reads it. A record made while subtitle detection was
+    /// on carries the sidecars in its version, which still reopens only Recap after the
+    /// detection is turned off, even when a sidecar changes before Recap is recorded again.
+    /// No case flags the file as changed, which would reset the item's other modes and
+    /// discard its fingerprints. The sidecar version is compared even when Jellyfin holds
+    /// no media write time (file version 0 here), including when the last sidecar is removed.
+    /// The sidecar version cannot tell a sidecar edit from a replaced media file, so Recap
+    /// reruns subtitle detection alone only while the Introduction record confirms the media
+    /// version. Without a media write time nothing can, and the mode runs its full chain.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "rewrite", 2L, true)]
+    [InlineData(false, "rewrite", 0L, false)]
+    [InlineData(false, "delete", 0L, false)]
+    [InlineData(true, "none", 2L, true)]
+    [InlineData(true, "rewrite", 2L, true)]
+    public async Task VerifyQueueAsync_SubtitleDetectingRecord_ReopensOnlyItsMode(bool turnDetectionOff, string sidecarChange, long fileVersion, bool subtitleOnly)
+    {
+        var config = SubtitleRecapConfig();
+        using var fixture = new VerifyQueueFixture(config, fileVersion);
+        var sidecar = fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
+        await fixture.SettleIntroductionAndRecapAsync();
+        var settled = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
+        Assert.Equal(EpisodeState.NoSegments, settled.GetAnalyzed(AnalysisMode.Recap));
+
+        config.EnableSubtitleRecapDetection = !turnDetectionOff;
+        if (sidecarChange == "rewrite")
+        {
+            await File.AppendAllTextAsync(sidecar, "\n2\n00:00:03,000 --> 00:00:04,000\nA new line\n");
+        }
+        else if (sidecarChange == "delete")
+        {
+            File.Delete(sidecar);
+        }
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
+
+        Assert.False(episode.FileChanged);
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Recap));
+        Assert.Equal(subtitleOnly, episode.NeedsSubtitleOnlyReanalysis(AnalysisMode.Recap));
+    }
+
+    // A record made while Chromaprint was available settles through the availability
+    // fallback when this pass's probe fails. A rewritten sidecar must reopen Recap all the
+    // same, or the new sidecar version would be recorded without being read.
+    [Fact]
+    public async Task VerifyQueueAsync_SidecarRewrite_ReopensRecapWhenTheChromaprintProbeFails()
+    {
+        using var fixture = new VerifyQueueFixture(SubtitleRecapConfig(), fileVersion: 2);
+        var sidecar = fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
+        await fixture.SettleIntroductionAndRecapAsync(chromaprintAvailable: true);
+        await File.AppendAllTextAsync(sidecar, "\n2\n00:00:03,000 --> 00:00:04,000\nA new line\n");
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
+
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Recap));
+    }
+
+    // The sidecar version differs and the conventional settings changed too, so the stored
+    // chapter recap is not current and Recap runs its full chain instead of subtitle detection
+    // alone. The chapter recap is longer than the new maximum, so none remains. The version
+    // differs because the sidecar was rewritten, or because detection was turned on, which
+    // records the sidecar version where the media version stood.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnalyzeItemsAsync_SidecarAndConventionalSettingsChange_RunsTheFullChain(bool detectionOnBefore)
+    {
+        var config = SubtitleRecapConfig();
+        config.EnableSubtitleRecapDetection = detectionOnBefore;
+        config.DetectRecapUsingBlackFrames = false;
+        config.MaximumRecapDuration = 120;
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, RecapChapters());
+        var sidecar = fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+        var database = fixture.CreateDatabase();
+        var ffmpeg = new StubFFmpegService { VersionCheck = () => false, Subtitles = _ => new([], Complete: true), KeyFrames = (_, _, _) => [], Silence = (_, _, _) => [] };
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Contains(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Recap && s.Source == SegmentSource.Chapter);
+
+        config.MaximumRecapDuration = 60;
+        config.EnableSubtitleRecapDetection = true;
+        if (detectionOnBefore)
+        {
+            await File.AppendAllTextAsync(sidecar, "\n2\n00:00:03,000 --> 00:00:04,000\nA new line\n");
+        }
+
+        await fixture.AnalyzeAsync(ffmpeg);
+
+        Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Recap);
+    }
+
+    // A sidecar rewrite of an unchanged file removed the cue behind a subtitle recap. The
+    // analyzers ranked below subtitles never ran for the episode, so it gets the full chain
+    // instead of subtitle detection alone, which reaches the black-frame fallback.
+    [Fact]
+    public async Task AnalyzeItemsAsync_SidecarRewriteBehindASubtitleRecap_RunsTheFullChain()
+    {
+        var config = SubtitleRecapConfig();
+        config.DetectRecapUsingBlackFrames = true;
+        ChapterInfo[] chapters = [new() { Name = "Cold open", StartPositionTicks = 0 }, new() { Name = "Story", StartPositionTicks = DatabaseTestHelpers.Ticks(60) }];
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, chapters);
+        var sidecar = fixture.WriteSidecar(".en.srt", "1\n00:00:10,000 --> 00:00:13,000\nPreviously on\n");
+        var database = fixture.CreateDatabase();
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false, Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on")], Complete: true), KeyFrames = (_, _, _) => [], Silence = (_, _, _) => [] });
+        Assert.Equal(SegmentSource.Subtitle, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId)).Source);
+
+        await File.WriteAllTextAsync(sidecar, "1\n00:00:10,000 --> 00:00:13,000\nHello\n");
+        var ffmpeg = new StubFFmpegService { VersionCheck = () => false, Subtitles = _ => new([], Complete: true), RangeBlackFrames = (_, _, _, _, _) => [], KeyFrames = (_, _, _) => [], Silence = (_, _, _) => [] };
+        await fixture.AnalyzeAsync(ffmpeg);
+
+        Assert.Contains(ffmpeg.Calls, call => call is StubFFmpegService.RangeScan);
+        Assert.Empty(await database.GetSegmentsAsync(fixture.EpisodeId));
+    }
+
+    // In a library that scans only Previews, a replaced media file leaves the Preview record
+    // the only one, and with no sidecars its sidecar version is the old media version. No
+    // other record confirms the media version, so the item is reset like any replaced file
+    // and Preview finds the new file's chapter instead of keeping the old file's.
+    [Fact]
+    public async Task AnalyzeItemsAsync_ReplacedFileInAPreviewOnlyLibrary_FindsTheNewChapter()
+    {
+        var config = PreviewOnlyConfig(scanRecap: false);
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, PreviewChapters(200));
+        var database = fixture.CreateDatabase();
+        var hash = ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, ffmpegValid: true);
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Preview, [new Segment(fixture.EpisodeId, new TimeRange(150, 200))], SegmentSource.Chapter, hash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(fixture.EpisodeId, (long?)1)], hash);
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => true, Subtitles = _ => new([], Complete: true) });
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId));
+        Assert.Equal(200, TickConversions.ToSeconds(preview.StartTicks));
+    }
+
+    // A Recap-only library recorded a chapter recap with subtitle detection on, then the
+    // media file was replaced by one without a recap. Whether detection stays on or was
+    // turned off since, the Recap record cannot tell the new file from a sidecar change and
+    // nothing else confirms the media version, so the old file's recap must not survive.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnalyzeItemsAsync_ReplacedFileInARecapOnlyLibrary_DropsTheOldFilesRecap(bool detectionStaysOn)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = false,
+            ScanRecap = true,
+            ScanPreview = false,
+            ScanCommercial = false,
+            ReanalyzeSettledSeasons = false,
+            DetectRecapUsingBlackFrames = false,
+            EnableSubtitleRecapDetection = true,
+        };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var database = fixture.CreateDatabase();
+        var hash = ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: false);
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Recap, [new Segment(fixture.EpisodeId, new TimeRange(0, 60))], SegmentSource.Chapter, hash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [(fixture.EpisodeId, (long?)1)], hash);
+        config.EnableSubtitleRecapDetection = detectionStaysOn;
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false, Subtitles = _ => new([], Complete: true) });
+
+        Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Recap);
+    }
+
+    // A Recap record of a mode the season stopped running (its action is None) proves the
+    // media file was replaced, though the Preview record, which records the sidecar version,
+    // cannot. The item is reset, and Preview finds the new file's chapter.
+    [Fact]
+    public async Task AnalyzeItemsAsync_ReplacedFileProvenByTheRecapRecord_ResetsTheItem()
+    {
+        var config = PreviewOnlyConfig(scanRecap: true);
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, PreviewChapters(200));
+        var database = fixture.CreateDatabase();
+        await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Recap] = AnalyzerAction.None });
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(fixture.EpisodeId, (long?)1)], ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, ffmpegValid: true));
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [(fixture.EpisodeId, (long?)1)], ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.None, ffmpegValid: true));
+
+        Assert.True(Assert.Single(await fixture.VerifyAsync(ffmpegValid: true, [AnalysisMode.Recap, AnalysisMode.Preview])).FileChanged);
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => true, Subtitles = _ => new([], Complete: true) });
+
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Preview).Source);
+    }
+
+    // 12.0.5.0 derived a preview from the end of the first credits run to the start of the
+    // next; previews now run from the end of the last credits run. A season upgraded with
+    // such a preview re-derives it once under the new rule.
+    [Fact]
+    public async Task AnalyzeItemsAsync_PreviewDerivedBy12050_ReDerivesFromTheLastCreditsRun()
+    {
+        var config = new PluginConfiguration { ScanIntroduction = false, ScanCredits = true, ScanRecap = false, ScanPreview = true, ScanCommercial = false, ReanalyzeSettledSeasons = false };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: true, null, null);
+
+        // The hashes 12.0.5.0 wrote for this configuration.
+        const string CreditsHash = "4D98C93D2975E2EE";
+        const string PreviewHash = "2735F6E29B514900";
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Credits, [new Segment(fixture.EpisodeId, new TimeRange(120, 150)), new Segment(fixture.EpisodeId, new TimeRange(200, 205))], SegmentSource.Chromaprint, CreditsHash);
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Preview, [new Segment(fixture.EpisodeId, new TimeRange(150, 200))], SegmentSource.CreditsDerived, PreviewHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(fixture.EpisodeId, (long?)2)], CreditsHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(fixture.EpisodeId, (long?)2)], PreviewHash);
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => true });
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Preview);
+        Assert.Equal(205, TickConversions.ToSeconds(preview.StartTicks), 1);
+    }
+
+    // A season override turns subtitle recap detection on against the plugin-wide setting.
+    // The first pass reads the subtitles once and the next one settles without reading them
+    // again. Clearing the override returns the season to the plugin-wide setting, and Recap is
+    // recorded again under the detection-off hash, still without reading subtitles.
+    [Fact]
+    public async Task AnalyzeItemsAsync_SeasonSubtitleOverride_SettlesAndFollowsItsRemoval()
+    {
+        var config = SubtitleRecapConfig();
+        config.EnableSubtitleRecapDetection = false;
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, null, subtitleRecapDetection: true, subtitlePreviewDetection: null);
+        var extractions = 0;
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            Subtitles = _ =>
+            {
+                extractions++;
+                return new([], Complete: true);
+            },
+        };
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(1, extractions);
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(1, extractions);
+
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, null, null, null);
+        await fixture.AnalyzeAsync(ffmpeg);
+        await fixture.AnalyzeAsync(ffmpeg);
+
+        Assert.Equal(1, extractions);
+        var record = (await database.GetSeasonQueueSnapshotAsync(fixture.SeasonId, [fixture.EpisodeId])).AnalysisRecords[(fixture.EpisodeId, AnalysisMode.Recap)];
+        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: false), record.ConfigHash);
+    }
+
+    // A Recap or Preview record is the only evidence a Recap-only library has that a file
+    // was replaced, and it still is once the library stops scanning the mode. With subtitle
+    // detection off, a record whose hash still matches was written under today's settings
+    // and carries the media version. One with a stale hash may carry the sidecar version a
+    // subtitle-detecting pass recorded, so its different version cannot tell a sidecar change
+    // from a replaced file, and with no other record to confirm the media version the item is
+    // reset all the same, whether or not the pass runs the mode.
+    [Theory]
+    [InlineData(AnalysisMode.Recap, true, true)]
+    [InlineData(AnalysisMode.Recap, false, true)]
+    [InlineData(AnalysisMode.Recap, true, false)]
+    [InlineData(AnalysisMode.Recap, false, false)]
+    [InlineData(AnalysisMode.Preview, true, true)]
+    [InlineData(AnalysisMode.Preview, false, true)]
+    [InlineData(AnalysisMode.Preview, true, false)]
+    [InlineData(AnalysisMode.Preview, false, false)]
+    public async Task VerifyQueueAsync_SubtitleModeRecordWithDetectionOff_FlagsChangedFileWithoutAConfirmingRecord(AnalysisMode mode, bool hashMatches, bool modeInPass)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = !modeInPass,
+            ScanCredits = false,
+            ScanRecap = modeInPass && mode == AnalysisMode.Recap,
+            ScanPreview = modeInPass && mode == AnalysisMode.Preview,
+            ScanCommercial = false,
+        };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [mode] = AnalyzerAction.Chapter });
+        var hash = hashMatches ? ConfigHasher.Analysis(config, mode, AnalyzerAction.Chapter, ffmpegValid: true) : "stale-hash";
+        await database.MarkItemsAnalyzedAsync(mode, [(fixture.EpisodeId, (long?)1)], hash);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true, modeInPass ? [mode] : [AnalysisMode.Introduction]));
+
+        Assert.True(episode.FileChanged);
+        if (modeInPass)
+        {
+            Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(mode));
+        }
+    }
+
+    // A sidecar version change reopens the mode under a matching hash and is logged at
+    // Information level. When the hash is stale too, the hash change is the useful reason.
+    // The Introduction record confirms the media version, so the file counts as unchanged.
+    [Theory]
+    [InlineData(true, "files changed")]
+    [InlineData(false, "configuration hash changed")]
+    public async Task LogAnalysisReasons_ModeReopenedByItsFileVersion_LogsTheReasonAtInformation(bool hashMatches, string reason)
+    {
+        var config = SubtitleRecapConfig();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = Guid.NewGuid(), SeasonNumber = 1, FileVersion = 2, SubtitleFileVersion = 5 };
+        var hash = hashMatches ? ConfigHasher.Analysis(config, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true) : "stale-hash";
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(episode.EpisodeId, (long?)2)], "introduction-hash");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [(episode.EpisodeId, (long?)3)], hash);
+        var verifier = new QueueVerifier(config, [AnalysisMode.Recap], await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]), ffmpegValid: true);
+        var logger = new CapturingLogger<QueueVerifier>();
+
+        verifier.Classify(episode);
+        verifier.LogAnalysisReasons(logger, [episode]);
+
+        Assert.False(episode.FileChanged);
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains(reason, entry.Message, StringComparison.Ordinal);
+    }
+
+    // Subtitle detection never reads a sidecar in an unselected language, so adding one
+    // leaves the recorded version, and the mode, as they were.
+    [Fact]
+    public async Task VerifyQueueAsync_SidecarInAnUnselectedLanguage_KeepsTheModeSettled()
+    {
+        var config = SubtitleRecapConfig();
+        config.SubtitleLanguages = "ger";
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        await fixture.SettleIntroductionAndRecapAsync();
+
+        fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n");
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Recap));
+    }
+
+    // Jellyfin saves a downloaded subtitle to the item's internal metadata folder when the
+    // library does not save subtitles with the media. Subtitle detection reads it there, so
+    // adding one reopens the mode that reads it.
+    [Fact]
+    public async Task VerifyQueueAsync_SidecarAddedToTheMetadataFolder_ReopensTheSubtitleMode()
+    {
+        using var fixture = new VerifyQueueFixture(SubtitleRecapConfig(), fileVersion: 2);
+        await fixture.SettleIntroductionAndRecapAsync();
+
+        fixture.WriteSidecar(".en.srt", "1\n00:00:01,000 --> 00:00:02,000\nPreviously on\n", inMetadataFolder: true);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false, IntroductionAndRecap));
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Recap));
     }
 
     [Fact]
@@ -471,14 +829,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Introduction, [new Segment(fixture.EpisodeId, new TimeRange(0, 30))], SegmentSource.Chromaprint, hash);
         cacheDatabase.Upsert(fixture.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
 
-        var analyzer = new BaseItemAnalyzerTask(
-            NullLoggerFactory.Instance,
-            EntrypointTestHelpers.CreateSeasonResolver(fixture.LibraryManager),
-            new StubFFmpegService { VersionCheck = () => false },
-            DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-            cacheDatabase,
-            database);
-        await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [fixture.SeasonId]);
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false }, cacheDbPath);
 
         Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId, includeSuppressed: true), s => s.State == SegmentState.Active);
         using var cache = DatabaseTestHelpers.CreateCacheContext(cacheDbPath);
@@ -487,6 +838,22 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var record = await verifyDb.AnalyzedItems.AsNoTracking().SingleAsync();
         Assert.Equal(hash, record.ConfigHash);
         Assert.Equal(2, record.FileVersion);
+    }
+
+    // Subtitle rows were timed against the replaced file, so the reset drops them with the
+    // other automatic rows. Kept as the fallback, they would outlive any scan of the new
+    // file that settles nothing, such as this incomplete one.
+    [Fact]
+    public async Task AnalyzeItemsAsync_ChangedFile_DiscardsSubtitleRows()
+    {
+        using var fixture = new VerifyQueueFixture(SubtitleRecapConfig(), fileVersion: 2);
+        var database = fixture.CreateDatabase();
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)1)], "intro-hash");
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Recap, [new Segment(fixture.EpisodeId, new TimeRange(10, 60))], SegmentSource.Subtitle, "recap-hash");
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false, Subtitles = _ => new SubtitleScan([], Complete: false) });
+
+        Assert.DoesNotContain(await database.GetSegmentsAsync(fixture.EpisodeId), s => s.Type == AnalysisMode.Recap);
     }
 
     [Fact]
@@ -520,6 +887,46 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(fixture.EpisodeId, Assert.Single(verified).EpisodeId);
     }
 
+    // Scans Introduction and Recap, with subtitle recap detection on.
+    private static PluginConfiguration SubtitleRecapConfig() => new()
+    {
+        ScanIntroduction = true,
+        ScanCredits = false,
+        ScanRecap = true,
+        ScanPreview = false,
+        ScanCommercial = false,
+        EnableSubtitleRecapDetection = true,
+    };
+
+    // Scans Preview, and Recap when asked, with subtitle preview detection on and chapter
+    // previews taken as authored.
+    private static PluginConfiguration PreviewOnlyConfig(bool scanRecap) => new()
+    {
+        ScanIntroduction = false,
+        ScanCredits = false,
+        ScanRecap = scanRecap,
+        ScanPreview = true,
+        ScanCommercial = false,
+        ReanalyzeSettledSeasons = false,
+        EnableSubtitlePreviewDetection = true,
+        EnableSponsorBlockChapterDetection = false,
+        SnapToKeyframe = false,
+    };
+
+    // A recap chapter from 10 to 100 s.
+    private static ChapterInfo[] RecapChapters() =>
+    [
+        new() { Name = "Opening", StartPositionTicks = 0 },
+        new() { Name = "Recap", StartPositionTicks = DatabaseTestHelpers.Ticks(10) },
+        new() { Name = "Episode", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
+    ];
+
+    private static ChapterInfo[] PreviewChapters(double previewStart) =>
+    [
+        new() { Name = "Episode", StartPositionTicks = 0 },
+        new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(previewStart) },
+    ];
+
     // The production eligibility decision: the same batch read (GetSettleReanalysisStatesAsync)
     // and SeasonReanalysisPlanner.GetSettleReanalysisModes call the analyzer makes.
     private static async Task<bool> ShouldReanalyzeAsync(
@@ -533,25 +940,28 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     /// <summary>
-    /// One queued episode whose media file exists on disk, the only item of one library
-    /// in the plugin instance's library manager, over a fresh segment database. The file
-    /// version is the write time Jellyfin holds for the episode, in ticks.
+    /// One queued episode, four minutes long, whose media file exists on disk, the only item
+    /// of one library in the plugin instance's library manager, over a fresh segment
+    /// database. The file version is the write time Jellyfin holds for the episode, in ticks.
+    /// The episode has the given chapters, or none.
     /// </summary>
     private sealed class VerifyQueueFixture : IDisposable
     {
         private readonly TempSegmentDb _db = new();
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
         private readonly string _mediaPath;
+        private readonly Episode _episode;
+        private readonly List<string> _sidecars = [];
 
-        public VerifyQueueFixture(PluginConfiguration config, long fileVersion = 0)
+        public VerifyQueueFixture(PluginConfiguration config, long fileVersion = 0, ChapterInfo[]? chapters = null)
         {
             _mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
             File.WriteAllText(_mediaPath, string.Empty);
 
-            _scope = EntrypointTestHelpers.CreatePluginScope(config);
-            var episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
-            episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
-            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
+            _scope = EntrypointTestHelpers.CreatePluginScope(config, chapters ?? []);
+            _episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
+            _episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
+            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(_episode));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", LibraryManager);
         }
 
@@ -565,9 +975,48 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         public IntroSkipperDatabase CreateDatabase() => _db.CreateDatabase();
 
+        // Writes a subtitle sidecar named like the media file, e.g. suffix ".en.srt", next to
+        // the media file or in the item's internal metadata folder, and returns its path. The
+        // fixture deletes it.
+        public string WriteSidecar(string suffix, string text, bool inMetadataFolder = false)
+        {
+            var path = inMetadataFolder
+                ? Path.Join(Directory.CreateDirectory(_episode.GetInternalMetadataPath()).FullName, Path.GetFileNameWithoutExtension(_mediaPath) + suffix)
+                : Path.ChangeExtension(_mediaPath, suffix);
+            File.WriteAllText(path, text);
+            _sidecars.Add(path);
+            return path;
+        }
+
+        // Records Introduction and Recap as analyzed through a full pass without running an
+        // analyzer: a season whose analyzer action is None records each mode with the file
+        // version the mode depends on, under the hash for the given Chromaprint availability.
+        public async Task SettleIntroductionAndRecapAsync(bool chromaprintAvailable = false)
+        {
+            await _db.CreateDatabase().SetAnalyzerActionAsync(
+                SeasonId,
+                new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None, [AnalysisMode.Recap] = AnalyzerAction.None });
+            await AnalyzeAsync(new StubFFmpegService { VersionCheck = () => chromaprintAvailable });
+        }
+
+        // Runs a full pass over the season, as the scheduler does, with a fresh detection
+        // cache unless the test passes the path of one it seeded.
+        public Task AnalyzeAsync(IFFmpegService ffmpeg, string? cacheDbPath = null)
+        {
+            cacheDbPath ??= DatabaseTestHelpers.CreateTempCacheDbPath();
+            return new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(LibraryManager),
+                ffmpeg,
+                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+                DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
+                _db.CreateDatabase()).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId]);
+        }
+
         // Verifies the season as a pass would: resolved from the library right before
-        // verification, so the path and file version come from the resolver.
-        public Task<IReadOnlyList<QueuedEpisode>> VerifyAsync(bool ffmpegValid)
+        // verification, so the path and file version come from the resolver. Without
+        // modes, the pass covers Introduction only.
+        public Task<IReadOnlyList<QueuedEpisode>> VerifyAsync(bool ffmpegValid, IReadOnlyCollection<AnalysisMode>? modes = null)
         {
             var resolver = EntrypointTestHelpers.CreateSeasonResolver(LibraryManager);
             var task = new BaseItemAnalyzerTask(
@@ -577,13 +1026,18 @@ public sealed class TestSeasonReanalysisReset : IDisposable
                 cacheService: null!,
                 cacheDatabase: null!,
                 _db.CreateDatabase());
-            return task.VerifyQueueAsync(resolver.ResolveDisplayed(SeasonId)!.Episodes, [AnalysisMode.Introduction], ffmpegValid);
+            return task.VerifyQueueAsync(resolver.ResolveDisplayed(SeasonId)!.Episodes, modes ?? [AnalysisMode.Introduction], ffmpegValid);
         }
 
         public void Dispose()
         {
             _scope.Dispose();
             File.Delete(_mediaPath);
+            _sidecars.ForEach(File.Delete);
+            if (Directory.Exists(_episode.GetInternalMetadataPath()))
+            {
+                Directory.Delete(_episode.GetInternalMetadataPath());
+            }
             _db.Dispose();
         }
     }
