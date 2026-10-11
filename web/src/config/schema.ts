@@ -421,7 +421,7 @@ export const configSchema = {
     // Subtitles
     SubtitleRecapPattern: {
         kind: "regex",
-        label: "Subtitle recaps",
+        label: "Recap regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
         default:
@@ -429,7 +429,7 @@ export const configSchema = {
     },
     SubtitlePreviewPattern: {
         kind: "regex",
-        label: "Subtitle previews",
+        label: "Preview regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
         default:
