@@ -18,24 +18,35 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <summary>
-    /// Atomically replaces the active automatic segments the writing pass produced for
-    /// an item and mode with the admitted subset of <paramref name="segments"/>
-    /// (<see cref="AutoSegmentAdmissionPolicy"/>: tombstones, user rows and intro
-    /// overlap for credits reject a candidate; exact matches of the other pass or of
-    /// an earlier candidate are dropped). Rows whose boundaries match an accepted
-    /// segment keep their ids; an empty list clears the pass's rows; a non-empty list
-    /// whose candidates were all rejected leaves the standing rows untouched. User
-    /// segments and tombstones are never touched. A write that changes the servable
-    /// image journals the item's projection in the same transaction.
+    /// Atomically replaces an item's active automatic segments of a mode with the admitted
+    /// subset of <paramref name="segments"/> (<see cref="AutoSegmentAdmissionPolicy"/>:
+    /// tombstones, user rows and intro overlap for credits reject a candidate; a repeat of an
+    /// earlier candidate is dropped). Rows whose boundaries match an accepted segment keep
+    /// their ids; an empty list clears the rows of the writer's rank; a non-empty list whose
+    /// candidates were all rejected leaves the standing rows untouched. User segments and
+    /// tombstones are never touched. A write that changes the servable image journals the
+    /// item's projection in the same transaction.
     /// </summary>
+    /// <remarks>
+    /// A mode serves one automatic result, the one of the highest rank. In Recap and Preview,
+    /// <see cref="SegmentSource.Chapter"/> rows rank first, then
+    /// <see cref="SegmentSource.Subtitle"/>, then every other analyzer, then
+    /// <see cref="SegmentSource.CreditsDerived"/>; in the other modes every source ranks the
+    /// same. A row ranks by its source only while its <see cref="DbSegment.ConfigHash"/> is
+    /// empty or equals <paramref name="configHash"/>: a row another configuration produced is
+    /// stale, ranks below every writer, and neither blocks the write nor survives it. A
+    /// credits-derived write carries the credits hash, so it compares sources alone. While a
+    /// higher-ranked row stands, a write changes nothing and returns 0. A write with a segment
+    /// standing retires every other automatic row of the mode.
+    /// </remarks>
     /// <param name="itemId">Item ID.</param>
     /// <param name="mode">Analysis mode the segments belong to.</param>
     /// <param name="segments">Detected segments in seconds.</param>
     /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
     /// <param name="configHash">Configuration hash that produced the segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of the pass's active automatic segments written or kept;
-    /// 0 for a fully rejected write.</returns>
+    /// <returns>The number of the writer's active automatic segments written or kept; 0 for
+    /// a fully rejected write, or for a write a higher-ranked row blocks.</returns>
     public Task<int> ReplaceAutoSegmentsAsync(
         Guid itemId,
         AnalysisMode mode,
@@ -53,25 +64,23 @@ public sealed partial class IntroSkipperDatabase
             itemId,
             mode,
             [.. segments.Select(s => new AttributedSegment(s, source))],
-            derivedWrite: source == SegmentSource.CreditsDerived,
+            source,
             configHash,
-            cancellationToken,
-            replacementSource: source);
+            cancellationToken);
     }
 
     /// <summary>
     /// The per-segment-source form of <see cref="ReplaceAutoSegmentsAsync(Guid, AnalysisMode, IReadOnlyList{Segment}, SegmentSource, string, CancellationToken)"/>
-    /// for a pass whose segments come from different analyzers. Same admission,
-    /// id-keeping and journaling rules; the write is attributed to the mode's own pass,
-    /// never to the credits-derived preview pass.
+    /// for the credits pass, whose segments come from different analyzers. Same admission,
+    /// id-keeping, ranking and journaling rules; the write ranks with the analyzers.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="mode">Analysis mode the segments belong to.</param>
     /// <param name="segments">Detected segments in seconds, each with its source; no source may be <see cref="SegmentSource.User"/> or <see cref="SegmentSource.CreditsDerived"/>.</param>
     /// <param name="configHash">Configuration hash that produced the segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of the pass's active automatic segments written or kept;
-    /// 0 for a fully rejected write.</returns>
+    /// <returns>The number of the writer's active automatic segments written or kept; 0 for
+    /// a fully rejected write.</returns>
     public Task<int> ReplaceAutoSegmentsAsync(
         Guid itemId,
         AnalysisMode mode,
@@ -84,65 +93,8 @@ public sealed partial class IntroSkipperDatabase
             throw new ArgumentException("Per-segment analysis writes must not use the User or CreditsDerived source.", nameof(segments));
         }
 
-        return ReplaceAutoSegmentsCoreAsync(
-            itemId,
-            mode,
-            segments,
-            derivedWrite: false,
-            configHash,
-            cancellationToken,
-            replacementSource: segments.Count > 0 ? segments[0].Source : null);
+        return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, writer: null, configHash, cancellationToken);
     }
-
-    /// <summary>
-    /// Atomically replaces a subtitle-detected Preview only when no higher-priority Chapter
-    /// Preview stands and automatic-segment admission accepts the candidate. An admitted subtitle
-    /// supersedes lower-priority automatic previews, including Credits-derived previews.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="segment">Subtitle-detected Preview candidate.</param>
-    /// <param name="configHash">Configuration hash that produced the segment.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>1 when the candidate was written or kept; 0 when admission rejected it.</returns>
-    public Task<int> ReplaceSubtitlePreviewAsync(
-        Guid itemId,
-        Segment segment,
-        string configHash = "",
-        CancellationToken cancellationToken = default)
-        => ReplaceAutoSegmentsCoreAsync(
-            itemId,
-            AnalysisMode.Preview,
-            [new AttributedSegment(segment, SegmentSource.Subtitle)],
-            derivedWrite: false,
-            configHash,
-            cancellationToken,
-            supersedeCreditsDerived: true,
-            replacementSource: SegmentSource.Subtitle);
-
-    /// <summary>
-    /// Atomically replaces an admitted chapter Preview and supersedes competing automatic
-    /// Preview rows, including subtitle and credits-derived fallbacks. Rejected chapter
-    /// candidates leave every standing Preview row untouched.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="segments">Chapter Preview candidates.</param>
-    /// <param name="configHash">Configuration hash that produced the candidates.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of chapter Preview rows written or kept; 0 for a fully rejected write.</returns>
-    public Task<int> ReplaceChapterPreviewAsync(
-        Guid itemId,
-        IReadOnlyList<Segment> segments,
-        string configHash = "",
-        CancellationToken cancellationToken = default)
-        => ReplaceAutoSegmentsCoreAsync(
-            itemId,
-            AnalysisMode.Preview,
-            [.. segments.Select(segment => new AttributedSegment(segment, SegmentSource.Chapter))],
-            derivedWrite: false,
-            configHash,
-            cancellationToken,
-            supersedeCreditsDerived: true,
-            replacementSource: SegmentSource.Chapter);
 
     /// <summary>
     /// Removes active subtitle-generated segments after a subtitle source was read
@@ -180,15 +132,27 @@ public sealed partial class IntroSkipperDatabase
         }
     }
 
+    // The rank of an automatic row's source within its mode (see ReplaceAutoSegmentsAsync).
+    // Null, the writer of the credits pass's mixed-source form, ranks with the analyzers.
+    private static int SourceRank(AnalysisMode mode, SegmentSource? source)
+        => mode is not (AnalysisMode.Recap or AnalysisMode.Preview)
+            ? 1
+            : source switch
+            {
+                SegmentSource.Chapter => 3,
+                SegmentSource.Subtitle => 2,
+                SegmentSource.CreditsDerived => 0,
+                _ => 1,
+            };
+
+    // writer is the writing analyzer's source, or null for the credits pass's mixed-source form.
     private async Task<int> ReplaceAutoSegmentsCoreAsync(
         Guid itemId,
         AnalysisMode mode,
         IReadOnlyList<AttributedSegment> segments,
-        bool derivedWrite,
+        SegmentSource? writer,
         string configHash,
-        CancellationToken cancellationToken,
-        bool supersedeCreditsDerived = false,
-        SegmentSource? replacementSource = null)
+        CancellationToken cancellationToken)
     {
         ValidateMode(mode);
 
@@ -205,29 +169,25 @@ public sealed partial class IntroSkipperDatabase
                 .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
-            var existing = itemRows.Where(s => s.Type == mode).ToList();
+            var activeAutoRows = itemRows
+                .Where(s => s.Type == mode && s.State == SegmentState.Active && s.Source != SegmentSource.User)
+                .ToList();
 
-            var activeAutoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
-            var rankedPreviewWrite = mode is (AnalysisMode.Recap or AnalysisMode.Preview) && replacementSource is not null;
-            var replacementRank = rankedPreviewWrite ? AutomaticSourceRank(mode, replacementSource!.Value) : 0;
-            var autoRows = rankedPreviewWrite
-                ? activeAutoRows.Where(row => AutomaticSourceRank(mode, row.Source) <= replacementRank).ToList()
-                : activeAutoRows.Where(row => (row.Source == SegmentSource.CreditsDerived) == derivedWrite).ToList();
-            var otherPassRows = rankedPreviewWrite
-                ? activeAutoRows.Where(row => AutomaticSourceRank(mode, row.Source) > replacementRank).ToList()
-                : activeAutoRows.Where(row => (row.Source == SegmentSource.CreditsDerived) != derivedWrite).ToList();
+            // A stale row ranks below every writer: the configuration that produced it no
+            // longer holds, so it must not outrank the analyzers re-running under the new one.
+            // A credits-derived write carries the credits hash, not the preview hash, so it
+            // compares sources alone.
+            var rank = SourceRank(mode, writer);
+            if (activeAutoRows.Any(row => SourceRank(mode, row.Source) > rank
+                && (writer == SegmentSource.CreditsDerived || row.ConfigHash.Length == 0 || row.ConfigHash == configHash)))
+            {
+                return 0;
+            }
 
             var accepted = new List<DbSegment>();
             var rejected = 0;
             foreach (var (segment, source) in segments.OrderBy(s => s.Segment.Start))
             {
-                if (rankedPreviewWrite
-                    && activeAutoRows.Any(row => AutomaticSourceRank(mode, row.Source) > AutomaticSourceRank(mode, source)))
-                {
-                    rejected++;
-                    continue;
-                }
-
                 if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                 {
                     rejected++;
@@ -254,16 +214,6 @@ public sealed partial class IntroSkipperDatabase
                     continue;
                 }
 
-                // An identical range already standing under the other pass keeps that
-                // pass's row; re-inserting it would violate the unique
-                // (ItemId, Type, StartTicks, EndTicks) index.
-                if (!rankedPreviewWrite
-                    && !supersedeCreditsDerived
-                    && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
-                {
-                    continue;
-                }
-
                 if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
                 {
                     continue;
@@ -273,33 +223,29 @@ public sealed partial class IntroSkipperDatabase
             }
 
             // A write whose candidates were all rejected by the admission gate must not
-            // clear the pass's standing rows: each rejection records human intent
-            // (tombstone, user row) or policy (credits vs intro), not evidence that the
-            // standing detection went stale - stale rows are
-            // CleanStaleAutomaticSegmentsAsync's job. Candidates satisfied by an exact
-            // other-pass row are not rejections, so the normal replace still runs for
-            // them, and an empty input list still clears the pass's rows as documented.
+            // clear the standing rows: each rejection records human intent (tombstone, user
+            // row) or policy (credits vs intro), not evidence that the standing detection
+            // went stale. Stale rows are CleanStaleAutomaticSegmentsAsync's job.
             if (accepted.Count == 0 && rejected > 0)
             {
                 return 0;
             }
 
-            if (!rankedPreviewWrite && supersedeCreditsDerived && accepted.Count > 0)
-            {
-                autoRows.AddRange(otherPassRows);
-            }
+            // A write with a segment standing replaces every automatic row of the mode: none
+            // ranks above it. An empty write clears only its own rank, so a chapter analyzer
+            // clearing its result keeps the credits-derived preview. Every automatic row an
+            // accepted range can collide with on the unique (ItemId, Type, StartTicks,
+            // EndTicks) index is in the replaced set, since the admission gate already
+            // rejected the ranges of user rows and tombstones.
+            List<DbSegment> replaced = segments.Count == 0
+                ? [.. activeAutoRows.Where(row => SourceRank(mode, row.Source) == rank)]
+                : activeAutoRows;
 
-            // For Recap and Preview, an empty write clears only its own priority tier;
-            // a successful non-empty write may also retire lower-priority fallback rows.
-            var rowsToReplace = rankedPreviewWrite && accepted.Count == 0
-                ? autoRows.Where(row => AutomaticSourceRank(mode, row.Source) == replacementRank).ToList()
-                : autoRows;
-
-            // Keep automatic rows whose boundaries are unchanged so their ids stay
-            // stable across re-analysis (Jellyfin rows keep the same Guids); replace
-            // the rest.
+            // Keep automatic rows whose boundaries are unchanged so their ids stay stable
+            // across re-analysis (Jellyfin rows keep the same Guids), taking over the range
+            // under the writer's source and hash; replace the rest.
             var kept = 0;
-            foreach (var row in rowsToReplace)
+            foreach (var row in replaced)
             {
                 var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
                 if (match is not null)
@@ -319,7 +265,7 @@ public sealed partial class IntroSkipperDatabase
 
             // Journal only when the servable image changed: kept rows rewrite
             // bookkeeping the mirror does not carry.
-            if (accepted.Count > 0 || rowsToReplace.Count > kept)
+            if (accepted.Count > 0 || replaced.Count > kept)
             {
                 await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
             }
@@ -328,22 +274,6 @@ public sealed partial class IntroSkipperDatabase
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return kept + accepted.Count;
         }
-    }
-
-    private static int AutomaticSourceRank(AnalysisMode mode, SegmentSource source)
-    {
-        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
-        {
-            return 1;
-        }
-
-        return source switch
-        {
-            SegmentSource.Chapter => 3,
-            SegmentSource.Subtitle => 2,
-            SegmentSource.CreditsDerived => 0,
-            _ => 1,
-        };
     }
 
     /// <summary>

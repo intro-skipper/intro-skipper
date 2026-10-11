@@ -41,6 +41,7 @@ internal sealed partial class ChapterAnalyzer(
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _enableChapterDetection = enableChapterDetection;
     private readonly bool _enableRecapBlackFrameFallback = enableRecapBlackFrameFallback;
+    private readonly Dictionary<AnalysisMode, string> _expressions = [];
 
     // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which
     // skips them all, treats them as a match.
@@ -185,9 +186,7 @@ internal sealed partial class ChapterAnalyzer(
             LogFoundChapter(episode.Name, mode, segment.Start, segment.End);
         }
 
-        var written = mode == AnalysisMode.Preview && source == SegmentSource.Chapter
-            ? await _database.ReplaceChapterPreviewAsync(episode.EpisodeId, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false)
-            : await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, source, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        var written = await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, adjusted, source, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
         if (adjusted.Count == 0)
         {
             return EpisodeState.NoSegments;
@@ -216,15 +215,42 @@ internal sealed partial class ChapterAnalyzer(
             : [];
     }
 
-    private string GetExpression(AnalysisMode mode) => mode switch
+    // The mode's chapter pattern, or empty when .NET cannot parse it. The dashboard checks the
+    // pattern as a JavaScript regular expression, whose syntax differs from .NET's, so the
+    // analyzer checks it again before use. It does so once per analyzer and mode and logs one
+    // warning, instead of one per episode. SponsorBlock labels still match without a pattern.
+    private string GetExpression(AnalysisMode mode)
     {
-        AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
-        AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
-        AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
-        AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
-        AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
-        _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-    };
+        if (_expressions.TryGetValue(mode, out var validated))
+        {
+            return validated;
+        }
+
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
+            AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
+        if (!string.IsNullOrWhiteSpace(expression))
+        {
+            try
+            {
+                _ = Regex.IsMatch(string.Empty, expression, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            }
+            catch (ArgumentException ex)
+            {
+                LogInvalidChapterPattern(mode, ex.Message);
+                expression = string.Empty;
+            }
+        }
+
+        _expressions[mode] = expression;
+        return expression;
+    }
 
     /// <summary>
     /// Searches a list of chapter names for all that match the provided regular expression,
@@ -232,7 +258,7 @@ internal sealed partial class ChapterAnalyzer(
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="chapters">Media item chapters.</param>
-    /// <param name="expression">Regular expression pattern.</param>
+    /// <param name="expression">A valid regular expression, or empty to match SponsorBlock labels only.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
     /// <returns>All matching skippable time ranges; empty when no chapter matched.</returns>
@@ -248,19 +274,6 @@ internal sealed partial class ChapterAnalyzer(
         if (count == 0)
         {
             return matches;
-        }
-
-        if (!string.IsNullOrWhiteSpace(expression))
-        {
-            try
-            {
-                _ = Regex.IsMatch(string.Empty, expression, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-            }
-            catch (ArgumentException ex)
-            {
-                LogInvalidChapterPattern(mode, ex.Message);
-                expression = string.Empty;
-            }
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;

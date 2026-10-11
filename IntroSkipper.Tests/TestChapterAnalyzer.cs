@@ -16,6 +16,7 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using static IntroSkipper.Tests.StubFFmpegService;
@@ -241,18 +242,22 @@ public class TestChapterAnalyzer
         Assert.Equal(60, matches[1].End);
     }
 
+    // A chapter pattern that is not a valid regular expression matches nothing and leaves
+    // the episodes to the analyzers after this one, with one warning for the run rather than
+    // one per episode.
     [Fact]
-    public void InvalidChapterPattern_IsIgnoredWithoutThrowing()
+    public async Task InvalidChapterPattern_WarnsOnceAndMatchesNothing()
     {
-        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var config = new Configuration.PluginConfiguration { ChapterAnalyzerPreviewPattern = "(", EnableSponsorBlockChapterDetection = false };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, CreateChapters("Preview", AnalysisMode.Preview));
+        var logger = new CapturingLogger<ChapterAnalyzer>();
+        var analyzer = new ChapterAnalyzer(logger, null!, DatabaseTestHelpers.CreateTempSegmentDatabase(), config);
+        QueuedEpisode[] episodes = [new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }, new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }];
 
-        var matches = analyzer.FindMatchingChapters(
-            new() { Duration = 2000 },
-            CreateChapters("Preview", AnalysisMode.Preview),
-            "(",
-            AnalysisMode.Preview);
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Preview, CancellationToken.None);
 
-        Assert.Empty(matches);
+        Assert.All(episodes, episode => Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview)));
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
     [Theory]

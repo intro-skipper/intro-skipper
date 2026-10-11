@@ -7,9 +7,11 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Unicode;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
+using UtfUnknown;
 
 namespace IntroSkipper.FFmpeg;
 
@@ -45,6 +47,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     // warning per packet cannot fill memory.
     private const long SubtitleLogMaximumBytes = 1024L * 1024;
 
+    // Seconds the embedded subtitle run seeks before a cue window and reads past its end.
+    private const double SubtitleSeekMargin = 10;
+    private const double SubtitleStopMargin = 5;
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -79,6 +85,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     [
         ("signalstats", "signalstats options"),
     ];
+
+    private static readonly Encoding Windows1252 = CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
 
     private readonly ILogger<FFmpegService> _logger;
     private readonly DetectionCacheService _cacheService;
@@ -639,7 +647,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc />
-    public async Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public async Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         List<SubtitleCue> cues = [];
         var complete = false;
@@ -647,14 +655,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         {
             var languages = SubtitleLanguageSelection.Parse(Plugin.Instance?.Configuration.SubtitleLanguages);
             var embeddedStreams = await ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken).ConfigureAwait(false);
-            List<(string Path, int Stream)> sources = [.. SubtitleSidecarFiles.FindTextSources(episode.Path, languages).Select(sidecar => (sidecar, 0))];
-            if (embeddedStreams is { Length: > 0 })
-            {
-                sources.InsertRange(0, embeddedStreams.Select(stream => (episode.Path, stream)));
-            }
-
+            var sidecars = SubtitleSidecarFiles.FindTextSources(episode, languages);
             complete = embeddedStreams is not null;
-            var outputCount = sources.Count;
+            var outputCount = (embeddedStreams?.Length ?? 0) + sidecars.Length;
             if (outputCount == 0)
             {
                 return new SubtitleScan([], complete);
@@ -667,7 +670,29 @@ internal sealed partial class FFmpegService : IFFmpegService
                 "introskipper-subtitles-" + Guid.NewGuid().ToString("N")));
             try
             {
-                complete &= await ExtractWebVttAsync(sources, directory.FullName, outputLimit, cues, cancellationToken).ConfigureAwait(false);
+                if (embeddedStreams is { Length: > 0 })
+                {
+                    // The margins keep every cue that starts inside the window clear of the
+                    // seek and stop points.
+                    var seek = window.Start - SubtitleSeekMargin;
+                    var stop = window.End + SubtitleStopMargin;
+                    complete &= await ExtractWebVttAsync(
+                        episode.Path,
+                        seek > 0 ? seek : null,
+                        stop < episode.Duration ? stop : null,
+                        embeddedStreams,
+                        Path.Join(directory.FullName, "embedded"),
+                        outputLimit,
+                        cues,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                for (var i = 0; i < sidecars.Length; i++)
+                {
+                    var outputPrefix = Path.Join(directory.FullName, i.ToString(CultureInfo.InvariantCulture));
+                    var source = await ReadableSidecarAsync(sidecars[i], outputPrefix, cancellationToken).ConfigureAwait(false);
+                    complete &= await ExtractWebVttAsync(source, null, null, [0], outputPrefix, outputLimit, cues, cancellationToken).ConfigureAwait(false);
+                }
             }
             finally
             {
@@ -676,14 +701,42 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Listing the sidecars, creating the output directory or reading an output can
-            // fail on one episode's files. The scan then ends with the cues read so far and
+            // Listing or reading the sidecars, creating the output directory or reading an
+            // output can fail on one episode's files. The scan then ends with the cues read so far and
             // is incomplete, so the episode is retried; thrown, it would end the season's pass.
             LogSubtitleScanFailed(ex, episode.Path);
             complete = false;
         }
 
         return new SubtitleScan([.. cues.OrderBy(cue => cue.Start)], complete);
+    }
+
+    // The file ffmpeg should read for a sidecar. ffmpeg reads text subtitles as UTF-8 and drops
+    // every cue that is not, while the run still succeeds. A sidecar with a UTF-16 byte order
+    // mark, which ffmpeg converts itself, or with valid UTF-8 is read as is. Any other is decoded
+    // with the charset UtfUnknown detects (the detector Jellyfin ships), ISO-8859-1 widened to
+    // its superset Windows-1252, or Windows-1252 when nothing is detected, and written as a UTF-8
+    // copy at copyPrefix with the sidecar's extension. ffmpeg's -sub_charenc is not used: iconv
+    // rejects some charset names the detector reports, and a wrong guess would garble UTF-8. A
+    // sidecar larger than the episode's subtitle cap is read as is rather than loaded into memory.
+    private async Task<string> ReadableSidecarAsync(string path, string copyPrefix, CancellationToken cancellationToken)
+    {
+        if (new FileInfo(path).Length > SubtitleEpisodeMaximumBytes)
+        {
+            return path;
+        }
+
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        if (bytes is [0xFF, 0xFE, ..] or [0xFE, 0xFF, ..] || Utf8.IsValid(bytes))
+        {
+            return path;
+        }
+
+        var encoding = CharsetDetector.DetectFromBytes(bytes).Detected is { Encoding: { } detected, EncodingName: not "iso-8859-1" } ? detected : Windows1252;
+        var copy = copyPrefix + Path.GetExtension(path);
+        await File.WriteAllTextAsync(copy, encoding.GetString(bytes), cancellationToken).ConfigureAwait(false);
+        LogSidecarDecoded(path, encoding.WebName);
+        return copy;
     }
 
     // The embedded subtitle streams to read, by stream index: those ffmpeg decodes to text, in a
@@ -718,37 +771,39 @@ internal sealed partial class FFmpegService : IFFmpegService
         return FFmpegOutputParser.ParseTextSubtitleStreams(Encoding.UTF8.GetString(capture.Stdout.Span), languages);
     }
 
-    // Decodes every selected embedded stream and text sidecar to WebVTT in one ffmpeg run, one
-    // file per source, each capped at outputLimit bytes by ffmpeg's -fs. Adds to cues, unsorted,
-    // every output under its cap, including those of a run that failed or was killed, which stop
-    // where the run did. Returns false when the run failed (logged), or an output is missing or
-    // reached its cap.
+    // Decodes the given streams of one input to WebVTT in a single ffmpeg run, one file per
+    // stream at outputPrefix, each capped at outputLimit bytes by ffmpeg's -fs. A run demuxes its
+    // input from the seek point until every output has stopped, so the embedded streams share
+    // one run. Adds to cues, unsorted, every output under its cap, including those of a run that
+    // failed or was killed, which stop where the run did. Returns false when the run failed
+    // (logged), or an output is missing or reached its cap.
+    //
+    // seek skips the input before that media second. -copyts keeps the cue times on the file's
+    // clock and -start_at_zero starts that clock at zero, as a read from the start does, so the
+    // times match a full read; without either flag they shift by the seek point or by the
+    // file's start time. -sseof is avoided: when the tail it asks for is longer than the file,
+    // every cue shifts. stop ends each output at that media second with an output -t, which
+    // counts on the clock of the cue times, with or without a seek. An input -t would bound only
+    // copied streams, not decoded ones.
     private async Task<bool> ExtractWebVttAsync(
-        IReadOnlyList<(string Path, int Stream)> sources,
-        string outputDirectory,
+        string path,
+        double? seek,
+        double? stop,
+        int[] streams,
+        string outputPrefix,
         long outputLimit,
         List<SubtitleCue> cues,
         CancellationToken cancellationToken)
     {
-        var outputs = Enumerable.Range(0, sources.Count)
-            .Select(index => Path.Join(outputDirectory, FormattableString.Invariant($"{index}.vtt")))
-            .ToArray();
-        List<string> args = [];
-        foreach (var path in sources.Select(source => source.Path).Distinct(StringComparer.OrdinalIgnoreCase))
+        var outputs = streams.Select(stream => FormattableString.Invariant($"{outputPrefix}-{stream}.vtt")).ToArray();
+        List<string> args = seek is { } seekTo ? ["-copyts", "-start_at_zero", "-ss", FormatSeconds(seekTo)] : [];
+        args.AddRange(["-i", path]);
+        for (var i = 0; i < streams.Length; i++)
         {
-            args.AddRange(["-i", path]);
-        }
-
-        var inputIndexes = sources.Select(source => source.Path)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select((path, index) => (path, index))
-            .ToDictionary(pair => pair.path, pair => pair.index, StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < sources.Count; i++)
-        {
-            var source = sources[i];
             args.AddRange(
             [
-                "-map", FormattableString.Invariant($"{inputIndexes[source.Path]}:{source.Stream}"),
+                "-map", FormattableString.Invariant($"0:{streams[i]}"),
+                .. stop is { } stopAt ? ["-t", FormatSeconds(stopAt)] : Array.Empty<string>(),
                 "-c:s", "webvtt",
                 "-fs", outputLimit.ToString(CultureInfo.InvariantCulture),
                 "-f", "webvtt",
@@ -762,26 +817,13 @@ internal sealed partial class FFmpegService : IFFmpegService
             var capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "warning"), SubtitleLogMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
             if (capture.Truncated || capture.ExitCode != 0)
             {
-                if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    LogSubtitleRunUnusable(
-                        sources[0].Path,
-                        capture.ExitCode,
-                        capture.Truncated);
-                }
-
+                LogSubtitleRunUnusable(path, capture.ExitCode, capture.Truncated);
                 complete = false;
             }
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                LogSubtitleRunFailed(
-                    ex,
-                    sources[0].Path);
-            }
-
+            LogSubtitleRunFailed(ex, path);
             complete = false;
         }
 
@@ -794,7 +836,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
             else if (output.Length >= outputLimit)
             {
-                LogSubtitleStreamTruncated(sources[i].Path, sources[i].Stream, outputLimit);
+                LogSubtitleStreamTruncated(path, streams[i], outputLimit);
                 complete = false;
             }
             else
@@ -834,6 +876,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Subtitle stream {Stream} of {File} reached the {Limit} byte cap")]
     private partial void LogSubtitleStreamTruncated(string file, int stream, long limit);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Subtitle sidecar {File} is not UTF-8; reading it as {Charset}")]
+    private partial void LogSidecarDecoded(string file, string charset);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the subtitle extraction directory {Directory}")]
     private partial void LogSubtitleOutputsNotDeleted(Exception ex, string directory);

@@ -26,10 +26,10 @@ The plugin's own database, `introskipper-v2.db`, is the source of truth for segm
 
 These rules hold at admission only. User writes are admitted unconditionally, and restore and undo do not re-validate, so overlapping rows are legal stored state. The stored state's only invariants are the exact-range unique index and the range check.
 
-A mode serves one automatic result. For Recap and Preview, rows rank by source: Chapter, Subtitle, other automatic sources (Chromaprint, black frame, keyframe visuals, combined credits, legacy imports), then credits-derived previews. Credits-derived rows exist only for Preview. Other modes retain pass-based replacement behavior. User rows and tombstones are outside the ranking and keep the admission rules above.
+A mode serves one automatic result. For Recap and Preview, rows rank by source: Chapter, Subtitle, other automatic sources (Chromaprint, black frame, keyframe visuals, combined credits, legacy imports), then credits-derived previews. Credits-derived rows exist only for Preview. In the other modes every source ranks the same. A row ranks by its source only while its hash is empty or the writer's: a row an earlier configuration produced is stale and ranks below every writer, so a pass re-running under new settings is never blocked by the result the old settings left. A credits-derived write carries the credits hash, so it compares sources alone. User rows and tombstones are outside the ranking and keep the admission rules above.
 
 - While an active row of a higher rank stands, a lower-ranked write changes nothing and returns 0. A chapter preview therefore survives subtitle matching, and a credits derive cannot add a preview beside a chapter or subtitle result.
-- An admitted write replaces rows of its own rank and retires lower-ranked rows. A row whose range the write repeats keeps its id and takes the writer's source.
+- An admitted write replaces rows of its own rank and retires lower-ranked and stale rows. A row whose range the write repeats keeps its id and takes the writer's source and hash.
 - A write whose candidates were all rejected leaves every standing row alone. An empty write clears only its own rank, so clearing a chapter preview does not erase a subtitle or credits-derived fallback.
 
 `ClearSubtitleSegmentsAsync` deletes a mode's subtitle rows after a complete subtitle scan finds no match, and the stale-row cleanup deletes them once their hash is stale. `ResetItemsForReanalysisAsync` keeps them for the modes its caller names. `docs/analysis.md` says when each of these runs.

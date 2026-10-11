@@ -59,6 +59,7 @@ internal static class JellyfinItems
         EntrypointTestHelpers.SetPropertyOrField(episode, "Id", id);
         EntrypointTestHelpers.SetPropertyOrField(episode, "SeriesName", seriesName);
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
+        EntrypointTestHelpers.EnsureInternalMetadataPathResolvable();
         return episode;
     }
 
@@ -72,6 +73,7 @@ internal static class JellyfinItems
             RunTimeTicks = TimeSpan.FromMinutes(4).Ticks,
         };
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
+        EntrypointTestHelpers.EnsureInternalMetadataPathResolvable();
         return movie;
     }
 

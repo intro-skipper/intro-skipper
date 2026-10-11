@@ -124,25 +124,32 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Extracts timed text cues from embedded and adjacent text subtitle streams.
+    /// Extracts timed text cues from the episode's embedded text subtitle streams and its text
+    /// subtitle sidecars.
     /// </summary>
     /// <remarks>
     /// Reads only the languages of <see cref="Configuration.PluginConfiguration.SubtitleLanguages"/>,
     /// and only codecs that ffmpeg decodes to text; image subtitles would need OCR. Runs ffprobe
     /// once to list the embedded streams, then ffmpeg once for all of them, since every run
-    /// demuxes the whole file, and once per sidecar. Each run writes WebVTT files to a directory
-    /// below Jellyfin's temp directory that is deleted before the call returns. A failed probe
-    /// or ffmpeg run is logged and marks the scan incomplete instead of throwing. The other runs
-    /// are still read, and so are the outputs of the failed run, which stop where the run did.
-    /// A failed file operation (listing the sidecars, creating the output directory, reading an
-    /// output) is logged too and ends the scan with the cues read so far, incomplete. Each
-    /// episode's subtitle output is capped, split evenly across its streams; a stream that
-    /// reaches its share is dropped and the scan is incomplete.
+    /// demuxes the file, and once per sidecar. The embedded run reads only around
+    /// <paramref name="window"/>: it seeks to shortly before the window when the window starts
+    /// later than that, and stops shortly after it when the window ends before
+    /// <see cref="QueuedEpisode.Duration"/>. Sidecars are small and read whole. A sidecar that
+    /// is neither valid UTF-8 nor marked by a byte order mark is decoded with its detected
+    /// charset into a UTF-8 copy, which ffmpeg reads instead. Each run writes WebVTT files to a
+    /// directory below Jellyfin's temp directory that is deleted before the call returns. A
+    /// failed probe or ffmpeg run is logged and marks the scan incomplete instead of throwing.
+    /// The other runs are still read, and so are the outputs of the failed run, which stop
+    /// where the run did. A failed file operation (listing or reading the sidecars, creating
+    /// the output directory, reading an output) is logged too and ends the scan with the cues
+    /// read so far, incomplete. Each episode's subtitle output is capped, split evenly across
+    /// its streams; a stream that reaches its share is dropped and the scan is incomplete.
     /// </remarks>
     /// <param name="episode">Media file whose subtitles should be read.</param>
+    /// <param name="window">The media seconds in which the caller needs every cue that starts. Cues outside it may be returned too.</param>
     /// <param name="cancellationToken">Token used to cancel subtitle extraction.</param>
-    /// <returns>The cues of every source that could be read, and whether all of them were.</returns>
-    Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
+    /// <returns>The cues of every source that could be read, with every cue a full read finds starting inside <paramref name="window"/>, and whether all of them were read.</returns>
+    Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the outcome of the most recent <see cref="CheckFFmpegVersionAsync"/> run for the support bundle.

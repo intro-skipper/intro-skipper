@@ -62,6 +62,21 @@ internal static class BlackFrameFixtures
     }
 
     /// <summary>
+    /// The black frames of a recap scan, two a second, each run numbered consecutively: a 3 s
+    /// ident at 8 s, a fade after a cold open at 28 s, a 1 s cut inside the recap at 50 s, the
+    /// 3 s black that ends the recap at 90 s, and a dark frame of the scene after it at 105 s.
+    /// </summary>
+    /// <returns>The black frames, in frame order.</returns>
+    internal static BlackFrame[] RecapBlackFrames() =>
+    [
+        .. CreateDenseFrames(8, 10.5, 100),
+        .. CreateDenseFrames(28, 28, 100),
+        .. CreateDenseFrames(50, 50.5, 100),
+        .. CreateDenseFrames(90, 92.5, 100),
+        .. CreateDenseFrames(105, 105, 100),
+    ];
+
+    /// <summary>
     /// One keyframe of the keyframe scan: its black-frame row's time and percentage, and its
     /// visual. The visual carries its own time, which only the service's join reads, so a fixture that
     /// puts the two clocks apart pins that the analyzer reads the black-frame time.

@@ -12,8 +12,7 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
-    private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
-    private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
+    private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
 
     /// <summary>
@@ -50,6 +49,13 @@ public sealed class QueuedEpisode
     /// Gets or sets the full path to episode.
     /// </summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the item's internal metadata folder, where Jellyfin saves the subtitles it
+    /// downloads when the library does not save them with the media. Subtitle detection reads
+    /// the text sidecars there as well as those next to the media file. Null when unknown.
+    /// </summary>
+    public string? InternalMetadataPath { get; set; }
 
     /// <summary>
     /// Gets or sets the name of the episode.
@@ -135,8 +141,8 @@ public sealed class QueuedEpisode
     public long? FileVersion { get; set; }
 
     /// <summary>
-    /// Gets or sets <see cref="FileVersion"/> extended with the item's adjacent text
-    /// subtitle sidecars (<c>SubtitleSidecarFiles.FileVersion</c>). It equals
+    /// Gets or sets <see cref="FileVersion"/> extended with the item's text subtitle
+    /// sidecars (<c>SubtitleSidecarFiles.FileVersion</c>). It equals
     /// <see cref="FileVersion"/> when there are none, and is null when no mode of the pass
     /// has active subtitle detection. <c>PluginConfiguration.RecordedFileVersion</c> picks it
     /// for a mode whose subtitle detection is active, so a changed sidecar reopens only that
@@ -157,38 +163,26 @@ public sealed class QueuedEpisode
     public bool FileChanged { get; set; }
 
     /// <summary>
-    /// Marks subtitle detection unresolved for a mode, keeping it eligible for a later retry.
+    /// Sets the subtitle analyzer's outcome for a mode in this pass. The analyzer chain reads
+    /// it after every analyzer has run to decide which stale rows to keep and how the mode settles.
     /// </summary>
-    /// <param name="mode">Analysis mode whose subtitle scan is incomplete.</param>
-    public void MarkSubtitleDetectionUnresolved(AnalysisMode mode)
-        => _unresolvedSubtitleModes.Add(mode);
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="outcome">One of the enumeration values that specifies the outcome.</param>
+    public void SetSubtitleOutcome(AnalysisMode mode, SubtitleOutcome outcome)
+        => _subtitleOutcomes[(int)mode] = outcome;
 
     /// <summary>
-    /// Determines whether subtitle detection remains unresolved for a mode.
+    /// Gets the subtitle analyzer's outcome for a mode in this pass.
     /// </summary>
-    /// <param name="mode">Analysis mode to inspect.</param>
-    /// <returns>Whether that mode must remain retryable.</returns>
-    public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
-        => _unresolvedSubtitleModes.Contains(mode);
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The outcome; <see cref="SubtitleOutcome.None"/> when the analyzer recorded none.</returns>
+    public SubtitleOutcome GetSubtitleOutcome(AnalysisMode mode)
+        => _subtitleOutcomes[(int)mode];
 
     /// <summary>
-    /// Marks a subtitle candidate rejected by admission, so it can settle without retrying.
-    /// </summary>
-    /// <param name="mode">Analysis mode whose candidate was rejected.</param>
-    public void MarkSubtitleCandidateRejected(AnalysisMode mode)
-        => _rejectedSubtitleModes.Add(mode);
-
-    /// <summary>
-    /// Determines whether automatic-segment admission rejected a subtitle candidate.
-    /// </summary>
-    /// <param name="mode">Analysis mode to inspect.</param>
-    /// <returns>Whether the standing rows should be retained without retrying.</returns>
-    public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
-        => _rejectedSubtitleModes.Contains(mode);
-
-    /// <summary>
-    /// Marks that only subtitle settings changed since this mode was analyzed. The
-    /// conventional result remains valid and is retained while subtitle detection is refreshed.
+    /// Marks that only what subtitle detection reads changed since this mode was analyzed: its
+    /// subtitle settings, or a sidecar of an unchanged media file. The conventional result
+    /// remains valid and is retained while subtitle detection is refreshed.
     /// </summary>
     /// <param name="mode">Analysis mode whose subtitle settings changed.</param>
     public void MarkSubtitleOnlyReanalysis(AnalysisMode mode)

@@ -27,18 +27,27 @@ internal sealed class SubtitleLanguageSelection
         new("nb", "nor"), new("nob", "nor"), new("nn", "nor"), new("nno", "nor"),
     ];
 
+    private static readonly CultureInfo[] _neutralCultures = [.. CultureInfo
+        .GetCultures(CultureTypes.NeutralCultures)
+        .Where(culture => culture.ThreeLetterISOLanguageName.Length == 3 && culture.Name.Length > 0)];
+
     // The aliases above, then every language code .NET knows (639-1, or 639-2 for a language
     // without a 639-1 code) and its 639-2/T code, each mapped to the 639-2/T code. The first
     // entry for a code wins, so an alias overrides .NET's own mapping.
     private static readonly FrozenDictionary<string, string> _terminologyCodes = _aliases
-        .Concat(CultureInfo
-            .GetCultures(CultureTypes.NeutralCultures)
-            .Where(culture => culture.ThreeLetterISOLanguageName.Length == 3 && culture.Name.Length > 0)
-            .SelectMany(culture => new[]
-            {
-                KeyValuePair.Create(culture.TwoLetterISOLanguageName, culture.ThreeLetterISOLanguageName),
-                KeyValuePair.Create(culture.ThreeLetterISOLanguageName, culture.ThreeLetterISOLanguageName),
-            }))
+        .Concat(_neutralCultures.SelectMany(culture => new[]
+        {
+            KeyValuePair.Create(culture.TwoLetterISOLanguageName, culture.ThreeLetterISOLanguageName),
+            KeyValuePair.Create(culture.ThreeLetterISOLanguageName, culture.ThreeLetterISOLanguageName),
+        }))
+        .DistinctBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+        .ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    // Each language's English and native name (German, Deutsch), which sidecar names often
+    // carry instead of a code, mapped to the code the language compares as.
+    private static readonly FrozenDictionary<string, string> _sidecarLanguageNames = _neutralCultures
+        .SelectMany(culture => new[] { culture.EnglishName, culture.NativeName }
+            .Select(name => KeyValuePair.Create(name, _terminologyCodes[culture.ThreeLetterISOLanguageName])))
         .DistinctBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
         .ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
@@ -85,12 +94,13 @@ internal sealed class SubtitleLanguageSelection
     /// <summary>
     /// Gets a value indicating whether a sidecar is read, judged by the dot-separated segments
     /// of its file name between the media file's name and the extension, such as <c>de.forced</c>
-    /// for <c>Episode.de.forced.srt</c>.
+    /// for <c>Episode.de.forced.srt</c>. A segment names a language by any code the setting
+    /// accepts, or by the language's English or native name (<c>German</c>, <c>Deutsch</c>).
     /// </summary>
     /// <param name="nameSegments">The segments, dot-separated; empty for a sidecar named like the media file.</param>
     /// <returns>
-    /// <see langword="true"/> when the selection is empty, no segment is a language code, or a
-    /// segment names a selected language; otherwise, <see langword="false"/>.
+    /// <see langword="true"/> when the selection is empty, no segment names a known language,
+    /// or a segment names a selected language; otherwise, <see langword="false"/>.
     /// </returns>
     public bool IncludesSidecar(string nameSegments)
     {
@@ -103,7 +113,7 @@ internal sealed class SubtitleLanguageSelection
         // any segment reads such a sidecar when English or Hindi is selected.
         var languages = nameSegments
             .Split('.', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Select(KnownLanguage)
+            .Select(segment => KnownLanguage(segment) ?? _sidecarLanguageNames.GetValueOrDefault(segment))
             .OfType<string>()
             .ToArray();
         return languages.Length == 0 || languages.Any(_languages.Contains);

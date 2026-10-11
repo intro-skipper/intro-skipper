@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -91,7 +92,8 @@ public sealed class TestSubtitleAnalyzer
     }
 
     // Cues from every source come back in start order, which the recap search relies on.
-    // The .ass sidecar is read first and holds the later cue.
+    // The .ass sidecar is read first and holds the latest cue. The SAMI sidecar clears its cue
+    // with a blank one, which ffmpeg logs as a decoding error without failing the run.
     [Fact]
     public async Task ExtractSubtitleCuesAsync_ReadsTextSidecarsInStartOrder()
     {
@@ -100,11 +102,86 @@ public sealed class TestSubtitleAnalyzer
         File.Copy(FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, mediaPath);
         await File.WriteAllTextAsync(directory.Join("episode.ass"), AssSidecar);
         await File.WriteAllTextAsync(directory.Join("episode.en.srt"), "1\n00:00:05,000 --> 00:00:06,500\nPreviously on the show\n");
+        await File.WriteAllTextAsync(directory.Join("episode.en.smi"), "<SAMI>\n<BODY>\n<SYNC Start=8000><P Class=ENCC>Last time</P>\n<SYNC Start=9500><P Class=ENCC>&nbsp;</P>\n</BODY>\n</SAMI>\n");
 
-        var scan = await FfmpegTestHelpers.CreateFFmpegService().ExtractSubtitleCuesAsync(new QueuedEpisode { Name = "episode", Path = mediaPath });
+        var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "episode", Path = mediaPath });
 
-        SubtitleCue[] expected = [new(5, 6.5, "Previously on the show"), new(10.5, 12, "<i>Here's</i> the preview")];
+        SubtitleCue[] expected = [new(5, 6.5, "Previously on the show"), new(8, 9.5, "Last time"), new(10.5, 12, "<i>Here's</i> the preview")];
         Assert.Equal(expected, scan.Cues);
+        Assert.True(scan.Complete);
+    }
+
+    // The embedded run reads only around the window: it stops after a window that ends early
+    // and seeks before one that starts late. Inside the window it returns the cues a full read
+    // does, at the same times, on a file whose clock starts at 7.5 s. The middle cue lies
+    // outside both windows, so its absence shows the read was cut.
+    [Theory]
+    [InlineData(0, 60, new[] { "Previously on the show", "Across the end" })]
+    [InlineData(180, 300, new[] { "Next time on the show" })]
+    public async Task ExtractSubtitleCuesAsync_Window_ReadsWhatAFullReadFindsInsideIt(double start, double end, string[] inside)
+    {
+        using var directory = new TempDirectory();
+        var episode = new QueuedEpisode { Name = "episode", Path = await MuxLongEpisodeAsync(directory), Duration = 300 };
+        var ffmpeg = FfmpegTestHelpers.CreateFFmpegService();
+
+        var full = await ReadEveryCueAsync(ffmpeg, episode);
+        var windowed = await ffmpeg.ExtractSubtitleCuesAsync(episode, new TimeRange(start, end));
+
+        SubtitleCue[] InWindow(SubtitleScan scan) => [.. scan.Cues.Where(cue => cue.Start >= start && cue.Start < end)];
+        Assert.Equal(inside, InWindow(full).Select(cue => cue.Text));
+        Assert.Equal(InWindow(full), InWindow(windowed));
+        Assert.DoesNotContain(windowed.Cues, cue => cue.Text == "Middle");
+        Assert.True(windowed.Complete);
+    }
+
+    // Each mode reads its own window of the file: the recap window at the start, and the last
+    // MaximumPreviewDuration seconds for a preview. Each window holds its mode's cue, and a
+    // chapter at 70 s ends the recap.
+    [Theory]
+    [InlineData(AnalysisMode.Recap, 20, 70)]
+    [InlineData(AnalysisMode.Preview, 250, 300)]
+    public async Task AnalyzeMediaFiles_FindsTheCueInsideTheWindowItReads(AnalysisMode mode, double expectedStart, double expectedEnd)
+    {
+        using var directory = new TempDirectory();
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, EnableSubtitlePreviewDetection = true };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(70) }]);
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Name = "episode",
+            Path = await MuxLongEpisodeAsync(directory),
+            Duration = 300,
+            IntroFingerprintEnd = 75,
+            AnalysisConfigHash = "subtitle",
+        };
+
+        await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), database, config)
+            .AnalyzeMediaFiles([episode], mode, CancellationToken.None);
+
+        Assert.Equal([(expectedStart, expectedEnd, SegmentSource.Subtitle)], await StoredSegmentsAsync(database, episodeId, mode));
+    }
+
+    // ffmpeg drops every cue of a sidecar that is not UTF-8, and the run still succeeds. A
+    // sidecar in a legacy charset is read through a UTF-8 copy decoded with its detected
+    // charset, so every cue comes back with its text.
+    [Theory]
+    [InlineData("windows-1252", "Was bisher geschah – Größe…", "Wir sehen uns nächste Woche. Tschüß!", "Das Mädchen über der Brücke")]
+    [InlineData("shift_jis", "前回までは", "東京の天気は晴れです。", "また来週お会いしましょう。")]
+    [InlineData("gbk", "前情提要", "今天的天气很好。", "我们下周再见。")]
+    public async Task ExtractSubtitleCuesAsync_LegacyCharsetSidecar_ReadsEveryCue(string charset, string first, string second, string third)
+    {
+        using var directory = new TempDirectory();
+        var mediaPath = directory.Join("episode.mp4");
+        File.Copy(FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, mediaPath);
+        string[] lines = [first, second, third];
+        var srt = string.Concat(lines.Select((line, i) => $"{i + 1}\r\n00:00:0{(2 * i) + 1},000 --> 00:00:0{(2 * i) + 2},000\r\n{line}\r\n\r\n"));
+        await File.WriteAllBytesAsync(directory.Join("episode.srt"), CodePagesEncodingProvider.Instance.GetEncoding(charset)!.GetBytes(srt));
+
+        var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "episode", Path = mediaPath });
+
+        Assert.Equal(lines, scan.Cues.Select(cue => cue.Text));
         Assert.True(scan.Complete);
     }
 
@@ -116,20 +193,7 @@ public sealed class TestSubtitleAnalyzer
     public async Task ExtractSubtitleCuesAsync_ReadsEmbeddedStreamsInSelectedLanguages()
     {
         using var directory = new TempDirectory();
-        var english = directory.Join("english.srt");
-        var german = directory.Join("german.srt");
-        var mediaPath = directory.Join("episode.mkv");
-        await File.WriteAllTextAsync(english, "1\n00:00:05,000 --> 00:00:06,500\nPreviously on the show\n");
-        await File.WriteAllTextAsync(german, "1\n00:00:02,000 --> 00:00:03,000\nZuvor bei der Serie\n");
-        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
-            "ffmpeg",
-            [
-                "-y", "-v", "error",
-                "-i", FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, "-i", english, "-i", german,
-                "-map", "0:v", "-map", "1", "-map", "2", "-c:v", "copy", "-c:s", "srt",
-                "-metadata:s:s:0", "language=eng", "-metadata:s:s:1", "language=ger",
-                mediaPath,
-            ]);
+        var mediaPath = await MuxEpisodeAsync(directory);
 
         var config = new PluginConfiguration();
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
@@ -138,9 +202,9 @@ public sealed class TestSubtitleAnalyzer
         var ffmpeg = FfmpegTestHelpers.CreateFFmpegService();
         var episode = new QueuedEpisode { Name = "episode", Path = mediaPath };
 
-        var everyLanguage = await ffmpeg.ExtractSubtitleCuesAsync(episode);
+        var everyLanguage = await ReadEveryCueAsync(ffmpeg, episode);
         config.SubtitleLanguages = "de";
-        var germanOnly = await ffmpeg.ExtractSubtitleCuesAsync(episode);
+        var germanOnly = await ReadEveryCueAsync(ffmpeg, episode);
 
         SubtitleCue germanCue = new(2, 3, "Zuvor bei der Serie");
         Assert.Equal([germanCue, new SubtitleCue(5, 6.5, "Previously on the show")], everyLanguage.Cues);
@@ -148,6 +212,47 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal([germanCue], germanOnly.Cues);
         Assert.True(germanOnly.Complete);
         Assert.Empty(tempDirectory.EnumerateFileSystemInfos());
+    }
+
+    // A sidecar ffmpeg cannot open fails only its own run: the embedded streams and the other
+    // sidecar are still read, and the scan is incomplete, so the episode is retried.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExtractSubtitleCuesAsync_BrokenSidecar_KeepsTheOtherCues(bool empty)
+    {
+        using var directory = new TempDirectory();
+        var mediaPath = await MuxEpisodeAsync(directory);
+        await File.WriteAllTextAsync(directory.Join("episode.fr.srt"), "1\n00:00:08,000 --> 00:00:09,000\nPrecedemment\n");
+        var garbage = new byte[4096];
+        new Random(1).NextBytes(garbage);
+        await File.WriteAllBytesAsync(directory.Join("episode.de.srt"), empty ? [] : garbage);
+
+        var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "episode", Path = mediaPath });
+
+        Assert.Equal(["Zuvor bei der Serie", "Previously on the show", "Precedemment"], scan.Cues.Select(cue => cue.Text));
+        Assert.False(scan.Complete);
+    }
+
+    // Sidecars whose names differ only in case are two files, and each is read. Only a
+    // case-sensitive file system can hold both, so the case runs on Linux (as on CI).
+    [Fact]
+    public async Task ExtractSubtitleCuesAsync_ReadsSidecarsWhoseNamesDifferOnlyInCase()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var directory = new TempDirectory();
+        var mediaPath = directory.Join("Episode.mp4");
+        File.Copy(FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, mediaPath);
+        await File.WriteAllTextAsync(directory.Join("Episode.en.srt"), "1\n00:00:05,000 --> 00:00:06,000\nPreviously on the show\n");
+        await File.WriteAllTextAsync(directory.Join("Episode.EN.srt"), "1\n00:00:08,000 --> 00:00:09,000\nLast time\n");
+
+        var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "Episode", Path = mediaPath });
+
+        Assert.Equal([new SubtitleCue(5, 6, "Previously on the show"), new SubtitleCue(8, 9, "Last time")], scan.Cues);
     }
 
     // ffprobe cannot list the streams of a file that is not media. The scan comes back
@@ -160,28 +265,29 @@ public sealed class TestSubtitleAnalyzer
         var mediaPath = directory.Join("episode.mkv");
         await File.WriteAllTextAsync(mediaPath, "not a media file");
 
-        var scan = await FfmpegTestHelpers.CreateFFmpegService().ExtractSubtitleCuesAsync(new QueuedEpisode { Name = "episode", Path = mediaPath });
+        var scan = await ReadEveryCueAsync(FfmpegTestHelpers.CreateFFmpegService(), new QueuedEpisode { Name = "episode", Path = mediaPath });
 
         Assert.Empty(scan.Cues);
         Assert.False(scan.Complete);
     }
 
     // A sidecar's language comes from the name segments between the media name and the
-    // extension, in any ISO 639 form, with or without a region, and next to flags such as
-    // forced or hi. A sidecar without a language segment is read whatever the selection.
+    // extension, in any ISO 639 form, with or without a region, or as the language's English
+    // or native name, and next to flags such as forced or hi. A sidecar without a language
+    // segment is read whatever the selection.
     [Fact]
     public void SubtitleSidecarFiles_ReadOnlySidecarsInSelectedLanguages()
     {
         using var directory = new TempDirectory();
-        string[] names = ["episode.de.srt", "episode.en.hi.srt", "episode.en.srt", "episode.forced.srt", "episode.ger.forced.ass", "episode.pt-BR.srt", "episode.srt"];
+        string[] names = ["episode.de.srt", "episode.Deutsch.srt", "episode.en.hi.srt", "episode.en.srt", "episode.forced.srt", "episode.français.srt", "episode.French.srt", "episode.ger.forced.ass", "episode.German.sdh.srt", "episode.pt-BR.srt", "episode.srt"];
         foreach (var name in names.Append("episode.mkv"))
         {
             File.WriteAllText(directory.Join(name), string.Empty);
         }
 
         Assert.Equal(
-            ["episode.de.srt", "episode.forced.srt", "episode.ger.forced.ass", "episode.pt-BR.srt", "episode.srt"],
-            SubtitleSidecarFiles.FindTextSources(directory.Join("episode.mkv"), SubtitleLanguageSelection.Parse("deu, pt")).Select(path => Path.GetFileName(path)));
+            ["episode.de.srt", "episode.Deutsch.srt", "episode.forced.srt", "episode.ger.forced.ass", "episode.German.sdh.srt", "episode.pt-BR.srt", "episode.srt"],
+            SubtitleSidecarFiles.FindTextSources(new QueuedEpisode { Path = directory.Join("episode.mkv") }, SubtitleLanguageSelection.Parse("deu, pt")).Select(path => Path.GetFileName(path)));
     }
 
     // A .sub next to a .idx is a VobSub image stream, which subtitle detection cannot read,
@@ -194,13 +300,14 @@ public sealed class TestSubtitleAnalyzer
         var textPath = directory.Join("episode.en.srt");
         File.WriteAllText(mediaPath, string.Empty);
         File.WriteAllText(textPath, "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
-        var textVersion = SubtitleSidecarFiles.FileVersion(mediaPath, 2, SubtitleLanguageSelection.Parse(null));
+        var episode = new QueuedEpisode { Path = mediaPath, FileVersion = 2 };
+        var textVersion = SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null));
 
         File.WriteAllText(directory.Join("episode.ja.idx"), "VobSub index");
         File.WriteAllText(directory.Join("episode.ja.sub"), "image data");
 
-        Assert.Equal([textPath], SubtitleSidecarFiles.FindTextSources(mediaPath, SubtitleLanguageSelection.Parse(null)));
-        Assert.Equal(textVersion, SubtitleSidecarFiles.FileVersion(mediaPath, 2, SubtitleLanguageSelection.Parse(null)));
+        Assert.Equal([textPath], SubtitleSidecarFiles.FindTextSources(episode, SubtitleLanguageSelection.Parse(null)));
+        Assert.Equal(textVersion, SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null)));
     }
 
     // The lookup matches the media file's name literally, so a name holding a wildcard
@@ -222,14 +329,15 @@ public sealed class TestSubtitleAnalyzer
         File.WriteAllText(directory.Join("episode.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
         File.WriteAllText(directory.Join("episode2.en.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
 
-        Assert.Equal([ownPath], SubtitleSidecarFiles.FindTextSources(mediaPath, SubtitleLanguageSelection.Parse(null)));
+        Assert.Equal([ownPath], SubtitleSidecarFiles.FindTextSources(new QueuedEpisode { Path = mediaPath }, SubtitleLanguageSelection.Parse(null)));
     }
 
-    // A matching cue starts a recap that ends at the detected intro's start. The default
-    // pattern matches the recap title cards of translation tracks once markup is removed.
-    // Apart from English and Italian, a wording must open the cue, since some of them also
-    // occur in dialogue. "Previously onThe Story..." comes from a track that lost the italics
-    // around "Previously on", which glued it to the title.
+    // A matching cue starts a recap that ends at the next chapter. The default pattern matches
+    // the recap title cards of translation tracks once markup is removed. Apart from English,
+    // Italian, Chinese and Korean, a wording must open the cue, since some of them also occur
+    // in dialogue; the Korean one follows the title, so it must close the cue. "Previously
+    // onThe Story..." comes from a track that lost the italics around "Previously on", which
+    // glued it to the title.
     [Theory]
     [InlineData("[Narrator] Previously on the story", true)]
     [InlineData("Previously onThe Story...", true)]
@@ -247,21 +355,25 @@ public sealed class TestSubtitleAnalyzer
     [InlineData("NELL'EPISODIO PRECEDENTE", true)]
     [InlineData("NEGLI EPISODI PRECEDENTI", true)]
     [InlineData("WAT VOORAFGING", true)]
+    [InlineData("前回までは…", true)]
+    [InlineData("【X】前情提要", true)]
+    [InlineData("X 지난 이야기", true)]
     [InlineData("comme je l'ai dit précédemment", false)]
     [InlineData("Wie war's bisher bei euch?", false)]
     [InlineData("As I said previously, on Monday", false)]
+    [InlineData("それは前回までは知らなかった", false)]
+    [InlineData("지난 이야기는 그만하자", false)]
     public async Task DefaultRecapPattern_MatchesOnlyCuesThatIntroduceARecap(string cueText, bool matches)
     {
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(60), DatabaseTestHelpers.Ticks(90));
-
         var config = new PluginConfiguration
         {
             EnableSubtitleRecapDetection = true,
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(60) }]);
         var ffmpeg = new StubFFmpegService
         {
             Subtitles = _ => new([new SubtitleCue(10, 13, cueText)], Complete: true),
@@ -275,10 +387,9 @@ public sealed class TestSubtitleAnalyzer
         Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
     }
 
-    // With no intro after the cue, whether the intro came first or the episode has none,
-    // only the next chapter start is a reliable recap end. A cue that starts after the recap
-    // window, which ends at IntroFingerprintEnd, counts as dialogue and yields no recap, even
-    // with that chapter.
+    // A chapter start after the cue ends the recap whether the intro came first or the episode
+    // has none. A cue that starts after the recap window, which ends at IntroFingerprintEnd,
+    // counts as dialogue and yields no recap, even with that chapter.
     [Theory]
     [InlineData(true, 120, true)]
     [InlineData(false, 120, true)]
@@ -312,6 +423,79 @@ public sealed class TestSubtitleAnalyzer
 
         (double Start, double End, SegmentSource Source)[] expected = detected ? [(30, 40, SegmentSource.Subtitle)] : [];
         Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
+    }
+
+    // A recap at a cue at 10 s ends between MinimumRecapDuration (15 s) and MaximumRecapDuration
+    // after it, and before an intro that follows it: at the first chapter start in that range,
+    // else at the first black run of at least 2 s that starts in it. Runs are a start frame and
+    // a frame count at 23.976 fps, so 48 frames last 2.002 s and 47 frames 1.96 s. The black
+    // scan covers the range Chromaprint and black-frame recaps scan, up to the intro start or
+    // MaximumRecapDetectionDuration, so the detection cache serves both from one decode. With
+    // no end the match is rejected: the mode settles and keeps its standing rows.
+    [Theory]
+    [InlineData(new[] { 20d, 45 }, new[] { 720, 72 }, 0, 120, 45, 0)] // a chapter before an earlier run; one before 25 s is too early
+    [InlineData(new double[0], new[] { 480, 72, 720, 24, 1440, 72 }, 0, 120, 60.06, 120)] // a run before 25 s, a 1 s run, a 3 s run
+    [InlineData(new double[0], new[] { 960, 48 }, 0, 120, 40.04, 120)] // 48 frames
+    [InlineData(new double[0], new[] { 960, 47, 1680, 72 }, 0, 120, 70.07, 120)] // 47 frames are too short
+    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 50, 120, 0, 50)] // the intro at 50 s comes first, and is no end itself
+    [InlineData(new[] { 55d }, new[] { 1440, 72 }, 0, 40, 0, 120)] // MaximumRecapDuration ends the range at 50 s
+    public async Task RecapSubtitle_EndsAtTheFirstChapterElseTheFirstLongBlackRun(double[] chapters, int[] runs, double introStart, int maximumRecapDuration, double expectedEnd, double expectedScanEnd)
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        if (introStart > 0)
+        {
+            await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(introStart), DatabaseTestHelpers.Ticks(introStart + 30));
+        }
+
+        var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, MaximumRecapDuration = maximumRecapDuration };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [.. chapters.Select(start => new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(start) })]);
+        var ffmpeg = new StubFFmpegService
+        {
+            Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on the story")], Complete: true),
+            RangeBlackFrames = (_, range, _, _, _) => ScanFrames(range.End, runs),
+        };
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 300, IntroFingerprintEnd = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+
+        await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config)
+            .AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        (double Start, double End, SegmentSource Source)[] expected = expectedEnd > 0 ? [(10, expectedEnd, SegmentSource.Subtitle)] : [];
+        Assert.Equal(expected, await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
+        Assert.Equal(expectedEnd > 0 ? SubtitleOutcome.None : SubtitleOutcome.Rejected, episode.GetSubtitleOutcome(AnalysisMode.Recap));
+        StubFFmpegService.Call[] scans = expectedScanEnd > 0 ? [new StubFFmpegService.RangeScan(0, expectedScanEnd, 0, config.BlackFrameThreshold, AnalysisMode.Recap)] : [];
+        Assert.Equal(scans, ffmpeg.Calls);
+    }
+
+    // The recap ends at the black run real ffmpeg reports: a generated episode with a recap cue
+    // at 5 s, a 1 s black run at 30 s, which is too short, and a 3 s run at 40 s.
+    [Fact]
+    public async Task AnalyzeMediaFiles_EndsASubtitleRecapAtTheBlackRunFfmpegReports()
+    {
+        using var directory = new TempDirectory();
+        var subtitles = directory.Join("english.srt");
+        var mediaPath = directory.Join("black.mkv");
+        await File.WriteAllTextAsync(subtitles, "1\n00:00:05,000 --> 00:00:07,000\nPreviously on the show\n");
+        static string Color(string color, int seconds, string label) => $"color=c={color}:s=64x36:r=24:d={seconds}[{label}];";
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", $"{Color("gray", 30, "a")}{Color("black", 1, "b")}{Color("gray", 9, "c")}{Color("black", 3, "d")}{Color("gray", 17, "e")}[a][b][c][d][e]concat=n=5",
+                "-i", subtitles,
+                "-map", "0:v", "-map", "1", "-c:v", "mpeg4", "-q:v", "2", "-c:s", "srt",
+                mediaPath,
+            ]);
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitleRecapDetection = true };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var episode = new QueuedEpisode { EpisodeId = episodeId, Name = "episode", Path = mediaPath, Duration = 60, IntroFingerprintEnd = 60, AnalysisConfigHash = "subtitle" };
+
+        await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), database, config)
+            .AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
+
+        Assert.Equal([(5d, 40d, SegmentSource.Subtitle)], await StoredSegmentsAsync(database, episodeId, AnalysisMode.Recap));
     }
 
     // "Next time" introduces a preview only at the start of a cue once markup is removed, or
@@ -363,7 +547,7 @@ public sealed class TestSubtitleAnalyzer
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
         Assert.Equal("previous-config", preview.ConfigHash);
-        Assert.True(episode.HasUnresolvedSubtitleDetection(AnalysisMode.Preview));
+        Assert.Equal(SubtitleOutcome.Unresolved, episode.GetSubtitleOutcome(AnalysisMode.Preview));
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
     }
 
@@ -389,6 +573,41 @@ public sealed class TestSubtitleAnalyzer
 
         Assert.Empty(await database.GetSegmentsAsync(episodeId));
         Assert.NotEqual(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+    }
+
+    // A season's subtitle preview override decides detection, whichever way the plugin-wide
+    // setting points.
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, true)]
+    public async Task PreviewSubtitle_SeasonOverrideControlsDetection(bool pluginWide, bool seasonOverride, bool expectedDetected)
+    {
+        var episodeId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { EnableSubtitlePreviewDetection = pluginWide, MinimumPreviewDuration = 5 };
+        var extractionCalled = false;
+        var ffmpeg = new StubFFmpegService
+        {
+            Subtitles = _ =>
+            {
+                extractionCalled = true;
+                return new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true);
+            },
+        };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 180,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+            SubtitlePreviewDetectionOverride = seasonOverride,
+        };
+        var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Preview, CancellationToken.None);
+
+        Assert.Equal(expectedDetected, extractionCalled);
+        Assert.Equal(expectedDetected, (await database.GetSegmentsAsync(episodeId)).Any(segment => segment.Type == AnalysisMode.Preview));
     }
 
     [Fact]
@@ -417,6 +636,78 @@ public sealed class TestSubtitleAnalyzer
 
         Assert.False(extractionCalled);
     }
+
+    // Muxes episode.mkv in the directory from a fixture video and two generated .srt files: an
+    // English stream with a cue at 5 s and a German one with a cue at 2 s.
+    private static async Task<string> MuxEpisodeAsync(TempDirectory directory)
+    {
+        var english = directory.Join("english.srt");
+        var german = directory.Join("german.srt");
+        var mediaPath = directory.Join("episode.mkv");
+        await File.WriteAllTextAsync(english, "1\n00:00:05,000 --> 00:00:06,500\nPreviously on the show\n");
+        await File.WriteAllTextAsync(german, "1\n00:00:02,000 --> 00:00:03,000\nZuvor bei der Serie\n");
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-i", FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, "-i", english, "-i", german,
+                "-map", "0:v", "-map", "1", "-map", "2", "-c:v", "copy", "-c:s", "srt",
+                "-metadata:s:s:0", "language=eng", "-metadata:s:s:1", "language=ger",
+                mediaPath,
+            ]);
+        return mediaPath;
+    }
+
+    // Muxes long.mkv in the directory: the fixture video looped to 300 s, with its clock
+    // starting at 7.5 s, and an English subtitle stream holding a recap cue at 20 s, a cue from
+    // 58 to 62 s, one at 150 s and a preview cue at 250 s.
+    private static async Task<string> MuxLongEpisodeAsync(TempDirectory directory)
+    {
+        var subtitles = directory.Join("english.srt");
+        var mediaPath = directory.Join("long.mkv");
+        await File.WriteAllTextAsync(subtitles, """
+            1
+            00:00:20,000 --> 00:00:22,000
+            Previously on the show
+
+            2
+            00:00:58,000 --> 00:01:02,000
+            Across the end
+
+            3
+            00:02:30,000 --> 00:02:32,000
+            Middle
+
+            4
+            00:04:10,000 --> 00:04:12,000
+            Next time on the show
+
+            """);
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-stream_loop", "29", "-i", FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, "-i", subtitles,
+                "-map", "0:v", "-map", "1", "-c:v", "copy", "-c:s", "srt", "-metadata:s:s:0", "language=eng",
+                "-output_ts_offset", "7.5",
+                mediaPath,
+            ]);
+        return mediaPath;
+    }
+
+    // Every frame of [0, end) at 23.976 fps, as the recap black-frame scan reports them: 100%
+    // black inside a run and 0% elsewhere. Runs are pairs of a start frame and a frame count.
+    private static BlackFrame[] ScanFrames(double end, int[] runs)
+    {
+        const double Interval = 1001d / 24000;
+        bool Black(int frame) => runs.Chunk(2).Any(run => frame >= run[0] && frame < run[0] + run[1]);
+        return [.. Enumerable.Range(0, (int)(end / Interval)).Select(frame => new BlackFrame(Black(frame) ? 100 : 0, frame * Interval, frame))];
+    }
+
+    // Reads every cue: the window covers the episode, so the run neither seeks nor stops
+    // early, also when the duration is unknown (0).
+    private static Task<SubtitleScan> ReadEveryCueAsync(FFmpegService ffmpeg, QueuedEpisode episode)
+        => ffmpeg.ExtractSubtitleCuesAsync(episode, new TimeRange(0, episode.Duration));
 
     // The episode's stored segments of one mode, as start and end in seconds and source.
     private static async Task<(double Start, double End, SegmentSource Source)[]> StoredSegmentsAsync(IntroSkipperDatabase database, Guid episodeId, AnalysisMode mode)
