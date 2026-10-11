@@ -51,6 +51,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double SubtitleSeekMargin = 10;
     private const double SubtitleStopMargin = 5;
 
+    // Seconds a head list reads past the window. Its outpoint stops the file at the first packet
+    // of any stream past it, so the margin leaves room for a cue a muxer stored after the audio
+    // and video of the same time: ffmpeg's muxer holds a sparse stream back by up to 10 s.
+    private const double SubtitleHeadListMargin = 15;
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -683,7 +688,8 @@ internal sealed partial class FFmpegService : IFFmpegService
                         && listing.MatroskaStartTime is { } startTime
                         && !episode.Path.AsSpan().ContainsAny('\r', '\n'))
                     {
-                        var list = await WriteHeadListAsync(episode.Path, startTime + stop, outputPrefix, cancellationToken).ConfigureAwait(false);
+                        var outpoint = startTime + window.End + SubtitleHeadListMargin;
+                        var list = await WriteHeadListAsync(episode.Path, outpoint, outputPrefix, cancellationToken).ConfigureAwait(false);
                         inputs.Add(new(list, null, null, embeddedStreams, outputPrefix, Concat: true));
                     }
                     else
@@ -832,15 +838,25 @@ internal sealed partial class FFmpegService : IFFmpegService
     // times as they are. -sseof is avoided: when the tail it asks for is longer than the file,
     // every cue shifts. A stop ends each output of its input at that media second with an
     // output -t, which counts on the clock of the cue times, with or without a seek. An input -t
-    // would bound only copied streams, not decoded ones. A concat input is an ffconcat list
-    // (WriteHeadListAsync), read with -safe 0 because it names an absolute path.
+    // would bound only copied streams, not decoded ones.
+    //
+    // A concat input is an ffconcat list (WriteHeadListAsync), read with -safe 0 because it
+    // names an absolute path. The concat demuxer already counts from the file's start time, so
+    // a run with one takes -copyts alone: without it, ffmpeg 8.1 subtracts a start time the
+    // concat demuxer derives from the packets, which counts an audio codec delay (AAC 23 ms,
+    // Opus 7 ms) that a plain read leaves out, and every cue shifts by it. A run never holds a
+    // seek and a concat input together. -auto_convert 0 keeps the concat demuxer from putting
+    // every H.264 video packet through h264_mp4toannexb: the run decodes no video, and the
+    // filter ends the input at a damaged packet while ffmpeg still exits 0.
     private async Task<bool> ExtractWebVttAsync(
         IReadOnlyList<SubtitleInput> inputs,
         long outputLimit,
         List<SubtitleCue> cues,
         CancellationToken cancellationToken)
     {
-        List<string> args = inputs.Any(input => input.Seek is not null) ? ["-copyts", "-start_at_zero"] : [];
+        List<string> args = inputs.Any(input => input.Seek is not null) ? ["-copyts", "-start_at_zero"]
+            : inputs.Any(input => input.Concat) ? ["-copyts"]
+            : [];
         foreach (var input in inputs)
         {
             if (input.Seek is { } seek)
@@ -850,7 +866,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
             if (input.Concat)
             {
-                args.AddRange(["-f", "concat", "-safe", "0"]);
+                args.AddRange(["-f", "concat", "-safe", "0", "-auto_convert", "0"]);
             }
 
             args.AddRange(["-i", input.Path]);
@@ -1313,9 +1329,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <summary>
     /// One input of a subtitle extraction run and the WebVTT files its streams decode to.
     /// </summary>
-    /// <param name="Path">File ffmpeg reads: the media file, or a sidecar or its UTF-8 copy.</param>
+    /// <param name="Path">File ffmpeg reads: the media file, an ffconcat list over it (<paramref name="Concat"/>), or a sidecar or its UTF-8 copy.</param>
     /// <param name="Seek">Media second to seek to before reading, or <see langword="null"/> to read from the start.</param>
-    /// <param name="Stop">Media second each output stops at, or <see langword="null"/> to read to the end.</param>
+    /// <param name="Stop">Media second each output stops at with an output -t, or <see langword="null"/> to read to the end, or for a concat input to the list's outpoint.</param>
     /// <param name="Streams">Subtitle streams to decode, by stream index.</param>
     /// <param name="OutputPrefix">Path prefix of the output files; a stream's file adds its index and <c>.vtt</c>.</param>
     /// <param name="Concat">Whether <paramref name="Path"/> is an ffconcat list, read with the concat demuxer.</param>

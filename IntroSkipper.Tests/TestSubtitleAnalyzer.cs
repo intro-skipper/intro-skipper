@@ -132,7 +132,7 @@ public sealed class TestSubtitleAnalyzer
     // The embedded run reads only around the window: it stops after a window that ends early,
     // at the outpoint of a Matroska head read, and seeks before one that starts late. Inside
     // the window it returns the cues a full read does, at the same times, on a file whose clock
-    // starts at 7.5 s; an outpoint that left out the start time would cut the cue across the
+    // starts at 20 s; an outpoint that left out the start time would cut the cue across the
     // window's end. The middle cue lies outside both windows, so its absence shows the read was
     // cut.
     [Theory]
@@ -154,8 +154,25 @@ public sealed class TestSubtitleAnalyzer
         Assert.True(windowed.Complete);
     }
 
+    // A head read decodes no video, so a broken H.264 decoder record does not stop it. The concat
+    // demuxer's default -auto_convert would put every H.264 packet through h264_mp4toannexb,
+    // whose setup fails on that record before a single cue is read. The audio track keeps the
+    // file's start time known, which the head read needs, though the video's is not.
+    [Fact]
+    public async Task ExtractSubtitleCuesAsync_HeadReadOfABrokenH264Record_ReadsTheWindow()
+    {
+        using var directory = new TempDirectory();
+        var episode = new QueuedEpisode { Name = "long", Path = await MuxLongEpisodeAsync(directory, withAudio: true), Duration = 300 };
+        await BreakFirstSpsLengthAsync(episode.Path);
+
+        var scan = await FfmpegTestHelpers.CreateFFmpegService().ExtractSubtitleCuesAsync(episode, new TimeRange(0, 60));
+
+        Assert.Equal(["Previously on the show", "Across the end"], scan.Cues.Where(cue => cue.Start < 60).Select(cue => cue.Text));
+        Assert.True(scan.Complete);
+    }
+
     // The embedded streams and the sidecars share one ffmpeg run, also when the run seeks on a
-    // file whose clock starts at 7.5 s. -copyts and -start_at_zero then apply to the sidecar
+    // file whose clock starts at 20 s. -copyts and -start_at_zero then apply to the sidecar
     // too, and its cue keeps its time.
     [Fact]
     public async Task ExtractSubtitleCuesAsync_SeekingWindow_ReadsTheSidecarInTheSameRun()
@@ -723,10 +740,36 @@ public sealed class TestSubtitleAnalyzer
         return mediaPath;
     }
 
+    // Adds 0x400 to the length of the first SPS in a Matroska file's H.264 decoder record (the
+    // avcC in CodecPrivate, element 63 A2), so the record claims more bytes than it holds. The
+    // element sizes stay as they are.
+    private static async Task BreakFirstSpsLengthAsync(string path)
+    {
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite);
+        var head = new byte[64 * 1024];
+        var read = await file.ReadAsync(head);
+        for (var i = 0; i + 10 < read; i++)
+        {
+            // A one-byte element size, then avcC version 1 with the reserved bits before the
+            // SPS count set.
+            if (head[i] == 0x63 && head[i + 1] == 0xA2 && (head[i + 2] & 0x80) != 0 && head[i + 3] == 1 && (head[i + 8] & 0xE0) == 0xE0)
+            {
+                var length = ((head[i + 9] << 8) | head[i + 10]) + 0x400;
+                file.Position = i + 9;
+                await file.WriteAsync(new[] { (byte)(length >> 8), (byte)length });
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("The file holds no H.264 decoder record.");
+    }
+
     // Muxes long.mkv in the directory: the fixture video looped to 300 s, with its clock
-    // starting at 7.5 s, and an English subtitle stream holding a recap cue at 20 s, a cue from
-    // 58 to 62 s, one at 150 s and a preview cue at 250 s.
-    private static async Task<string> MuxLongEpisodeAsync(TempDirectory directory)
+    // starting at 20 s, and an English subtitle stream (stream 1) holding a recap cue at 20 s, a
+    // cue from 58 to 62 s, one at 150 s and a preview cue at 250 s. withAudio adds a FLAC tone
+    // as stream 2, which has no codec delay and gives the file a start time its video alone
+    // cannot.
+    private static async Task<string> MuxLongEpisodeAsync(TempDirectory directory, bool withAudio = false)
     {
         var subtitles = directory.Join("english.srt");
         var mediaPath = directory.Join("long.mkv");
@@ -753,8 +796,9 @@ public sealed class TestSubtitleAnalyzer
             [
                 "-y", "-v", "error",
                 "-stream_loop", "29", "-i", FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, "-i", subtitles,
+                .. withAudio ? ["-f", "lavfi", "-i", "sine=duration=300", "-map", "2:a", "-c:a", "flac"] : Array.Empty<string>(),
                 "-map", "0:v", "-map", "1", "-c:v", "copy", "-c:s", "srt", "-metadata:s:s:0", "language=eng",
-                "-output_ts_offset", "7.5",
+                "-output_ts_offset", "20",
                 mediaPath,
             ]);
         return mediaPath;
