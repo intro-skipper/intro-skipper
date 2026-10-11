@@ -63,16 +63,21 @@ public class TestAnimePreviewRefresh
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
         await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Preview, [new Segment(EpisodeId, new TimeRange(1260, EpisodeDuration))], SegmentSource.CreditsDerived);
-        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))], SegmentSource.BlackFrame);
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(EpisodeId, new TimeRange(1100, 1150)), new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))],
+            SegmentSource.BlackFrame);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
-        var remaining = Assert.Single(await database.GetSegmentsAsync(EpisodeId));
-        Assert.Equal(AnalysisMode.Credits, remaining.Type);
+        var remaining = await database.GetSegmentsAsync(EpisodeId);
+        Assert.Equal(2, remaining.Count);
+        Assert.All(remaining, s => Assert.Equal(AnalysisMode.Credits, s.Type));
     }
 
     [Fact]
-    public async Task DeriveAsync_TrailingCreditsBlock_EndsThePreviewWhereItStarts()
+    public async Task DeriveAsync_LastCreditsBlock_AnchorsPreviewThroughEpisodeEnd()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
@@ -80,13 +85,13 @@ public class TestAnimePreviewRefresh
         await database.ReplaceAutoSegmentsAsync(
             EpisodeId,
             AnalysisMode.Credits,
-            [new Segment(EpisodeId, new TimeRange(1020, 1110)), new Segment(EpisodeId, new TimeRange(1300, EpisodeDuration))],
+            [new Segment(EpisodeId, new TimeRange(1020, 1110)), new Segment(EpisodeId, new TimeRange(1290, 1300))],
             SegmentSource.BlackFrame);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((1110, 1300), (preview.Start, preview.End));
+        Assert.Equal((1300, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Fact]
@@ -95,23 +100,23 @@ public class TestAnimePreviewRefresh
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
         await database.SeedUserSegmentAsync(EpisodeId, AnalysisMode.Credits, TimeSpan.FromSeconds(900).Ticks, TimeSpan.FromSeconds(960).Ticks);
-        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))], SegmentSource.BlackFrame);
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1200, 1240))], SegmentSource.BlackFrame);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((960, 1200), (preview.Start, preview.End));
+        Assert.Equal((1240, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Fact]
-    public async Task DeriveAsync_EditedTrailingCard_StaysTheEndBoundary()
+    public async Task DeriveAsync_EditedTrailingCard_DoesNotShortenThePreview()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
         await database.ReplaceAutoSegmentsAsync(
             EpisodeId,
             AnalysisMode.Credits,
-            [new Segment(EpisodeId, new TimeRange(900, 960)), new Segment(EpisodeId, new TimeRange(1200, EpisodeDuration))],
+            [new Segment(EpisodeId, new TimeRange(900, 960)), new Segment(EpisodeId, new TimeRange(1200, 1240))],
             SegmentSource.BlackFrame);
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
@@ -121,7 +126,7 @@ public class TestAnimePreviewRefresh
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((960, 1200), (preview.Start, preview.End));
+        Assert.Equal((1240, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Fact]
@@ -141,19 +146,20 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
-    public async Task DeriveAsync_TooLittleBetweenCreditsBlocks_DerivesNothing()
+    public async Task DeriveAsync_TooLittleBeforeLaterCreditsBlock_DerivesThroughEpisodeEnd()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
         await database.ReplaceAutoSegmentsAsync(
             EpisodeId,
             AnalysisMode.Credits,
-            [new Segment(EpisodeId, new TimeRange(1100, 1200)), new Segment(EpisodeId, new TimeRange(1201, EpisodeDuration))],
+            [new Segment(EpisodeId, new TimeRange(1100, 1200)), new Segment(EpisodeId, new TimeRange(1201, 1210))],
             SegmentSource.BlackFrame);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
-        Assert.DoesNotContain(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview);
+        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
+        Assert.Equal((1210, EpisodeDuration), (preview.Start, preview.End));
     }
 
     [Theory]

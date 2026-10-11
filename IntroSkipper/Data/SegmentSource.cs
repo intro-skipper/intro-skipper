@@ -50,5 +50,10 @@ public enum SegmentSource
     /// <summary>
     /// Detected from keyframe visuals: credits on a near-uniform low-saturation card.
     /// </summary>
-    KeyframeVisuals = 7
+    KeyframeVisuals = 7,
+
+    /// <summary>
+    /// Detected from a matching text subtitle cue.
+    /// </summary>
+    Subtitle = 8
 }

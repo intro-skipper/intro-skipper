@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -85,13 +86,98 @@ public sealed partial class IntroSkipperDatabase
         return ReplaceAutoSegmentsCoreAsync(itemId, mode, segments, derivedWrite: false, configHash, cancellationToken);
     }
 
+    /// <summary>
+    /// Atomically replaces a subtitle-detected Preview and removes a competing Credits-derived
+    /// Preview only when the subtitle candidate passes automatic-segment admission. A rejected
+    /// candidate leaves both the existing preview and its tombstone blockers untouched.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segment">Subtitle-detected Preview candidate.</param>
+    /// <param name="configHash">Configuration hash that produced the segment.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>1 when the candidate was written or kept; 0 when admission rejected it.</returns>
+    public Task<int> ReplaceSubtitlePreviewAsync(
+        Guid itemId,
+        Segment segment,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+        => ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [new AttributedSegment(segment, SegmentSource.Subtitle)],
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            supersedeCreditsDerived: true);
+
+    /// <summary>
+    /// Atomically replaces an admitted chapter Preview and supersedes competing automatic
+    /// Preview rows, including subtitle and credits-derived fallbacks. Rejected chapter
+    /// candidates leave every standing Preview row untouched.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="segments">Chapter Preview candidates.</param>
+    /// <param name="configHash">Configuration hash that produced the candidates.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of chapter Preview rows written or kept; 0 for a fully rejected write.</returns>
+    public Task<int> ReplaceChapterPreviewAsync(
+        Guid itemId,
+        IReadOnlyList<Segment> segments,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
+        => ReplaceAutoSegmentsCoreAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [.. segments.Select(segment => new AttributedSegment(segment, SegmentSource.Chapter))],
+            derivedWrite: false,
+            configHash,
+            cancellationToken,
+            supersedeCreditsDerived: true);
+
+    /// <summary>
+    /// Removes active subtitle-generated segments after a subtitle source was read
+    /// successfully and no replacement cue matched. Other analyzers' rows and every
+    /// tombstone remain intact so their fallback results are still available.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Recap or Preview mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of subtitle rows removed.</returns>
+    public async Task<int> ClearSubtitleSegmentsAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Subtitle segments are only supported for Recap and Preview.");
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var rows = db.Segments.Where(segment =>
+                segment.ItemId == itemId
+                && segment.Type == mode
+                && segment.Source == SegmentSource.Subtitle
+                && segment.State == SegmentState.Active);
+            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, rows, cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
+    }
+
     private async Task<int> ReplaceAutoSegmentsCoreAsync(
         Guid itemId,
         AnalysisMode mode,
         IReadOnlyList<AttributedSegment> segments,
         bool derivedWrite,
         string configHash,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool supersedeCreditsDerived = false)
     {
         ValidateMode(mode);
 
@@ -152,7 +238,7 @@ public sealed partial class IntroSkipperDatabase
                 // An identical range already standing under the other pass keeps that
                 // pass's row; re-inserting it would violate the unique
                 // (ItemId, Type, StartTicks, EndTicks) index.
-                if (otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
+                if (!supersedeCreditsDerived && otherPassRows.Any(o => o.StartTicks == startTicks && o.EndTicks == endTicks))
                 {
                     continue;
                 }
@@ -175,6 +261,11 @@ public sealed partial class IntroSkipperDatabase
             if (accepted.Count == 0 && rejected > 0)
             {
                 return 0;
+            }
+
+            if (supersedeCreditsDerived && accepted.Count > 0)
+            {
+                autoRows.AddRange(otherPassRows);
             }
 
             // Keep automatic rows whose boundaries are unchanged so their ids stay
@@ -329,6 +420,82 @@ public sealed partial class IntroSkipperDatabase
         }
 
         db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)));
+        return kept;
+    }
+
+    /// <summary>
+    /// Replaces every active segment of an item in one tracked transaction. A requested
+    /// row is matched by exact mode and range first, then by its supplied id, so a
+    /// complete editor round-trip keeps Jellyfin's stable ids without colliding with
+    /// an existing exact range. Rows omitted from the
+    /// image use the normal delete rule: user rows are removed and automatic rows are
+    /// tombstoned. Exact-range automatic rows in the requested image retain their
+    /// automatic provenance; moving an addressed row promotes it to user ownership.
+    /// Suppressed rows that remain omitted are left in place as tombstones.
+    /// </summary>
+    /// <returns>The active rows in request order.</returns>
+    private static async Task<IReadOnlyList<DbSegment>> ReplaceUserSegmentsForItemCoreAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        IReadOnlyList<UserSegmentInput> requested,
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.Segments
+            .Where(s => s.ItemId == itemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var kept = new List<DbSegment>(requested.Count);
+        foreach (var input in requested)
+        {
+            // Prefer an exact range occupant: it avoids a unique-index collision
+            // when a caller sends a stale id while another editor already owns the
+            // requested range, and still preserves a stable id wherever possible.
+            var row = existing.Find(s => !kept.Contains(s)
+                && s.Type == input.Mode
+                && s.StartTicks == input.StartTicks
+                && s.EndTicks == input.EndTicks);
+            var movedById = false;
+
+            if (row is null && input.Id is { } id && id != Guid.Empty)
+            {
+                row = existing.Find(s => !kept.Contains(s)
+                    && s.Id == id
+                    && s.Type == input.Mode
+                    && s.State != SegmentState.Suppressed);
+                movedById = row is not null;
+            }
+
+            if (row is null)
+            {
+                row = new DbSegment(itemId, input.Mode, input.StartTicks, input.EndTicks, SegmentSource.User);
+                db.Segments.Add(row);
+            }
+            else
+            {
+                var wasSuppressed = row.State == SegmentState.Suppressed;
+                row.StartTicks = input.StartTicks;
+                row.EndTicks = input.EndTicks;
+                // A full GET/PUT round-trip must not turn every automatic row into a
+                // user row. Moving an addressed automatic row is an explicit user
+                // edit, while an exact-range match preserves its provenance.
+                if (wasSuppressed || movedById || row.Source == SegmentSource.User)
+                {
+                    row.PromoteToUser();
+                }
+            }
+
+            kept.Add(row);
+        }
+
+        // This is intentionally staged before SaveChanges, but remains in the same
+        // database transaction as every promotion/insertion above. There is no window
+        // in which a partial desired image can be observed or journaled.
+        foreach (var row in existing.Where(s => s.State == SegmentState.Active && !kept.Contains(s)))
+        {
+            StageDelete(db, row);
+        }
+
         return kept;
     }
 
@@ -531,6 +698,31 @@ public sealed partial class IntroSkipperDatabase
         return await OrderedItemSegments(db, itemId, includeSuppressed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the complete editor image and its revision in one database query. The
+    /// response image contains every active row, including automatic rows on disabled
+    /// items; suppressed tombstones participate in the revision but are not returned
+    /// as active MediaSegments.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The active editor image and its opaque revision.</returns>
+    internal async Task<(IReadOnlyList<DbSegment> Segments, string Revision)> GetEditorSnapshotAsync(
+        Guid itemId,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var all = await db.Segments.AsNoTracking()
+            .Where(s => s.ItemId == itemId)
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.StartTicks)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return (all.Where(s => s.State == SegmentState.Active).ToList(), SegmentRevision.Compute(all));
     }
 
     /// <summary>

@@ -13,6 +13,7 @@ import { analysisTab } from "./tabs/analysis.ts";
 import { detectionTab } from "./tabs/detection.ts";
 import { blackFrameTab } from "./tabs/black-frame.ts";
 import { chaptersTab } from "./tabs/chapters.ts";
+import { subtitlesTab } from "./tabs/subtitles.ts";
 import { ffmpegTab } from "./tabs/ffmpeg.ts";
 import { timestampsTab } from "./tabs/timestamps-browser.ts";
 import { toolsTab } from "./tabs/tools.ts";
@@ -24,6 +25,7 @@ const tabs: readonly Tab[] = [
     detectionTab,
     blackFrameTab,
     chaptersTab,
+    subtitlesTab,
     ffmpegTab,
     timestampsTab,
     toolsTab,

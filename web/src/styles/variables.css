@@ -1,4 +1,4 @@
-:root {
+:where(.is-app-shell, .is-confirm-dialog) {
     color-scheme: dark;
 
     /* Layout tokens. */

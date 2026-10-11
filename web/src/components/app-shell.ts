@@ -17,7 +17,7 @@ export function createAppShell(
     navEl: HTMLElement;
     contentEl: HTMLElement;
 } {
-    const shell = el("div", { className: "app-shell" });
+    const shell = el("div", { className: "is-app-shell" });
 
     const skipLink = el("a", { className: "skip-link", href: "#settings-main" }, "Skip to content");
 

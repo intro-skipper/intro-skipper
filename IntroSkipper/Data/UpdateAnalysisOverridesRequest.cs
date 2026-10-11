@@ -4,7 +4,7 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Updates the optional analysis-window overrides for a season.
+/// Updates the optional analysis overrides for a season.
 /// </summary>
 public sealed record UpdateAnalysisOverridesRequest
 {
@@ -27,4 +27,14 @@ public sealed record UpdateAnalysisOverridesRequest
     /// Gets the optional setting that derives a preview from the end of credits.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; init; }
+
+    /// <summary>
+    /// Gets the optional setting that enables subtitle-based recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetection { get; init; }
+
+    /// <summary>
+    /// Gets the optional setting that enables subtitle-based preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetection { get; init; }
 }

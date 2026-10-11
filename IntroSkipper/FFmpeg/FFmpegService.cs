@@ -33,6 +33,19 @@ internal sealed partial class FFmpegService : IFFmpegService
     // a runaway decode or a file whose diagnostics never end.
     private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
 
+    // Subtitle text should be small, but a malformed or malicious episode must not allow FFmpeg's
+    // stdout captures to grow without bound across its embedded streams and sidecars.
+    private const long SubtitleEpisodeMaximumBytes = 16L * 1024 * 1024;
+
+    // A media container can advertise an unbounded number of subtitle streams; cap ffprobe's
+    // JSON response separately from the larger, decoded subtitle-text allowance.
+    private const long SubtitleProbeMaximumBytes = 1024L * 1024;
+
+    private static readonly HashSet<string> ImageSubtitleCodecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "dvb_subtitle", "dvb_teletext", "dvd_subtitle", "hdmv_pgs_subtitle", "xsub",
+    };
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -626,42 +639,203 @@ internal sealed partial class FFmpegService : IFFmpegService
         return null;
     }
 
-    /// <inheritdoc/>
-    public async Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public async Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
+        List<SubtitleCue> cues = [];
+        List<int> embeddedStreams = [];
+        Exception? probeFailure = null;
+        Exception? sourceFailure = null;
+        var probeOutputExceededLimit = false;
+        var sourceReadSuccessfully = false;
+        var subtitleBudgetExceeded = false;
+        long subtitleBytesRead = 0;
         try
         {
-            string[] args =
+            string[] probeArgs =
             [
                 "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                filePath,
+                "-select_streams", "s",
+                "-show_entries", "stream=index,codec_name",
+                "-of", "json",
+                episode.Path,
             ];
-
-            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
+            var probeCapture = await _processRunner.RunCapturedAsync(
                 GetFFprobePath(),
-                args,
-                stderr: false,
-                timeout: 15 * 1000,
-                cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
-
-            if (double.TryParse(output, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
-                && seconds > 0)
+                probeArgs,
+                SubtitleProbeMaximumBytes,
+                expectedStdoutBytes: 64 * 1024,
+                timeout: 10 * 1000,
+                cancellationToken).ConfigureAwait(false);
+            if (probeCapture.Truncated)
             {
-                return seconds;
+                probeOutputExceededLimit = true;
+                throw new InvalidOperationException($"Subtitle probe output exceeded the {SubtitleProbeMaximumBytes} byte capture limit.");
             }
 
-            LogMediaDurationProbeInvalid(_logger, filePath, output);
+            if (probeCapture.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"FFprobe exited with code {probeCapture.ExitCode} while probing subtitles.");
+            }
+
+            using var document = JsonDocument.Parse(Encoding.UTF8.GetString(probeCapture.Stdout.Span));
+            if (document.RootElement.TryGetProperty("streams", out var streams))
+            {
+                foreach (var stream in streams.EnumerateArray())
+                {
+                    var isImageSubtitle = stream.TryGetProperty("codec_name", out var codec)
+                        && codec.ValueKind == JsonValueKind.String
+                        && ImageSubtitleCodecs.Contains(codec.GetString()!);
+                    if (!isImageSubtitle
+                        && stream.TryGetProperty("index", out var index)
+                        && index.TryGetInt32(out var streamIndex))
+                    {
+                        embeddedStreams.Add(streamIndex);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!probeOutputExceededLimit
+            && ex is (JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException))
+        {
+            probeFailure = ex;
+            LogSubtitleExtractionFailed(_logger, ex, episode.Path);
+        }
+
+        foreach (var streamIndex in embeddedStreams)
+        {
+            if (subtitleBudgetExceeded || subtitleBytesRead >= SubtitleEpisodeMaximumBytes)
+            {
+                subtitleBudgetExceeded = true;
+                sourceFailure = new InvalidOperationException($"Subtitle sources exceeded the {SubtitleEpisodeMaximumBytes} byte episode capture limit.");
+                break;
+            }
+
+            try
+            {
+                var extracted = await ExtractWebVttAsync(
+                    episode.Path,
+                    $"0:{streamIndex}",
+                    SubtitleEpisodeMaximumBytes - subtitleBytesRead,
+                    cancellationToken).ConfigureAwait(false);
+                cues.AddRange(extracted.Cues);
+                subtitleBytesRead += extracted.BytesRead;
+                sourceReadSuccessfully = true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+            {
+                sourceFailure = ex;
+                // ExtractWebVttAsync logged this source's failure; remaining streams may still be usable.
+                if (ex is SubtitleOutputLimitException)
+                {
+                    subtitleBudgetExceeded = true;
+                    break;
+                }
+            }
+        }
+
+        var sidecars = SubtitleSidecarFiles.FindTextSources(episode.Path);
+        foreach (var sidecar in sidecars)
+        {
+            if (subtitleBudgetExceeded || subtitleBytesRead >= SubtitleEpisodeMaximumBytes)
+            {
+                subtitleBudgetExceeded = true;
+                sourceFailure = new InvalidOperationException($"Subtitle sources exceeded the {SubtitleEpisodeMaximumBytes} byte episode capture limit.");
+                break;
+            }
+
+            try
+            {
+                var extracted = await ExtractWebVttAsync(
+                    sidecar,
+                    "0:0",
+                    SubtitleEpisodeMaximumBytes - subtitleBytesRead,
+                    cancellationToken).ConfigureAwait(false);
+                cues.AddRange(extracted.Cues);
+                subtitleBytesRead += extracted.BytesRead;
+                sourceReadSuccessfully = true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+            {
+                sourceFailure = ex;
+                // ExtractWebVttAsync logged this source's failure; remaining sidecars may still be usable.
+                if (ex is SubtitleOutputLimitException)
+                {
+                    subtitleBudgetExceeded = true;
+                    break;
+                }
+            }
+        }
+
+        if (probeFailure is not null || sourceFailure is not null)
+        {
+            var failure = sourceFailure ?? probeFailure!;
+            if (sourceReadSuccessfully)
+            {
+                throw new SubtitleExtractionException(
+                    "One or more subtitle sources could not be read; the returned cues are incomplete.",
+                    [.. cues],
+                    failure);
+            }
+
+            throw new InvalidOperationException("Unable to read any embedded or sidecar subtitle source.", failure);
+        }
+
+        return [.. cues.Where(cue => cue.Start >= 0 && cue.End > cue.Start).OrderBy(cue => cue.Start)];
+    }
+
+    private async Task<(SubtitleCue[] Cues, long BytesRead)> ExtractWebVttAsync(
+        string path,
+        string map,
+        long maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        string[] args =
+        [
+            "-i", path,
+            "-map", map,
+            "-c:s", "webvtt",
+            "-f", "webvtt",
+            "-",
+        ];
+        try
+        {
+            var capture = await _processRunner.RunCapturedAsync(
+                FFmpegPath,
+                ProcessArgs(args, "warning"),
+                maximumBytes,
+                expectedStdoutBytes: 64L * 1024,
+                timeout: ScanTimeout(),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (capture.Truncated)
+            {
+                throw new SubtitleOutputLimitException($"Subtitle output exceeded the {maximumBytes} byte capture limit.");
+            }
+
+            if (capture.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"FFmpeg exited with code {capture.ExitCode} while extracting subtitles.");
+            }
+
+            return (FFmpegOutputParser.ParseWebVtt(Encoding.UTF8.GetString(capture.Stdout.Span)), capture.Stdout.Length);
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
-            LogMediaDurationProbeFailed(_logger, ex, filePath);
+            LogSubtitleStreamExtractionFailed(_logger, ex, path, map);
+            throw;
         }
-
-        return null;
     }
 
     /// <summary>
@@ -996,6 +1170,20 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to extract subtitles from {File}")]
+    private static partial void LogSubtitleExtractionFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to extract subtitle stream {Stream} from {File}")]
+    private static partial void LogSubtitleStreamExtractionFailed(ILogger logger, Exception ex, string file, string stream);
+
+    private sealed class SubtitleOutputLimitException : InvalidOperationException
+    {
+        public SubtitleOutputLimitException(string message)
+            : base(message)
+        {
+        }
+    }
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.

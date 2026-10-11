@@ -34,7 +34,7 @@ public sealed partial class IntroSkipperDatabase
     /// unless their target exists in no state at all. Callers must serialize calls
     /// per item (the coordinator's mutation stripe): concurrent first-time enqueues
     /// for one item can otherwise fail on the queue's primary key. Outcome semantics:
-    /// <c>docs/segment-database-v2.md</c>.
+    /// <c>docs/segments.md</c>.
     /// </summary>
     /// <param name="intent">Closed domain intent.</param>
     /// <param name="resolveExternalTarget">Resolves the Jellyfin row an
@@ -57,6 +57,17 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
+            if (intent is ReplaceUserSegmentsForItemIntent { ExpectedRevision: { } expectedRevision } && expectedRevision != "*")
+            {
+                var currentRevision = await ComputeSegmentRevisionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(currentRevision, expectedRevision, StringComparison.Ordinal))
+                {
+                    return MutationResult.Reject(
+                        SegmentChangeRejectedReason.RevisionMismatch,
+                        "The segment image has changed since it was read.");
+                }
+            }
+
             var result = await MutateAsync(db, intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);
             if (result.Outcome is Rejected || !result.Reproject)
             {
@@ -74,9 +85,24 @@ public sealed partial class IntroSkipperDatabase
             // same reason.
             await EnqueueProjectionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            var revision = intent is ReplaceUserSegmentsForItemIntent
+                ? await ComputeSegmentRevisionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false)
+                : null;
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return result;
+            return result with { Revision = revision };
         }
+    }
+
+    private static async Task<string> ComputeSegmentRevisionAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await db.Segments.AsNoTracking()
+            .Where(s => s.ItemId == itemId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return SegmentRevision.Compute(rows);
     }
 
     /// <summary>
@@ -174,6 +200,10 @@ public sealed partial class IntroSkipperDatabase
         {
             AddUserSegmentIntent value when !ValidMode(value.Mode) || !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
             ReplaceUserSegmentsForModeIntent value when value.Segments is null || !ValidMode(value.Mode) || value.Segments.Any(range => !TickConversions.IsValidTickRange(range.StartTicks, range.EndTicks)) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode or tick range."),
+            ReplaceUserSegmentsForItemIntent value when value.Segments is null
+                || value.Segments.Any(segment => !ValidMode(segment.Mode) || !TickConversions.IsValidTickRange(segment.StartTicks, segment.EndTicks))
+                || value.Segments.Where(segment => segment.Id is { } id && id != Guid.Empty).GroupBy(segment => segment.Id).Any(group => group.Count() > 1)
+                => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode, tick range, or duplicate segment ID."),
             UpdateSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             UpdateSegmentIntent value when !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid tick range."),
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
@@ -250,6 +280,31 @@ public sealed partial class IntroSkipperDatabase
 
                     var survivors = await ReplaceUserSegmentsCoreAsync(db, value.ItemId, value.Mode, requested, cancellationToken).ConfigureAwait(false);
                     return new MutationResult(null, survivors.Select(ToValue).ToList());
+                }
+
+            case ReplaceUserSegmentsForItemIntent value:
+                {
+                    var requested = value.Segments
+                        .DistinctBy(segment => (segment.Mode, segment.StartTicks, segment.EndTicks))
+                        .ToList();
+                    var survivors = await ReplaceUserSegmentsForItemCoreAsync(db, value.ItemId, requested, cancellationToken).ConfigureAwait(false);
+
+                    // The bulk image is authoritative for every mode. Clearing all
+                    // analysis records prevents an omitted automatic range from being
+                    // recreated on the next verification pass; requested ranges have
+                    // already been promoted to user ownership above.
+                    foreach (var mode in AnalysisHelpers.ModeToSegmentType.Keys)
+                    {
+                        await ClearItemAnalysisCoreAsync(db, value.ItemId, mode, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return new MutationResult(
+                        null,
+                        survivors
+                            .OrderBy(segment => segment.Type)
+                            .ThenBy(segment => segment.StartTicks)
+                            .Select(ToValue)
+                            .ToList());
                 }
 
             case UpdateSegmentIntent value:

@@ -216,10 +216,45 @@ export function getAnalysisOverrides(
     seasonId: string,
     signal?: AbortSignal,
 ): Promise<ApiResult<AnalysisOverrides>> {
-    return getJson<AnalysisOverrides>(
+    return getJson<unknown>(
         `Intros/AnalysisOverrides/${encodeURIComponent(seasonId)}`,
         signal,
-    );
+    ).then((result) => {
+        if (!result.ok) return result;
+
+        const data = result.data;
+        if (typeof data !== "object" || data === null) {
+            return {
+                ok: true,
+                status: result.status,
+                data: {
+                    AnalysisPercent: null,
+                    AnalysisLengthLimit: null,
+                    PreviewFromCreditsEnd: null,
+                    SubtitleRecapDetection: null,
+                    SubtitlePreviewDetection: null,
+                },
+            };
+        }
+
+        const read = (name: keyof AnalysisOverrides): unknown => {
+            if (name in data) return Reflect.get(data, name);
+            const camelCaseName = name[0].toLowerCase() + name.slice(1);
+            return Reflect.get(data, camelCaseName);
+        };
+
+        return {
+            ok: true,
+            status: result.status,
+            data: {
+                AnalysisPercent: (read("AnalysisPercent") as number | null | undefined) ?? null,
+                AnalysisLengthLimit: (read("AnalysisLengthLimit") as number | null | undefined) ?? null,
+                PreviewFromCreditsEnd: (read("PreviewFromCreditsEnd") as boolean | null | undefined) ?? null,
+                SubtitleRecapDetection: (read("SubtitleRecapDetection") as boolean | null | undefined) ?? null,
+                SubtitlePreviewDetection: (read("SubtitlePreviewDetection") as boolean | null | undefined) ?? null,
+            },
+        };
+    });
 }
 
 export function updateAnalysisOverrides(

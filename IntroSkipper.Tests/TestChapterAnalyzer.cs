@@ -241,6 +241,20 @@ public class TestChapterAnalyzer
         Assert.Equal(60, matches[1].End);
     }
 
+    [Fact]
+    public void InvalidChapterPattern_IsIgnoredWithoutThrowing()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        var matches = analyzer.FindMatchingChapters(
+            new() { Duration = 2000 },
+            CreateChapters("Preview", AnalysisMode.Preview),
+            "(",
+            AnalysisMode.Preview);
+
+        Assert.Empty(matches);
+    }
+
     [Theory]
     [InlineData("Intro: End", AnalysisMode.Introduction)]
     [InlineData("Credits: End", AnalysisMode.Credits)]

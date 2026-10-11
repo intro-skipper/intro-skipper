@@ -12,7 +12,9 @@ namespace IntroSkipper.Data;
 public sealed class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
-    private readonly HashSet<AnalysisMode> _comparisonPendingModes = [];
+    private readonly HashSet<AnalysisMode> _unresolvedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _rejectedSubtitleModes = [];
+    private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -111,6 +113,16 @@ public sealed class QueuedEpisode
     public bool? PreviewFromCreditsEndOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle recap detection.
+    /// </summary>
+    public bool? SubtitleRecapDetectionOverride { get; set; }
+
+    /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle preview detection.
+    /// </summary>
+    public bool? SubtitlePreviewDetectionOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }
@@ -139,10 +151,10 @@ public sealed class QueuedEpisode
     public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the file version Jellyfin currently holds for the item. Ordinary media
-    /// uses the ticks of its last write time; shortcut media uses a stable identity of the
-    /// resolved target and modification time. Recorded with the analysis so a later file
-    /// replacement or target change reopens the item.
+    /// Gets or sets the file version for the item: Jellyfin's media-file modification
+    /// ticks, combined with adjacent subtitle sidecar metadata when present. Null when
+    /// neither source provides a version. Recorded with the analysis so a changed media
+    /// file or subtitle sidecar reopens the item.
     /// </summary>
     public long? FileVersion { get; set; }
 
@@ -152,6 +164,62 @@ public sealed class QueuedEpisode
     /// automatic segments and fingerprints before analyzing it again.
     /// </summary>
     public bool FileChanged { get; set; }
+
+    /// <summary>
+    /// Marks subtitle detection as unresolved for a mode. This includes incomplete extraction and
+    /// a matched recap with no reliable end boundary. Conventional analyzers may still provide
+    /// fallback segments, but the mode remains retryable until a later subtitle pass can settle it.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose subtitle result is unresolved.</param>
+    public void MarkSubtitleDetectionUnresolved(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether subtitle detection remains unresolved for a mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether that mode must remain retryable.</returns>
+    public bool HasUnresolvedSubtitleDetection(AnalysisMode mode)
+        => _unresolvedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks that a complete subtitle match was rejected by automatic-segment admission.
+    /// Such a rejection preserves standing rows but does not make the episode retryable.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose candidate was rejected.</param>
+    public void MarkSubtitleCandidateRejected(AnalysisMode mode)
+        => _rejectedSubtitleModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether a subtitle candidate was rejected by admission for a mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether the mode has a permanent admission rejection to preserve.</returns>
+    public bool HasRejectedSubtitleCandidate(AnalysisMode mode)
+        => _rejectedSubtitleModes.Contains(mode);
+
+    /// <summary>
+    /// Marks that only subtitle settings changed since this mode was analyzed. The
+    /// conventional result remains valid and is retained while subtitle detection is refreshed.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose subtitle settings changed.</param>
+    public void MarkSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Add(mode);
+
+    /// <summary>
+    /// Determines whether only subtitle settings changed for this mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode to inspect.</param>
+    /// <returns>Whether conventional analyzer output can be reused.</returns>
+    public bool NeedsSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Contains(mode);
+
+    /// <summary>
+    /// Clears the subtitle-only shortcut when conventional output is being regenerated.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose conventional result is being reset.</param>
+    public void ClearSubtitleOnlyReanalysis(AnalysisMode mode)
+        => _subtitleOnlyReanalysisModes.Remove(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

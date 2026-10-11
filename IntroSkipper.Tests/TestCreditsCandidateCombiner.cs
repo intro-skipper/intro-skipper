@@ -11,7 +11,7 @@ using IntroSkipper.Data;
 using Xunit;
 
 /// <summary>
-/// The combination rule ("Credits analysis" in docs/segment-database-v2.md) over the shapes
+/// The combination rule (docs/credits.md) over the shapes
 /// measured on real shows. Times are
 /// seconds into a 450 second credits window with a 15 second minimum credits duration.
 /// </summary>

@@ -35,7 +35,12 @@ export type FieldSpec =
     | (FieldBase & { readonly kind: "text"; readonly placeholder?: string })
     /** A regular expression with a reset-to-default; the default is also the placeholder. */
     | (FieldBase & { readonly kind: "regex"; readonly default: string })
-    | (FieldBase & { readonly kind: "select"; readonly options: readonly SelectOption[] })
+    | (FieldBase & {
+          readonly kind: "select";
+          readonly options: readonly SelectOption[];
+          /** Effective display choice for a null inherited value; does not change the stored value. */
+          readonly nullDisplayValue?: () => string | boolean;
+      })
     /** A list of trimmed, non-empty strings. */
     | (FieldBase & { readonly kind: "list"; readonly placeholder?: string });
 

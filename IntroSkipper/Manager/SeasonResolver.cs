@@ -282,29 +282,30 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         => episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
 
     /// <summary>
-    /// Returns the file version Jellyfin holds for an item: its modification time in
-    /// ticks for ordinary media, or a stable identity of the resolved target and
-    /// modification time for shortcut media. Returns <see langword="null"/> only when
-    /// ordinary media has no modification time.
+    /// Returns the cache identity for an item. Ordinary media combines Jellyfin's file
+    /// version with adjacent subtitle sidecar versions; shortcuts use their resolved
+    /// target path so replacing a target invalidates the cached analysis.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The file version.</returns>
     internal static long? FileVersion(BaseItem item)
     {
-        if (!item.IsShortcut)
+        if (item.IsShortcut)
         {
-            return item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+            var modified = item.DateModified == DateTime.MinValue
+                ? "none"
+                : item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture);
+            var target = item.ShortcutPath ?? string.Empty;
+            var identity = target.Length.ToString(CultureInfo.InvariantCulture) + ":" + target + "|" + modified;
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+            // Keep the identity within the exact integer range of an IEEE-754 double: the
+            // detection-cache key stores it in SQLite's REAL columns.
+            return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
         }
 
-        var modified = item.DateModified == DateTime.MinValue
-            ? "none"
-            : item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture);
-        var target = item.ShortcutPath ?? string.Empty;
-        var identity = target.Length.ToString(CultureInfo.InvariantCulture) + ":" + target + "|" + modified;
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
-        // Keep the identity within the exact integer range of an IEEE-754 double: the
-        // detection-cache key stores it in SQLite's REAL columns.
-        return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
+        return SubtitleSidecarFiles.FileVersion(
+            item.Path,
+            item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks);
     }
 
     // Whether Jellyfin has probed the item's file. A library scan creates an item, and

@@ -103,16 +103,21 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     const overrideForm = formFor(overrideSchema, overrides, signal);
 
     const analysisWindow = el("fieldset", { className: "ts-analysis-window" });
-    const analysisWindowLegend = el("legend", {}, "Analysis window");
+    const analysisWindowLegend = el("legend", {}, "Season overrides");
     const analysisWindowDescription = el(
         "p",
         { className: "ts-action-description" },
-        "Optional per-season limits. Leave a field blank to inherit the global Analysis settings.",
+        "Optional per-season limits and detection settings. Blank fields and Global selections inherit the plugin settings.",
     );
     const analysisWindowGrid = el("div", { className: "ts-analysis-window-grid" });
     analysisWindowGrid.append(
         overrideForm.field("AnalysisPercent"),
         overrideForm.field("AnalysisLengthLimit"),
+    );
+    const subtitleOverrideRow = el("div", { className: "ts-analysis-window-grid ts-subtitle-override-row" });
+    subtitleOverrideRow.append(
+        overrideForm.field("SubtitleRecapDetection"),
+        overrideForm.field("SubtitlePreviewDetection"),
     );
     const resetWindowBtn = el(
         "button",
@@ -130,9 +135,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         analysisWindowLegend,
         analysisWindowDescription,
         analysisWindowGrid,
+        subtitleOverrideRow,
         overrideForm.field("PreviewFromCreditsEnd"),
-        resetWindowBtn,
     );
+    analysisWindow.append(resetWindowBtn);
 
     const applyBtn = el(
         "button",

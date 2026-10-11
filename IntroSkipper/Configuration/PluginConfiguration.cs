@@ -266,10 +266,22 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether content after credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment is created for anime from the end of credits to the next credits block
-    /// (a trailing dubbing or sponsor card) or the end of the episode. Individual seasons can override this setting.
+    /// When enabled, a Preview segment is created for anime from the end of the last credits block through
+    /// the end of the episode. Individual seasons can override this setting.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a recap is detected from a matching text subtitle
+    /// cue and ends at the beginning of the detected introduction. Retained for existing configurations.
+    /// </summary>
+    public bool EnableSubtitleRecapDetection { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a preview is detected from a matching text subtitle
+    /// cue and runs through the end of the episode. Retained for existing configurations.
+    /// </summary>
+    public bool EnableSubtitlePreviewDetection { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
@@ -446,6 +458,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
         @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect recap subtitle cues.
+    /// </summary>
+    public string SubtitleRecapPattern { get; set; } = @"\bpreviously\s+on\b";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect preview subtitle cues.
+    /// </summary>
+    public string SubtitlePreviewPattern { get; set; } = @"\b(?:(?:here(?:'|’)?s|now)\s+the\s+preview|next\s+time)\b";
 
     // ===== Playback settings =====
 

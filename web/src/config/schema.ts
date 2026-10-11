@@ -314,9 +314,9 @@ export const configSchema = {
     },
     AnimePreviewFromCreditsEnd: {
         kind: "checkbox",
-        label: "Set after credits scene as preview for anime",
+        label: "Set post-credits scene as preview for anime",
         description:
-            "When enabled, a preview segment is created for anime without a detected preview, from the end of the credits to the next credits block or the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled, create a preview segment from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",
@@ -433,6 +433,21 @@ export const configSchema = {
             "Detect known SponsorBlock chapter labels in addition to the regular expressions above.",
     },
 
+    // Subtitles
+    SubtitleRecapPattern: {
+        kind: "regex",
+        label: "Recap regex for subtitles",
+        description:
+            "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
+        default: "\\bpreviously\\s+on\\b",
+    },
+    SubtitlePreviewPattern: {
+        kind: "regex",
+        label: "Preview regex for subtitles",
+        description:
+            "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
+        default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
+    },
     // FFmpeg
     MaxParallelism: {
         kind: "number",

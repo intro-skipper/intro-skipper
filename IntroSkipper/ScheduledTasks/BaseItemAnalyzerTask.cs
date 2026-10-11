@@ -271,6 +271,8 @@ public partial class BaseItemAnalyzerTask(
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
+            episode.SubtitleRecapDetectionOverride = overrides.SubtitleRecapDetection;
+            episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
 
             var config = Config;
             var duration = episode.Duration;
@@ -288,6 +290,8 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
+        var seasonStates = await _database.GetSettleReanalysisStatesAsync(episodes[0].SeasonId, cancellationToken).ConfigureAwait(false);
+
         // A replaced file makes the old automatic segments and fingerprints wrong for every
         // mode, not only the ones this run covers. The fingerprints go first: the records
         // are the only evidence the file changed, so if the reset does not commit the
@@ -299,8 +303,12 @@ public partial class BaseItemAnalyzerTask(
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
-            await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken).ConfigureAwait(false);
-            foreach (var episode in analysisTargets.Where(e => e.FileChanged))
+            await _database.ResetItemsForReanalysisAsync(
+                changedFiles,
+                AllModes,
+                GetSubtitleModesToPreserve(modes, seasonStates, episodes),
+                cancellationToken).ConfigureAwait(false);
+            foreach (var episode in episodes.Where(e => e.FileChanged))
             {
                 foreach (var mode in modes)
                 {
@@ -356,10 +364,8 @@ public partial class BaseItemAnalyzerTask(
         var utcNow = DateTime.UtcNow;
         var episodeIds = analysisTargets.Select(e => e.EpisodeId).ToArray();
 
-        // One season-state read serves both the settle decision and every mode's
-        // analyzer action below.
-        var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
-        if (!shortcutsOnly && SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        // The season-state snapshot serves the settle decision and every mode's analyzer action.
+        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
@@ -369,7 +375,11 @@ public partial class BaseItemAnalyzerTask(
 
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing.
-                await _database.ResetItemsForReanalysisAsync(episodeIds, resetModes, cancellationToken).ConfigureAwait(false);
+                await _database.ResetItemsForReanalysisAsync(
+                    episodeIds,
+                    resetModes,
+                    GetSubtitleModesToPreserve(resetModes, seasonStates, episodes),
+                    cancellationToken).ConfigureAwait(false);
 
                 foreach (var episode in analysisTargets)
                 {
@@ -378,6 +388,7 @@ public partial class BaseItemAnalyzerTask(
                         if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
                         {
                             episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            episode.ClearSubtitleOnlyReanalysis(resetMode);
                         }
                     }
                 }
@@ -460,10 +471,13 @@ public partial class BaseItemAnalyzerTask(
         // saved between resolution and this verification must apply.
         var policy = ExclusionPolicy.FromConfiguration(config);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
-        if (candidates[0].AnalysisPercentOverride is null
-            && candidates[0].AnalysisLengthLimitOverride is null
-            && candidates[0].PreviewFromCreditsEndOverride is null
-            && await LegacyAnalysisCompatibility.UpgradeAsync(_database, snapshot, config, cancellationToken).ConfigureAwait(false))
+        var legacyExcludedModes = GetLegacyHashAdoptionExclusions(candidates[0], config);
+        if (await LegacyAnalysisCompatibility.UpgradeAsync(
+                _database,
+                snapshot,
+                config,
+                legacyExcludedModes,
+                cancellationToken).ConfigureAwait(false))
         {
             snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         }
@@ -476,7 +490,9 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             candidates[0].AnalysisPercentOverride,
             candidates[0].AnalysisLengthLimitOverride,
-            previewFromCreditsEnd);
+            previewFromCreditsEnd,
+            candidates[0].SubtitleRecapDetectionOverride,
+            candidates[0].SubtitlePreviewDetectionOverride);
 
         foreach (var candidate in candidates)
         {
@@ -562,94 +578,42 @@ public partial class BaseItemAnalyzerTask(
         return verified;
     }
 
-    private static void RecalculateFingerprintWindows(QueuedEpisode episode, PluginConfiguration config)
+    private static IReadOnlySet<AnalysisMode> GetLegacyHashAdoptionExclusions(QueuedEpisode episode, PluginConfiguration config)
     {
-        var analysisPercent = (episode.AnalysisPercentOverride ?? config.AnalysisPercent) / 100.0;
-        var analysisLengthLimit = episode.AnalysisLengthLimitOverride ?? config.AnalysisLengthLimit;
-        var fingerprintDuration = Math.Min(
-            episode.Duration >= 5 * 60 ? episode.Duration * analysisPercent : episode.Duration,
-            60 * analysisLengthLimit);
-
-        episode.IntroFingerprintEnd = fingerprintDuration;
-    }
-
-    private async Task PrepareShortcutDurationsAsync(
-        IReadOnlyList<QueuedEpisode> targets,
-        IReadOnlySet<Guid> forceProbeIds,
-        CancellationToken cancellationToken)
-    {
-        var snapshot = await _database.GetSeasonQueueSnapshotAsync(
-            targets[0].SeasonId,
-            [.. targets.Select(target => target.EpisodeId)],
-            cancellationToken).ConfigureAwait(false);
-
-        foreach (var candidate in targets.Where(target => target.IsShortcut))
+        var excludedModes = new HashSet<AnalysisMode>();
+        if (episode.AnalysisPercentOverride is { } analysisPercent && analysisPercent != config.AnalysisPercent)
         {
-            var hasCurrentCachedDuration = _cacheService.TryReadShortcutDuration(candidate, out var cachedDuration);
-            var hasPreviousCachedDuration = !hasCurrentCachedDuration
-                && _cacheService.HasShortcutDurationForDifferentIdentity(candidate);
-
-            // A missing current duration can mean this target has never been processed, or
-            // that its resolved target changed. In both cases discard old detection rows
-            // before a new duration/fingerprint is admitted under the current identity.
-            if (!hasCurrentCachedDuration)
-            {
-                _cacheDatabase.DeleteForItem(candidate.EpisodeId);
-            }
-
-            double? duration = null;
-            if (!forceProbeIds.Contains(candidate.EpisodeId) && hasCurrentCachedDuration)
-            {
-                duration = cachedDuration;
-            }
-
-            duration ??= CachedShortcutDuration(snapshot, candidate);
-            if (duration is null
-                && !forceProbeIds.Contains(candidate.EpisodeId)
-                && !hasPreviousCachedDuration
-                && !HasPreviousShortcutIdentity(snapshot, candidate)
-                && candidate.Duration > 0)
-            {
-                duration = candidate.Duration;
-            }
-
-            duration ??= await _ffmpegService.ProbeDurationAsync(candidate.ShortcutPath, cancellationToken).ConfigureAwait(false);
-            if (duration is not > 0)
-            {
-                LogSkippingShortcutWithoutDuration(_logger, candidate.Name, candidate.EpisodeId);
-                candidate.IsAnalysisTarget = false;
-                candidate.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.AnalysisFailed);
-                candidate.SetAnalyzed(AnalysisMode.Recap, EpisodeState.AnalysisFailed);
-                continue;
-            }
-
-            candidate.Duration = duration.Value;
-            RecalculateFingerprintWindows(candidate, Config);
-            _cacheService.WriteShortcutDuration(candidate, duration.Value);
-        }
-    }
-
-    private static double? CachedShortcutDuration(SeasonQueueSnapshot snapshot, QueuedEpisode candidate)
-    {
-        foreach (var entry in snapshot.AnalysisRecords)
-        {
-            if (entry.Key.ItemId == candidate.EpisodeId
-                && string.Equals(entry.Value.ShortcutPath, candidate.ShortcutPath, StringComparison.Ordinal)
-                && entry.Value.FileVersion == candidate.FileVersion
-                && entry.Value.Duration is > 0)
-            {
-                return entry.Value.Duration;
-            }
+            excludedModes.Add(AnalysisMode.Introduction);
+            excludedModes.Add(AnalysisMode.Recap);
         }
 
-        return null;
-    }
+        if (episode.AnalysisLengthLimitOverride is { } analysisLengthLimit && analysisLengthLimit != config.AnalysisLengthLimit)
+        {
+            excludedModes.Add(AnalysisMode.Introduction);
+            excludedModes.Add(AnalysisMode.Recap);
+        }
 
-    private static bool HasPreviousShortcutIdentity(SeasonQueueSnapshot snapshot, QueuedEpisode candidate)
-        => snapshot.AnalysisRecords.Any(entry =>
-            entry.Key.ItemId == candidate.EpisodeId
-            && (!string.Equals(entry.Value.ShortcutPath, candidate.ShortcutPath, StringComparison.Ordinal)
-                || entry.Value.FileVersion != candidate.FileVersion));
+        if (episode.PreviewFromCreditsEndOverride is { } previewFromCreditsEnd
+            && previewFromCreditsEnd != config.AnimePreviewFromCreditsEnd)
+        {
+            excludedModes.Add(AnalysisMode.Credits);
+            excludedModes.Add(AnalysisMode.Preview);
+        }
+
+        if (episode.SubtitleRecapDetectionOverride is { } subtitleRecapDetection
+            && subtitleRecapDetection != config.EnableSubtitleRecapDetection)
+        {
+            excludedModes.Add(AnalysisMode.Recap);
+        }
+
+        if (episode.SubtitlePreviewDetectionOverride is { } subtitlePreviewDetection
+            && subtitlePreviewDetection != config.EnableSubtitlePreviewDetection)
+        {
+            excludedModes.Add(AnalysisMode.Preview);
+        }
+
+        return excludedModes;
+    }
 
     /// <summary>
     /// Analyze a group of media items for skippable segments. Every write into the
@@ -699,7 +663,9 @@ public partial class BaseItemAnalyzerTask(
             ffmpegValid,
             first.AnalysisPercentOverride,
             first.AnalysisLengthLimitOverride,
-            ShouldDerivePreview(first, Config));
+            ShouldDerivePreview(first, Config),
+            IsSubtitleDetectionEnabled(first, AnalysisMode.Recap, Config),
+            IsSubtitleDetectionEnabled(first, AnalysisMode.Preview, Config));
 
         if (action == AnalyzerAction.None)
         {
@@ -721,26 +687,54 @@ public partial class BaseItemAnalyzerTask(
 
         // The cleanup journals the removed rows' projections, so they reach the
         // mirror even if the analyzers below detect nothing new.
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            analysisTargets.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
-            mode,
-            configHash,
-            cancellationToken).ConfigureAwait(false);
+        var subtitleOnlyItems = items
+            .Where(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed && item.NeedsSubtitleOnlyReanalysis(mode))
+            .ToArray();
+        var conventionalItems = items
+            .Where(item => !item.NeedsSubtitleOnlyReanalysis(mode))
+            .ToArray();
 
-        LogAnalyzingFiles(_logger, mode, analysisTargets.Length, first.SeriesName, first.SeasonNumber);
-
-        if (mode == AnalysisMode.Credits)
+        foreach (var eligibleItems in conventionalItems
+            .Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided)
+            .GroupBy(item => ShouldPreserveSubtitleRows(item, mode)))
         {
-            await SetCreditsWindowsAsync(items, isMovie, cancellationToken).ConfigureAwait(false);
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                eligibleItems.Select(e => e.EpisodeId),
+                mode,
+                configHash,
+                eligibleItems.Key,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        {
+            LogAnalyzingFiles(_logger, mode, conventionalItems.Length, first.SeriesName, first.SeasonNumber);
+        }
+
+        if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed) && mode == AnalysisMode.Credits)
+        {
+            await SetCreditsWindowsAsync(conventionalItems, isMovie, cancellationToken).ConfigureAwait(false);
 
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
-            await pass.RunAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
         }
-        else
+        else if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
-            await RunAnalyzerChainAsync(items, mode, action, ffmpegValid, isMovie, cancellationToken).ConfigureAwait(false);
+            await RunAnalyzerChainAsync(
+                conventionalItems,
+                mode,
+                action,
+                ffmpegValid,
+                isMovie,
+                cancellationToken,
+                mode == AnalysisMode.Recap ? subtitleOnlyItems : null).ConfigureAwait(false);
+        }
+
+        if (subtitleOnlyItems.Length > 0)
+        {
+            await RunSubtitleOnlyAnalysisAsync(subtitleOnlyItems, mode, action, cancellationToken).ConfigureAwait(false);
         }
 
         // Credits-derived previews are generated right after a credits result lands, and again
@@ -752,11 +746,17 @@ public partial class BaseItemAnalyzerTask(
         {
             if (mode == AnalysisMode.Credits)
             {
-                await AnimePreviewDeriver.DeriveAsync(_database, analysisTargets, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+                var subtitlePreviewWillRun = IsSubtitleDetectionEnabled(first, AnalysisMode.Preview, Config) && Config.ScanPreview;
+                await AnimePreviewDeriver.DeriveAsync(
+                    _database,
+                    items,
+                    Config.MinimumPreviewDuration,
+                    cancellationToken,
+                    settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);
             }
             else if (mode == AnalysisMode.Preview)
             {
-                List<QueuedEpisode> unsettled = [.. analysisTargets.Where(item => item.NeedsAnalysis(AnalysisMode.Preview))];
+                List<QueuedEpisode> unsettled = [.. items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) is EpisodeState.NotAnalyzed or EpisodeState.NoSegments or EpisodeState.AnalysisFailed)];
                 await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -772,16 +772,102 @@ public partial class BaseItemAnalyzerTask(
             cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task RunSubtitleOnlyAnalysisAsync(
+        IReadOnlyList<QueuedEpisode> items,
+        AnalysisMode mode,
+        AnalyzerAction action,
+        CancellationToken cancellationToken)
+    {
+        var subtitleCandidates = new List<QueuedEpisode>(items.Count);
+        foreach (var episode in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var segments = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var hasChapterResult = segments.Any(segment => segment.Type == mode
+                && segment.Source == SegmentSource.Chapter
+                && segment.State == SegmentState.Active);
+            var chromaprintHasPriority = mode == AnalysisMode.Recap
+                && (action == AnalyzerAction.Chromaprint
+                    || (action == AnalyzerAction.Default && Config.PreferChromaprint));
+            var hasPreferredChromaprintResult = chromaprintHasPriority && segments.Any(segment => segment.Type == mode
+                && segment.Source == SegmentSource.Chromaprint
+                && segment.State == SegmentState.Active);
+            var enabled = IsSubtitleDetectionEnabled(episode, mode, Config);
+            var pattern = mode == AnalysisMode.Recap ? Config.SubtitleRecapPattern : Config.SubtitlePreviewPattern;
+
+            if (hasChapterResult || hasPreferredChromaprintResult || !enabled || string.IsNullOrWhiteSpace(pattern))
+            {
+                if (segments.Any(segment => segment.Type == mode
+                    && segment.Source == SegmentSource.Subtitle
+                    && segment.State == SegmentState.Active))
+                {
+                    await _database.ClearSubtitleSegmentsAsync(episode.EpisodeId, mode, cancellationToken).ConfigureAwait(false);
+                }
+
+                episode.SetAnalyzed(mode, segments.Any(segment => segment.Type == mode
+                    && segment.Source != SegmentSource.Subtitle
+                    && segment.State == SegmentState.Active)
+                    ? EpisodeState.Analyzed
+                    : EpisodeState.NoSegments);
+                continue;
+            }
+
+            subtitleCandidates.Add(episode);
+        }
+
+        if (subtitleCandidates.Count == 0)
+        {
+            return;
+        }
+
+        var analyzer = new SubtitleAnalyzer(
+            _loggerFactory.CreateLogger<SubtitleAnalyzer>(),
+            _ffmpegService,
+            _database,
+            Config);
+        await analyzer.AnalyzeMediaFiles(subtitleCandidates, mode, cancellationToken).ConfigureAwait(false);
+
+        foreach (var episode in subtitleCandidates)
+        {
+            if (episode.HasUnresolvedSubtitleDetection(mode))
+            {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                continue;
+            }
+
+            if (episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
+            {
+                var hasActiveResult = (await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
+                    .Any(segment => segment.Type == mode && segment.State == SegmentState.Active);
+                episode.SetAnalyzed(mode, hasActiveResult ? EpisodeState.Analyzed : EpisodeState.NoSegments);
+            }
+        }
+    }
+
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
 
-    private static (Guid ItemId, long? FileVersion, string? ShortcutPath, double? Duration) AnalysisIdentity(QueuedEpisode item)
-        => (
-            item.EpisodeId,
-            item.FileVersion,
-            item.IsShortcut ? item.ShortcutPath : null,
-            item.IsShortcut && item.Duration > 0 ? item.Duration : null);
+    private bool ShouldPreserveSubtitleRows(QueuedEpisode episode, AnalysisMode mode)
+        => mode switch
+        {
+            AnalysisMode.Recap => IsSubtitleDetectionEnabled(episode, mode, Config) && !string.IsNullOrWhiteSpace(Config.SubtitleRecapPattern),
+            AnalysisMode.Preview => IsSubtitleDetectionEnabled(episode, mode, Config) && !string.IsNullOrWhiteSpace(Config.SubtitlePreviewPattern),
+            _ => false,
+        };
+
+    private static bool IsSubtitleDetectionEnabled(QueuedEpisode episode, AnalysisMode mode, PluginConfiguration config)
+        => mode == AnalysisMode.Recap
+            ? episode.SubtitleRecapDetectionOverride ?? config.EnableSubtitleRecapDetection
+            : mode == AnalysisMode.Preview
+                && (episode.SubtitlePreviewDetectionOverride ?? config.EnableSubtitlePreviewDetection);
+
+    private AnalysisMode[] GetSubtitleModesToPreserve(
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> seasonStates,
+        IReadOnlyList<QueuedEpisode> episodes)
+        => [.. modes.Where(mode => episodes.Any(episode => ShouldPreserveSubtitleRows(episode, mode))
+            && (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None))];
 
     /// <summary>
     /// Runs the first-wins analyzer chain for the non-credits modes: every applicable analyzer
@@ -794,36 +880,99 @@ public partial class BaseItemAnalyzerTask(
         AnalyzerAction action,
         bool ffmpegValid,
         bool isMovie,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<QueuedEpisode>? chromaprintReferences = null)
     {
-        // Chapters come first. Chromaprint needs a season to compare (no movies) and a
-        // compatible ffmpeg.
-        var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, Config);
-        IMediaFileAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
+        var modeEpisodes = items;
+
+        // Subtitle matching is an opt-in, mode-specific fallback. It runs after the chapter
+        // analyzer so chapter matches take precedence, and before the remaining default chain.
+        // Chromaprint needs a season to compare (no movies) and a compatible ffmpeg.
+        var subtitleEpisodes = modeEpisodes.Where(item => ShouldPreserveSubtitleRows(item, mode)).ToArray();
+        var subtitle = subtitleEpisodes.Length > 0
+            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config)
+            : null;
+        var chapter = new ChapterAnalyzer(
+            _loggerFactory.CreateLogger<ChapterAnalyzer>(),
+            _ffmpegService,
+            _database,
+            Config,
+            enableRecapBlackFrameFallback: false);
+        var recapBlackFrameFallback = mode == AnalysisMode.Recap && Config.DetectRecapUsingBlackFrames
+            ? new ChapterAnalyzer(
+                _loggerFactory.CreateLogger<ChapterAnalyzer>(),
+                _ffmpegService,
+                _database,
+                Config,
+                enableChapterDetection: false)
+            : null;
+        ChromaprintAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
             ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
             : null;
 
-        List<IMediaFileAnalyzer?> chain = [chapter, chromaprint];
-        var analyzers = chain.OfType<IMediaFileAnalyzer>().ToList();
+        List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];
 
         // A per-season action, or the PreferChromaprint setting, moves one analyzer to the front;
         // the rest keep their relative order. An action naming an analyzer that is not in the
         // chain (Chromaprint without ffmpeg) changes nothing.
-        var preferred = action switch
+        IMediaFileAnalyzer? preferred = action switch
         {
             AnalyzerAction.Chapter => chapter,
             AnalyzerAction.Chromaprint => chromaprint,
             _ => Config.PreferChromaprint && ffmpegValid ? chromaprint : null,
         };
-        if (preferred is not null && analyzers.Remove(preferred))
+        List<IMediaFileAnalyzer> conventionalAnalyzers = [.. conventional.OfType<IMediaFileAnalyzer>()];
+        if (preferred is not null && conventionalAnalyzers.Remove(preferred))
         {
-            analyzers.Insert(0, preferred);
+            conventionalAnalyzers.Insert(0, preferred);
+        }
+
+        List<IMediaFileAnalyzer> analyzers = [.. conventionalAnalyzers];
+        if (subtitle is not null)
+        {
+            analyzers.Insert(analyzers.IndexOf(chapter) + 1, subtitle);
+        }
+
+        if (recapBlackFrameFallback is not null)
+        {
+            IMediaFileAnalyzer precedingAnalyzer = subtitle is null ? chapter : subtitle;
+            analyzers.Insert(analyzers.IndexOf(precedingAnalyzer) + 1, recapBlackFrameFallback);
         }
 
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+            items = analyzer == chromaprint && chromaprintReferences is { Count: > 0 }
+                ? await chromaprint!.AnalyzeMediaFiles(items, mode, chromaprintReferences, cancellationToken).ConfigureAwait(false)
+                : await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (subtitle is not null)
+        {
+            var completedFallbacks = subtitleEpisodes
+                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed
+                    && !item.HasUnresolvedSubtitleDetection(mode)
+                    && !item.HasRejectedSubtitleCandidate(mode))
+                .ToArray();
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                completedFallbacks.Select(item => item.EpisodeId),
+                mode,
+                modeEpisodes[0].AnalysisConfigHash,
+                preserveStaleRows: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            foreach (var item in modeEpisodes.Where(item => item.HasUnresolvedSubtitleDetection(mode)))
+            {
+                item.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+            }
+
+            foreach (var item in modeEpisodes.Where(item => item.HasRejectedSubtitleCandidate(mode)))
+            {
+                if (item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
+                {
+                    item.SetAnalyzed(mode, EpisodeState.Analyzed);
+                }
+            }
         }
     }
 
