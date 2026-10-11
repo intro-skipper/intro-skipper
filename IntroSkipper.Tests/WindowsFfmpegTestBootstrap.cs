@@ -15,7 +15,7 @@ namespace IntroSkipper.Tests;
 internal static class WindowsFfmpegTestBootstrap
 {
     // Keep this in sync with the current Jellyfin ffmpeg requirement.
-    private const string FfmpegZipUrl = "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v7.1.3-1/jellyfin-ffmpeg_7.1.3-1_portable_win64-clang-gpl.zip";
+    private const string FfmpegZipUrl = "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.3-1/jellyfin-ffmpeg_8.1.3-1_portable_win64-clang-gpl.zip";
 
     [ModuleInitializer]
     internal static void Init()
