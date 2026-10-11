@@ -372,6 +372,7 @@ public partial class BaseItemAnalyzerTask(
             previewFromCreditsEnd,
             candidates[0].SubtitleRecapDetectionOverride,
             candidates[0].SubtitlePreviewDetectionOverride);
+        var sidecarFolders = new SubtitleSidecarFiles.FolderListings();
 
         foreach (var candidate in candidates)
         {
@@ -400,7 +401,7 @@ public partial class BaseItemAnalyzerTask(
                     || config.ActiveSubtitlePattern(candidate, AnalysisMode.Preview) is not null)
                 {
                     candidate.InternalMetadataPath = item.GetInternalMetadataPath();
-                    candidate.SubtitleFileVersion = SubtitleSidecarFiles.FileVersion(candidate, SubtitleLanguageSelection.Parse(config.SubtitleLanguages));
+                    candidate.SubtitleFileVersion = SubtitleSidecarFiles.FileVersion(candidate, SubtitleLanguageSelection.Parse(config.SubtitleLanguages), sidecarFolders);
                 }
 
                 verified.Add(candidate);

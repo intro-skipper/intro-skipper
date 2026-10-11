@@ -61,9 +61,11 @@ public sealed class TestSubtitleAnalyzer
     // Bitmap codecs would need OCR, and neither ffmpeg build can decode arib_caption, so
     // extracting either would only fail. Both builds decode the older srt and ssa ids.
     [Fact]
-    public void ParseTextSubtitleStreams_KeepsTextCodecsFfmpegCanDecode()
+    public void ParseSubtitleStreamListing_KeepsTextCodecsFfmpegCanDecode()
     {
-        Assert.Equal([2, 5, 6, 7], FFmpegOutputParser.ParseTextSubtitleStreams("2,subrip\r\n3,hdmv_pgs_subtitle\n4,arib_caption\n5,ass\n6,srt\n7,ssa\n", SubtitleLanguageSelection.Parse(null)));
+        const string Listing = "stream|2|subrip\r\nstream|3|hdmv_pgs_subtitle\nstream|4|arib_caption\nstream|5|ass\nstream|6|srt\nstream|7|ssa\nformat|matroska,webm|0.000000\n";
+
+        Assert.Equal([2, 5, 6, 7], FFmpegOutputParser.ParseSubtitleStreamListing(Listing, SubtitleLanguageSelection.Parse(null)).Streams);
     }
 
     // The ISO 639-1, 639-2/B and 639-2/T codes of a language match each other, in the setting
@@ -72,11 +74,11 @@ public sealed class TestSubtitleAnalyzer
     [InlineData("de")]
     [InlineData("ger")]
     [InlineData("deu")]
-    public void ParseTextSubtitleStreams_KeepsStreamsInTheSelectedLanguage(string setting)
+    public void ParseSubtitleStreamListing_KeepsStreamsInTheSelectedLanguage(string setting)
     {
-        const string Listing = "0,subrip\n1,subrip,ger\n2,subrip,deu\n3,subrip,de\n4,subrip,eng\n5,subrip,und\n";
+        const string Listing = "stream|0|subrip\nstream|1|subrip|ger\nstream|2|subrip|deu\nstream|3|subrip|de\nstream|4|subrip|eng\nstream|5|subrip|und\n";
 
-        Assert.Equal([0, 1, 2, 3, 5], FFmpegOutputParser.ParseTextSubtitleStreams(Listing, SubtitleLanguageSelection.Parse(setting)));
+        Assert.Equal([0, 1, 2, 3, 5], FFmpegOutputParser.ParseSubtitleStreamListing(Listing, SubtitleLanguageSelection.Parse(setting)).Streams);
     }
 
     // .NET gives Bokmål and Nynorsk codes of their own, but files usually tag Norwegian "nor".
@@ -84,11 +86,27 @@ public sealed class TestSubtitleAnalyzer
     [InlineData("nb")]
     [InlineData("nob")]
     [InlineData("no")]
-    public void ParseTextSubtitleStreams_ReadsBokmalAndNynorskAsNorwegian(string setting)
+    public void ParseSubtitleStreamListing_ReadsBokmalAndNynorskAsNorwegian(string setting)
     {
-        const string Listing = "0,subrip,nor\n1,subrip,nob\n2,subrip,nn\n3,subrip,swe\n";
+        const string Listing = "stream|0|subrip|nor\nstream|1|subrip|nob\nstream|2|subrip|nn\nstream|3|subrip|swe\n";
 
-        Assert.Equal([0, 1, 2], FFmpegOutputParser.ParseTextSubtitleStreams(Listing, SubtitleLanguageSelection.Parse(setting)));
+        Assert.Equal([0, 1, 2], FFmpegOutputParser.ParseSubtitleStreamListing(Listing, SubtitleLanguageSelection.Parse(setting)).Streams);
+    }
+
+    // A head read of a Matroska file stops at an outpoint on the file's own clock, so the listing
+    // carries a Matroska file's start time. Another container, or a start time ffprobe cannot
+    // tell, gives none, and the read stops with an output -t instead.
+    [Theory]
+    [InlineData("format|matroska,webm|7.500000", 7.5)]
+    [InlineData("format|matroska,webm|-0.023000", -0.023)]
+    [InlineData("format|matroska,webm|N/A", null)]
+    [InlineData("format|mov,mp4,m4a,3gp,3g2,mj2|0.000000", null)]
+    public void ParseSubtitleStreamListing_ReadsTheStartTimeOfMatroskaOnly(string format, double? startTime)
+    {
+        var listing = FFmpegOutputParser.ParseSubtitleStreamListing("stream|2|subrip|eng\n" + format + "\n", SubtitleLanguageSelection.Parse(null));
+
+        Assert.Equal([2], listing.Streams);
+        Assert.Equal(startTime, listing.MatroskaStartTime);
     }
 
     // Cues from every source come back in start order, which the recap search relies on.
@@ -111,10 +129,12 @@ public sealed class TestSubtitleAnalyzer
         Assert.True(scan.Complete);
     }
 
-    // The embedded run reads only around the window: it stops after a window that ends early
-    // and seeks before one that starts late. Inside the window it returns the cues a full read
-    // does, at the same times, on a file whose clock starts at 7.5 s. The middle cue lies
-    // outside both windows, so its absence shows the read was cut.
+    // The embedded run reads only around the window: it stops after a window that ends early,
+    // at the outpoint of a Matroska head read, and seeks before one that starts late. Inside
+    // the window it returns the cues a full read does, at the same times, on a file whose clock
+    // starts at 20 s; an outpoint that left out the start time would cut the cue across the
+    // window's end. The middle cue lies outside both windows, so its absence shows the read was
+    // cut.
     [Theory]
     [InlineData(0, 60, new[] { "Previously on the show", "Across the end" })]
     [InlineData(180, 300, new[] { "Next time on the show" })]
@@ -134,8 +154,25 @@ public sealed class TestSubtitleAnalyzer
         Assert.True(windowed.Complete);
     }
 
+    // A head read decodes no video, so a broken H.264 decoder record does not stop it. The concat
+    // demuxer's default -auto_convert would put every H.264 packet through h264_mp4toannexb,
+    // whose setup fails on that record before a single cue is read. The audio track keeps the
+    // file's start time known, which the head read needs, though the video's is not.
+    [Fact]
+    public async Task ExtractSubtitleCuesAsync_HeadReadOfABrokenH264Record_ReadsTheWindow()
+    {
+        using var directory = new TempDirectory();
+        var episode = new QueuedEpisode { Name = "long", Path = await MuxLongEpisodeAsync(directory, withAudio: true), Duration = 300 };
+        await BreakFirstSpsLengthAsync(episode.Path);
+
+        var scan = await FfmpegTestHelpers.CreateFFmpegService().ExtractSubtitleCuesAsync(episode, new TimeRange(0, 60));
+
+        Assert.Equal(["Previously on the show", "Across the end"], scan.Cues.Where(cue => cue.Start < 60).Select(cue => cue.Text));
+        Assert.True(scan.Complete);
+    }
+
     // The embedded streams and the sidecars share one ffmpeg run, also when the run seeks on a
-    // file whose clock starts at 7.5 s. -copyts and -start_at_zero then apply to the sidecar
+    // file whose clock starts at 20 s. -copyts and -start_at_zero then apply to the sidecar
     // too, and its cue keeps its time.
     [Fact]
     public async Task ExtractSubtitleCuesAsync_SeekingWindow_ReadsTheSidecarInTheSameRun()
@@ -325,13 +362,34 @@ public sealed class TestSubtitleAnalyzer
         File.WriteAllText(mediaPath, string.Empty);
         File.WriteAllText(textPath, "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
         var episode = new QueuedEpisode { Path = mediaPath, FileVersion = 2 };
-        var textVersion = SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null));
+        var textVersion = SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null), new SubtitleSidecarFiles.FolderListings());
 
         File.WriteAllText(directory.Join("episode.ja.idx"), "VobSub index");
         File.WriteAllText(directory.Join("episode.ja.sub"), "image data");
 
         Assert.Equal([textPath], SubtitleSidecarFiles.FindTextSources(episode, SubtitleLanguageSelection.Parse(null)));
-        Assert.Equal(textVersion, SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null)));
+        Assert.Equal(textVersion, SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(null), new SubtitleSidecarFiles.FolderListings()));
+    }
+
+    // A verification pass lists each folder once for all the episodes in it. A sidecar written
+    // after the folder was listed therefore changes an episode's version from the next pass,
+    // which lists the folder again.
+    [Fact]
+    public void SubtitleSidecarFiles_ListEachFolderOncePerPass()
+    {
+        using var directory = new TempDirectory();
+        var first = new QueuedEpisode { Path = directory.Join("episode1.mkv"), FileVersion = 1 };
+        var second = new QueuedEpisode { Path = directory.Join("episode2.mkv"), FileVersion = 2 };
+        File.WriteAllText(first.Path, string.Empty);
+        File.WriteAllText(second.Path, string.Empty);
+        var languages = SubtitleLanguageSelection.Parse(null);
+        var pass = new SubtitleSidecarFiles.FolderListings();
+
+        Assert.Equal(1, SubtitleSidecarFiles.FileVersion(first, languages, pass));
+        File.WriteAllText(directory.Join("episode2.en.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+
+        Assert.Equal(2, SubtitleSidecarFiles.FileVersion(second, languages, pass));
+        Assert.NotEqual(2, SubtitleSidecarFiles.FileVersion(second, languages, new SubtitleSidecarFiles.FolderListings()));
     }
 
     // The lookup matches the media file's name literally, so a name holding a wildcard
@@ -682,10 +740,36 @@ public sealed class TestSubtitleAnalyzer
         return mediaPath;
     }
 
+    // Adds 0x400 to the length of the first SPS in a Matroska file's H.264 decoder record (the
+    // avcC in CodecPrivate, element 63 A2), so the record claims more bytes than it holds. The
+    // element sizes stay as they are.
+    private static async Task BreakFirstSpsLengthAsync(string path)
+    {
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.ReadWrite);
+        var head = new byte[64 * 1024];
+        var read = await file.ReadAsync(head);
+        for (var i = 0; i + 10 < read; i++)
+        {
+            // A one-byte element size, then avcC version 1 with the reserved bits before the
+            // SPS count set.
+            if (head[i] == 0x63 && head[i + 1] == 0xA2 && (head[i + 2] & 0x80) != 0 && head[i + 3] == 1 && (head[i + 8] & 0xE0) == 0xE0)
+            {
+                var length = ((head[i + 9] << 8) | head[i + 10]) + 0x400;
+                file.Position = i + 9;
+                await file.WriteAsync(new[] { (byte)(length >> 8), (byte)length });
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("The file holds no H.264 decoder record.");
+    }
+
     // Muxes long.mkv in the directory: the fixture video looped to 300 s, with its clock
-    // starting at 7.5 s, and an English subtitle stream holding a recap cue at 20 s, a cue from
-    // 58 to 62 s, one at 150 s and a preview cue at 250 s.
-    private static async Task<string> MuxLongEpisodeAsync(TempDirectory directory)
+    // starting at 20 s, and an English subtitle stream (stream 1) holding a recap cue at 20 s, a
+    // cue from 58 to 62 s, one at 150 s and a preview cue at 250 s. withAudio adds a FLAC tone
+    // as stream 2, which has no codec delay and gives the file a start time its video alone
+    // cannot.
+    private static async Task<string> MuxLongEpisodeAsync(TempDirectory directory, bool withAudio = false)
     {
         var subtitles = directory.Join("english.srt");
         var mediaPath = directory.Join("long.mkv");
@@ -712,8 +796,9 @@ public sealed class TestSubtitleAnalyzer
             [
                 "-y", "-v", "error",
                 "-stream_loop", "29", "-i", FfmpegTestHelpers.QueueFile("video/rainbow.mp4").Path, "-i", subtitles,
+                .. withAudio ? ["-f", "lavfi", "-i", "sine=duration=300", "-map", "2:a", "-c:a", "flac"] : Array.Empty<string>(),
                 "-map", "0:v", "-map", "1", "-c:v", "copy", "-c:s", "srt", "-metadata:s:s:0", "language=eng",
-                "-output_ts_offset", "7.5",
+                "-output_ts_offset", "20",
                 mediaPath,
             ]);
         return mediaPath;

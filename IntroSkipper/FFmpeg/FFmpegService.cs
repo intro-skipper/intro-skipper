@@ -51,6 +51,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double SubtitleSeekMargin = 10;
     private const double SubtitleStopMargin = 5;
 
+    // Seconds a head list reads past the window. Its outpoint stops the file at the first packet
+    // of any stream past it, so the margin leaves room for a cue a muxer stored after the audio
+    // and video of the same time: ffmpeg's muxer holds a sparse stream back by up to 10 s.
+    private const double SubtitleHeadListMargin = 15;
+
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several
@@ -654,10 +659,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         try
         {
             var languages = SubtitleLanguageSelection.Parse(Plugin.Instance?.Configuration.SubtitleLanguages);
-            var embeddedStreams = await ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken).ConfigureAwait(false);
+            var listing = await ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken).ConfigureAwait(false);
             var sidecars = SubtitleSidecarFiles.FindTextSources(episode, languages);
-            complete = embeddedStreams is not null;
-            var outputCount = (embeddedStreams?.Length ?? 0) + sidecars.Length;
+            complete = listing is not null;
+            var outputCount = (listing?.Streams.Length ?? 0) + sidecars.Length;
             if (outputCount == 0)
             {
                 return new SubtitleScan([], complete);
@@ -671,18 +676,26 @@ internal sealed partial class FFmpegService : IFFmpegService
             try
             {
                 List<SubtitleInput> inputs = [];
-                if (embeddedStreams is { Length: > 0 })
+                if (listing is { Streams: { Length: > 0 } embeddedStreams })
                 {
                     // The margins keep every cue that starts inside the window clear of the
                     // seek and stop points.
                     var seek = window.Start - SubtitleSeekMargin;
                     var stop = window.End + SubtitleStopMargin;
-                    inputs.Add(new(
-                        episode.Path,
-                        seek > 0 ? seek : null,
-                        stop < episode.Duration ? stop : null,
-                        embeddedStreams,
-                        Path.Join(directory.FullName, "embedded")));
+                    var outputPrefix = Path.Join(directory.FullName, "embedded");
+                    if (seek <= 0
+                        && stop < episode.Duration
+                        && listing.MatroskaStartTime is { } startTime
+                        && !episode.Path.AsSpan().ContainsAny('\r', '\n'))
+                    {
+                        var outpoint = startTime + window.End + SubtitleHeadListMargin;
+                        var list = await WriteHeadListAsync(episode.Path, outpoint, outputPrefix, cancellationToken).ConfigureAwait(false);
+                        inputs.Add(new(list, null, null, embeddedStreams, outputPrefix, Concat: true));
+                    }
+                    else
+                    {
+                        inputs.Add(new(episode.Path, seek > 0 ? seek : null, stop < episode.Duration ? stop : null, embeddedStreams, outputPrefix));
+                    }
                 }
 
                 for (var i = 0; i < sidecars.Length; i++)
@@ -753,15 +766,16 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     // The embedded subtitle streams to read, by stream index: those ffmpeg decodes to text, in a
-    // selected language. Null when ffprobe failed (logged), which leaves the scan incomplete.
-    private async Task<int[]?> ProbeTextSubtitleStreamsAsync(string path, SubtitleLanguageSelection languages, CancellationToken cancellationToken)
+    // selected language, and the file's start time when it is Matroska. Null when ffprobe failed
+    // (logged), which leaves the scan incomplete.
+    private async Task<FFmpegOutputParser.SubtitleStreamListing?> ProbeTextSubtitleStreamsAsync(string path, SubtitleLanguageSelection languages, CancellationToken cancellationToken)
     {
         string[] args =
         [
             "-v", "error",
             "-select_streams", "s",
-            "-show_entries", "stream=index,codec_name:stream_tags=language",
-            "-of", "csv=p=0",
+            "-show_entries", "stream=index,codec_name:stream_tags=language:format=format_name,start_time",
+            "-of", "compact=p=1:nk=1",
             path,
         ];
         ProcessCapture capture;
@@ -781,7 +795,26 @@ internal sealed partial class FFmpegService : IFFmpegService
             return null;
         }
 
-        return FFmpegOutputParser.ParseTextSubtitleStreams(Encoding.UTF8.GetString(capture.Stdout.Span), languages);
+        return FFmpegOutputParser.ParseSubtitleStreamListing(Encoding.UTF8.GetString(capture.Stdout.Span), languages);
+    }
+
+    // Writes an ffconcat list at listPrefix + ".ffconcat" that reads the Matroska file at path up
+    // to outpoint, a second on the file's own clock, and returns the list's path. The concat
+    // demuxer stops every stream of the file there, while an output -t stops only once its
+    // stream delivers a cue past the stop, so a sparse track would hold the read open to the end
+    // of the file. The list quotes the path in single quotes, so a quote in it is written as
+    // '\''; a line break cannot be listed, so the caller keeps such a path out. Matroska only: the
+    // concat demuxer does not pass unread streams down to the file it wraps, so on an MP4, whose
+    // demuxer otherwise reads only the subtitle samples, it read more.
+    private static async Task<string> WriteHeadListAsync(string path, double outpoint, string listPrefix, CancellationToken cancellationToken)
+    {
+        var list = listPrefix + ".ffconcat";
+        var quoted = path.Replace("'", @"'\''", StringComparison.Ordinal);
+        await File.WriteAllTextAsync(
+            list,
+            FormattableString.Invariant($"ffconcat version 1.0\nfile '{quoted}'\noutpoint {FormatSeconds(outpoint)}\n"),
+            cancellationToken).ConfigureAwait(false);
+        return list;
     }
 
     // Decodes the streams of every input to WebVTT in a single ffmpeg run, one file per stream
@@ -806,18 +839,34 @@ internal sealed partial class FFmpegService : IFFmpegService
     // every cue shifts. A stop ends each output of its input at that media second with an
     // output -t, which counts on the clock of the cue times, with or without a seek. An input -t
     // would bound only copied streams, not decoded ones.
+    //
+    // A concat input is an ffconcat list (WriteHeadListAsync), read with -safe 0 because it
+    // names an absolute path. The concat demuxer already counts from the file's start time, so
+    // a run with one takes -copyts alone: without it, ffmpeg 8.1 subtracts a start time the
+    // concat demuxer derives from the packets, which counts an audio codec delay (AAC 23 ms,
+    // Opus 7 ms) that a plain read leaves out, and every cue shifts by it. A run never holds a
+    // seek and a concat input together. -auto_convert 0 keeps the concat demuxer from putting
+    // every H.264 video packet through h264_mp4toannexb: the run decodes no video, and the
+    // filter ends the input at a damaged packet while ffmpeg still exits 0.
     private async Task<bool> ExtractWebVttAsync(
         IReadOnlyList<SubtitleInput> inputs,
         long outputLimit,
         List<SubtitleCue> cues,
         CancellationToken cancellationToken)
     {
-        List<string> args = inputs.Any(input => input.Seek is not null) ? ["-copyts", "-start_at_zero"] : [];
+        List<string> args = inputs.Any(input => input.Seek is not null) ? ["-copyts", "-start_at_zero"]
+            : inputs.Any(input => input.Concat) ? ["-copyts"]
+            : [];
         foreach (var input in inputs)
         {
             if (input.Seek is { } seek)
             {
                 args.AddRange(["-ss", FormatSeconds(seek)]);
+            }
+
+            if (input.Concat)
+            {
+                args.AddRange(["-f", "concat", "-safe", "0", "-auto_convert", "0"]);
             }
 
             args.AddRange(["-i", input.Path]);
@@ -1280,12 +1329,13 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <summary>
     /// One input of a subtitle extraction run and the WebVTT files its streams decode to.
     /// </summary>
-    /// <param name="Path">File ffmpeg reads: the media file, or a sidecar or its UTF-8 copy.</param>
+    /// <param name="Path">File ffmpeg reads: the media file, an ffconcat list over it (<paramref name="Concat"/>), or a sidecar or its UTF-8 copy.</param>
     /// <param name="Seek">Media second to seek to before reading, or <see langword="null"/> to read from the start.</param>
-    /// <param name="Stop">Media second each output stops at, or <see langword="null"/> to read to the end.</param>
+    /// <param name="Stop">Media second each output stops at with an output -t, or <see langword="null"/> to read to the end, or for a concat input to the list's outpoint.</param>
     /// <param name="Streams">Subtitle streams to decode, by stream index.</param>
     /// <param name="OutputPrefix">Path prefix of the output files; a stream's file adds its index and <c>.vtt</c>.</param>
-    private sealed record SubtitleInput(string Path, double? Seek, double? Stop, int[] Streams, string OutputPrefix)
+    /// <param name="Concat">Whether <paramref name="Path"/> is an ffconcat list, read with the concat demuxer.</param>
+    private sealed record SubtitleInput(string Path, double? Seek, double? Stop, int[] Streams, string OutputPrefix, bool Concat = false)
     {
         /// <summary>Gets the WebVTT file a stream decodes to.</summary>
         /// <param name="stream">The stream index.</param>
