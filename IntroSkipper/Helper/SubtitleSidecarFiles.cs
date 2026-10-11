@@ -33,25 +33,13 @@ internal static class SubtitleSidecarFiles
     /// segment is always read.
     /// </summary>
     /// <remarks>
-    /// Enumerates both folders synchronously. IO exceptions propagate.
+    /// Lists both folders synchronously. IO exceptions propagate.
     /// </remarks>
     /// <param name="episode">The episode whose media path and metadata folder are searched.</param>
     /// <param name="languages">The subtitle languages to read.</param>
     /// <returns>The selected text subtitle sidecars, ordered by path.</returns>
     public static string[] FindTextSources(QueuedEpisode episode, SubtitleLanguageSelection languages)
-    {
-        var stem = Path.GetFileNameWithoutExtension(episode.Path);
-        var files = FindAll(episode, stem);
-        var vobSubPairs = files
-            .Where(path => string.Equals(Path.GetExtension(path), ".idx", StringComparison.OrdinalIgnoreCase))
-            .Select(path => Path.ChangeExtension(path, null))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return [.. files.Where(path =>
-            !string.Equals(Path.GetExtension(path), ".idx", StringComparison.OrdinalIgnoreCase)
-            && !(string.Equals(Path.GetExtension(path), ".sub", StringComparison.OrdinalIgnoreCase)
-                && vobSubPairs.Contains(Path.ChangeExtension(path, null)))
-            && languages.IncludesSidecar(Path.GetFileNameWithoutExtension(path)[stem.Length..]))];
-    }
+        => [.. FindTextFiles(episode, languages, new FolderListings()).Select(file => file.FullName)];
 
     /// <summary>
     /// Combines Jellyfin's media-file version with the names, lengths and write times of the
@@ -60,15 +48,17 @@ internal static class SubtitleSidecarFiles
     /// language are never read and never change it.
     /// </summary>
     /// <remarks>
-    /// Enumerates both sidecar folders and stats each text sidecar synchronously. IO
-    /// exceptions propagate; the caller's per-episode verification owns recovery.
+    /// Lists both sidecar folders through <paramref name="folders"/> synchronously, and takes
+    /// lengths and write times from the listing. IO exceptions propagate; the caller's
+    /// per-episode verification owns recovery.
     /// </remarks>
     /// <param name="episode">The episode, carrying Jellyfin's media-file version in <see cref="QueuedEpisode.FileVersion"/>.</param>
     /// <param name="languages">The subtitle languages to read.</param>
+    /// <param name="folders">The folder listings the verification pass shares.</param>
     /// <returns>A stable composite version, or the media-file version unchanged when no sidecar is read.</returns>
-    public static long? FileVersion(QueuedEpisode episode, SubtitleLanguageSelection languages)
+    public static long? FileVersion(QueuedEpisode episode, SubtitleLanguageSelection languages, FolderListings folders)
     {
-        var files = FindTextSources(episode, languages);
+        var files = FindTextFiles(episode, languages, folders);
         if (files.Length == 0)
         {
             return episode.FileVersion;
@@ -77,10 +67,9 @@ internal static class SubtitleSidecarFiles
         var signature = new StringBuilder()
             .Append(episode.FileVersion?.ToString(CultureInfo.InvariantCulture))
             .Append('\n');
-        foreach (var path in files)
+        foreach (var file in files)
         {
-            var file = new FileInfo(path);
-            signature.Append(Path.GetFileName(path))
+            signature.Append(file.Name)
                 .Append('|').Append(file.Length.ToString(CultureInfo.InvariantCulture))
                 .Append('|').Append(file.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture))
                 .Append('\n');
@@ -89,7 +78,22 @@ internal static class SubtitleSidecarFiles
         return BinaryPrimitives.ReadInt64LittleEndian(SHA256.HashData(Encoding.UTF8.GetBytes(signature.ToString())));
     }
 
-    private static string[] FindAll(QueuedEpisode episode, string stem)
+    private static FileInfo[] FindTextFiles(QueuedEpisode episode, SubtitleLanguageSelection languages, FolderListings folders)
+    {
+        var stem = Path.GetFileNameWithoutExtension(episode.Path);
+        var files = FindAll(episode, stem, folders);
+        var vobSubPairs = files
+            .Where(file => string.Equals(file.Extension, ".idx", StringComparison.OrdinalIgnoreCase))
+            .Select(file => Path.ChangeExtension(file.FullName, null))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. files.Where(file =>
+            !string.Equals(file.Extension, ".idx", StringComparison.OrdinalIgnoreCase)
+            && !(string.Equals(file.Extension, ".sub", StringComparison.OrdinalIgnoreCase)
+                && vobSubPairs.Contains(Path.ChangeExtension(file.FullName, null)))
+            && languages.IncludesSidecar(Path.GetFileNameWithoutExtension(file.Name)[stem.Length..]))];
+    }
+
+    private static FileInfo[] FindAll(QueuedEpisode episode, string stem, FolderListings folders)
     {
         if (string.IsNullOrEmpty(stem))
         {
@@ -100,18 +104,45 @@ internal static class SubtitleSidecarFiles
         // characters that a search pattern would treat as wildcards.
         return [.. new[] { Path.GetDirectoryName(episode.Path), episode.InternalMetadataPath }
             .OfType<string>()
-            .Where(Directory.Exists)
-            .SelectMany(Directory.EnumerateFiles)
-            .Where(path =>
+            .SelectMany(folders.List)
+            .Where(file => file.Name.Length > stem.Length
+                && file.Name.StartsWith(stem, StringComparison.OrdinalIgnoreCase)
+                && file.Name[stem.Length] == '.'
+                && Extensions.Contains(file.Extension)
+                && !string.Equals(file.FullName, episode.Path, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(file => file.FullName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(file => file.FullName, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// The folder listings one verification pass shares. The episodes of a season usually share
+    /// a folder, which is then listed once rather than once per episode; over a network share,
+    /// every listing costs round trips. A folder is listed the first time it is asked for and
+    /// never again, so a file written later counts from the next pass, which makes new listings.
+    /// </summary>
+    internal sealed class FolderListings
+    {
+        private readonly Dictionary<string, FileInfo[]> _listings = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Gets the files in a folder, with the lengths and write times the listing reports.
+        /// </summary>
+        /// <remarks>
+        /// Lists the folder synchronously on first use. IO exceptions propagate, and a folder
+        /// that failed is listed again when next asked for.
+        /// </remarks>
+        /// <param name="folder">The folder's path.</param>
+        /// <returns>The folder's files, or none when the folder does not exist.</returns>
+        public FileInfo[] List(string folder)
+        {
+            if (!_listings.TryGetValue(folder, out var files))
             {
-                var name = Path.GetFileName(path);
-                return name.Length > stem.Length
-                    && name.StartsWith(stem, StringComparison.OrdinalIgnoreCase)
-                    && name[stem.Length] == '.'
-                    && Extensions.Contains(Path.GetExtension(path))
-                    && !string.Equals(path, episode.Path, StringComparison.OrdinalIgnoreCase);
-            })
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(path => path, StringComparer.Ordinal)];
+                var directory = new DirectoryInfo(folder);
+                files = directory.Exists ? [.. directory.EnumerateFiles()] : [];
+                _listings[folder] = files;
+            }
+
+            return files;
+        }
     }
 }

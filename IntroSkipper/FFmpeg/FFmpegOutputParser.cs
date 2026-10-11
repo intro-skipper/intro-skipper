@@ -216,28 +216,36 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Picks the subtitle streams to read out of ffprobe's
-    /// <c>-show_entries stream=index,codec_name:stream_tags=language -of csv=p=0</c> listing:
-    /// those ffmpeg can decode to text, in a language of <paramref name="languages"/>.
+    /// Reads ffprobe's <c>-show_entries stream=index,codec_name:stream_tags=language:format=format_name,start_time
+    /// -of compact=p=1:nk=1</c> listing: the subtitle streams ffmpeg can decode to text, in a
+    /// language of <paramref name="languages"/>, and the file's start time when it is Matroska.
     /// </summary>
-    /// <param name="raw">ffprobe output, one <c>index,codec_name,language</c> line per subtitle stream; an untagged stream's line ends after the codec.</param>
+    /// <param name="raw">ffprobe output: one <c>stream|index|codec_name|language</c> line per subtitle stream, where an untagged stream's line ends after the codec, and one <c>format|format_name|start_time</c> line.</param>
     /// <param name="languages">The languages to read.</param>
-    /// <returns>The stream indexes of the selected text subtitle streams, in listing order.</returns>
-    internal static int[] ParseTextSubtitleStreams(string raw, SubtitleLanguageSelection languages)
+    /// <returns>The selected text subtitle streams in listing order, and the Matroska start time.</returns>
+    internal static SubtitleStreamListing ParseSubtitleStreamListing(string raw, SubtitleLanguageSelection languages)
     {
         List<int> streams = [];
+        double? matroskaStartTime = null;
         foreach (var line in raw.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         {
-            if (line.Split(',', 3) is [var index, var codec, .. var language]
+            var fields = line.Split('|');
+            if (fields is ["stream", var index, var codec, .. var language]
                 && _textSubtitleCodecs.Contains(codec)
                 && languages.Includes(language.FirstOrDefault())
                 && int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out var streamIndex))
             {
                 streams.Add(streamIndex);
             }
+            else if (fields is ["format", var formats, var start]
+                && formats.Split(',').Contains("matroska", StringComparer.Ordinal)
+                && double.TryParse(start, NumberStyles.Float, CultureInfo.InvariantCulture, out var startTime))
+            {
+                matroskaStartTime = startTime;
+            }
         }
 
-        return [.. streams];
+        return new([.. streams], matroskaStartTime);
     }
 
     /// <summary>
@@ -338,4 +346,11 @@ internal static partial class FFmpegOutputParser
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
+
+    /// <summary>
+    /// The subtitle streams to read from a media file, and what a head read needs to know about it.
+    /// </summary>
+    /// <param name="Streams">The selected text subtitle streams, by stream index.</param>
+    /// <param name="MatroskaStartTime">The file's start time in seconds when it is Matroska, else <see langword="null"/>.</param>
+    internal sealed record SubtitleStreamListing(int[] Streams, double? MatroskaStartTime);
 }
