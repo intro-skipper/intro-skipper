@@ -276,10 +276,11 @@ export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<A
 export function eraseTimestamps(
     mode: string,
     eraseCache: boolean,
+    eraseTombstones: boolean,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
     return request<null>(
-        `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}`,
+        `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
         { method: "POST", signal },
     );
 }
@@ -287,9 +288,13 @@ export function eraseTimestamps(
 export function eraseItemTimestamps(
     urlPath: string,
     eraseCache: boolean,
+    eraseTombstones: boolean,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
-    return request<null>(`${urlPath}?eraseCache=${eraseCache}`, { method: "DELETE", signal });
+    return request<null>(
+        `${urlPath}?eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
+        { method: "DELETE", signal },
+    );
 }
 
 export function clearExcludedTimestamps(

@@ -32,20 +32,21 @@ public partial class SkipIntroController(
     private readonly IntroSkipperDatabase _database = database;
 
     /// <summary>
-    /// Erases all previously discovered timestamps of a mode: the stored segments
-    /// (tombstones included), the mode's analyzed-episode lists so the next scan
+    /// Erases all previously discovered timestamps of a mode, optionally including
+    /// user-created timestamp locks, the mode's analyzed-episode lists so the next scan
     /// re-detects, and the affected items' Jellyfin mirrors.
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
+    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default, [FromQuery] bool eraseTombstones = true)
     {
-        await _eraser.EraseModeAsync(mode, eraseCache, cancellationToken).ConfigureAwait(false);
+        await _eraser.EraseModeAsync(mode, eraseCache, cancellationToken, eraseTombstones).ConfigureAwait(false);
         return NoContent();
     }
 

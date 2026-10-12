@@ -87,12 +87,14 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases all timestamps for the provided season.
+    /// Erases all timestamps for the provided season, optionally including user-created
+    /// timestamp locks.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
+    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
     /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
     /// <returns>No content.</returns>
@@ -100,7 +102,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
+    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default, [FromQuery] bool eraseTombstones = true)
     {
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
@@ -111,7 +113,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         if (season.Episodes.Count > 0)
         {
             LogErasingTimestamps(_logger, seriesId, seasonId);
-            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken, eraseTombstones).ConfigureAwait(false);
         }
 
         return NoContent();

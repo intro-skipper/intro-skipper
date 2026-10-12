@@ -113,8 +113,8 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(Ticks(60), stored.EndTicks);
     }
 
-    // The admission gate blocks automatic rows that strictly overlap recorded human
-    // intent (a user row or a tombstone); exactly abutting it is not overlap.
+    // The admission gate blocks automatic rows that strictly overlap active user intent;
+    // tombstones block only an identical range, and exactly abutting either is allowed.
     [Theory]
     [InlineData(100.0, 120.0, false)] // disjoint range elsewhere in the episode
     [InlineData(20.0, 30.0, false)]   // starts exactly at the blocker's end
@@ -451,7 +451,7 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly()
+    public async Task EraseItemsAsync_CanPreserveTombstones_WhileClearingTheGivenItems()
     {
         var targetItemId = Guid.NewGuid();
         var otherItemId = Guid.NewGuid();
@@ -459,19 +459,20 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
         await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
 
-        // Tombstone the target item's intro and add a user row: an explicit erase is a
-        // factory reset, so the tombstone and the user row go too (and are counted).
+        // Tombstone the target item's intro and add a user row. Opting out of tombstone
+        // removal keeps the lock while still removing the active user row.
         // The records come after the delete, which clears the target's on its own.
         var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
         await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
         await database.SeedUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [targetItemId, otherItemId], "hash");
 
-        var removed = await database.EraseItemsAsync([targetItemId]);
+        var removed = await database.EraseItemsAsync([targetItemId], eraseTombstones: false);
 
-        Assert.Equal(2, removed);
+        Assert.Equal(1, removed);
         await using var db = _db.Context();
-        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId));
+        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.State == SegmentState.Suppressed));
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.Source == SegmentSource.User));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == otherItemId));

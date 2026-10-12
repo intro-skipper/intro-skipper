@@ -25,8 +25,8 @@ internal static class AutoSegmentAdmissionPolicy
 {
     /// <summary>
     /// Decides whether an automatic segment may be written over an item's stored rows.
-    /// Ranges block only when they strictly overlap: touching boundaries do not, a single
-    /// shared tick does.
+    /// Tombstones block only an identical range; active user rows still block strict
+    /// overlap, while touching boundaries do not.
     /// </summary>
     /// <param name="mode">The candidate's mode.</param>
     /// <param name="startTicks">The candidate's start.</param>
@@ -41,7 +41,10 @@ internal static class AutoSegmentAdmissionPolicy
     {
         bool Overlapping(DbSegment row) => startTicks < row.EndTicks && row.StartTicks < endTicks;
 
-        if (itemRows.Any(row => row.Type == mode && row.State == SegmentState.Suppressed && Overlapping(row)))
+        if (itemRows.Any(row => row.Type == mode
+            && row.State == SegmentState.Suppressed
+            && row.StartTicks == startTicks
+            && row.EndTicks == endTicks))
         {
             return AutoSegmentRejection.Tombstone;
         }

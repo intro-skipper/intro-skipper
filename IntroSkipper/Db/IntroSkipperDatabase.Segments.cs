@@ -733,9 +733,9 @@ public sealed partial class IntroSkipperDatabase
             .ThenBy(s => s.StartTicks);
 
     /// <summary>
-    /// Deletes every stored segment of the given analysis mode, tombstones included
-    /// (explicit erase is a factory reset), and the mode's analysis records so the next
-    /// scan re-detects instead of classifying the erased items as <c>NoSegments</c>.
+    /// Deletes every stored segment of the given analysis mode, optionally including
+    /// tombstones, and the mode's analysis records so the next scan re-detects instead
+    /// of classifying the erased items as <c>NoSegments</c>.
     /// Items whose erased rows were credits-derived also lose their
     /// <see cref="AnalysisMode.Credits"/> records, because only the credits pass can
     /// regenerate those rows. Everything runs in one transaction, the affected items'
@@ -743,8 +743,9 @@ public sealed partial class IntroSkipperDatabase
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The ids of the items that held a segment of the mode.</returns>
-    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default, bool eraseTombstones = true)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -756,7 +757,8 @@ public sealed partial class IntroSkipperDatabase
             // also reopen that pass for their items — the erased mode's own pass cannot
             // regenerate them and would just settle the items as NoSegments.
             var derivedItemIds = await db.Segments
-                .Where(s => s.Type == mode && s.Source == SegmentSource.CreditsDerived)
+                .Where(s => s.Type == mode && s.Source == SegmentSource.CreditsDerived
+                    && (eraseTombstones || s.State == SegmentState.Active))
                 .Select(s => s.ItemId)
                 .Distinct()
                 .ToArrayAsync(cancellationToken)
@@ -764,7 +766,8 @@ public sealed partial class IntroSkipperDatabase
 
             var (_, itemIds) = await DeleteSegmentsAndJournalAsync(
                 db,
-                db.Segments.Where(s => s.Type == mode),
+                db.Segments.Where(s => s.Type == mode
+                    && (eraseTombstones || s.State == SegmentState.Active)),
                 cancellationToken).ConfigureAwait(false);
 
             // Without this the erased items stay recorded as analyzed for the mode and

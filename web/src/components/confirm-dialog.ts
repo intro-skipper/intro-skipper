@@ -1,7 +1,7 @@
 import { el } from "./dom.ts";
 
 /**
- * A custom confirmation dialog that supports an optional checkbox,
+ * A custom confirmation dialog that supports optional checkboxes,
  * replacing window.Dashboard.confirm() where richer content is needed.
  *
  * Uses the native <dialog> element for built-in focus trapping and
@@ -16,11 +16,17 @@ type ConfirmDialogOptions = {
     cancelLabel?: string;
     checkbox?: {
         label: string;
+        checked?: boolean;
     };
+    checkboxes?: readonly {
+        label: string;
+        checked?: boolean;
+    }[];
 };
 
 type ConfirmDialogResult = {
     checkboxChecked: boolean;
+    checkboxValues: readonly boolean[];
 };
 
 let dialogCounter = 0;
@@ -47,17 +53,20 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         dialog.append(heading, body);
 
-        let checkbox: HTMLInputElement | null = null;
+        const checkboxOptions = opts.checkboxes ?? (opts.checkbox ? [opts.checkbox] : []);
+        const checkboxes: HTMLInputElement[] = [];
 
-        if (opts.checkbox) {
-            const checkboxId = "is-confirm-checkbox-" + uid;
-            checkbox = el("input", { type: "checkbox", id: checkboxId });
+        checkboxOptions.forEach((option, index) => {
+            const checkboxId = "is-confirm-checkbox-" + uid + "-" + String(index);
+            const checkbox = el("input", { type: "checkbox", id: checkboxId });
+            checkbox.checked = option.checked ?? false;
             const label = el("label", { className: "is-confirm-checkbox-label", for: checkboxId });
-            label.append(checkbox, document.createTextNode(" " + opts.checkbox.label));
+            label.append(checkbox, document.createTextNode(" " + option.label));
             const wrapper = el("div", { className: "is-confirm-checkbox-row" });
             wrapper.append(label);
             dialog.append(wrapper);
-        }
+            checkboxes.push(checkbox);
+        });
 
         const cancelBtn = el(
             "button",
@@ -82,7 +91,10 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         cancelBtn.addEventListener("click", () => cleanup(null));
         confirmBtn.addEventListener("click", () =>
-            cleanup({ checkboxChecked: checkbox?.checked ?? false }),
+            cleanup({
+                checkboxChecked: checkboxes[0]?.checked ?? false,
+                checkboxValues: checkboxes.map((checkbox) => checkbox.checked),
+            }),
         );
 
         // Esc key triggers the cancel event on <dialog>.
