@@ -5,6 +5,8 @@ import { el } from "../components/dom.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 
+const timestampTypes = ["introduction", "recap", "credits", "preview", "commercial"] as const;
+
 export const toolsTab: Tab = {
     id: "tools",
     label: "Tools",
@@ -21,6 +23,7 @@ export const toolsTab: Tab = {
             id: globalSelectId,
             name: "global-timestamp-type",
         });
+        globalSelect.append(el("option", { value: "all" }, "All Types"));
         globalSelect.append(el("option", { value: "introduction" }, "Introduction"));
         globalSelect.append(el("option", { value: "recap" }, "Recap"));
         globalSelect.append(el("option", { value: "credits" }, "Credits"));
@@ -35,15 +38,15 @@ export const toolsTab: Tab = {
         );
 
         globalSelect.addEventListener("change", () => {
+            const label = globalSelect.selectedOptions[0]?.textContent;
+            if (!label) return;
             globalEraseBtn.textContent =
-                "Erase All " +
-                globalSelect.value.charAt(0).toUpperCase() +
-                globalSelect.value.slice(1) +
-                " Timestamps";
+                label === "All Types" ? "Erase All Timestamps" : "Erase All " + label + " Timestamps";
         });
 
         globalEraseBtn.addEventListener("click", async () => {
             const typeMap: Record<string, string> = {
+                all: "All Types",
                 introduction: "Introduction",
                 recap: "Recap",
                 credits: "Credits",
@@ -56,19 +59,26 @@ export const toolsTab: Tab = {
             const result = await confirmDialog({
                 title: "Confirm Timestamp Erasure",
                 body:
-                    "Are you sure you want to erase all previously discovered " +
-                    globalSelect.value +
-                    " timestamps?",
+                    type === "All Types"
+                        ? "Are you sure you want to erase all previously discovered timestamps of every type?"
+                        : "Are you sure you want to erase all previously discovered " +
+                          globalSelect.value +
+                          " timestamps?",
                 confirmLabel: "Erase",
                 checkbox: { label: "Include cached fingerprint files" },
             });
             if (!result) return;
-            const response = await api.eraseTimestamps(type, result.checkboxChecked);
-            if (!response.ok) {
-                window.Dashboard.alert("Failed to erase " + type + " timestamps");
-                return;
+
+            const modes = globalSelect.value === "all" ? timestampTypes : [type];
+            const action = type === "All Types" ? "all timestamps" : type.toLowerCase() + " timestamps";
+            for (const mode of modes) {
+                const response = await api.eraseTimestamps(mode, result.checkboxChecked);
+                if (!response.ok) {
+                    window.Dashboard.alert("Failed to erase " + action);
+                    return;
+                }
             }
-            window.Dashboard.alert(type + " timestamps erased");
+            window.Dashboard.alert(type === "All Types" ? "All timestamps erased" : type + " timestamps erased");
         });
 
         const rebuildBtn = el(
@@ -112,7 +122,7 @@ export const toolsTab: Tab = {
         resetBtn.addEventListener("click", async () => {
             const result = await confirmDialog({
                 title: "Confirm Settings Reset",
-                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection and the injected skip button CSS are kept.",
+                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection and the injected skip button CSS are kept. Season and show overrides are not removed.",
                 confirmLabel: "Reset",
             });
             if (!result) return;
