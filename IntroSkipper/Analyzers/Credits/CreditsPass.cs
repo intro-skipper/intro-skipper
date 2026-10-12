@@ -185,7 +185,23 @@ internal sealed partial class CreditsPass(
                 // the first analysis of an episode pays for it.
                 if (detectKeyframeCredits is not null)
                 {
-                    candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                    try
+                    {
+                        candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // Keyframe detection is an enhancement to the chapter and Chromaprint
+                        // candidates. A failed black-frame scan must not erase a valid result that
+                        // was already found by another analyzer; when it is the only producer,
+                        // keep the episode failed so the black-frame analysis is retried.
+                        LogKeyframeAnalysisFailed(ex, episode.Name);
+                        if (candidates.Count == 0)
+                        {
+                            episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                            continue;
+                        }
+                    }
                 }
 
                 var state = await StoreCandidatesAsync(
@@ -287,6 +303,9 @@ internal sealed partial class CreditsPass(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
     private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}; continuing with the other credits candidates")]
+    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers")]
     private partial void LogChromaprintComparisonFailed(Exception ex);

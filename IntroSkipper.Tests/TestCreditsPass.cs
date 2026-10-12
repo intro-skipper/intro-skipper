@@ -485,6 +485,23 @@ public sealed class TestCreditsPass
         Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
+    [Fact]
+    public async Task BlackFrameScanFailure_PreservesChromaprintCandidate()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var failedScanEpisode = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(SegmentSource.Chromaprint, failedScanEpisode.Source);
+        Assert.Equal((PointTime(SharedAudioFirstPoint), Duration),
+            (failedScanEpisode.ToSegment().Start, failedScanEpisode.ToSegment().End));
+        Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
+    }
+
     [Theory]
     [InlineData(AnalyzerAction.Default)]
     [InlineData(AnalyzerAction.BlackFrame)]

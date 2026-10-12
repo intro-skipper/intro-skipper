@@ -18,6 +18,7 @@ Each episode's window ends at its duration, or at its audio stream's end when `P
 - **Comparison pool.** Episodes settled by chapters, consumed by offsets or failed still serve as Chromaprint references for their siblings, and their own results are not replaced. Their audio is still valid, and dropping one could leave a two-episode season with nothing to compare against. A season settled entirely by chapters needs no fingerprints.
 - **Settled siblings.** An already-analyzed episode is reconsidered only when a new Chromaprint candidate reaches outside its stored credits, allowing for the time adjustment, and never when a chapter is authoritative. Its chapters are read only when such a candidate could change its stored result.
 - **Failures.** An episode whose fingerprint failed is settled by the other analyzers' result. With no result at all it stays failed and is retried on the next scan rather than recorded as having no credits. Chapter lookup and persistence failures are retried the same way.
+- **Independent scan failures.** A keyframe/black-frame scan failure does not discard a valid chapter or Chromaprint candidate already found for the episode. If it was the only producer, the episode stays failed and is retried on the next scan.
 - **Writes.** Each stored segment goes through the time adjustment once, the legacy analyzer's result included, and each episode is written once.
 
 ### Combining candidates
