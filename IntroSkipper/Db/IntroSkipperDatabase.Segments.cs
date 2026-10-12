@@ -745,7 +745,7 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The ids of the items that held a segment of the mode.</returns>
-    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default, bool eraseTombstones = true)
+    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();

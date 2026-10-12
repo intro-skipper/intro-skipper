@@ -129,7 +129,7 @@ public partial class CleanCacheTask(
         {
             // Cache rows of gone items are cleaned below by their own query.
             await _eraser
-                .EraseItemsAsync(staleTimestampEpisodeIds, eraseCache: false, cancellationToken)
+                .EraseItemsAsync(staleTimestampEpisodeIds, eraseCache: false, eraseTombstones: true, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 

@@ -44,9 +44,9 @@ public partial class SkipIntroController(
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default, [FromQuery] bool eraseTombstones = true)
+    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, [FromQuery] bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
-        await _eraser.EraseModeAsync(mode, eraseCache, cancellationToken, eraseTombstones).ConfigureAwait(false);
+        await _eraser.EraseModeAsync(mode, eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 

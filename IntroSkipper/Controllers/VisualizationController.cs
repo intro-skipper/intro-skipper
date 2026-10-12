@@ -102,7 +102,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default, [FromQuery] bool eraseTombstones = true)
+    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, [FromQuery] bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
@@ -113,7 +113,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         if (season.Episodes.Count > 0)
         {
             LogErasingTimestamps(_logger, seriesId, seasonId);
-            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken, eraseTombstones).ConfigureAwait(false);
+            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -139,7 +139,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
         }
 
-        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(
+            excludedIds,
+            eraseCache: true,
+            eraseTombstones: true,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }
 

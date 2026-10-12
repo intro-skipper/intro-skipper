@@ -23,13 +23,13 @@ internal sealed class StubSegmentEraser(ISegmentEraser? inner = null) : ISegment
 
     public Func<CancellationToken, Task> OnErase { get; set; } = _ => Task.CompletedTask;
 
-    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken, bool eraseTombstones = true)
+    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _erases);
         await OnErase(cancellationToken);
-        return inner is null ? (0, 0) : await inner.EraseItemsAsync(itemIds, eraseCache, cancellationToken, eraseTombstones);
+        return inner is null ? (0, 0) : await inner.EraseItemsAsync(itemIds, eraseCache, eraseTombstones, cancellationToken);
     }
 
-    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken, bool eraseTombstones = true)
-        => inner?.EraseModeAsync(mode, eraseCache, cancellationToken, eraseTombstones) ?? Task.CompletedTask;
+    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default)
+        => inner?.EraseModeAsync(mode, eraseCache, eraseTombstones, cancellationToken) ?? Task.CompletedTask;
 }

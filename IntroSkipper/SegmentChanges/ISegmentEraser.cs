@@ -29,7 +29,7 @@ public interface ISegmentEraser
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The number of removed segment rows and cache rows.</returns>
-    Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken, bool eraseTombstones = true);
+    Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Erases every stored segment of a mode and the mode's analysis records, so the
@@ -41,5 +41,5 @@ public interface ISegmentEraser
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>A task that completes when the erase is committed and the immediate convergence attempt is over.</returns>
-    Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken, bool eraseTombstones = true);
+    Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default);
 }
