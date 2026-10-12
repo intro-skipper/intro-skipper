@@ -179,6 +179,7 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
+                var keyframeFailed = false;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
@@ -196,11 +197,7 @@ internal sealed partial class CreditsPass(
                         // was already found by another analyzer; when it is the only producer,
                         // keep the episode failed so the black-frame analysis is retried.
                         LogKeyframeAnalysisFailed(ex, episode.Name);
-                        if (candidates.Count == 0)
-                        {
-                            episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                            continue;
-                        }
+                        keyframeFailed = true;
                     }
                 }
 
@@ -208,7 +205,7 @@ internal sealed partial class CreditsPass(
                     episode,
                     CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
                     timeAdjustmentHelper,
-                    fingerprintFailed,
+                    fingerprintFailed || keyframeFailed,
                     cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(Mode, state);
             }
@@ -224,7 +221,7 @@ internal sealed partial class CreditsPass(
         QueuedEpisode episode,
         IReadOnlyList<AttributedSegment> candidates,
         TimeAdjustmentHelper timeAdjustmentHelper,
-        bool fingerprintFailed,
+        bool analysisFailed,
         CancellationToken cancellationToken)
     {
         var adjusted = new List<AttributedSegment>();
@@ -243,7 +240,7 @@ internal sealed partial class CreditsPass(
 
         if (adjusted.Count == 0)
         {
-            if (fingerprintFailed)
+            if (analysisFailed)
             {
                 return EpisodeState.AnalysisFailed;
             }

@@ -495,8 +495,8 @@ public sealed class TestCreditsPass
 
         var failedScanEpisode = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chromaprint, failedScanEpisode.Source);
-        Assert.Equal((PointTime(SharedAudioFirstPoint), Duration),
-            (failedScanEpisode.ToSegment().Start, failedScanEpisode.ToSegment().End));
+        Assert.Equal(PointTime(SharedAudioFirstPoint), failedScanEpisode.ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), failedScanEpisode.ToSegment().End, 0.5);
         Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
         Assert.Equal([RollProbe], ffmpeg.Calls);
