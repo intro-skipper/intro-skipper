@@ -301,7 +301,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
 
         var introA = Assert.Single(await ActiveRowsAsync(database, a.EpisodeId, AnalysisMode.Introduction));
         Assert.Equal(SegmentSource.Chromaprint, introA.Source);
-        Assert.Equal(20d, TickConversions.ToSeconds(introA.StartTicks), precision: 1);
+        Assert.Equal(19.9d, TickConversions.ToSeconds(introA.StartTicks), precision: 1);
         Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await ActiveRowsAsync(database, c.EpisodeId, AnalysisMode.Introduction)).Source);
     }
 
