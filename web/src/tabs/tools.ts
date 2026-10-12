@@ -23,12 +23,12 @@ export const toolsTab: Tab = {
             id: globalSelectId,
             name: "global-timestamp-type",
         });
-        globalSelect.append(el("option", { value: "all" }, "All Types"));
         globalSelect.append(el("option", { value: "introduction" }, "Introduction"));
         globalSelect.append(el("option", { value: "recap" }, "Recap"));
         globalSelect.append(el("option", { value: "credits" }, "Credits"));
         globalSelect.append(el("option", { value: "preview" }, "Preview"));
         globalSelect.append(el("option", { value: "commercial" }, "Commercial"));
+        globalSelect.append(el("option", { value: "all" }, "All Types"));
         globalSelectGroup.append(globalSelectLabel, globalSelect);
 
         const globalEraseBtn = el(
