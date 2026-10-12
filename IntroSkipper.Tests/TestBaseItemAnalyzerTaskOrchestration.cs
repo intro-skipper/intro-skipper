@@ -275,11 +275,11 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal((SegmentSource.Subtitle, 20d), (recap.Source, TickConversions.ToSeconds(recap.StartTicks)));
     }
 
-    // A tombstone refuses the preferred Chromaprint intro of one episode. That episode is
-    // left to the chapter analyzer after it, which finds an intro the tombstone does not
-    // cover; the other episode keeps the Chromaprint intro.
+    // A tombstone blocks only an identical range. The preferred Chromaprint intro is
+    // slightly shifted from the tombstone and is therefore admitted; the other episode
+    // keeps the Chromaprint intro as well.
     [Fact]
-    public async Task IntroductionMode_TombstoneRefusesTheChromaprintIntro_LeavesTheEpisodeToTheChapterAnalyzer()
+    public async Task IntroductionMode_OverlappingTombstoneAllowsTheChromaprintIntro()
     {
         var config = StingConfig();
         ChapterInfo[] chapters =
@@ -300,7 +300,8 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await CreateTask(ffmpeg, database).AnalyzeItemsAsync([a, c], AnalysisMode.Introduction, AnalyzerAction.Default, true, CancellationToken.None);
 
         var introA = Assert.Single(await ActiveRowsAsync(database, a.EpisodeId, AnalysisMode.Introduction));
-        Assert.Equal((SegmentSource.Chapter, 100d), (introA.Source, TickConversions.ToSeconds(introA.StartTicks)));
+        Assert.Equal(SegmentSource.Chromaprint, introA.Source);
+        Assert.Equal(20d, TickConversions.ToSeconds(introA.StartTicks), precision: 1);
         Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await ActiveRowsAsync(database, c.EpisodeId, AnalysisMode.Introduction)).Source);
     }
 
@@ -895,7 +896,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     }
 
     [Fact]
-    public async Task RejectedSubtitleMatch_PreservesRowsAndSettlesTheMode()
+    public async Task SubtitleMatchOverlappingTombstoneReplacesCreditsDerivedRow()
     {
         var config = new PluginConfiguration
         {
@@ -934,7 +935,8 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
-        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(SegmentSource.Subtitle, preview.Source);
+        Assert.Equal(100d, TickConversions.ToSeconds(preview.StartTicks));
         Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
         var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
         Assert.Equal(episode.AnalysisConfigHash, snapshot.AnalysisRecords[(episodeId, AnalysisMode.Preview)].ConfigHash);
