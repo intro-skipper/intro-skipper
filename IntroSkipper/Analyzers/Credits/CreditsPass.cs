@@ -255,8 +255,12 @@ internal sealed partial class CreditsPass(
             LogFoundCredits(episode.Name, segment.Start, segment.End, source);
         }
 
-        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-        return EpisodeState.Analyzed;
+        var persisted = await _database
+            .ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken)
+            .ConfigureAwait(false);
+        return analysisFailed && persisted == 0
+            ? EpisodeState.AnalysisFailed
+            : EpisodeState.Analyzed;
     }
 
     /// <summary>
