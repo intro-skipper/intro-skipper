@@ -743,9 +743,18 @@ public sealed partial class IntroSkipperDatabase
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The ids of the items that held a segment of the mode.</returns>
-    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, bool eraseTombstones = true, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+        => DeleteSegmentsByModeAsync(mode, eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Deletes every stored segment of the given analysis mode, optionally preserving tombstones.
+    /// </summary>
+    /// <param name="mode">Analysis mode to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ids of the items that held a segment of the mode.</returns>
+    public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -757,18 +766,29 @@ public sealed partial class IntroSkipperDatabase
             // also reopen that pass for their items — the erased mode's own pass cannot
             // regenerate them and would just settle the items as NoSegments.
             var derivedItemIds = await db.Segments
-                .Where(s => s.Type == mode && s.Source == SegmentSource.CreditsDerived
-                    && (eraseTombstones || s.State == SegmentState.Active))
+                .Where(s => s.Type == mode && s.Source == SegmentSource.CreditsDerived)
                 .Select(s => s.ItemId)
                 .Distinct()
                 .ToArrayAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var (_, itemIds) = await DeleteSegmentsAndJournalAsync(
+            var allItemIds = await db.Segments
+                .Where(s => s.Type == mode)
+                .Select(s => s.ItemId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var (_, deletedItemIds) = await DeleteSegmentsAndJournalAsync(
                 db,
                 db.Segments.Where(s => s.Type == mode
                     && (eraseTombstones || s.State == SegmentState.Active)),
                 cancellationToken).ConfigureAwait(false);
+
+            // A preserved tombstone may be the only row for its item. It still needs
+            // a projection marker so a stale Jellyfin mirror is cleared, even though
+            // no segment row was deleted by the erase.
+            await EnqueueProjectionsAsync(db, allItemIds.Except(deletedItemIds).ToArray(), cancellationToken).ConfigureAwait(false);
 
             // Without this the erased items stay recorded as analyzed for the mode and
             // VerifyQueueAsync settles them as NoSegments, so nothing would re-detect them.
@@ -788,7 +808,7 @@ public sealed partial class IntroSkipperDatabase
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return itemIds;
+            return allItemIds;
         }
     }
 

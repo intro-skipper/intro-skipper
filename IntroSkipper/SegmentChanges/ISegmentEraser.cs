@@ -27,9 +27,19 @@ public interface ISegmentEraser
     /// <param name="itemIds">The items to erase.</param>
     /// <param name="eraseCache"><see langword="true"/> to delete the items' detection cache rows too; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The number of removed segment rows and cache rows.</returns>
-    Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default);
+    Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Erases the items' segments and analysis state, optionally preserving user-created tombstones.
+    /// </summary>
+    /// <param name="itemIds">The items to erase.</param>
+    /// <param name="eraseCache"><see langword="true"/> to delete the items' detection cache rows too; otherwise, <see langword="false"/>.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The number of removed segment rows and cache rows.</returns>
+    Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken = default)
+        => EraseItemsAsync(itemIds, eraseCache, cancellationToken: cancellationToken);
 
     /// <summary>
     /// Erases every stored segment of a mode and the mode's analysis records, so the
@@ -39,7 +49,17 @@ public interface ISegmentEraser
     /// <param name="mode">One of the enumeration values that specifies the mode to erase.</param>
     /// <param name="eraseCache"><see langword="true"/> to delete the mode's detection cache rows too, which only Introduction and Credits erase; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>A task that completes when the erase is committed and the immediate convergence attempt is over.</returns>
-    Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones = true, CancellationToken cancellationToken = default);
+    Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Erases every stored segment of a mode and its analysis records, optionally preserving user-created tombstones.
+    /// </summary>
+    /// <param name="mode">One of the enumeration values that specifies the mode to erase.</param>
+    /// <param name="eraseCache"><see langword="true"/> to delete the mode's detection cache rows too, which only Introduction and Credits erase; otherwise, <see langword="false"/>.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes when the erase is committed and the immediate convergence attempt is over.</returns>
+    Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken = default)
+        => EraseModeAsync(mode, eraseCache, cancellationToken: cancellationToken);
 }

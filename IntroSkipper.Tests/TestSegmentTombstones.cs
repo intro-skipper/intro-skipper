@@ -76,7 +76,12 @@ public sealed class TestSegmentTombstones : IDisposable
         var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(newStart, newEnd))], SegmentSource.Chromaprint);
 
         Assert.Equal(expectedStored ? 1 : 0, stored);
-        var active = (await database.GetSegmentsAsync(itemId)).Where(segment => segment.State == SegmentState.Active).ToList();
+        var allRows = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
+        Assert.Contains(allRows, segment =>
+            segment.State == SegmentState.Suppressed
+            && segment.StartTicks == Ticks(10)
+            && segment.EndTicks == Ticks(60));
+        var active = allRows.Where(segment => segment.State == SegmentState.Active).ToList();
         Assert.Equal(expectedStored ? 1 : 0, active.Count);
         if (expectedStored)
         {
@@ -107,7 +112,12 @@ public sealed class TestSegmentTombstones : IDisposable
             SegmentSource.Chromaprint);
 
         Assert.Equal(0, stored);
-        var survivor = Assert.Single(await database.GetSegmentsAsync(itemId));
+        var allRows = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
+        Assert.Contains(allRows, segment =>
+            segment.State == SegmentState.Suppressed
+            && segment.StartTicks == Ticks(100)
+            && segment.EndTicks == Ticks(150));
+        var survivor = Assert.Single(allRows, segment => segment.State == SegmentState.Active);
         Assert.Equal(Ticks(10), survivor.StartTicks);
         Assert.Equal(Ticks(60), survivor.EndTicks);
     }

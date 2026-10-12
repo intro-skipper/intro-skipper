@@ -276,33 +276,72 @@ export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<A
 export function eraseTimestamps(
     mode: string,
     eraseCache: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>>;
+export function eraseTimestamps(
+    mode: string,
+    eraseCache: boolean,
     eraseTombstones: boolean,
     signal?: AbortSignal,
+): Promise<ApiResult<null>>;
+export function eraseTimestamps(
+    mode: string,
+    eraseCache: boolean,
+    eraseTombstonesOrSignal?: boolean | AbortSignal,
+    signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
+    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
+    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
+    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
     return request<null>(
         `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
-        { method: "POST", signal },
+        { method: "POST", signal: requestSignal },
     );
 }
 
 export function eraseItemTimestamps(
     urlPath: string,
     eraseCache: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<null>>;
+export function eraseItemTimestamps(
+    urlPath: string,
+    eraseCache: boolean,
     eraseTombstones: boolean,
     signal?: AbortSignal,
+): Promise<ApiResult<null>>;
+export function eraseItemTimestamps(
+    urlPath: string,
+    eraseCache: boolean,
+    eraseTombstonesOrSignal?: boolean | AbortSignal,
+    signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
+    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
+    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
+    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
     return request<null>(
         `${urlPath}?eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
-        { method: "DELETE", signal },
+        { method: "DELETE", signal: requestSignal },
     );
 }
 
 export function clearExcludedTimestamps(
     signal?: AbortSignal,
+): Promise<ApiResult<ClearExcludedTimestampsResponse>>;
+export function clearExcludedTimestamps(
+    eraseTombstones: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<ClearExcludedTimestampsResponse>>;
+export function clearExcludedTimestamps(
+    eraseTombstonesOrSignal: boolean | AbortSignal = true,
+    signal?: AbortSignal,
 ): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
-    return request<ClearExcludedTimestampsResponse>("Intros/ExcludedTimestamps/Clear", {
+    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
+    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
+    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
+    return request<ClearExcludedTimestampsResponse>(`Intros/ExcludedTimestamps/Clear?eraseTombstones=${eraseTombstones}`, {
         method: "POST",
-        signal,
+        signal: requestSignal,
     });
 }
 

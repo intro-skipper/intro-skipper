@@ -93,8 +93,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
-    /// <param name="cancellationToken">Cancellation Token.</param>
     /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
     /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
     /// <returns>No content.</returns>
@@ -120,14 +120,24 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
+    /// Clears excluded timestamp data while preserving user-created timestamp locks.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Counts describing the cleared excluded timestamp state.</returns>
+    [NonAction]
+    public Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken)
+        => ClearExcludedTimestampsAsync(eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <summary>
     /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy.
     /// </summary>
+    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Counts describing the cleared excluded timestamp state.</returns>
     [HttpPost("ExcludedTimestamps/Clear")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync([FromQuery] bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         var excludedIds = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken).Seasons
             .SelectMany(static season => season.Episodes)
@@ -142,7 +152,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(
             excludedIds,
             eraseCache: true,
-            eraseTombstones: true,
+            eraseTombstones: eraseTombstones,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }

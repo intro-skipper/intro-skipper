@@ -110,9 +110,18 @@ public sealed partial class IntroSkipperDatabase
     /// </summary>
     /// <param name="itemIds">Item IDs to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
     /// <returns>The number of deleted segment rows.</returns>
-    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones = true, CancellationToken cancellationToken = default)
+    public Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+        => EraseItemsAsync(itemIds, eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Erases the supplied items' segments and analysis state, optionally preserving tombstones.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted segment rows.</returns>
+    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)

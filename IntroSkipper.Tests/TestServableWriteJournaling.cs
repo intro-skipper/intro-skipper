@@ -76,6 +76,42 @@ public sealed class TestServableWriteJournaling : IDisposable
     }
 
     [Fact]
+    public async Task DeleteSegmentsByMode_PreservesTombstoneAndJournalsItsItemWhenRequested()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _h.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chromaprint);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.DeleteSegmentAsync(itemId, row.Id);
+        await _h.ClearQueueAsync();
+
+        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: false);
+
+        Assert.Equal([itemId], erasedItemIds);
+        var preserved = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(SegmentState.Suppressed, preserved.State);
+        Assert.Equal([itemId], await _h.QueuedItemIdsAsync());
+    }
+
+    [Fact]
+    public async Task DeleteSegmentsByMode_ReopensCreditsForPreservedCreditsDerivedRows()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _h.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.DeleteSegmentAsync(itemId, row.Id);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemId], "credits-hash");
+        await _h.ClearQueueAsync();
+
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Preview, eraseTombstones: false);
+
+        Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        await using var db = _h.Context();
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == itemId && a.Type == AnalysisMode.Credits));
+    }
+
+    [Fact]
     public async Task ResetItemsForReanalysis_JournalsOnlyItemsWithDeletedRows()
     {
         var automaticItem = Guid.NewGuid();

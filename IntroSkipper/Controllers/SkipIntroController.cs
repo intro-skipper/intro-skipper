@@ -38,8 +38,8 @@ public partial class SkipIntroController(
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
