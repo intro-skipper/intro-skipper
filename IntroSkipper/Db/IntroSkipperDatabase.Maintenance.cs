@@ -103,15 +103,25 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Erases the supplied items: every segment (tombstones included) and every analysis
-    /// record, in one transaction, with every item's projection journaled. Season state
-    /// and disable flags are untouched. The ID set is bound as one JSON parameter, so
-    /// the item count is unbounded.
+    /// Erases the supplied items' segments, optionally including tombstones, and every
+    /// analysis record, in one transaction with every item's projection journaled.
+    /// Season state and disable flags are untouched. The ID set is bound as one JSON
+    /// parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted segment rows.</returns>
-    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+    public Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+        => EraseItemsAsync(itemIds, eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Erases the supplied items' segments and analysis state, optionally preserving tombstones.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted segment rows.</returns>
+    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
@@ -131,7 +141,8 @@ public sealed partial class IntroSkipperDatabase
             // since lost) that only a projection heals. Erases are explicit user
             // actions over bounded id sets, so the extra markers cost one no-op sync each.
             var removedSegments = await db.Segments
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                    && (eraseTombstones || s.State == SegmentState.Active))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await db.AnalyzedItems

@@ -478,7 +478,7 @@ public sealed partial class AnalysisScheduler(
         }
 
         var itemIds = season.Episodes.Select(episode => episode.EpisodeId).ToHashSet();
-        await _eraser.EraseItemsAsync(itemIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        await _eraser.EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken: cancellationToken).ConfigureAwait(false);
         await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds).ConfigureAwait(false);
     }
 

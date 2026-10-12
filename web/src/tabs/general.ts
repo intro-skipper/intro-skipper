@@ -132,11 +132,12 @@ export const generalTab: Tab = {
                     title: "Clear Excluded Timestamps",
                     body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",
                     confirmLabel: "Clear",
+                    checkboxes: [{ label: "Remove user-created timestamp locks", checked: true }],
                 });
                 if (!result) return;
 
                 clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
-                const response = await clearExcludedTimestamps();
+                const response = await clearExcludedTimestamps(result.checkboxValues[0] ?? true);
                 if (!response.ok) {
                     clearStatus.show(response.error, "var(--is-error)");
                     return;

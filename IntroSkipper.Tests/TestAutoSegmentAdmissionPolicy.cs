@@ -11,7 +11,7 @@ using Xunit;
 
 /// <summary>
 /// Pins the admission decision for automatic segments: which stored rows refuse a
-/// candidate, and that only a strict overlap counts. The facade-level counterparts
+/// candidate, and that tombstones only block an identical range. The facade-level counterparts
 /// live in <see cref="TestSegmentTombstones"/> (tombstone axis) and TestDatabaseFacades
 /// (user-segment and credits-versus-intro axes).
 /// </summary>
@@ -25,13 +25,13 @@ public sealed class TestAutoSegmentAdmissionPolicy
     [InlineData(10, 20, nameof(AutoSegmentRejection.None))]       // touches the tombstone's end
     [InlineData(-5, 0, nameof(AutoSegmentRejection.None))]        // touches the tombstone's start
     [InlineData(11, 20, nameof(AutoSegmentRejection.None))]       // disjoint with a gap
-    [InlineData(9, 20, nameof(AutoSegmentRejection.Tombstone))]   // one tick of shared range
-    [InlineData(3, 6, nameof(AutoSegmentRejection.Tombstone))]    // inside the tombstone
-    [InlineData(-5, 15, nameof(AutoSegmentRejection.Tombstone))]  // contains the tombstone
+    [InlineData(9, 20, nameof(AutoSegmentRejection.None))]        // overlaps the tombstone
+    [InlineData(3, 6, nameof(AutoSegmentRejection.None))]         // inside the tombstone
+    [InlineData(-5, 15, nameof(AutoSegmentRejection.None))]       // contains the tombstone
     [InlineData(0, 10, nameof(AutoSegmentRejection.Tombstone))]   // identical
-    [InlineData(5, 10, nameof(AutoSegmentRejection.Tombstone))]   // shared end, different start
-    [InlineData(0, 4, nameof(AutoSegmentRejection.Tombstone))]    // shared start, different end
-    public void Check_RefusesOnlyStrictOverlap(long startTicks, long endTicks, string expected)
+    [InlineData(5, 10, nameof(AutoSegmentRejection.None))]       // shared end, different start
+    [InlineData(0, 4, nameof(AutoSegmentRejection.None))]        // shared start, different end
+    public void Check_RefusesOnlyAnIdenticalTombstoneRange(long startTicks, long endTicks, string expected)
     {
         var tombstone = Row(AnalysisMode.Introduction, SegmentState.Suppressed, SegmentSource.Chapter);
 

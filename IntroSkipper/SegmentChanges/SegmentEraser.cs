@@ -14,9 +14,13 @@ internal sealed class SegmentEraser(IntroSkipperDatabase database, DetectionCach
     private readonly SegmentChange _segmentChange = segmentChange;
 
     /// <inheritdoc />
-    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken)
+    public Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken = default)
+        => EraseItemsAsync(itemIds, eraseCache, eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
-        var removedSegments = await _database.EraseItemsAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        var removedSegments = await _database.EraseItemsAsync(itemIds, eraseTombstones, cancellationToken).ConfigureAwait(false);
 
         // The facade logs and swallows cache database errors.
         var removedCacheEntries = eraseCache
@@ -28,9 +32,13 @@ internal sealed class SegmentEraser(IntroSkipperDatabase database, DetectionCach
     }
 
     /// <inheritdoc />
-    public async Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken)
+    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken = default)
+        => EraseModeAsync(mode, eraseCache, eraseTombstones: true, cancellationToken: cancellationToken);
+
+    /// <inheritdoc />
+    public async Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
-        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        var itemIds = await _database.DeleteSegmentsByModeAsync(mode, eraseTombstones, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {

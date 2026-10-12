@@ -55,7 +55,7 @@ public sealed class TestVisualizationController : IDisposable
         await _h.Database.InitializeAsync();
         var controller = CreateController(pluginScope.CacheDbPath, SeasonLibrary(seriesId, seasonId, episodeIds));
 
-        var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
+        var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, cancellationToken: CancellationToken.None);
         await writeEntered.Task;
 
         // The erase is committed and journaled; the response still waits for the
@@ -89,7 +89,7 @@ public sealed class TestVisualizationController : IDisposable
             seriesId,
             seasonId,
             eraseCache: true,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
         await using var db = _h.Context();
@@ -556,9 +556,9 @@ public sealed class TestVisualizationController : IDisposable
 
         // A season the server knows is an answer even with nothing to erase. An id that
         // is not a season or movie is missing, and so is a season under another series.
-        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None));
-        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(seriesId, Guid.NewGuid(), eraseCache: false, CancellationToken.None));
-        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(Guid.NewGuid(), seasonId, eraseCache: false, CancellationToken.None));
+        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, cancellationToken: CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(seriesId, Guid.NewGuid(), eraseCache: false, cancellationToken: CancellationToken.None));
+        Assert.IsType<NotFoundResult>(await controller.EraseSeasonAsync(Guid.NewGuid(), seasonId, eraseCache: false, cancellationToken: CancellationToken.None));
     }
 
     [Theory]
@@ -586,7 +586,7 @@ public sealed class TestVisualizationController : IDisposable
         // Jellyfin stores the hosted special in Season 0 and, showing specials within
         // seasons, lists it under season 1 as well, so the erase of either season reaches it.
         var seasonId = eraseSpecials ? specialsSeasonId : hostSeasonId;
-        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None));
+        Assert.IsType<NoContentResult>(await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, cancellationToken: CancellationToken.None));
 
         Assert.Empty(await database.GetSegmentsAsync(hosted.Id));
         Assert.Equal(eraseSpecials ? 1 : 0, (await database.GetSegmentsAsync(regular.Id)).Count);

@@ -410,7 +410,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 title: "Confirm Timestamp Erasure",
                 body: "Are you sure you want to erase all timestamps for this " + label + "?",
                 confirmLabel: "Erase",
-                checkbox: { label: "Include cached fingerprints" },
+                checkboxes: [
+                    { label: "Include cached fingerprints" },
+                    { label: "Remove user-created timestamp locks", checked: true },
+                ],
             }),
             signal,
         );
@@ -422,7 +425,8 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
             for (const seasonId of seasonIds) {
                 const response = await api.eraseItemTimestamps(
                     seasonUrl(showId, seasonId),
-                    result.checkboxChecked,
+                    result.checkboxValues[0] ?? false,
+                    result.checkboxValues[1] ?? true,
                     signal,
                 );
                 if (!response.ok) {

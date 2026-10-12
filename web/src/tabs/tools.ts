@@ -65,14 +65,21 @@ export const toolsTab: Tab = {
                           globalSelect.value +
                           " timestamps?",
                 confirmLabel: "Erase",
-                checkbox: { label: "Include cached fingerprint files" },
+                checkboxes: [
+                    { label: "Include cached fingerprint files" },
+                    { label: "Remove user-created timestamp locks", checked: true },
+                ],
             });
             if (!result) return;
 
             const modes = globalSelect.value === "all" ? timestampTypes : [type];
             const action = type === "All Types" ? "all timestamps" : type.toLowerCase() + " timestamps";
             for (const mode of modes) {
-                const response = await api.eraseTimestamps(mode, result.checkboxChecked);
+                const response = await api.eraseTimestamps(
+                    mode,
+                    result.checkboxValues[0] ?? false,
+                    result.checkboxValues[1] ?? true,
+                );
                 if (!response.ok) {
                     window.Dashboard.alert("Failed to erase " + action);
                     return;

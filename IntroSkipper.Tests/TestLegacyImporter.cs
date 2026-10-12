@@ -181,7 +181,7 @@ public sealed class TestLegacyImporter
         LegacySchemaFixtures.CreateV5(
             scope.LegacyPath,
             [
-                new(itemId, 20, 50, (int)AnalysisMode.Introduction),                       // overlaps the tombstone
+                new(itemId, 20, 50, (int)AnalysisMode.Introduction),                       // overlaps, but does not equal, the tombstone
                 new(itemId, 110, 150, (int)AnalysisMode.Introduction),                     // overlaps the user intro
                 new(itemId, 400, 450, (int)AnalysisMode.Introduction),                     // admitted
                 new(itemId, 100, 160, (int)AnalysisMode.Credits),                          // admitted despite the intro
@@ -194,13 +194,13 @@ public sealed class TestLegacyImporter
         await using var verify = DatabaseTestHelpers.CreateSegmentContext(scope.V2Path);
         var rows = await verify.Segments.AsNoTracking().ToListAsync();
         Assert.Equal(
-            [TickConversions.FromSeconds(10), TickConversions.FromSeconds(100), TickConversions.FromSeconds(400)],
+            [TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), TickConversions.FromSeconds(100), TickConversions.FromSeconds(400)],
             rows.Where(s => s.Type == AnalysisMode.Introduction).Select(s => s.StartTicks).Order());
         Assert.Equal(TickConversions.FromSeconds(100), Assert.Single(rows, s => s.Type == AnalysisMode.Credits).StartTicks);
         Assert.Equal(SegmentSource.User, Assert.Single(rows, s => s.Type == AnalysisMode.Commercial).Source);
         var marker = Assert.Single(await verify.ImportHistory.AsNoTracking().ToListAsync());
-        Assert.Equal(2, marker.SegmentsImported);
-        Assert.Equal(3, marker.SegmentsSkipped);
+        Assert.Equal(3, marker.SegmentsImported);
+        Assert.Equal(2, marker.SegmentsSkipped);
     }
 
     [Fact]
