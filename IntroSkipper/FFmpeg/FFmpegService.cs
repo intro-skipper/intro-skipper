@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -101,7 +102,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
     private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
-    private readonly ConditionalWeakTable<QueuedEpisode, Task<ChapterInfo[]>> _embeddedChapters = new();
+    private readonly ConcurrentDictionary<(string Path, long? FileVersion), Lazy<Task<EmbeddedChapterProbeResult>>> _embeddedChapters = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -656,11 +657,43 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc />
-    public Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
-        => _embeddedChapters.GetValue(episode, queuedEpisode => ProbeEmbeddedChaptersAsync(queuedEpisode.Path))
-            .WaitAsync(cancellationToken);
+    public async Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        var key = (episode.Path, episode.FileVersion);
+        var lazy = _embeddedChapters.GetOrAdd(
+            key,
+            _ => new Lazy<Task<EmbeddedChapterProbeResult>>(
+                () => ProbeEmbeddedChaptersAsync(episode.Path, cancellationToken),
+                LazyThreadSafetyMode.ExecutionAndPublication));
 
-    private async Task<ChapterInfo[]> ProbeEmbeddedChaptersAsync(string filePath)
+        try
+        {
+            var result = await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                RemoveEmbeddedChapterProbe(key, lazy);
+            }
+
+            return result.Chapters;
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled probe must not poison the cache. A cancellation of only this
+            // caller's WaitAsync leaves a shared probe alive for other callers.
+            if (lazy.IsValueCreated && lazy.Value.IsCanceled)
+            {
+                RemoveEmbeddedChapterProbe(key, lazy);
+            }
+
+            throw;
+        }
+    }
+
+    private void RemoveEmbeddedChapterProbe((string Path, long? FileVersion) key, Lazy<Task<EmbeddedChapterProbeResult>> probe)
+        => ((ICollection<KeyValuePair<(string Path, long? FileVersion), Lazy<Task<EmbeddedChapterProbeResult>>>>)_embeddedChapters)
+            .Remove(new(key, probe));
+
+    private async Task<EmbeddedChapterProbeResult> ProbeEmbeddedChaptersAsync(string filePath, CancellationToken cancellationToken)
     {
         try
         {
@@ -678,21 +711,30 @@ internal sealed partial class FFmpegService : IFFmpegService
                 ChapterProbeMaximumBytes,
                 expectedStdoutBytes: 4 * 1024,
                 timeout: 10 * 1000,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (capture.ExitCode != 0 || capture.Truncated)
             {
                 LogEmbeddedChapterProbeUnusable(_logger, filePath, capture.ExitCode, capture.Truncated);
-                return [];
+                return EmbeddedChapterProbeResult.Failed;
             }
 
-            return FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span));
+            return new EmbeddedChapterProbeResult(FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span)), Succeeded: true);
         }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogEmbeddedChapterProbeFailed(_logger, ex, filePath);
-            return [];
+            return EmbeddedChapterProbeResult.Failed;
         }
+    }
+
+    private readonly record struct EmbeddedChapterProbeResult(ChapterInfo[] Chapters, bool Succeeded)
+    {
+        public static EmbeddedChapterProbeResult Failed => new([], Succeeded: false);
     }
 
     /// <inheritdoc />

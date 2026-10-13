@@ -4,6 +4,7 @@
 using System.Collections.Frozen;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -268,7 +269,9 @@ internal static partial class FFmpegOutputParser
         {
             if (!chapter.TryGetProperty("start_time", out var startElement)
                 || !TryParseDouble(startElement, out var startSeconds)
-                || startSeconds < 0)
+                || !double.IsFinite(startSeconds)
+                || startSeconds < 0
+                || startSeconds > TimeSpan.MaxValue.TotalSeconds)
             {
                 continue;
             }
@@ -278,17 +281,25 @@ internal static partial class FFmpegOutputParser
                 && tags.ValueKind == JsonValueKind.Object
                 && tags.TryGetProperty("title", out var title))
             {
-                name = title.GetString() ?? string.Empty;
+                name = title.ValueKind == JsonValueKind.String ? title.GetString() ?? string.Empty : string.Empty;
             }
 
-            result.Add(new ChapterInfo
+            try
             {
-                StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
-                Name = name,
-            });
+                result.Add(new ChapterInfo
+                {
+                    StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
+                    Name = name,
+                });
+            }
+            catch (OverflowException)
+            {
+                // A value close to TimeSpan.MaxValue can still round outside the valid
+                // tick range during conversion; ignore that malformed chapter.
+            }
         }
 
-        return [.. result];
+        return [.. result.OrderBy(chapter => chapter.StartPositionTicks)];
     }
 
     private static bool TryParseDouble(JsonElement value, out double result)

@@ -23,8 +23,8 @@ public class TestEmbeddedChapters
         var chapters = FFmpegOutputParser.ParseChapters("""
             {
               "chapters": [
-                { "start_time": "12.500", "tags": { "title": "Opening" } },
-                { "start_time": 98.25, "tags": { "title": "Main" } }
+                { "start_time": 98.25, "tags": { "title": "Main" } },
+                { "start_time": "12.500", "tags": { "title": "Opening" } }
               ]
             }
             """);
@@ -44,6 +44,25 @@ public class TestEmbeddedChapters
     }
 
     [Fact]
+    public void ParseChapters_SkipsNonFiniteAndOutOfRangeStarts()
+    {
+        var chapters = FFmpegOutputParser.ParseChapters("""
+            {
+              "chapters": [
+                { "start_time": "NaN", "tags": { "title": "NaN" } },
+                { "start_time": "1e100", "tags": { "title": "Too late" } },
+                { "start_time": -1, "tags": { "title": "Before start" } },
+                { "start_time": 15, "tags": { "title": "Opening" } }
+              ]
+            }
+            """);
+
+        var chapter = Assert.Single(chapters);
+        Assert.Equal(DatabaseTestHelpers.Ticks(15), chapter.StartPositionTicks);
+        Assert.Equal("Opening", chapter.Name);
+    }
+
+    [Fact]
     public async Task ChapterAnalyzer_IgnoresJellyfinDatabaseChaptersWhenMediaHasNoEmbeddedChapters()
     {
         var config = new PluginConfiguration
@@ -53,7 +72,10 @@ public class TestEmbeddedChapters
         };
         using var scope = EntrypointTestHelpers.CreatePluginScope(
             config,
-            [new ChapterInfo { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(60) }]);
+            [
+                new ChapterInfo { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
+                new ChapterInfo { Name = "Main", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
+            ]);
         var ffmpeg = new StubFFmpegService { EmbeddedChapters = _ => [] };
         var analyzer = new ChapterAnalyzer(
             NullLogger<ChapterAnalyzer>.Instance,
