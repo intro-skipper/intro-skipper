@@ -276,7 +276,7 @@ public partial class BaseItemAnalyzerTask(
                 // Without a compatible ffmpeg, the introduction chain cannot regenerate
                 // Chromaprint. Reopen it without deleting the existing segment instead.
                 .Where(mode => mode != AnalysisMode.Introduction || ffmpegValid)
-                .ToArray();
+                .ToList();
             if (targetedEpisodes.Count > 0)
             {
                 if (targetedResetModes.Count > 0)
