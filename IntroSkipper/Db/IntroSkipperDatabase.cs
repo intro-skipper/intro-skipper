@@ -22,6 +22,7 @@ namespace IntroSkipper.Db;
 /// <item><description><c>IntroSkipperDatabase.Segments.cs</c> — <see cref="DbSegment"/> reads and writes.</description></item>
 /// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes and the queue-verification snapshot.</description></item>
 /// <item><description><c>IntroSkipperDatabase.AnalyzedItems.cs</c> — <see cref="DbAnalyzedItem"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.EmbeddedChapterTransitions.cs</c> — durable chapter-source transition state.</description></item>
 /// <item><description><c>IntroSkipperDatabase.DisabledItems.cs</c> — <see cref="DbDisabledItem"/> reads and writes.</description></item>
 /// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning several tables.</description></item>
 /// </list>

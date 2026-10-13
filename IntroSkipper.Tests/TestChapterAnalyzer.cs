@@ -24,35 +24,33 @@ using static IntroSkipper.Tests.StubFFmpegService;
 public class TestChapterAnalyzer
 {
     [Theory]
-    [InlineData("Opening")]
-    [InlineData("OP")]
-    [InlineData("Intro")]
-    [InlineData("Intro:")]
-    [InlineData("Intro Start")]
-    [InlineData("Introduction")]
-    public void TestIntroductionExpression(string chapterName)
+    [InlineData("Opening", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("OP", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro:", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro Start", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Introduction", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("End Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Ending", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credit start", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Closing Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits:", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Preview", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Trailer", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Ad", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Advertisement", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Commercial", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Intermission", AnalysisMode.Commercial, 60, 90)]
+    public void ChapterExpression_MatchesExpectedLabels(string chapterName, AnalysisMode mode, double expectedStart, double expectedEnd)
     {
-        var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
+        var chapter = FindChapter(chapterName, mode);
 
-        Assert.NotNull(introChapter);
-        Assert.Equal(60, introChapter.Start);
-        Assert.Equal(90, introChapter.End);
-    }
-
-    [Theory]
-    [InlineData("End Credits")]
-    [InlineData("Ending")]
-    [InlineData("Credit start")]
-    [InlineData("Closing Credits")]
-    [InlineData("Credits")]
-    [InlineData("Credits:")]
-    public void TestEndCreditsExpression(string chapterName)
-    {
-        var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
-
-        Assert.NotNull(creditsChapter);
-        Assert.Equal(1890, creditsChapter.Start);
-        Assert.Equal(2000, creditsChapter.End);
+        Assert.NotNull(chapter);
+        Assert.Equal(expectedStart, chapter!.Start);
+        Assert.Equal(expectedEnd, chapter.End);
     }
 
     [Theory]
@@ -162,44 +160,6 @@ public class TestChapterAnalyzer
 
         Assert.Equal(85, brightMinimum);
         Assert.Equal(89, darkMinimum);
-    }
-
-    [Theory]
-    [InlineData("Preview")]
-    [InlineData("Trailer")]
-    public void TestPreviewExpression(string chapterName)
-    {
-        var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
-
-        Assert.NotNull(previewChapter);
-        Assert.Equal(1890, previewChapter.Start);
-        Assert.Equal(2000, previewChapter.End);
-    }
-
-    [Theory]
-    [InlineData("Recap")]
-    [InlineData("Previously")]
-    public void TestRecapExpression(string chapterName)
-    {
-        var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
-
-        Assert.NotNull(recapChapter);
-        Assert.Equal(60, recapChapter.Start);
-        Assert.Equal(90, recapChapter.End);
-    }
-
-    [Theory]
-    [InlineData("Ad")]
-    [InlineData("Advertisement")]
-    [InlineData("Commercial")]
-    [InlineData("Intermission")]
-    public void TestCommercialExpression(string chapterName)
-    {
-        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
-
-        Assert.NotNull(commercialChapter);
-        Assert.Equal(60, commercialChapter.Start);
-        Assert.Equal(90, commercialChapter.End);
     }
 
     [Theory]
@@ -342,20 +302,6 @@ public class TestChapterAnalyzer
         Assert.NotNull(introChapter);
         Assert.Equal(60, introChapter.Start);
         Assert.Equal(90, introChapter.End);
-    }
-
-    [Fact]
-    public void PluginGetChapters_ReturnsEmptyList_WhenChapterManagerReturnsNull()
-    {
-        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-        {
-            var plugin = Plugin.Instance!;
-            EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerStub.Create(null, out _));
-
-            var chapters = plugin.GetChapters(Guid.NewGuid());
-
-            Assert.Empty(chapters);
-        }
     }
 
     private Segment? FindChapter(

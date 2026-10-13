@@ -4,9 +4,11 @@
 using System.Collections.Frozen;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -246,6 +248,70 @@ internal static partial class FFmpegOutputParser
         }
 
         return new([.. streams], matroskaStartTime);
+    }
+
+    /// <summary>
+    /// Parses ffprobe's JSON chapter listing.
+    /// </summary>
+    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters</c>.</param>
+    /// <returns>The chapter start times and embedded chapter titles.</returns>
+    internal static ChapterInfo[] ParseChapters(string raw)
+    {
+        using var document = JsonDocument.Parse(raw);
+        if (!document.RootElement.TryGetProperty("chapters", out var chapters)
+            || chapters.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var result = new List<ChapterInfo>();
+        foreach (var chapter in chapters.EnumerateArray())
+        {
+            if (!chapter.TryGetProperty("start_time", out var startElement)
+                || !TryParseDouble(startElement, out var startSeconds)
+                || !double.IsFinite(startSeconds)
+                || startSeconds < 0
+                || startSeconds > TimeSpan.MaxValue.TotalSeconds)
+            {
+                continue;
+            }
+
+            var name = string.Empty;
+            if (chapter.TryGetProperty("tags", out var tags)
+                && tags.ValueKind == JsonValueKind.Object
+                && tags.TryGetProperty("title", out var title))
+            {
+                name = title.ValueKind == JsonValueKind.String ? title.GetString() ?? string.Empty : string.Empty;
+            }
+
+            try
+            {
+                result.Add(new ChapterInfo
+                {
+                    StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
+                    Name = name,
+                });
+            }
+            catch (OverflowException)
+            {
+                // A value close to TimeSpan.MaxValue can still round outside the valid
+                // tick range during conversion; ignore that malformed chapter.
+            }
+        }
+
+        return [.. result.OrderBy(chapter => chapter.StartPositionTicks)];
+    }
+
+    private static bool TryParseDouble(JsonElement value, out double result)
+    {
+        result = default;
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            return value.TryGetDouble(out result);
+        }
+
+        return value.ValueKind == JsonValueKind.String
+            && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
 
     /// <summary>

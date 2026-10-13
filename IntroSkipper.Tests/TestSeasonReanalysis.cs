@@ -327,6 +327,33 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
+    public async Task ReopenItemsForReanalysisAsync_RemovesRecordsButPreservesSegments()
+    {
+        var itemId = Guid.NewGuid();
+
+        using (var db = _db.Context())
+        {
+            await db.Database.MigrateAsync();
+            db.Segments.Add(new DbSegment(
+                itemId,
+                AnalysisMode.Preview,
+                TickConversions.FromSeconds(60),
+                TickConversions.FromSeconds(90),
+                SegmentSource.Subtitle));
+            db.AnalyzedItems.Add(new DbAnalyzedItem(itemId, AnalysisMode.Preview, "old-hash"));
+            await db.SaveChangesAsync();
+        }
+
+        await _db.Database.ReopenItemsForReanalysisAsync([itemId], [AnalysisMode.Preview]);
+
+        using (var db = _db.Context())
+        {
+            Assert.True(db.Segments.Any(s => s.ItemId == itemId && s.Type == AnalysisMode.Preview));
+            Assert.False(db.AnalyzedItems.Any(a => a.ItemId == itemId && a.Type == AnalysisMode.Preview));
+        }
+    }
+
+    [Fact]
     public async Task SeasonStateAndAnalysisRecords_UpsertWithoutClobberingEachOther()
     {
         var seasonId = Guid.NewGuid();
@@ -367,25 +394,38 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
-    public async Task VerifyQueueAsync_ReopensNoSegments_WhenChromaprintBecomesAvailable()
+    public async Task IntroductionReanalysis_PreservesChromaprintWhenChromaprintIsUnavailable()
     {
-        var config = new PluginConfiguration();
-        using var fixture = new VerifyQueueFixture(config);
-        var withoutChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
-
-        using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
+        var config = new PluginConfiguration
         {
-            await db.Database.MigrateAsync();
-            db.SeasonStates.Add(new DbSeasonState(fixture.SeasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
-            db.AnalyzedItems.Add(new DbAnalyzedItem(fixture.EpisodeId, AnalysisMode.Introduction, withoutChromaprintHash));
-            await db.SaveChangesAsync();
-        }
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+        };
+        using var fixture = new VerifyQueueFixture(config);
+        var withChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+        var database = fixture.CreateDatabase();
+
+        await database.ReplaceAutoSegmentsAsync(
+            fixture.EpisodeId,
+            AnalysisMode.Introduction,
+            [new Segment(fixture.EpisodeId, new TimeRange(20, 50))],
+            SegmentSource.Chromaprint,
+            withChromaprintHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], withChromaprintHash);
 
         var stillUnavailable = await fixture.VerifyAsync(ffmpegValid: false);
-        Assert.Equal(EpisodeState.NoSegments, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.Analyzed, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
 
-        var reopened = await fixture.VerifyAsync(ffmpegValid: true);
-        Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false }, forceReanalysis: true);
+
+        Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId)).Source);
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false });
+
+        var retained = await fixture.VerifyAsync(ffmpegValid: true);
+        Assert.Equal(EpisodeState.Analyzed, retained.Single().GetAnalyzed(AnalysisMode.Introduction));
     }
 
     // The record's hash matches directly with Chromaprint available and through the
@@ -1001,7 +1041,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         // Runs a full pass over the season, as the scheduler does, with a fresh detection
         // cache unless the test passes the path of one it seeded.
-        public Task AnalyzeAsync(IFFmpegService ffmpeg, string? cacheDbPath = null)
+        public Task AnalyzeAsync(IFFmpegService ffmpeg, string? cacheDbPath = null, bool forceReanalysis = false)
         {
             cacheDbPath ??= DatabaseTestHelpers.CreateTempCacheDbPath();
             return new BaseItemAnalyzerTask(
@@ -1010,7 +1050,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
                 ffmpeg,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-                _db.CreateDatabase()).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId]);
+                _db.CreateDatabase()).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId], forceReanalysis);
         }
 
         // Verifies the season as a pass would: resolved from the library right before

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,6 +11,7 @@ using System.Text.Json;
 using System.Text.Unicode;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using UtfUnknown;
 
@@ -43,6 +45,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // stream listing separately from the larger, decoded subtitle-text allowance.
     private const long SubtitleProbeMaximumBytes = 1024L * 1024;
 
+    private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
+
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
     // warning per packet cannot fill memory.
     private const long SubtitleLogMaximumBytes = 1024L * 1024;
@@ -55,6 +59,12 @@ internal sealed partial class FFmpegService : IFFmpegService
     // of any stream past it, so the margin leaves room for a cue a muxer stored after the audio
     // and video of the same time: ffmpeg's muxer holds a sparse stream back by up to 10 s.
     private const double SubtitleHeadListMargin = 15;
+
+    // Chapter probes are shared across the modes in one analysis pass. Expiring and bounding
+    // the entries keeps a library-wide setting change from retaining every chapter array for the
+    // lifetime of this singleton, while still avoiding a second ffprobe for the next mode.
+    private const int EmbeddedChapterCacheMaximumEntries = 256;
+    private static readonly TimeSpan EmbeddedChapterCacheLifetime = TimeSpan.FromMinutes(10);
 
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
@@ -98,6 +108,16 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
     private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
+
+    private readonly ConditionalWeakTable<
+        QueuedEpisode,
+        ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>> _audioStreamSelections = new();
+
+    private readonly ConditionalWeakTable<
+        QueuedEpisode,
+        ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>>> _subtitleStreamListings = new();
+
+    private readonly ConcurrentDictionary<(string Path, long? FileVersion), EmbeddedChapterCacheEntry> _embeddedChapters = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -652,6 +672,167 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc />
+    public async Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        // Jellyfin can leave FileVersion unset while metadata is incomplete. Do not cache a
+        // successful probe under the path alone: replacing the file would otherwise reuse the
+        // old container chapters forever because no reliable version is available for the key.
+        if (episode.FileVersion is null)
+        {
+            return GetEmbeddedChapterResult(
+                episode.Path,
+                await ProbeEmbeddedChaptersAsync(episode.Path, cancellationToken).ConfigureAwait(false));
+        }
+
+        var key = (episode.Path, episode.FileVersion);
+        var now = DateTimeOffset.UtcNow;
+        var entry = GetEmbeddedChapterCacheEntry(key, episode.Path, now);
+        entry.Touch(now);
+        TrimEmbeddedChapterCache(now);
+
+        Task<EmbeddedChapterProbeResult> probe;
+        try
+        {
+            probe = entry.Probe.Value;
+        }
+        catch
+        {
+            RemoveEmbeddedChapterProbe(key, entry);
+            throw;
+        }
+
+        _ = probe.ContinueWith(
+            completed => RemoveCompletedEmbeddedChapterProbe(key, entry, completed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        try
+        {
+            var result = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
+            entry.Touch(DateTimeOffset.UtcNow);
+            if (!result.Succeeded)
+            {
+                RemoveEmbeddedChapterProbe(key, entry);
+            }
+
+            return GetEmbeddedChapterResult(episode.Path, result);
+        }
+        catch (OperationCanceledException)
+        {
+            // WaitAsync cancellation belongs only to this caller. The shared probe runs on
+            // the service-owned lifetime and its continuation removes a cancelled task once
+            // it completes, so a waiter walking away cannot poison the next caller.
+            throw;
+        }
+    }
+
+    private static ChapterInfo[] GetEmbeddedChapterResult(string filePath, EmbeddedChapterProbeResult result)
+        => result.Succeeded
+            ? result.Chapters
+            : throw new InvalidOperationException($"ffprobe could not read embedded chapters from \"{filePath}\".");
+
+    private EmbeddedChapterCacheEntry GetEmbeddedChapterCacheEntry(
+        (string Path, long? FileVersion) key,
+        string filePath,
+        DateTimeOffset now)
+    {
+        var candidate = new EmbeddedChapterCacheEntry(
+            () => ProbeEmbeddedChaptersAsync(filePath, CancellationToken.None),
+            now.Add(EmbeddedChapterCacheLifetime));
+        return _embeddedChapters.AddOrUpdate(
+            key,
+            candidate,
+            (_, existing) => existing.IsExpired(now) && existing.IsCompleted ? candidate : existing);
+    }
+
+    private void RemoveCompletedEmbeddedChapterProbe(
+        (string Path, long? FileVersion) key,
+        EmbeddedChapterCacheEntry entry,
+        Task<EmbeddedChapterProbeResult> probe)
+    {
+        if (probe.IsFaulted)
+        {
+            _ = probe.Exception;
+        }
+
+        if (probe.IsCanceled || probe.IsFaulted || (probe.Status == TaskStatus.RanToCompletion && !probe.Result.Succeeded))
+        {
+            RemoveEmbeddedChapterProbe(key, entry);
+        }
+    }
+
+    private void RemoveEmbeddedChapterProbe(
+        (string Path, long? FileVersion) key,
+        EmbeddedChapterCacheEntry entry)
+        => ((ICollection<KeyValuePair<(string Path, long? FileVersion), EmbeddedChapterCacheEntry>>)_embeddedChapters)
+            .Remove(new(key, entry));
+
+    private void TrimEmbeddedChapterCache(DateTimeOffset now)
+    {
+        foreach (var pair in _embeddedChapters)
+        {
+            if (pair.Value.IsExpired(now) && pair.Value.IsCompleted)
+            {
+                RemoveEmbeddedChapterProbe(pair.Key, pair.Value);
+            }
+        }
+
+        var excess = _embeddedChapters.Count - EmbeddedChapterCacheMaximumEntries;
+        if (excess <= 0)
+        {
+            return;
+        }
+
+        foreach (var pair in _embeddedChapters
+                     .Where(pair => pair.Value.IsCompleted)
+                     .OrderBy(pair => pair.Value.ExpiresAtTicks)
+                     .Take(excess))
+        {
+            RemoveEmbeddedChapterProbe(pair.Key, pair.Value);
+        }
+    }
+
+    private async Task<EmbeddedChapterProbeResult> ProbeEmbeddedChaptersAsync(string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            string[] args =
+            [
+                "-v", "error",
+                "-show_chapters",
+                "-of", "json",
+                filePath,
+            ];
+
+            var capture = await _processRunner.RunCapturedAsync(
+                GetFFprobePath(),
+                args,
+                ChapterProbeMaximumBytes,
+                expectedStdoutBytes: 4 * 1024,
+                timeout: 10 * 1000,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            if (capture.ExitCode != 0 || capture.Truncated)
+            {
+                LogEmbeddedChapterProbeUnusable(filePath, capture.ExitCode, capture.Truncated);
+                return EmbeddedChapterProbeResult.Failed;
+            }
+
+            return new EmbeddedChapterProbeResult(FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span)), succeeded: true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogEmbeddedChapterProbeFailed(ex, filePath);
+            return EmbeddedChapterProbeResult.Failed;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         List<SubtitleCue> cues = [];
@@ -659,7 +840,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         try
         {
             var languages = SubtitleLanguageSelection.Parse(Plugin.Instance?.Configuration.SubtitleLanguages);
-            var listing = await ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken).ConfigureAwait(false);
+            var listing = await GetTextSubtitleStreamsAsync(episode, languages, cancellationToken).ConfigureAwait(false);
             var sidecars = SubtitleSidecarFiles.FindTextSources(episode, languages);
             complete = listing is not null;
             var outputCount = (listing?.Streams.Length ?? 0) + sidecars.Length;
@@ -763,6 +944,45 @@ internal sealed partial class FFmpegService : IFFmpegService
         await File.WriteAllTextAsync(copy, encoding.GetString(bytes), cancellationToken).ConfigureAwait(false);
         LogSidecarDecoded(path, encoding.WebName);
         return copy;
+    }
+
+    private Task<FFmpegOutputParser.SubtitleStreamListing?> GetTextSubtitleStreamsAsync(
+        QueuedEpisode episode,
+        SubtitleLanguageSelection languages,
+        CancellationToken cancellationToken)
+    {
+        if (episode.FileVersion is not { } fileVersion)
+        {
+            return ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken);
+        }
+
+        var key = (episode.Path, (long?)fileVersion, languages.Normalized);
+        var probes = _subtitleStreamListings.GetValue(
+            episode,
+            static _ => new ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>>());
+        var probe = probes.GetOrAdd(
+            key,
+            static (cacheKey, state) => state.Service.ProbeTextSubtitleStreamsAsync(
+                cacheKey.Path,
+                state.Languages,
+                CancellationToken.None),
+            (Service: this, Languages: languages));
+        return AwaitListingAsync(probe, probes, key, cancellationToken);
+
+        static async Task<FFmpegOutputParser.SubtitleStreamListing?> AwaitListingAsync(
+            Task<FFmpegOutputParser.SubtitleStreamListing?> probe,
+            ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>> probes,
+            (string Path, long? FileVersion, string Languages) key,
+            CancellationToken cancellationToken)
+        {
+            var listing = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (listing is null)
+            {
+                probes.TryRemove(key, out _);
+            }
+
+            return listing;
+        }
     }
 
     // The embedded subtitle streams to read, by stream index: those ffmpeg decodes to text, in a
@@ -964,6 +1184,12 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not extract the subtitle streams of {Files}")]
     private partial void LogSubtitleRunFailed(Exception ex, string files);
 
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Embedded chapter probe of {File} unusable: ffprobe exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogEmbeddedChapterProbeUnusable(string file, int exitCode, bool truncated);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not read embedded chapters from {File}")]
+    private partial void LogEmbeddedChapterProbeFailed(Exception ex, string file);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Subtitle extraction from {Files} incomplete: ffmpeg exited with code {ExitCode}, log truncated at the byte cap: {Truncated}")]
     private partial void LogSubtitleRunUnusable(string files, int exitCode, bool truncated);
 
@@ -1003,34 +1229,82 @@ internal sealed partial class FFmpegService : IFFmpegService
     private Task<string?> GetVideoCodecAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => _videoCodecs.GetValue(episode, e => ProbeVideoCodecAsync(e.Path)).WaitAsync(cancellationToken);
 
-    // The codec name of ffmpeg's default video stream rather than v:0, such as "hevc", without
-    // decoding. Null when the probe fails or the file has no video stream.
+    // The codec name of the default video stream, such as "hevc", without starting a decode.
+    // This is deliberately an ffprobe metadata query: the old zero-frame ffmpeg invocation still
+    // opened and demuxed the file before returning the same codec information.
     private async Task<string?> ProbeVideoCodecAsync(string filePath)
     {
-        // The stream mapping block lists the stream as "Stream #0:1 -> #0:0 (hevc (native) -> ...".
-        // Tag values print before the block and may hold the same text, so the search starts there.
-        const string MappingBlock = "Stream mapping:";
-        const string Mapping = " -> #0:0 (";
         try
         {
-            string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
-            var output = Encoding.UTF8.GetString(await GetOutputAsync(
+            string[] args =
+            [
+                "-v", "error",
+                "-select_streams", "v",
+                "-show_entries", "stream=index,codec_name,width,height:stream_disposition=attached_pic",
+                "-of", "json",
+                filePath,
+            ];
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
+                GetFFprobePath(),
                 args,
-                stderr: true,
-                infoQuery: false,
+                stderr: false,
                 timeout: 10 * 1000,
-                CancellationToken.None).ConfigureAwait(false));
+                cancellationToken: CancellationToken.None).ConfigureAwait(false));
 
-            var block = output.IndexOf(MappingBlock, StringComparison.Ordinal);
-            var start = block < 0 ? -1 : output.IndexOf(Mapping, block, StringComparison.Ordinal);
-            if (start < 0)
+            using var document = JsonDocument.Parse(output);
+            if (!document.RootElement.TryGetProperty("streams", out var streams)
+                || streams.ValueKind != JsonValueKind.Array)
             {
                 return null;
             }
 
-            start += Mapping.Length;
-            var end = output.IndexOf(' ', start);
-            return end < 0 ? null : output[start..end];
+            string? selectedCodec = null;
+            long selectedPixels = -1;
+            var selectedIndex = int.MaxValue;
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (!stream.TryGetProperty("codec_name", out var codec)
+                    || codec.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var attachedPicture = stream.TryGetProperty("disposition", out var disposition)
+                    && disposition.TryGetProperty("attached_pic", out var attached)
+                    && attached.ValueKind == JsonValueKind.Number
+                    && attached.GetInt32() != 0;
+                if (attachedPicture)
+                {
+                    continue;
+                }
+
+                var index = stream.TryGetProperty("index", out var indexElement)
+                    && indexElement.TryGetInt32(out var parsedIndex)
+                    ? parsedIndex
+                    : int.MaxValue;
+                var width = stream.TryGetProperty("width", out var widthElement)
+                    && widthElement.TryGetInt32(out var parsedWidth)
+                    ? parsedWidth
+                    : 0;
+                var height = stream.TryGetProperty("height", out var heightElement)
+                    && heightElement.TryGetInt32(out var parsedHeight)
+                    ? parsedHeight
+                    : 0;
+                var pixels = (long)Math.Max(width, 0) * Math.Max(height, 0);
+                if (pixels > selectedPixels || (pixels == selectedPixels && index < selectedIndex))
+                {
+                    selectedCodec = codec.GetString();
+                    selectedPixels = pixels;
+                    selectedIndex = index;
+                }
+            }
+
+            return selectedCodec;
+        }
+        catch (JsonException ex)
+        {
+            LogVideoCodecProbeFailed(_logger, ex, filePath);
+            return null;
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
@@ -1092,6 +1366,62 @@ internal sealed partial class FFmpegService : IFFmpegService
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
+    private Task<AudioStreamSelection?> GetAudioStreamSelectionAsync(
+        QueuedEpisode episode,
+        string preferredLanguage,
+        bool preferMostChannels,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(preferredLanguage) && preferMostChannels)
+        {
+            return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant));
+        }
+
+        if (episode.FileVersion is not { } fileVersion)
+        {
+            return FindAudioStreamSelectionAsync(episode.Path, preferredLanguage, preferMostChannels, cancellationToken)
+                .WaitAsync(cancellationToken);
+        }
+
+        var key = (episode.Path, (long?)fileVersion, preferredLanguage, preferMostChannels);
+        var probes = _audioStreamSelections.GetValue(
+            episode,
+            static _ => new ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>());
+        var probe = probes.GetOrAdd(
+            key,
+            static (cacheKey, service) => service.FindAudioStreamSelectionAsync(
+                cacheKey.Path,
+                cacheKey.Language,
+                cacheKey.PreferMostChannels,
+                CancellationToken.None),
+            this);
+        _ = probe.ContinueWith(
+            completed => RemoveFailedAudioStreamProbe(probes, key, completed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return probe.WaitAsync(cancellationToken);
+    }
+
+    private static void RemoveFailedAudioStreamProbe(
+        ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>> probes,
+        (string Path, long? FileVersion, string Language, bool PreferMostChannels) key,
+        Task<AudioStreamSelection?> probe)
+    {
+        if (!probe.IsFaulted && !probe.IsCanceled)
+        {
+            return;
+        }
+
+        if (probe.IsFaulted)
+        {
+            _ = probe.Exception;
+        }
+
+        ((ICollection<KeyValuePair<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>>)probes)
+            .Remove(new(key, probe));
+    }
+
     private async Task<AudioStreamSelection?> FindAudioStreamSelectionAsync(
         string filePath,
         string preferredLanguage,
@@ -1105,8 +1435,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             return new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant);
         }
 
-        // Probed on every fingerprint rather than memoized: the service is a singleton, and a file
-        // replaced at the same path with a different stream layout must not keep a stale index.
+        // The caller scopes this probe to a queued item and its file version, so repeated
+        // fingerprints in one pass do not start another ffprobe.
         try
         {
             string[] args =
@@ -1192,8 +1522,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         var (start, end) = episode.GetFingerprintRange(cacheMode);
         var configuration = Plugin.Instance?.Configuration;
         var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
-        var streamSelection = await FindAudioStreamSelectionAsync(
-            episode.Path,
+        var streamSelection = await GetAudioStreamSelectionAsync(
+            episode,
             preferredLanguage,
             configuration?.PreferAudioStreamWithMostChannels ?? true,
             cancellationToken).ConfigureAwait(false);
@@ -1311,6 +1641,60 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+
+    private sealed class EmbeddedChapterCacheEntry
+    {
+        private long _expiresAtTicks;
+
+        public EmbeddedChapterCacheEntry(Func<Task<EmbeddedChapterProbeResult>> probeFactory, DateTimeOffset expiresAt)
+        {
+            Probe = new Lazy<Task<EmbeddedChapterProbeResult>>(probeFactory, LazyThreadSafetyMode.ExecutionAndPublication);
+            _expiresAtTicks = expiresAt.UtcTicks;
+        }
+
+        public Lazy<Task<EmbeddedChapterProbeResult>> Probe { get; }
+
+        public long ExpiresAtTicks => Volatile.Read(ref _expiresAtTicks);
+
+        public bool IsCompleted
+        {
+            get
+            {
+                if (!Probe.IsValueCreated)
+                {
+                    return true;
+                }
+
+                try
+                {
+                    return Probe.Value.IsCompleted;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
+
+        public bool IsExpired(DateTimeOffset now) => ExpiresAtTicks <= now.UtcTicks;
+
+        public void Touch(DateTimeOffset now) => Volatile.Write(ref _expiresAtTicks, now.Add(EmbeddedChapterCacheLifetime).UtcTicks);
+    }
+
+    private sealed class EmbeddedChapterProbeResult
+    {
+        public EmbeddedChapterProbeResult(ChapterInfo[] chapters, bool succeeded)
+        {
+            Chapters = chapters;
+            Succeeded = succeeded;
+        }
+
+        public ChapterInfo[] Chapters { get; }
+
+        public bool Succeeded { get; }
+
+        public static EmbeddedChapterProbeResult Failed => new([], succeeded: false);
+    }
 
     /// <summary>
     /// The audio stream a fingerprint is taken from.

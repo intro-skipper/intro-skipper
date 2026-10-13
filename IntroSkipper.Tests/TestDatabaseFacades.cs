@@ -50,6 +50,32 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task EmbeddedChapterTransition_PersistsPendingAndAppliedState()
+    {
+        var database = _db.Database;
+
+        Assert.Null(await database.GetEmbeddedChapterTransitionAsync());
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: false);
+        var initial = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(initial);
+        Assert.False(initial!.Value.AppliedEmbeddedChapters);
+        Assert.Null(initial.Value.PendingEmbeddedChapters);
+
+        await database.SetEmbeddedChapterTransitionPendingAsync(embedded: true);
+        var pending = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(pending);
+        Assert.False(pending!.Value.AppliedEmbeddedChapters);
+        Assert.True(pending.Value.PendingEmbeddedChapters == true);
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: true);
+        var applied = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(applied);
+        Assert.True(applied!.Value.AppliedEmbeddedChapters);
+        Assert.Null(applied.Value.PendingEmbeddedChapters);
+    }
+
+    [Fact]
     public async Task SegmentWrites_RejectUndefinedMode_WithoutPersistingAnything()
     {
         var itemId = Guid.NewGuid();
@@ -94,6 +120,40 @@ public sealed class TestDatabaseFacades : IDisposable
             () => database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter with { Source = SegmentSource.User }]));
         await Assert.ThrowsAsync<ArgumentException>(
             () => database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Credits, [chapter with { Source = SegmentSource.CreditsDerived }]));
+    }
+
+    [Fact]
+    public async Task GetItemIdsBySegmentSourcesAsync_IncludesActiveAndSuppressedRows()
+    {
+        var database = _db.Database;
+        var activeItemId = Guid.NewGuid();
+        var suppressedItemId = Guid.NewGuid();
+        var combinedItemId = Guid.NewGuid();
+
+        await database.ReplaceAutoSegmentsAsync(
+            activeItemId,
+            AnalysisMode.Introduction,
+            [new Segment(activeItemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            suppressedItemId,
+            AnalysisMode.Introduction,
+            [new Segment(suppressedItemId, new TimeRange(30, 40))],
+            SegmentSource.Chapter);
+        var suppressedId = Assert.Single(await database.GetSegmentsAsync(suppressedItemId)).Id;
+        await database.DeleteSegmentAsync(suppressedItemId, suppressedId);
+        await database.ReplaceAutoSegmentsAsync(
+            combinedItemId,
+            AnalysisMode.Credits,
+            [new Segment(combinedItemId, new TimeRange(50, 60))],
+            SegmentSource.Combined);
+
+        var ids = await database.GetItemIdsBySegmentSourcesAsync([SegmentSource.Chapter, SegmentSource.Combined]);
+
+        Assert.Equal(3, ids.Count);
+        Assert.Contains(activeItemId, ids);
+        Assert.Contains(suppressedItemId, ids);
+        Assert.Contains(combinedItemId, ids);
     }
 
     [Fact]
