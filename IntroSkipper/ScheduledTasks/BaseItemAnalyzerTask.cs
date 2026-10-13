@@ -265,9 +265,9 @@ public partial class BaseItemAnalyzerTask(
                 ? episodes
                 : episodes.Where(episode => itemIds.Contains(episode.EpisodeId)).ToArray();
             var resetModes = modes
-                .Where(mode => !seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
+                .Where(mode => !AnalysisEligibility.IsSeasonZeroOptedOut(first, Config)
+                    && (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None))
                 .ToList();
-            // When the Preview scan is disabled, the Credits pass still refreshes only its own
             // CreditsDerived preview. Do not reset the whole Preview mode: that would delete a
             // valid subtitle or chapter preview that this pass cannot regenerate.
             var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
