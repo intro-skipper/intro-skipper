@@ -1395,7 +1395,31 @@ internal sealed partial class FFmpegService : IFFmpegService
                 cacheKey.PreferMostChannels,
                 CancellationToken.None),
             this);
+        _ = probe.ContinueWith(
+            completed => RemoveFailedAudioStreamProbe(probes, key, completed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
         return probe.WaitAsync(cancellationToken);
+    }
+
+    private static void RemoveFailedAudioStreamProbe(
+        ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>> probes,
+        (string Path, long? FileVersion, string Language, bool PreferMostChannels) key,
+        Task<AudioStreamSelection?> probe)
+    {
+        if (!probe.IsFaulted && !probe.IsCanceled)
+        {
+            return;
+        }
+
+        if (probe.IsFaulted)
+        {
+            _ = probe.Exception;
+        }
+
+        ((ICollection<KeyValuePair<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>>)probes)
+            .Remove(new(key, probe));
     }
 
     private async Task<AudioStreamSelection?> FindAudioStreamSelectionAsync(
