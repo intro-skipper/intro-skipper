@@ -104,9 +104,23 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IReadOnlyList<Segment> matches = enableChapterDetection
-                ? await FindChapterCandidatesAsync(episode, mode, cancellationToken).ConfigureAwait(false)
-                : [];
+            IReadOnlyList<Segment> matches;
+            try
+            {
+                matches = enableChapterDetection
+                    ? await FindChapterCandidatesAsync(episode, mode, cancellationToken).ConfigureAwait(false)
+                    : [];
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                LogErrorAnalyzingChapters(ex, episode.Name);
+                continue;
+            }
 
             var source = SegmentSource.Chapter;
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
@@ -203,8 +217,9 @@ internal sealed partial class ChapterAnalyzer(
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Token used to cancel the optional embedded chapter probe.</param>
+    /// <param name="cancellationToken">Token used to cancel the caller's wait for the optional embedded chapter probe.</param>
     /// <returns>The matching chapter ranges in file seconds; empty when chapter matching is off for the mode or nothing matched.</returns>
+    /// <exception cref="InvalidOperationException">The configured embedded chapter probe failed.</exception>
     internal async Task<IReadOnlyList<Segment>> FindChapterCandidatesAsync(
         QueuedEpisode episode,
         AnalysisMode mode,
@@ -470,6 +485,9 @@ internal sealed partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error reading chapters for {Episode}")]
+    private partial void LogErrorAnalyzingChapters(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid chapter pattern for {Mode}; skipping regex chapter matches: {Message}")]
     private partial void LogInvalidChapterPattern(AnalysisMode mode, string message);

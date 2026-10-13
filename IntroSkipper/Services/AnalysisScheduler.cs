@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Threading.Channels;
-using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
@@ -37,14 +35,12 @@ namespace IntroSkipper.Services;
 /// <param name="analyzer">Analyzer run by every pass.</param>
 /// <param name="seasonResolver">Resolver of the season a manual scan erases and analyzes.</param>
 /// <param name="eraser">Erases a manual scan's season before its analysis.</param>
-/// <param name="database">Plugin database used to reset targeted reanalysis without clearing detection cache.</param>
 /// <param name="timeProvider">Clock for the quiet period.</param>
 /// <param name="logger">Logger.</param>
 public sealed partial class AnalysisScheduler(
     BaseItemAnalyzerTask analyzer,
     SeasonResolver seasonResolver,
     ISegmentEraser eraser,
-    IntroSkipperDatabase database,
     TimeProvider timeProvider,
     ILogger<AnalysisScheduler> logger) : IHostedService, IDisposable
 {
@@ -58,7 +54,6 @@ public sealed partial class AnalysisScheduler(
     private readonly BaseItemAnalyzerTask _analyzer = analyzer;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly ISegmentEraser _eraser = eraser;
-    private readonly IntroSkipperDatabase _database = database;
     private readonly TimeProvider _timeProvider = timeProvider;
     private readonly ILogger<AnalysisScheduler> _logger = logger;
     private readonly Lock _lock = new();
@@ -163,9 +158,9 @@ public sealed partial class AnalysisScheduler(
     }
 
     /// <summary>
-    /// Queues a targeted reanalysis. The items are reset when the worker starts the pass,
-    /// preserving detection-cache rows so a source-only change such as embedded chapter
-    /// selection does not force a full media rescan.
+    /// Queues a targeted reanalysis. The analyzer verifies the current file versions before
+    /// resetting the selected items, preserving detection-cache rows so a source-only change
+    /// such as embedded chapter selection does not force a full media rescan.
     /// </summary>
     /// <param name="itemIds">Items whose analysis source changed.</param>
     /// <returns>A task that completes when the targeted pass finishes.</returns>
@@ -539,8 +534,7 @@ public sealed partial class AnalysisScheduler(
 
     private async Task RunReanalysisAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
-        await _database.ResetItemsForReanalysisAsync(itemIds, Enum.GetValues<AnalysisMode>(), cancellationToken: cancellationToken).ConfigureAwait(false);
-        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds).ConfigureAwait(false);
+        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds, forceReanalysis: true).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Starting analysis pass: {Kind}")]

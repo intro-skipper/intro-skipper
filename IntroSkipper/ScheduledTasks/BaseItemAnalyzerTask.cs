@@ -63,11 +63,13 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
+    /// <param name="forceReanalysis">Whether the scoped items must be reopened after file-version verification.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? itemIds = null)
+        IReadOnlyCollection<Guid>? itemIds = null,
+        bool forceReanalysis = false)
     {
         if (itemIds?.Count == 0)
         {
@@ -104,7 +106,7 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(
             SeasonsInScope(owners, scope, progress),
             options,
-            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, itemIds, forceReanalysis, ct))).ConfigureAwait(false);
         progress.Report(100);
     }
 
@@ -112,11 +114,17 @@ public partial class BaseItemAnalyzerTask(
     // changed-items pass at the end of a library scan covers every item Jellyfin saved,
     // and one broken season must not cost the rest their analysis. Cancellation still
     // stops the pass.
-    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task TryAnalyzeSeasonAsync(
+        ResolvedSeason season,
+        IReadOnlyList<AnalysisMode> modes,
+        bool ffmpegValid,
+        IReadOnlyCollection<Guid>? itemIds,
+        bool forceReanalysis,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await AnalyzeSeasonAsync(season, modes, ffmpegValid, itemIds, forceReanalysis, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -183,7 +191,13 @@ public partial class BaseItemAnalyzerTask(
     /// Verifies one season against the stored analysis state, reopens what a replaced file
     /// or a settled-season reanalysis invalidates, and runs every mode over it.
     /// </summary>
-    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task AnalyzeSeasonAsync(
+        ResolvedSeason season,
+        IReadOnlyList<AnalysisMode> modes,
+        bool ffmpegValid,
+        IReadOnlyCollection<Guid>? itemIds,
+        bool forceReanalysis,
+        CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
@@ -214,6 +228,40 @@ public partial class BaseItemAnalyzerTask(
         var first = episodes[0];
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
+
+        // A targeted source change must reopen only modes this pass can actually run. Preview
+        // is also reset when Credits derives it, even if the standalone Preview scan is off.
+        // This reset follows VerifyQueueAsync so file-version evidence is still available to
+        // classify replacements before any analysis records are deleted.
+        if (forceReanalysis && itemIds is { Count: > 0 })
+        {
+            var targetedEpisodes = itemIds.Contains(season.Key)
+                ? episodes
+                : episodes.Where(episode => itemIds.Contains(episode.EpisodeId)).ToArray();
+            var resetModes = modes
+                .Where(mode => !seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
+                .ToList();
+            var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(resetModes, previewFromCreditsEnd);
+            if (targetedEpisodes.Count > 0 && targetedResetModes.Count > 0)
+            {
+                await _database.ResetItemsForReanalysisAsync(
+                    targetedEpisodes.Select(episode => episode.EpisodeId),
+                    targetedResetModes,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                foreach (var episode in targetedEpisodes)
+                {
+                    foreach (var resetMode in targetedResetModes)
+                    {
+                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                        {
+                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            episode.ClearSubtitleOnlyReanalysis(resetMode);
+                        }
+                    }
+                }
+            }
+        }
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
         // mode, not only the ones this run covers. The fingerprints go first: the records

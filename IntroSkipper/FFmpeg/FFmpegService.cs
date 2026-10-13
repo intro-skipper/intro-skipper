@@ -47,6 +47,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
 
+    // Chapter probes are shared across the modes in one analysis pass. Expiring and bounding
+    // the entries keeps a library-wide setting change from retaining every chapter array for the
+    // lifetime of this singleton, while still avoiding a second ffprobe for the next mode.
+    private const int EmbeddedChapterCacheMaximumEntries = 256;
+    private static readonly TimeSpan EmbeddedChapterCacheLifetime = TimeSpan.FromMinutes(10);
+
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
     // warning per packet cannot fill memory.
     private const long SubtitleLogMaximumBytes = 1024L * 1024;
@@ -102,7 +108,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
     private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
-    private readonly ConcurrentDictionary<(string Path, long? FileVersion), Lazy<Task<EmbeddedChapterProbeResult>>> _embeddedChapters = new();
+    private readonly ConcurrentDictionary<(string Path, long? FileVersion), EmbeddedChapterCacheEntry> _embeddedChapters = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -660,38 +666,109 @@ internal sealed partial class FFmpegService : IFFmpegService
     public async Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         var key = (episode.Path, episode.FileVersion);
-        var lazy = _embeddedChapters.GetOrAdd(
-            key,
-            _ => new Lazy<Task<EmbeddedChapterProbeResult>>(
-                () => ProbeEmbeddedChaptersAsync(episode.Path, cancellationToken),
-                LazyThreadSafetyMode.ExecutionAndPublication));
+        var now = DateTimeOffset.UtcNow;
+        var entry = GetEmbeddedChapterCacheEntry(key, episode.Path, now);
+        entry.Touch(now);
+        TrimEmbeddedChapterCache(now);
+
+        Task<EmbeddedChapterProbeResult> probe;
+        try
+        {
+            probe = entry.Probe.Value;
+        }
+        catch
+        {
+            RemoveEmbeddedChapterProbe(key, entry);
+            throw;
+        }
+
+        _ = probe.ContinueWith(
+            completed => RemoveCompletedEmbeddedChapterProbe(key, entry, completed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
         try
         {
-            var result = await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var result = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
             if (!result.Succeeded)
             {
-                RemoveEmbeddedChapterProbe(key, lazy);
+                RemoveEmbeddedChapterProbe(key, entry);
+                throw new InvalidOperationException($"ffprobe could not read embedded chapters from \"{episode.Path}\".");
             }
 
+            entry.Touch(DateTimeOffset.UtcNow);
             return result.Chapters;
         }
         catch (OperationCanceledException)
         {
-            // A cancelled probe must not poison the cache. A cancellation of only this
-            // caller's WaitAsync leaves a shared probe alive for other callers.
-            if (lazy.IsValueCreated && lazy.Value.IsCanceled)
-            {
-                RemoveEmbeddedChapterProbe(key, lazy);
-            }
-
+            // WaitAsync cancellation belongs only to this caller. The shared probe runs on
+            // the service-owned lifetime and its continuation removes a cancelled task once
+            // it completes, so a waiter walking away cannot poison the next caller.
             throw;
         }
     }
 
-    private void RemoveEmbeddedChapterProbe((string Path, long? FileVersion) key, Lazy<Task<EmbeddedChapterProbeResult>> probe)
-        => ((ICollection<KeyValuePair<(string Path, long? FileVersion), Lazy<Task<EmbeddedChapterProbeResult>>>>)_embeddedChapters)
-            .Remove(new(key, probe));
+    private EmbeddedChapterCacheEntry GetEmbeddedChapterCacheEntry(
+        (string Path, long? FileVersion) key,
+        string filePath,
+        DateTimeOffset now)
+    {
+        var candidate = new EmbeddedChapterCacheEntry(
+            () => ProbeEmbeddedChaptersAsync(filePath, CancellationToken.None),
+            now.Add(EmbeddedChapterCacheLifetime));
+        return _embeddedChapters.AddOrUpdate(
+            key,
+            candidate,
+            (_, existing) => existing.IsExpired(now) && existing.IsCompleted ? candidate : existing);
+    }
+
+    private void RemoveCompletedEmbeddedChapterProbe(
+        (string Path, long? FileVersion) key,
+        EmbeddedChapterCacheEntry entry,
+        Task<EmbeddedChapterProbeResult> probe)
+    {
+        if (probe.IsFaulted)
+        {
+            _ = probe.Exception;
+        }
+
+        if (probe.IsCanceled || probe.IsFaulted || (probe.Status == TaskStatus.RanToCompletion && !probe.Result.Succeeded))
+        {
+            RemoveEmbeddedChapterProbe(key, entry);
+        }
+    }
+
+    private void RemoveEmbeddedChapterProbe(
+        (string Path, long? FileVersion) key,
+        EmbeddedChapterCacheEntry entry)
+        => ((ICollection<KeyValuePair<(string Path, long? FileVersion), EmbeddedChapterCacheEntry>>)_embeddedChapters)
+            .Remove(new(key, entry));
+
+    private void TrimEmbeddedChapterCache(DateTimeOffset now)
+    {
+        foreach (var pair in _embeddedChapters)
+        {
+            if (pair.Value.IsExpired(now) && pair.Value.IsCompleted)
+            {
+                RemoveEmbeddedChapterProbe(pair.Key, pair.Value);
+            }
+        }
+
+        var excess = _embeddedChapters.Count - EmbeddedChapterCacheMaximumEntries;
+        if (excess <= 0)
+        {
+            return;
+        }
+
+        foreach (var pair in _embeddedChapters
+                     .Where(pair => pair.Value.IsCompleted)
+                     .OrderBy(pair => pair.Value.ExpiresAtTicks)
+                     .Take(excess))
+        {
+            RemoveEmbeddedChapterProbe(pair.Key, pair.Value);
+        }
+    }
 
     private async Task<EmbeddedChapterProbeResult> ProbeEmbeddedChaptersAsync(string filePath, CancellationToken cancellationToken)
     {
@@ -719,7 +796,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return EmbeddedChapterProbeResult.Failed;
             }
 
-            return new EmbeddedChapterProbeResult(FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span)), Succeeded: true);
+            return new EmbeddedChapterProbeResult(FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span)), succeeded: true);
         }
         catch (OperationCanceledException)
         {
@@ -1399,6 +1476,60 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
 
+    private sealed class EmbeddedChapterCacheEntry
+    {
+        private long _expiresAtTicks;
+
+        public EmbeddedChapterCacheEntry(Func<Task<EmbeddedChapterProbeResult>> probeFactory, DateTimeOffset expiresAt)
+        {
+            Probe = new Lazy<Task<EmbeddedChapterProbeResult>>(probeFactory, LazyThreadSafetyMode.ExecutionAndPublication);
+            _expiresAtTicks = expiresAt.UtcTicks;
+        }
+
+        public Lazy<Task<EmbeddedChapterProbeResult>> Probe { get; }
+
+        public long ExpiresAtTicks => Volatile.Read(ref _expiresAtTicks);
+
+        public bool IsExpired(DateTimeOffset now) => ExpiresAtTicks <= now.UtcTicks;
+
+        public bool IsCompleted
+        {
+            get
+            {
+                if (!Probe.IsValueCreated)
+                {
+                    return true;
+                }
+
+                try
+                {
+                    return Probe.Value.IsCompleted;
+                }
+                catch
+                {
+                    return true;
+                }
+            }
+        }
+
+        public void Touch(DateTimeOffset now) => Volatile.Write(ref _expiresAtTicks, now.Add(EmbeddedChapterCacheLifetime).UtcTicks);
+    }
+
+    private sealed class EmbeddedChapterProbeResult
+    {
+        public EmbeddedChapterProbeResult(ChapterInfo[] chapters, bool succeeded)
+        {
+            Chapters = chapters;
+            Succeeded = succeeded;
+        }
+
+        public ChapterInfo[] Chapters { get; }
+
+        public bool Succeeded { get; }
+
+        public static EmbeddedChapterProbeResult Failed => new([], succeeded: false);
+    }
+
     /// <summary>
     /// The audio stream a fingerprint is taken from.
     /// </summary>
@@ -1428,10 +1559,5 @@ internal sealed partial class FFmpegService : IFFmpegService
         /// <param name="stream">The stream index.</param>
         /// <returns>The output file's path.</returns>
         public string OutputPath(int stream) => FormattableString.Invariant($"{OutputPrefix}-{stream}.vtt");
-    }
-
-    private readonly record struct EmbeddedChapterProbeResult(ChapterInfo[] Chapters, bool Succeeded)
-    {
-        public static EmbeddedChapterProbeResult Failed => new([], Succeeded: false);
     }
 }

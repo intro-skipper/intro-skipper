@@ -81,7 +81,6 @@ internal static class EntrypointTestHelpers
                 database),
             seasonResolver,
             eraser ?? new StubSegmentEraser(),
-            database,
             timeProvider ?? TimeProvider.System,
             NullLogger<AnalysisScheduler>.Instance);
 

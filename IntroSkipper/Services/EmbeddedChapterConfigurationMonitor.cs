@@ -27,7 +27,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 {
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly AnalysisScheduler _scheduler = scheduler;
+    private readonly Func<IReadOnlyCollection<Guid>, Task> _reanalyze = scheduler.ReanalyzeItemsAsync;
     private readonly IntroSkipperDatabase _database = database;
     private readonly ILogger<EmbeddedChapterConfigurationMonitor> _logger = logger;
     private readonly CancellationTokenSource _stopping = new();
@@ -99,7 +99,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             }
 
             LogQueueingItems(_logger, items.Count);
-            await _scheduler.ReanalyzeItemsAsync(items).WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _reanalyze(items).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -134,20 +134,17 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             .Where(candidates.ContainsKey)
             .ToHashSet();
 
-        // When returning to Jellyfin's chapter table, include items whose current table
-        // has chapters even if the embedded pass produced no chapter segment for them.
-        // This keeps the disabled state equivalent to the historical behavior without
-        // hashing the source choice into every analysis record.
-        if (!(Plugin.Instance?.Configuration.UseEmbeddedChaptersForAnalysis ?? false))
+        // Include items with Jellyfin chapters in both directions. A chapter-derived result
+        // can have a non-Chapter source after another analyzer wins, so filtering only by
+        // segment provenance would leave that result stale when embedded mode is enabled.
+        // The source choice stays out of the config hash, so this targeted set is required.
+        foreach (var episode in candidates.Values)
         {
-            foreach (var episode in candidates.Values)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!items.Contains(episode.EpisodeId)
+                && Plugin.Instance?.GetChapters(episode.EpisodeId).Count > 0)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!items.Contains(episode.EpisodeId)
-                    && Plugin.Instance?.GetChapters(episode.EpisodeId).Count > 0)
-                {
-                    items.Add(episode.EpisodeId);
-                }
+                items.Add(episode.EpisodeId);
             }
         }
 
@@ -160,9 +157,20 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
         await Parallel.ForEachAsync(candidates.Values, options, async (episode, ct) =>
         {
-            if ((await _ffmpegService.GetEmbeddedChaptersAsync(episode, ct).ConfigureAwait(false)).Length > 0)
+            try
             {
-                embeddedItems.Add(episode.EpisodeId);
+                if ((await _ffmpegService.GetEmbeddedChaptersAsync(episode, ct).ConfigureAwait(false)).Length > 0)
+                {
+                    embeddedItems.Add(episode.EpisodeId);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogEmbeddedProbeSelectionFailed(_logger, ex, episode.Name);
             }
         }).ConfigureAwait(false);
 
@@ -178,4 +186,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to queue reanalysis after the embedded chapter setting changed")]
     private static partial void LogConfigurationRescanFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not inspect embedded chapters for {Episode} while selecting the targeted reanalysis set")]
+    private static partial void LogEmbeddedProbeSelectionFailed(ILogger logger, Exception exception, string episode);
 }

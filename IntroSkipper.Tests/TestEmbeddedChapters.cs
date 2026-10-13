@@ -93,4 +93,34 @@ public class TestEmbeddedChapters
 
         Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
     }
+
+    [Fact]
+    public async Task ChapterAnalyzer_MarksAnEmbeddedProbeFailureAsFailed()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSponsorBlockChapterDetection = false,
+            UseEmbeddedChaptersForAnalysis = true,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var ffmpeg = new StubFFmpegService
+        {
+            EmbeddedChapters = _ => throw new InvalidOperationException("probe failed"),
+        };
+        var analyzer = new ChapterAnalyzer(
+            NullLogger<ChapterAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            config);
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Duration = 2000,
+            Path = "episode.mkv",
+        };
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Introduction));
+    }
 }
