@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.2.0" />
     <InternalsVisibleTo Include="IntroSkipper.Tests" />
   </ItemGroup>
 
