@@ -1239,9 +1239,9 @@ internal sealed partial class FFmpegService : IFFmpegService
             string[] args =
             [
                 "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name",
-                "-of", "csv=p=0",
+                "-select_streams", "v",
+                "-show_entries", "stream=index,codec_name,width,height:stream_disposition=attached_pic",
+                "-of", "json",
                 filePath,
             ];
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
@@ -1251,10 +1251,60 @@ internal sealed partial class FFmpegService : IFFmpegService
                 timeout: 10 * 1000,
                 cancellationToken: CancellationToken.None).ConfigureAwait(false));
 
-            return output
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(static line => line.Trim())
-                .FirstOrDefault(static line => line.Length > 0);
+            using var document = JsonDocument.Parse(output);
+            if (!document.RootElement.TryGetProperty("streams", out var streams)
+                || streams.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            string? selectedCodec = null;
+            long selectedPixels = -1;
+            var selectedIndex = int.MaxValue;
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (!stream.TryGetProperty("codec_name", out var codec)
+                    || codec.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var attachedPicture = stream.TryGetProperty("disposition", out var disposition)
+                    && disposition.TryGetProperty("attached_pic", out var attached)
+                    && attached.ValueKind == JsonValueKind.Number
+                    && attached.GetInt32() != 0;
+                if (attachedPicture)
+                {
+                    continue;
+                }
+
+                var index = stream.TryGetProperty("index", out var indexElement)
+                    && indexElement.TryGetInt32(out var parsedIndex)
+                    ? parsedIndex
+                    : int.MaxValue;
+                var width = stream.TryGetProperty("width", out var widthElement)
+                    && widthElement.TryGetInt32(out var parsedWidth)
+                    ? parsedWidth
+                    : 0;
+                var height = stream.TryGetProperty("height", out var heightElement)
+                    && heightElement.TryGetInt32(out var parsedHeight)
+                    ? parsedHeight
+                    : 0;
+                var pixels = (long)Math.Max(width, 0) * Math.Max(height, 0);
+                if (pixels > selectedPixels || (pixels == selectedPixels && index < selectedIndex))
+                {
+                    selectedCodec = codec.GetString();
+                    selectedPixels = pixels;
+                    selectedIndex = index;
+                }
+            }
+
+            return selectedCodec;
+        }
+        catch (JsonException ex)
+        {
+            LogVideoCodecProbeFailed(_logger, ex, filePath);
+            return null;
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
