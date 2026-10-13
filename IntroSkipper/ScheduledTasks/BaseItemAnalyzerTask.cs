@@ -134,6 +134,10 @@ public partial class BaseItemAnalyzerTask(
         {
             var first = season.Episodes.Count > 0 ? season.Episodes[0] : null;
             LogSeasonFailed(_logger, ex, first?.SeriesName ?? string.Empty, first?.SeasonNumber ?? 0, season.Key);
+            if (forceReanalysis)
+            {
+                throw;
+            }
         }
     }
 
@@ -225,51 +229,11 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        var first = episodes[0];
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
-        var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
-
-        // A targeted source change must reopen only modes this pass can actually run. Preview
-        // is also reset when Credits derives it, even if the standalone Preview scan is off.
-        // This reset follows VerifyQueueAsync so file-version evidence is still available to
-        // classify replacements before any analysis records are deleted.
-        if (forceReanalysis && itemIds is { Count: > 0 })
-        {
-            var targetedEpisodes = itemIds.Contains(season.Key)
-                ? episodes
-                : episodes.Where(episode => itemIds.Contains(episode.EpisodeId)).ToArray();
-            var resetModes = modes
-                .Where(mode => !seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
-                .ToList();
-            var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(resetModes, previewFromCreditsEnd);
-            if (targetedEpisodes.Count > 0 && targetedResetModes.Count > 0)
-            {
-                await _database.ResetItemsForReanalysisAsync(
-                    targetedEpisodes.Select(episode => episode.EpisodeId),
-                    targetedResetModes,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                foreach (var episode in targetedEpisodes)
-                {
-                    foreach (var resetMode in targetedResetModes)
-                    {
-                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
-                        {
-                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
-                            episode.ClearSubtitleOnlyReanalysis(resetMode);
-                        }
-                    }
-                }
-            }
-        }
-
         // A replaced file makes the old automatic segments and fingerprints wrong for every
-        // mode, not only the ones this run covers. The fingerprints go first: the records
-        // are the only evidence the file changed, so if the reset does not commit the
-        // mismatch persists and the next run retries both. The reset journals its
-        // deletions' projections. Every mode of the episode then reopens in memory too,
-        // or a mode whose record matched would keep its settled state after its segments
-        // were deleted and be recorded again with nothing behind it.
+        // mode, not only the ones this run covers. VerifyQueueAsync has just classified the
+        // replacement while the stored file-version evidence still exists, so invalidate its
+        // fingerprints before any targeted source reset can delete that evidence. If either
+        // operation fails, the old evidence remains and the next pass can retry the replacement.
         var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
         if (changedFiles.Length > 0)
         {
@@ -282,6 +246,59 @@ public partial class BaseItemAnalyzerTask(
                     if (episode.GetAnalyzed(mode) != EpisodeState.UserProvided)
                     {
                         episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
+                    }
+                }
+            }
+        }
+
+        var first = episodes[0];
+        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
+
+        // A targeted source change must reopen only modes this pass can actually run. A
+        // credits-derived Preview joins the reset only when the standalone Preview scan runs.
+        // This reset follows VerifyQueueAsync so file-version evidence is still available to
+        // classify replacements before any analysis records are deleted.
+        if (forceReanalysis && itemIds is { Count: > 0 })
+        {
+            var targetedEpisodes = itemIds.Contains(season.Key)
+                ? episodes
+                : episodes.Where(episode => itemIds.Contains(episode.EpisodeId)).ToArray();
+            var resetModes = modes
+                .Where(mode => !seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
+                .ToList();
+            // When the Preview scan is disabled, the Credits pass still refreshes only its own
+            // CreditsDerived preview. Do not reset the whole Preview mode: that would delete a
+            // valid subtitle or chapter preview that this pass cannot regenerate.
+            var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
+                resetModes,
+                previewFromCreditsEnd && Config.ScanPreview);
+            if (targetedEpisodes.Count > 0)
+            {
+                if (targetedResetModes.Count > 0)
+                {
+                    await _database.ResetItemsForReanalysisAsync(
+                        targetedEpisodes.Select(episode => episode.EpisodeId),
+                        targetedResetModes,
+                        GetSubtitleModesToPreserve(targetedResetModes, seasonStates, targetedEpisodes),
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+
+                var modesToReopen = AllModes.Except(targetedResetModes).ToArray();
+                await _database.ReopenItemsForReanalysisAsync(
+                    targetedEpisodes.Select(episode => episode.EpisodeId),
+                    modesToReopen,
+                    cancellationToken).ConfigureAwait(false);
+
+                foreach (var episode in targetedEpisodes)
+                {
+                    foreach (var resetMode in targetedResetModes)
+                    {
+                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                        {
+                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            episode.ClearSubtitleOnlyReanalysis(resetMode);
+                        }
                     }
                 }
             }
@@ -306,7 +323,9 @@ public partial class BaseItemAnalyzerTask(
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
             {
-                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(settledResetModes, previewFromCreditsEnd);
+                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
+                    settledResetModes,
+                    previewFromCreditsEnd && Config.ScanPreview);
                 LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
 
                 // The reset journals its deletions' projections, so they propagate

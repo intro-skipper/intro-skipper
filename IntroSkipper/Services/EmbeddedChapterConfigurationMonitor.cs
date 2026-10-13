@@ -107,17 +107,23 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
         catch (Exception ex)
         {
             LogConfigurationRescanFailed(_logger, ex);
+            // Keep the transition pending so a later configuration notification can retry it.
+            // The targeted pass deliberately leaves the old analysis records intact when its
+            // reset fails, and the source setting is not part of the analysis hash.
+            var current = Plugin.Instance?.Configuration.UseEmbeddedChaptersForAnalysis ?? false;
+            Interlocked.Exchange(ref _lastSeen, current ? 0 : 1);
         }
     }
 
     private async Task<IReadOnlyCollection<Guid>> FindItemsRequiringReanalysisAsync(CancellationToken cancellationToken)
     {
         var candidates = new Dictionary<Guid, QueuedEpisode>();
-        foreach (var owner in _seasonResolver.EnumerateLibrary(out _))
+        foreach (var owner in _seasonResolver.EnumerateLibrary(out var failures))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!_seasonResolver.TryResolve(owner, includeExcluded: false, out var seasons))
             {
+                failures++;
                 continue;
             }
 
@@ -125,6 +131,12 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             {
                 candidates.TryAdd(episode.EpisodeId, episode);
             }
+        }
+
+        if (failures > 0)
+        {
+            LogIncompleteLibraryDiscovery(_logger, failures);
+            throw new InvalidOperationException($"Could not resolve {failures} library entries while selecting embedded chapter reanalysis items.");
         }
 
         var items = (await _database.GetItemIdsBySegmentSourcesAsync(
@@ -171,6 +183,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             catch (Exception ex)
             {
                 LogEmbeddedProbeSelectionFailed(_logger, ex, episode.Name);
+                embeddedItems.Add(episode.EpisodeId);
             }
         }).ConfigureAwait(false);
 
@@ -189,4 +202,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not inspect embedded chapters for {Episode} while selecting the targeted reanalysis set")]
     private static partial void LogEmbeddedProbeSelectionFailed(ILogger logger, Exception exception, string episode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Embedded chapter reanalysis discovery was incomplete; {Failures} library entries could not be resolved")]
+    private static partial void LogIncompleteLibraryDiscovery(ILogger logger, int failures);
 }

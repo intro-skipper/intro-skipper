@@ -20,7 +20,8 @@ internal static class AnalysisChapterProvider
     /// <param name="config">Active plugin configuration.</param>
     /// <param name="ffmpegService">FFmpeg service used for the optional embedded probe.</param>
     /// <param name="episode">Episode whose chapters are needed.</param>
-    /// <param name="cancellationToken">Token used to cancel the caller's wait for the shared embedded probe.</param>
+    /// <param name="cancellationToken">Token used to cancel the caller's wait for the shared embedded probe;
+    /// an item without a Jellyfin file version is probed uncached and cancels its process too.</param>
     /// <returns>The chapters selected by configuration, or an empty list when the source has none.</returns>
     /// <exception cref="InvalidOperationException">The embedded chapter probe failed.</exception>
     public static Task<IReadOnlyList<ChapterInfo>> GetAsync(

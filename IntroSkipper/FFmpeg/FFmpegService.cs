@@ -47,12 +47,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
 
-    // Chapter probes are shared across the modes in one analysis pass. Expiring and bounding
-    // the entries keeps a library-wide setting change from retaining every chapter array for the
-    // lifetime of this singleton, while still avoiding a second ffprobe for the next mode.
-    private const int EmbeddedChapterCacheMaximumEntries = 256;
-    private static readonly TimeSpan EmbeddedChapterCacheLifetime = TimeSpan.FromMinutes(10);
-
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
     // warning per packet cannot fill memory.
     private const long SubtitleLogMaximumBytes = 1024L * 1024;
@@ -65,6 +59,13 @@ internal sealed partial class FFmpegService : IFFmpegService
     // of any stream past it, so the margin leaves room for a cue a muxer stored after the audio
     // and video of the same time: ffmpeg's muxer holds a sparse stream back by up to 10 s.
     private const double SubtitleHeadListMargin = 15;
+
+    // Chapter probes are shared across the modes in one analysis pass. Expiring and bounding
+    // the entries keeps a library-wide setting change from retaining every chapter array for the
+    // lifetime of this singleton, while still avoiding a second ffprobe for the next mode.
+    private const int EmbeddedChapterCacheMaximumEntries = 256;
+    private static readonly TimeSpan EmbeddedChapterCacheLifetime = TimeSpan.FromMinutes(10);
+
 
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
@@ -665,6 +666,16 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc />
     public async Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
+        // Jellyfin can leave FileVersion unset while metadata is incomplete. Do not cache a
+        // successful probe under the path alone: replacing the file would otherwise reuse the
+        // old container chapters forever because no reliable version is available for the key.
+        if (episode.FileVersion is null)
+        {
+            return GetEmbeddedChapterResult(
+                episode.Path,
+                await ProbeEmbeddedChaptersAsync(episode.Path, cancellationToken).ConfigureAwait(false));
+        }
+
         var key = (episode.Path, episode.FileVersion);
         var now = DateTimeOffset.UtcNow;
         var entry = GetEmbeddedChapterCacheEntry(key, episode.Path, now);
@@ -691,14 +702,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         try
         {
             var result = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
+            entry.Touch(DateTimeOffset.UtcNow);
             if (!result.Succeeded)
             {
                 RemoveEmbeddedChapterProbe(key, entry);
-                throw new InvalidOperationException($"ffprobe could not read embedded chapters from \"{episode.Path}\".");
             }
 
-            entry.Touch(DateTimeOffset.UtcNow);
-            return result.Chapters;
+            return GetEmbeddedChapterResult(episode.Path, result);
         }
         catch (OperationCanceledException)
         {
@@ -708,6 +718,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             throw;
         }
     }
+
+    private static ChapterInfo[] GetEmbeddedChapterResult(string filePath, EmbeddedChapterProbeResult result)
+        => result.Succeeded
+            ? result.Chapters
+            : throw new InvalidOperationException($"ffprobe could not read embedded chapters from \"{filePath}\".");
 
     private EmbeddedChapterCacheEntry GetEmbeddedChapterCacheEntry(
         (string Path, long? FileVersion) key,
@@ -1490,8 +1505,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         public long ExpiresAtTicks => Volatile.Read(ref _expiresAtTicks);
 
-        public bool IsExpired(DateTimeOffset now) => ExpiresAtTicks <= now.UtcTicks;
-
         public bool IsCompleted
         {
             get
@@ -1511,6 +1524,8 @@ internal sealed partial class FFmpegService : IFFmpegService
                 }
             }
         }
+
+        public bool IsExpired(DateTimeOffset now) => ExpiresAtTicks <= now.UtcTicks;
 
         public void Touch(DateTimeOffset now) => Volatile.Write(ref _expiresAtTicks, now.Add(EmbeddedChapterCacheLifetime).UtcTicks);
     }

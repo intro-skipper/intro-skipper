@@ -23,8 +23,8 @@ namespace IntroSkipper.Services;
 /// then analyze, ahead of any pending library pass and as soon as the worker is free;
 /// nothing absorbs it, a repeated key joins the pending scan of that key, one requested
 /// while its scan runs queues a follow-up pass, and the season is resolved when the pass
-/// starts, not when the scan was requested. A library pass (from the scheduled task)
-/// A targeted reanalysis resets selected items without deleting detection-cache rows. It runs
+/// starts, not when the scan was requested. A targeted reanalysis resets selected items without
+/// deleting detection-cache rows. It runs
 /// ahead of a pending library pass. The library pass starts once the worker is free and every
 /// pending manual scan has run. It covers no
 /// pending request: changed items still run in their own pass once due, a cheap one when

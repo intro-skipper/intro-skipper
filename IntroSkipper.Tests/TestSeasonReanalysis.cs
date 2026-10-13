@@ -327,6 +327,33 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
+    public async Task ReopenItemsForReanalysisAsync_RemovesRecordsButPreservesSegments()
+    {
+        var itemId = Guid.NewGuid();
+
+        using (var db = _db.Context())
+        {
+            await db.Database.MigrateAsync();
+            db.Segments.Add(new DbSegment(
+                itemId,
+                AnalysisMode.Preview,
+                TickConversions.FromSeconds(60),
+                TickConversions.FromSeconds(90),
+                SegmentSource.Subtitle));
+            db.AnalyzedItems.Add(new DbAnalyzedItem(itemId, AnalysisMode.Preview, "old-hash"));
+            await db.SaveChangesAsync();
+        }
+
+        await _db.Database.ReopenItemsForReanalysisAsync([itemId], [AnalysisMode.Preview]);
+
+        using (var db = _db.Context())
+        {
+            Assert.True(db.Segments.Any(s => s.ItemId == itemId && s.Type == AnalysisMode.Preview));
+            Assert.False(db.AnalyzedItems.Any(a => a.ItemId == itemId && a.Type == AnalysisMode.Preview));
+        }
+    }
+
+    [Fact]
     public async Task SeasonStateAndAnalysisRecords_UpsertWithoutClobberingEachOther()
     {
         var seasonId = Guid.NewGuid();

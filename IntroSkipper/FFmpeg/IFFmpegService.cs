@@ -130,7 +130,9 @@ public interface IFFmpegService
     /// chapters injected by another plugin.
     /// </summary>
     /// <param name="episode">Media file to probe.</param>
-    /// <param name="cancellationToken">Token used to cancel this caller's wait; a shared probe continues for other callers and is bounded by the probe timeout.</param>
+    /// <param name="cancellationToken">Token used to cancel this caller's wait. For a versioned file,
+    /// a shared probe continues for other callers and is bounded by the probe timeout; when Jellyfin
+    /// has no file version, the probe is not cached and this token also cancels its ffprobe process.</param>
     /// <returns>The embedded chapters, or an empty array when the file has none.</returns>
     /// <exception cref="InvalidOperationException">The embedded chapter probe failed.</exception>
     Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
