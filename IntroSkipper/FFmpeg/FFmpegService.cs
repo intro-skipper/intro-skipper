@@ -715,7 +715,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
             if (capture.ExitCode != 0 || capture.Truncated)
             {
-                LogEmbeddedChapterProbeUnusable(_logger, filePath, capture.ExitCode, capture.Truncated);
+                LogEmbeddedChapterProbeUnusable(filePath, capture.ExitCode, capture.Truncated);
                 return EmbeddedChapterProbeResult.Failed;
             }
 
@@ -727,14 +727,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            LogEmbeddedChapterProbeFailed(_logger, ex, filePath);
+            LogEmbeddedChapterProbeFailed(ex, filePath);
             return EmbeddedChapterProbeResult.Failed;
         }
-    }
-
-    private readonly record struct EmbeddedChapterProbeResult(ChapterInfo[] Chapters, bool Succeeded)
-    {
-        public static EmbeddedChapterProbeResult Failed => new([], Succeeded: false);
     }
 
     /// <inheritdoc />
@@ -1433,5 +1428,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         /// <param name="stream">The stream index.</param>
         /// <returns>The output file's path.</returns>
         public string OutputPath(int stream) => FormattableString.Invariant($"{OutputPrefix}-{stream}.vtt");
+    }
+
+    private readonly record struct EmbeddedChapterProbeResult(ChapterInfo[] Chapters, bool Succeeded)
+    {
+        public static EmbeddedChapterProbeResult Failed => new([], Succeeded: false);
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Threading.Channels;
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
@@ -400,10 +401,10 @@ public sealed partial class AnalysisScheduler(
 
         if (_reanalysisCompletion is { } reanalysis)
         {
-            var itemIds = _reanalysisItems.ToHashSet();
+            var reanalysisIds = _reanalysisItems.ToHashSet();
             _reanalysisItems.Clear();
             _reanalysisCompletion = null;
-            return (new Pass(PassKind.Reanalysis, null, cancellationToken => RunReanalysisAsync(itemIds, cancellationToken), [reanalysis], CancellationToken.None), null);
+            return (new Pass(PassKind.Reanalysis, null, cancellationToken => RunReanalysisAsync(reanalysisIds, cancellationToken), [reanalysis], CancellationToken.None), null);
         }
 
         if (_libraryRequest is { } library)

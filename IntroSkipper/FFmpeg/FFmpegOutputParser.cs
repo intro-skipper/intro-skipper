@@ -304,9 +304,10 @@ internal static partial class FFmpegOutputParser
 
     private static bool TryParseDouble(JsonElement value, out double result)
     {
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out result))
+        result = default;
+        if (value.ValueKind == JsonValueKind.Number)
         {
-            return true;
+            return value.TryGetDouble(out result);
         }
 
         return value.ValueKind == JsonValueKind.String

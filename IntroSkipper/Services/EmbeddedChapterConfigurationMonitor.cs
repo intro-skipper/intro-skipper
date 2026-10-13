@@ -23,7 +23,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
     IFFmpegService ffmpegService,
     AnalysisScheduler scheduler,
     IntroSkipperDatabase database,
-    ILogger<EmbeddedChapterConfigurationMonitor> logger) : IHostedService
+    ILogger<EmbeddedChapterConfigurationMonitor> logger) : IHostedService, IDisposable
 {
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -64,8 +64,10 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
         }
 
         await work.WaitAsync(cancellationToken).ConfigureAwait(false);
-        _stopping.Dispose();
     }
+
+    /// <inheritdoc />
+    public void Dispose() => _stopping.Dispose();
 
     private void OnConfigurationChanged(object? sender, BasePluginConfiguration configuration)
     {
