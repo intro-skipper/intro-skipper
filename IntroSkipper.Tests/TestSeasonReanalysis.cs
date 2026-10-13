@@ -394,22 +394,33 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
-    public async Task VerifyQueueAsync_ReopensNoSegments_WhenChromaprintBecomesAvailable()
+    public async Task IntroductionReanalysis_PreservesChromaprintWhenChromaprintIsUnavailable()
     {
-        var config = new PluginConfiguration();
+        var config = new PluginConfiguration
+        {
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+        };
         using var fixture = new VerifyQueueFixture(config);
         var withoutChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
+        var database = fixture.CreateDatabase();
 
-        using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
-        {
-            await db.Database.MigrateAsync();
-            db.SeasonStates.Add(new DbSeasonState(fixture.SeasonId, AnalysisMode.Introduction, AnalyzerAction.Default));
-            db.AnalyzedItems.Add(new DbAnalyzedItem(fixture.EpisodeId, AnalysisMode.Introduction, withoutChromaprintHash));
-            await db.SaveChangesAsync();
-        }
+        await database.ReplaceAutoSegmentsAsync(
+            fixture.EpisodeId,
+            AnalysisMode.Introduction,
+            [new Segment(fixture.EpisodeId, new TimeRange(20, 50))],
+            SegmentSource.Chromaprint,
+            withoutChromaprintHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], withoutChromaprintHash);
 
         var stillUnavailable = await fixture.VerifyAsync(ffmpegValid: false);
-        Assert.Equal(EpisodeState.NoSegments, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.Analyzed, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false }, forceReanalysis: true);
+
+        Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId)).Source);
 
         var reopened = await fixture.VerifyAsync(ffmpegValid: true);
         Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
@@ -1028,7 +1039,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         // Runs a full pass over the season, as the scheduler does, with a fresh detection
         // cache unless the test passes the path of one it seeded.
-        public Task AnalyzeAsync(IFFmpegService ffmpeg, string? cacheDbPath = null)
+        public Task AnalyzeAsync(IFFmpegService ffmpeg, string? cacheDbPath = null, bool forceReanalysis = false)
         {
             cacheDbPath ??= DatabaseTestHelpers.CreateTempCacheDbPath();
             return new BaseItemAnalyzerTask(
@@ -1037,7 +1048,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
                 ffmpeg,
                 DatabaseTestHelpers.CreateCacheService(cacheDbPath),
                 DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath),
-                _db.CreateDatabase()).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId]);
+                _db.CreateDatabase()).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId], forceReanalysis);
         }
 
         // Verifies the season as a pass would: resolved from the library right before

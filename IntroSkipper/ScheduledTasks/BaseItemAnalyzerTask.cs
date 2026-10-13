@@ -272,7 +272,11 @@ public partial class BaseItemAnalyzerTask(
             // valid subtitle or chapter preview that this pass cannot regenerate.
             var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
                 resetModes,
-                previewFromCreditsEnd && Config.ScanPreview);
+                previewFromCreditsEnd && Config.ScanPreview)
+                // Without a compatible ffmpeg, the introduction chain cannot regenerate
+                // Chromaprint. Reopen it without deleting the existing segment instead.
+                .Where(mode => mode != AnalysisMode.Introduction || ffmpegValid)
+                .ToArray();
             if (targetedEpisodes.Count > 0)
             {
                 if (targetedResetModes.Count > 0)
