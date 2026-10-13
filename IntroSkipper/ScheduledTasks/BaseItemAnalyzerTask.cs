@@ -273,9 +273,14 @@ public partial class BaseItemAnalyzerTask(
             var targetedResetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
                 resetModes,
                 previewFromCreditsEnd && Config.ScanPreview)
-                // Without a compatible ffmpeg, the introduction chain cannot regenerate
-                // Chromaprint. Reopen it without deleting the existing segment instead.
-                .Where(mode => mode != AnalysisMode.Introduction || ffmpegValid)
+                // Expansion may add Preview when it is derived from Credits, but an explicit
+                // None action still means this pass cannot regenerate it.
+                .Where(resetModes.Contains)
+                // Without a compatible ffmpeg, a Chromaprint-dependent introduction cannot be
+                // regenerated. Reopen it without deleting the existing segment instead.
+                .Where(mode => mode != AnalysisMode.Introduction
+                    || ffmpegValid
+                    || seasonStates.TryGetValue(mode, out var state) && state.Action == AnalyzerAction.Chapter)
                 .ToList();
             if (targetedEpisodes.Count > 0)
             {
@@ -288,7 +293,10 @@ public partial class BaseItemAnalyzerTask(
                         cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
 
-                var modesToReopen = AllModes.Except(targetedResetModes).ToArray();
+                // A mode selected for reset but filtered because its analyzer is unavailable must
+                // remain completely untouched. Reopening it would remove the record that lets
+                // QueueVerifier retain a valid result under a transient ffmpeg failure.
+                var modesToReopen = AllModes.Except(resetModes).ToArray();
                 await _database.ReopenItemsForReanalysisAsync(
                     targetedEpisodes.Select(episode => episode.EpisodeId),
                     modesToReopen,

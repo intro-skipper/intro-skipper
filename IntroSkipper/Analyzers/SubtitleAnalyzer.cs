@@ -75,9 +75,25 @@ internal sealed partial class SubtitleAnalyzer(
             var scan = await _ffmpegService.ExtractSubtitleCuesAsync(episode, window, cancellationToken).ConfigureAwait(false);
             var cues = scan.Cues.Where(cue => cue.Start >= window.Start && cue.Start < window.End).ToArray();
 
-            (Segment? Segment, bool DetectedWithoutEnd) recapSearch = mode == AnalysisMode.Recap
-                ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
-                : (Segment: FindPreview(episode, cues, regex), DetectedWithoutEnd: false);
+            (Segment? Segment, bool DetectedWithoutEnd) recapSearch;
+            try
+            {
+                recapSearch = mode == AnalysisMode.Recap
+                    ? await FindRecapAsync(episode, cues, regex, cancellationToken).ConfigureAwait(false)
+                    : (Segment: FindPreview(episode, cues, regex), DetectedWithoutEnd: false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (InvalidOperationException ex) when (_config.UseEmbeddedChaptersForAnalysis)
+            {
+                // An embedded chapter probe is episode-local. Keep the standing subtitle rows,
+                // leave the mode unresolved for retry, and let the remaining season continue.
+                episode.SetSubtitleOutcome(mode, SubtitleOutcome.Unresolved);
+                LogEmbeddedChapterProbeFailed(_logger, ex, episode.Name);
+                continue;
+            }
             var segment = recapSearch.Segment;
 
             if (segment is null)
@@ -268,4 +284,7 @@ internal sealed partial class SubtitleAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Episode}: some subtitle sources could not be read and no {Mode} cue matched; the mode will be retried")]
     private static partial void LogSubtitleScanIncomplete(ILogger logger, string episode, AnalysisMode mode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Embedded chapter probe failed while analyzing subtitles for {Episode}; keeping existing subtitle rows")]
+    private static partial void LogEmbeddedChapterProbeFailed(ILogger logger, Exception ex, string episode);
 }

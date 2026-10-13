@@ -404,7 +404,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             ScanCommercial = false,
         };
         using var fixture = new VerifyQueueFixture(config);
-        var withoutChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false);
+        var withChromaprintHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
         var database = fixture.CreateDatabase();
 
         await database.ReplaceAutoSegmentsAsync(
@@ -412,8 +412,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             AnalysisMode.Introduction,
             [new Segment(fixture.EpisodeId, new TimeRange(20, 50))],
             SegmentSource.Chromaprint,
-            withoutChromaprintHash);
-        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], withoutChromaprintHash);
+            withChromaprintHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], withChromaprintHash);
 
         var stillUnavailable = await fixture.VerifyAsync(ffmpegValid: false);
         Assert.Equal(EpisodeState.Analyzed, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
@@ -422,8 +422,10 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId)).Source);
 
-        var reopened = await fixture.VerifyAsync(ffmpegValid: true);
-        Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false });
+
+        var retained = await fixture.VerifyAsync(ffmpegValid: true);
+        Assert.Equal(EpisodeState.Analyzed, retained.Single().GetAnalyzed(AnalysisMode.Introduction));
     }
 
     // The record's hash matches directly with Chromaprint available and through the
