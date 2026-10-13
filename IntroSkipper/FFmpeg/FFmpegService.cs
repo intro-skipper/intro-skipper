@@ -66,7 +66,6 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const int EmbeddedChapterCacheMaximumEntries = 256;
     private static readonly TimeSpan EmbeddedChapterCacheLifetime = TimeSpan.FromMinutes(10);
 
-
     // A keyframe-only decode with frame threads runs one keyframe at a time once keyframes sit
     // further apart than the frame-thread window, as they do in episodes. x265 codes HEVC with
     // wavefronts by default, and slice threads decode a keyframe's wavefront rows on several

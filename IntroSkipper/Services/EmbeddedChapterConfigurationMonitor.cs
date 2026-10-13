@@ -35,13 +35,21 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
     private Task _work = Task.CompletedTask;
     private int _lastSeen;
+    private long _configurationVersion;
+    private bool _retryPending;
 
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         if (Plugin.Instance is { } plugin)
         {
-            Interlocked.Exchange(ref _lastSeen, plugin.Configuration.UseEmbeddedChaptersForAnalysis ? 1 : 0);
+            lock (_workLock)
+            {
+                _lastSeen = plugin.Configuration.UseEmbeddedChaptersForAnalysis ? 1 : 0;
+                _configurationVersion = 0;
+                _retryPending = false;
+            }
+
             plugin.ConfigurationChanged += OnConfigurationChanged;
         }
 
@@ -71,23 +79,27 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
     private void OnConfigurationChanged(object? sender, BasePluginConfiguration configuration)
     {
-        var enabled = ((PluginConfiguration)configuration).UseEmbeddedChaptersForAnalysis;
-        if (Interlocked.Exchange(ref _lastSeen, enabled ? 1 : 0) == (enabled ? 1 : 0))
-        {
-            return;
-        }
-
         lock (_workLock)
         {
+            var enabled = ((PluginConfiguration)configuration).UseEmbeddedChaptersForAnalysis;
+            var state = enabled ? 1 : 0;
+            if (_lastSeen == state && !_retryPending)
+            {
+                return;
+            }
+
+            _lastSeen = state;
+            _retryPending = false;
+            var version = ++_configurationVersion;
             _work = _work.ContinueWith(
-                _ => ReanalyzeEmbeddedItemsAsync(_stopping.Token),
+                _ => ReanalyzeEmbeddedItemsAsync(_stopping.Token, version, state),
                 CancellationToken.None,
                 TaskContinuationOptions.None,
                 TaskScheduler.Default).Unwrap();
         }
     }
 
-    private async Task ReanalyzeEmbeddedItemsAsync(CancellationToken cancellationToken)
+    private async Task ReanalyzeEmbeddedItemsAsync(CancellationToken cancellationToken, long version, int state)
     {
         try
         {
@@ -107,18 +119,23 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
         catch (Exception ex)
         {
             LogConfigurationRescanFailed(_logger, ex);
-            // Keep the transition pending so a later configuration notification can retry it.
-            // The targeted pass deliberately leaves the old analysis records intact when its
-            // reset fails, and the source setting is not part of the analysis hash.
-            var current = Plugin.Instance?.Configuration.UseEmbeddedChaptersForAnalysis ?? false;
-            Interlocked.Exchange(ref _lastSeen, current ? 0 : 1);
+            lock (_workLock)
+            {
+                // Keep only this transition retryable. A newer notification may already be
+                // queued, so an older failure must not overwrite its observed state.
+                if (_configurationVersion == version && _lastSeen == state)
+                {
+                    _retryPending = true;
+                }
+            }
         }
     }
 
     private async Task<IReadOnlyCollection<Guid>> FindItemsRequiringReanalysisAsync(CancellationToken cancellationToken)
     {
         var candidates = new Dictionary<Guid, QueuedEpisode>();
-        foreach (var owner in _seasonResolver.EnumerateLibrary(out var failures))
+        var owners = _seasonResolver.EnumerateLibrary(out var failures);
+        foreach (var owner in owners)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!_seasonResolver.TryResolve(owner, includeExcluded: false, out var seasons))
