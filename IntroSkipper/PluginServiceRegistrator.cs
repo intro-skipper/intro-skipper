@@ -54,9 +54,9 @@ namespace IntroSkipper
             // The hosted library-event listener that feeds the queue.
             serviceCollection.AddSingleton<Entrypoint>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<Entrypoint>());
-            // Configuration changes that switch chapter sources enqueue only media files
-            // confirmed to contain embedded chapters; the queue resets their analysis while
-            // retaining the detection cache.
+            // Configuration changes that switch chapter sources enqueue only media whose
+            // chapter-derived analysis can be affected; the queue resets it while retaining
+            // the detection cache.
             serviceCollection.AddSingleton<EmbeddedChapterConfigurationMonitor>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<EmbeddedChapterConfigurationMonitor>());
             // Stateless resolution of library items into seasons, shared by every pass,

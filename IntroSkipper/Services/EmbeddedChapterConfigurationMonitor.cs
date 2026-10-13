@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Model.Plugins;
@@ -13,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Services;
 
 /// <summary>
-/// Reopens only media that actually has embedded chapters when the chapter source setting
+/// Reopens only media whose chapter-derived analysis can change when the chapter source setting
 /// changes. The targeted queue pass resets analysis records but retains the detection cache,
 /// because changing the chapter source does not change any media-derived fingerprint.
 /// </summary>
@@ -21,11 +22,13 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
     SeasonResolver seasonResolver,
     IFFmpegService ffmpegService,
     AnalysisScheduler scheduler,
+    IntroSkipperDatabase database,
     ILogger<EmbeddedChapterConfigurationMonitor> logger) : IHostedService
 {
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly AnalysisScheduler _scheduler = scheduler;
+    private readonly IntroSkipperDatabase _database = database;
     private readonly ILogger<EmbeddedChapterConfigurationMonitor> _logger = logger;
     private readonly CancellationTokenSource _stopping = new();
     private readonly Lock _workLock = new();
@@ -86,7 +89,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
     {
         try
         {
-            var items = await FindEmbeddedChapterItemsAsync(cancellationToken).ConfigureAwait(false);
+            var items = await FindItemsRequiringReanalysisAsync(cancellationToken).ConfigureAwait(false);
             if (items.Count == 0)
             {
                 LogNoEmbeddedItems(_logger);
@@ -105,7 +108,7 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
         }
     }
 
-    private async Task<IReadOnlyCollection<Guid>> FindEmbeddedChapterItemsAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyCollection<Guid>> FindItemsRequiringReanalysisAsync(CancellationToken cancellationToken)
     {
         var candidates = new Dictionary<Guid, QueuedEpisode>();
         foreach (var owner in _seasonResolver.EnumerateLibrary(out _))
@@ -119,6 +122,30 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             foreach (var episode in seasons.SelectMany(season => season.Episodes))
             {
                 candidates.TryAdd(episode.EpisodeId, episode);
+            }
+        }
+
+        var items = (await _database.GetItemIdsBySegmentSourcesAsync(
+                [SegmentSource.Chapter, SegmentSource.Combined],
+                cancellationToken)
+            .ConfigureAwait(false))
+            .Where(candidates.ContainsKey)
+            .ToHashSet();
+
+        // When returning to Jellyfin's chapter table, include items whose current table
+        // has chapters even if the embedded pass produced no chapter segment for them.
+        // This keeps the disabled state equivalent to the historical behavior without
+        // hashing the source choice into every analysis record.
+        if (!(Plugin.Instance?.Configuration.UseEmbeddedChaptersForAnalysis ?? false))
+        {
+            foreach (var episode in candidates.Values)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!items.Contains(episode.EpisodeId)
+                    && Plugin.Instance?.GetChapters(episode.EpisodeId).Count > 0)
+                {
+                    items.Add(episode.EpisodeId);
+                }
             }
         }
 
@@ -137,13 +164,14 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
             }
         }).ConfigureAwait(false);
 
-        return embeddedItems.Distinct().ToArray();
+        items.UnionWith(embeddedItems);
+        return items;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Embedded chapter setting changed, but no eligible media with embedded chapters was found")]
     private static partial void LogNoEmbeddedItems(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Queueing targeted reanalysis for {Count} media items with embedded chapters")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Queueing targeted reanalysis for {Count} media items affected by the chapter source change")]
     private static partial void LogQueueingItems(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to queue reanalysis after the embedded chapter setting changed")]

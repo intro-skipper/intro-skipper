@@ -97,6 +97,40 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task GetItemIdsBySegmentSourcesAsync_IncludesActiveAndSuppressedRows()
+    {
+        var database = _db.Database;
+        var activeItemId = Guid.NewGuid();
+        var suppressedItemId = Guid.NewGuid();
+        var combinedItemId = Guid.NewGuid();
+
+        await database.ReplaceAutoSegmentsAsync(
+            activeItemId,
+            AnalysisMode.Introduction,
+            [new Segment(activeItemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            suppressedItemId,
+            AnalysisMode.Introduction,
+            [new Segment(suppressedItemId, new TimeRange(30, 40))],
+            SegmentSource.Chapter);
+        var suppressedId = Assert.Single(await database.GetSegmentsAsync(suppressedItemId)).Id;
+        await database.DeleteSegmentAsync(suppressedItemId, suppressedId);
+        await database.ReplaceAutoSegmentsAsync(
+            combinedItemId,
+            AnalysisMode.Credits,
+            [new Segment(combinedItemId, new TimeRange(50, 60))],
+            SegmentSource.Combined);
+
+        var ids = await database.GetItemIdsBySegmentSourcesAsync([SegmentSource.Chapter, SegmentSource.Combined]);
+
+        Assert.Equal(3, ids.Count);
+        Assert.Contains(activeItemId, ids);
+        Assert.Contains(suppressedItemId, ids);
+        Assert.Contains(combinedItemId, ids);
+    }
+
+    [Fact]
     public async Task ReplaceAutoSegmentsAsync_DoesNotOverwriteOverlappingUserSegment()
     {
         var itemId = Guid.NewGuid();

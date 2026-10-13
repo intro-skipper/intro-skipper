@@ -674,6 +674,35 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
+    /// Returns the ids of items that have at least one segment with one of the given sources,
+    /// including suppressed rows. Source rows are used to find items whose analysis must
+    /// be reopened when the chapter authority changes.
+    /// </summary>
+    /// <param name="sources">Segment sources to find.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Distinct item ids carrying one of the sources.</returns>
+    public async Task<IReadOnlyCollection<Guid>> GetItemIdsBySegmentSourcesAsync(
+        IReadOnlyCollection<SegmentSource> sources,
+        CancellationToken cancellationToken = default)
+    {
+        if (sources.Count == 0)
+        {
+            return [];
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.Segments
+            .AsNoTracking()
+            .Where(segment => sources.Contains(segment.Source))
+            .Select(segment => segment.ItemId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Reads the complete editor image and its revision in one database query. The
     /// response image contains every active row, including automatic rows on disabled
     /// items; suppressed tombstones participate in the revision but are not returned
