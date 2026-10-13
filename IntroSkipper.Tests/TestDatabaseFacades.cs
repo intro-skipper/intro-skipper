@@ -50,6 +50,32 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task EmbeddedChapterTransition_PersistsPendingAndAppliedState()
+    {
+        var database = _db.Database;
+
+        Assert.Null(await database.GetEmbeddedChapterTransitionAsync());
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: false);
+        var initial = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(initial);
+        Assert.False(initial!.Value.AppliedEmbeddedChapters);
+        Assert.Null(initial.Value.PendingEmbeddedChapters);
+
+        await database.SetEmbeddedChapterTransitionPendingAsync(embedded: true);
+        var pending = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(pending);
+        Assert.False(pending!.Value.AppliedEmbeddedChapters);
+        Assert.True(pending.Value.PendingEmbeddedChapters == true);
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: true);
+        var applied = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(applied);
+        Assert.True(applied!.Value.AppliedEmbeddedChapters);
+        Assert.Null(applied.Value.PendingEmbeddedChapters);
+    }
+
+    [Fact]
     public async Task SegmentWrites_RejectUndefinedMode_WithoutPersistingAnything()
     {
         var itemId = Guid.NewGuid();

@@ -39,21 +39,38 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
     private bool _retryPending;
 
     /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (Plugin.Instance is { } plugin)
+        if (Plugin.Instance is not { } plugin)
         {
-            lock (_workLock)
-            {
-                _lastSeen = plugin.Configuration.UseEmbeddedChaptersForAnalysis ? 1 : 0;
-                _configurationVersion = 0;
-                _retryPending = false;
-            }
-
-            plugin.ConfigurationChanged += OnConfigurationChanged;
+            return;
         }
 
-        return Task.CompletedTask;
+        var persisted = await _database.GetEmbeddedChapterTransitionAsync(cancellationToken).ConfigureAwait(false);
+        if (persisted is null)
+        {
+            // Before this state was introduced, analysis always used Jellyfin chapters.
+            // Preserve that historical meaning when deciding whether an enabled setting
+            // needs its first targeted reanalysis.
+            await _database.SetEmbeddedChapterTransitionAppliedAsync(embedded: false, cancellationToken).ConfigureAwait(false);
+            persisted = new EmbeddedChapterTransitionState(false, null);
+        }
+
+        var enabled = plugin.Configuration.UseEmbeddedChaptersForAnalysis;
+        var state = enabled ? 1 : 0;
+        lock (_workLock)
+        {
+            _lastSeen = state;
+            _configurationVersion = 0;
+            _retryPending = false;
+            plugin.ConfigurationChanged += OnConfigurationChanged;
+
+            if (persisted.Value.PendingEmbeddedChapters is not null
+                || persisted.Value.AppliedEmbeddedChapters != enabled)
+            {
+                QueueReanalysisLocked(state);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -90,28 +107,39 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
 
             _lastSeen = state;
             _retryPending = false;
-            var version = ++_configurationVersion;
-            _work = _work.ContinueWith(
-                _ => ReanalyzeEmbeddedItemsAsync(_stopping.Token, version, state),
-                CancellationToken.None,
-                TaskContinuationOptions.None,
-                TaskScheduler.Default).Unwrap();
+            QueueReanalysisLocked(state);
         }
     }
 
-    private async Task ReanalyzeEmbeddedItemsAsync(CancellationToken cancellationToken, long version, int state)
+    private void QueueReanalysisLocked(int state)
+    {
+        var version = ++_configurationVersion;
+        _work = _work.ContinueWith(
+            _ => ReanalyzeEmbeddedItemsAsync(version, state, _stopping.Token),
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task ReanalyzeEmbeddedItemsAsync(long version, int state, CancellationToken cancellationToken)
     {
         try
         {
+            // This write must survive cancellation of the analysis wait: it is the
+            // durable evidence used by the next server start to resume the transition.
+            await _database.SetEmbeddedChapterTransitionPendingAsync(state == 1, CancellationToken.None).ConfigureAwait(false);
+
             var items = await FindItemsRequiringReanalysisAsync(cancellationToken).ConfigureAwait(false);
             if (items.Count == 0)
             {
                 LogNoEmbeddedItems(_logger);
+                await CompleteTransitionIfCurrentAsync(version, state).ConfigureAwait(false);
                 return;
             }
 
             LogQueueingItems(_logger, items.Count);
             await _reanalyze(items).WaitAsync(cancellationToken).ConfigureAwait(false);
+            await CompleteTransitionIfCurrentAsync(version, state).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -129,6 +157,19 @@ internal sealed partial class EmbeddedChapterConfigurationMonitor(
                 }
             }
         }
+    }
+
+    private async Task CompleteTransitionIfCurrentAsync(long version, int state)
+    {
+        lock (_workLock)
+        {
+            if (_configurationVersion != version || _lastSeen != state)
+            {
+                return;
+            }
+        }
+
+        await _database.SetEmbeddedChapterTransitionAppliedAsync(state == 1, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyCollection<Guid>> FindItemsRequiringReanalysisAsync(CancellationToken cancellationToken)
