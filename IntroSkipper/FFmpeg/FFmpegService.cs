@@ -108,12 +108,15 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
     private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
+
     private readonly ConditionalWeakTable<
         QueuedEpisode,
         ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>> _audioStreamSelections = new();
+
     private readonly ConditionalWeakTable<
         QueuedEpisode,
         ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>>> _subtitleStreamListings = new();
+
     private readonly ConcurrentDictionary<(string Path, long? FileVersion), EmbeddedChapterCacheEntry> _embeddedChapters = new();
 
     /// <summary>

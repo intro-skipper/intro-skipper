@@ -280,7 +280,7 @@ public partial class BaseItemAnalyzerTask(
                 // regenerated. Reopen it without deleting the existing segment instead.
                 .Where(mode => mode != AnalysisMode.Introduction
                     || ffmpegValid
-                    || seasonStates.TryGetValue(mode, out var state) && state.Action == AnalyzerAction.Chapter)
+                    || (seasonStates.TryGetValue(mode, out var state) && state.Action == AnalyzerAction.Chapter))
                 .ToList();
             if (targetedEpisodes.Count > 0)
             {

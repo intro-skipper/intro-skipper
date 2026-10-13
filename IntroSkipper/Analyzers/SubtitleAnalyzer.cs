@@ -94,6 +94,7 @@ internal sealed partial class SubtitleAnalyzer(
                 LogEmbeddedChapterProbeFailed(_logger, ex, episode.Name);
                 continue;
             }
+
             var segment = recapSearch.Segment;
 
             if (segment is null)
