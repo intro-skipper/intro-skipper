@@ -187,7 +187,7 @@ internal sealed partial class BlackFrameAnalyzer(
     internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
         // Get chapters that fall within the valid credits duration range
-        var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
+        var suitableChapters = (await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false))
             .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
             .Where(s => s >= episode.CreditsFingerprintStart &&
                         s <= episode.Duration - _config.MinimumCreditsDuration)

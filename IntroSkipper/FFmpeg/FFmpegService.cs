@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Unicode;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using UtfUnknown;
 
@@ -42,6 +43,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // A media container can advertise an unbounded number of subtitle streams; cap ffprobe's
     // stream listing separately from the larger, decoded subtitle-text allowance.
     private const long SubtitleProbeMaximumBytes = 1024L * 1024;
+
+    private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
 
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
     // warning per packet cannot fill memory.
@@ -98,6 +101,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
     private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
+    private readonly ConditionalWeakTable<QueuedEpisode, Task<ChapterInfo[]>> _embeddedChapters = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -652,6 +656,46 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc />
+    public Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+        => _embeddedChapters.GetValue(episode, queuedEpisode => ProbeEmbeddedChaptersAsync(queuedEpisode.Path))
+            .WaitAsync(cancellationToken);
+
+    private async Task<ChapterInfo[]> ProbeEmbeddedChaptersAsync(string filePath)
+    {
+        try
+        {
+            string[] args =
+            [
+                "-v", "error",
+                "-show_chapters",
+                "-of", "json",
+                filePath,
+            ];
+
+            var capture = await _processRunner.RunCapturedAsync(
+                GetFFprobePath(),
+                args,
+                ChapterProbeMaximumBytes,
+                expectedStdoutBytes: 4 * 1024,
+                timeout: 10 * 1000,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+
+            if (capture.ExitCode != 0 || capture.Truncated)
+            {
+                LogEmbeddedChapterProbeUnusable(_logger, filePath, capture.ExitCode, capture.Truncated);
+                return [];
+            }
+
+            return FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span));
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogEmbeddedChapterProbeFailed(_logger, ex, filePath);
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         List<SubtitleCue> cues = [];
@@ -963,6 +1007,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not extract the subtitle streams of {Files}")]
     private partial void LogSubtitleRunFailed(Exception ex, string files);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Embedded chapter probe of {File} unusable: ffprobe exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogEmbeddedChapterProbeUnusable(string file, int exitCode, bool truncated);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not read embedded chapters from {File}")]
+    private partial void LogEmbeddedChapterProbeFailed(Exception ex, string file);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Subtitle extraction from {Files} incomplete: ffmpeg exited with code {ExitCode}, log truncated at the byte cap: {Truncated}")]
     private partial void LogSubtitleRunUnusable(string files, int exitCode, bool truncated);

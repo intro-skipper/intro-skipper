@@ -217,6 +217,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableSponsorBlockChapterDetection { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether analysis should read chapters embedded in the
+    /// media file instead of Jellyfin's chapter repository. The embedded path avoids chapters
+    /// injected by other plugins but requires one cached ffprobe per queued episode.
+    /// </summary>
+    public bool UseEmbeddedChaptersForAnalysis { get; set; }
+
+    /// <summary>
     /// Gets or sets how introductions in the first episode of a season are handled.
     /// </summary>
     /// <remarks>

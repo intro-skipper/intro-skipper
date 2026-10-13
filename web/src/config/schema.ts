@@ -417,6 +417,12 @@ export const configSchema = {
         description:
             "Detect known SponsorBlock chapter labels in addition to the regular expressions above.",
     },
+    UseEmbeddedChaptersForAnalysis: {
+        kind: "checkbox",
+        label: "Use embedded chapters for analysis",
+        description:
+            "Read chapters from the media container instead of Jellyfin's chapter table. This ignores chapters injected by other plugins, but requires an ffprobe per queued episode and may be slower.",
+    },
 
     // Subtitles
     SubtitleRecapPattern: {

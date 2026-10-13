@@ -104,7 +104,9 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IReadOnlyList<Segment> matches = enableChapterDetection ? FindChapterCandidates(episode, mode) : [];
+            IReadOnlyList<Segment> matches = enableChapterDetection
+                ? await FindChapterCandidatesAsync(episode, mode, cancellationToken).ConfigureAwait(false)
+                : [];
 
             var source = SegmentSource.Chapter;
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
@@ -201,14 +203,18 @@ internal sealed partial class ChapterAnalyzer(
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="cancellationToken">Token used to cancel the optional embedded chapter probe.</param>
     /// <returns>The matching chapter ranges in file seconds; empty when chapter matching is off for the mode or nothing matched.</returns>
-    internal IReadOnlyList<Segment> FindChapterCandidates(QueuedEpisode episode, AnalysisMode mode)
+    internal async Task<IReadOnlyList<Segment>> FindChapterCandidatesAsync(
+        QueuedEpisode episode,
+        AnalysisMode mode,
+        CancellationToken cancellationToken)
     {
         var expression = GetExpression(mode);
         return !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
             ? FindMatchingChapters(
                 episode,
-                Plugin.Instance!.GetChapters(episode.EpisodeId),
+                await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false),
                 expression,
                 mode,
                 _config.EnableSponsorBlockChapterDetection)

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using MediaBrowser.Model.Entities;
 
 namespace IntroSkipper.FFmpeg;
 
@@ -119,9 +120,19 @@ public interface IFFmpegService
     /// Probes the first audio stream's actual duration with ffprobe.
     /// </summary>
     /// <param name="filePath">Media path.</param>
-    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
+    /// <param name="cancellationToken">Token used to cancel the caller's wait for the cached ffprobe result.</param>
     /// <returns>A task that returns the audio duration in seconds, or null when unavailable.</returns>
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads chapter markers embedded in the media container with ffprobe. The optional embedded
+    /// analysis mode uses this source instead of Jellyfin's chapter repository, which may contain
+    /// chapters injected by another plugin.
+    /// </summary>
+    /// <param name="episode">Media file to probe.</param>
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
+    /// <returns>The embedded chapters, or an empty array when the probe fails or the file has none.</returns>
+    Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Extracts timed text cues from the episode's embedded text subtitle streams and its text

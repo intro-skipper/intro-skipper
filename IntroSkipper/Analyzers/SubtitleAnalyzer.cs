@@ -189,7 +189,7 @@ internal sealed partial class SubtitleAnalyzer(
         var earliest = cueStart + _config.MinimumRecapDuration;
         var latest = Math.Min(Math.Min(cueStart + _config.MaximumRecapDuration, introAfterCue), episode.Duration);
 
-        var chapterEnd = Plugin.Instance?.GetChapters(episode.EpisodeId)
+        var chapterEnd = (await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false))
             .Select(chapter => TickConversions.ToSeconds(chapter.StartPositionTicks))
             .Where(start => start >= earliest && start <= latest)
             .Select(start => (double?)start)
