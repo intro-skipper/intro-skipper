@@ -62,8 +62,10 @@ public class TestEmbeddedChapters
         Assert.Equal("Opening", chapter.Name);
     }
 
-    [Fact]
-    public async Task ChapterAnalyzer_IgnoresJellyfinDatabaseChaptersWhenMediaHasNoEmbeddedChapters()
+    [Theory]
+    [InlineData(false, EpisodeState.NotAnalyzed)]
+    [InlineData(true, EpisodeState.AnalysisFailed)]
+    public async Task ChapterAnalyzer_UsesOnlyEmbeddedChaptersAndPropagatesProbeFailures(bool probeFails, EpisodeState expectedState)
     {
         var config = new PluginConfiguration
         {
@@ -76,36 +78,11 @@ public class TestEmbeddedChapters
                 new ChapterInfo { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
                 new ChapterInfo { Name = "Main", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
             ]);
-        var ffmpeg = new StubFFmpegService { EmbeddedChapters = _ => [] };
-        var analyzer = new ChapterAnalyzer(
-            NullLogger<ChapterAnalyzer>.Instance,
-            ffmpeg,
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
-            config);
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            Duration = 2000,
-            Path = "episode.mkv",
-        };
-
-        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Introduction, CancellationToken.None);
-
-        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
-    }
-
-    [Fact]
-    public async Task ChapterAnalyzer_MarksAnEmbeddedProbeFailureAsFailed()
-    {
-        var config = new PluginConfiguration
-        {
-            EnableSponsorBlockChapterDetection = false,
-            UseEmbeddedChaptersForAnalysis = true,
-        };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
         var ffmpeg = new StubFFmpegService
         {
-            EmbeddedChapters = _ => throw new InvalidOperationException("probe failed"),
+            EmbeddedChapters = _ => probeFails
+                ? throw new InvalidOperationException("probe failed")
+                : [],
         };
         var analyzer = new ChapterAnalyzer(
             NullLogger<ChapterAnalyzer>.Instance,
@@ -121,6 +98,6 @@ public class TestEmbeddedChapters
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Introduction, CancellationToken.None);
 
-        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(expectedState, episode.GetAnalyzed(AnalysisMode.Introduction));
     }
 }

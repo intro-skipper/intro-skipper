@@ -27,7 +27,3 @@ public sealed class DbEmbeddedChapterTransition
     /// </summary>
     public bool? PendingEmbeddedChapters { get; set; }
 }
-
-internal readonly record struct EmbeddedChapterTransitionState(
-    bool AppliedEmbeddedChapters,
-    bool? PendingEmbeddedChapters);
