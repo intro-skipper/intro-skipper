@@ -338,11 +338,11 @@ public partial class BaseItemAnalyzerTask(
     /// <remarks>
     /// The source is Jellyfin's chapter table, or the chapters embedded in the media file while
     /// <see cref="PluginConfiguration.UseEmbeddedChaptersForAnalysis"/> is on. Nothing is read
-    /// when no mode will run an analyzer over the season, which takes an episode open in a mode
-    /// whose action is not None, in a season that is not an opted-out Season 0, so a settled
-    /// season costs no probe. An episode whose embedded chapters ffprobe cannot read is left
-    /// out of the result and logged. No mode analyzes, writes or records it, and it is no
-    /// Chromaprint reference, so it keeps its rows and, without a record, is retried on the next
+    /// when no mode will run an analyzer over the season: <see cref="IsModeOpen"/> holds for no
+    /// mode whose action is not None. A settled season therefore costs no probe. An episode
+    /// whose embedded chapters ffprobe cannot read is left out of the result and logged. No
+    /// mode analyzes, writes or records it, and it is no Chromaprint reference, so it keeps the
+    /// rows the earlier steps of the pass left and, without a record, is retried on the next
     /// pass. A failed read of Jellyfin's chapter table throws and fails the season.
     /// </remarks>
     /// <param name="episodes">The season's verified episodes.</param>
@@ -357,9 +357,9 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken)
     {
         var config = Config;
-        var analyzerRuns = !AnalysisEligibility.IsSeasonZeroOptedOut(episodes[0], config)
-            && modes.Any(mode => (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
-                && episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed));
+        var analyzerRuns = modes.Any(mode =>
+            (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
+            && IsModeOpen(episodes, mode, config));
         if (!analyzerRuns)
         {
             return episodes;
@@ -516,6 +516,11 @@ public partial class BaseItemAnalyzerTask(
     /// segment store journals its item's projection, so the Jellyfin mirror converges
     /// from the journal; the pass itself never pushes.
     /// </summary>
+    /// <remarks>
+    /// The analyzers read each item's chapters only from <see cref="QueuedEpisode.Chapters"/>,
+    /// which the season pass fills through <see cref="ReadChaptersAsync"/> before any mode
+    /// runs. A caller that skips the season pass sets them itself.
+    /// </remarks>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">The season's analyzer action for the mode.</param>
@@ -533,18 +538,13 @@ public partial class BaseItemAnalyzerTask(
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
         // settled-season reanalysis) reopens the season, and then NeedsAnalysis() gives the
         // settled episodes another chance too.
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (!IsModeOpen(items, mode, Config))
         {
             return;
         }
 
         var first = items[0];
         var isMovie = first.Category == QueuedMediaCategory.Movie;
-
-        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
-        {
-            return;
-        }
 
         var configHash = ConfigHasher.Analysis(
             Config,
@@ -740,6 +740,25 @@ public partial class BaseItemAnalyzerTask(
             }
         }
     }
+
+    /// <summary>
+    /// Determines whether a mode has work in a season: some episode is open in the mode and the
+    /// season is not an opted-out Season 0.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="AnalyzeItemsAsync(IReadOnlyList{QueuedEpisode}, AnalysisMode, AnalyzerAction, bool, CancellationToken)"/>
+    /// returns at once when this is false, and with a None action records the episodes without
+    /// running an analyzer. <see cref="ReadChaptersAsync"/> reads chapters only when this holds
+    /// for a mode whose action is not None. Both use this one check, so an analyzer never runs
+    /// over episodes whose chapters were not read.
+    /// </remarks>
+    /// <param name="episodes">The season's episodes, possibly none.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <param name="config">The plugin configuration.</param>
+    /// <returns><see langword="true"/> if the mode has work in the season; otherwise, <see langword="false"/>.</returns>
+    private static bool IsModeOpen(IReadOnlyList<QueuedEpisode> episodes, AnalysisMode mode, PluginConfiguration config)
+        => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
+            && !AnalysisEligibility.IsSeasonZeroOptedOut(episodes[0], config);
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
