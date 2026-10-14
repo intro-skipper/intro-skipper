@@ -895,9 +895,10 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.NotEqual(SubtitleOutcome.Unresolved, episode.GetSubtitleOutcome(AnalysisMode.Preview));
     }
 
-    // The user deleted the preview at 100 s, so the subtitle match that finds it again is
-    // refused. The credits-derived preview starts 10 s earlier, beyond the tombstone's
-    // tolerance, so admission kept it; it stays, and Preview settles with a record.
+    // The user deleted a chapter preview at 101-180 s. The subtitle match at 100-180 s
+    // re-detects it within the tombstone's tolerance and is refused. The credits-derived
+    // preview starts 11 s earlier, beyond the tolerance, so admission kept it; it stays,
+    // and Preview settles with a record.
     [Fact]
     public async Task RejectedSubtitleMatch_PreservesRowsAndSettlesTheMode()
     {
@@ -923,7 +924,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await database.ReplaceAutoSegmentsAsync(
             episodeId,
             AnalysisMode.Preview,
-            [new Segment(episodeId, new TimeRange(100, 180))],
+            [new Segment(episodeId, new TimeRange(101, 180))],
             SegmentSource.Chapter);
         var blocker = Assert.Single(await database.GetSegmentsAsync(episodeId));
         await database.DeleteSegmentAsync(episodeId, blocker.Id);
