@@ -381,7 +381,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Use embedded chapters for analysis",
         description:
-            "Read chapters from the media container instead of Jellyfin's chapter table. This ignores chapters injected by other plugins, but requires an ffprobe per queued episode and may be slower.",
+            "Read chapters from the media file instead of Jellyfin's chapter table, so chapters other plugins add are ignored. Changing this reanalyzes the whole library the next time analysis runs, which can take hours on a large library, or more than a day on a low-power server. Each analyzed episode costs one ffprobe while it is on.",
     },
     ChapterAnalyzerIntroductionPattern: {
         kind: "regex",
