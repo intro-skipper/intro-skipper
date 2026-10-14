@@ -592,6 +592,56 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(200, TickConversions.ToSeconds(preview.StartTicks));
     }
 
+    // Jellyfin's chapter table holds an intro chapter another plugin added, which the file
+    // lacks, and the file holds its own. Each switch of the chapter source reruns Introduction
+    // on the next pass against the source then in effect, which replaces the stored intro.
+    [Fact]
+    public async Task ChapterSourceSwitch_ReanalyzesFromTheSourceInEffect()
+    {
+        var config = ChapterSourceConfig();
+        using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
+        var database = fixture.CreateDatabase();
+        var ffmpeg = ChapterSourceFfmpeg(IntroChapters(100, 140));
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+
+        config.UseEmbeddedChaptersForAnalysis = true;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((100d, 140d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+
+        config.UseEmbeddedChaptersForAnalysis = false;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+    }
+
+    // A Commercial row from a chapter only Jellyfin's table holds stays while Commercial
+    // scanning is off at the switch. The first pass with Commercial on again reruns the mode
+    // against the file's chapters, which have no commercial, and removes the row.
+    [Fact]
+    public async Task ChapterSourceSwitch_WhileCommercialIsOff_RetiresTheInjectedCommercialOnceItIsOn()
+    {
+        var config = ChapterSourceConfig();
+        config.ScanCommercial = true;
+        using var fixture = new VerifyQueueFixture(config, chapters: [Chapter("Episode", 0), Chapter("Advertisement", 100), Chapter("Story", 140)]);
+        var database = fixture.CreateDatabase();
+        var ffmpeg = ChapterSourceFfmpeg([Chapter("Episode", 0)]);
+        async Task<DbSegment[]> CommercialsAsync()
+            => [.. (await database.GetSegmentsAsync(fixture.EpisodeId)).Where(row => row.Type == AnalysisMode.Commercial && row.State == SegmentState.Active)];
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        var commercial = Assert.Single(await CommercialsAsync());
+
+        config.ScanCommercial = false;
+        config.UseEmbeddedChaptersForAnalysis = true;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(commercial.Id, Assert.Single(await CommercialsAsync()).Id);
+
+        config.ScanCommercial = true;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Empty(await CommercialsAsync());
+    }
+
     // A Recap-only library recorded a chapter recap with subtitle detection on, then the
     // media file was replaced by one without a recap. Whether detection stays on or was
     // turned off since, the Recap record cannot tell the new file from a sidecar change and
@@ -926,6 +976,40 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         new() { Name = "Episode", StartPositionTicks = 0 },
         new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(previewStart) },
     ];
+
+    // Scans Introduction only, from chapters, with SponsorBlock labels off.
+    private static PluginConfiguration ChapterSourceConfig() => new()
+    {
+        ScanIntroduction = true,
+        ScanCredits = false,
+        ScanRecap = false,
+        ScanPreview = false,
+        ScanCommercial = false,
+        ReanalyzeSettledSeasons = false,
+        EnableSponsorBlockChapterDetection = false,
+    };
+
+    // No Chromaprint, the file's own chapters, and time adjustment probes that find nothing,
+    // so a chapter range is stored as authored.
+    private static StubFFmpegService ChapterSourceFfmpeg(ChapterInfo[] embeddedChapters) => new()
+    {
+        VersionCheck = () => false,
+        EmbeddedChapters = _ => embeddedChapters,
+        Silence = (_, _, _) => [],
+        KeyFrames = (_, _, _) => [],
+    };
+
+    private static ChapterInfo Chapter(string name, double start)
+        => new() { Name = name, StartPositionTicks = DatabaseTestHelpers.Ticks(start) };
+
+    private static ChapterInfo[] IntroChapters(double start, double end)
+        => [Chapter("Episode", 0), Chapter("Opening", start), Chapter("Story", end)];
+
+    private static async Task<(double Start, double End)> ActiveRangeAsync(IntroSkipperDatabase database, Guid itemId, AnalysisMode mode)
+    {
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId), row => row.Type == mode && row.State == SegmentState.Active);
+        return (TickConversions.ToSeconds(row.StartTicks), TickConversions.ToSeconds(row.EndTicks));
+    }
 
     // The production eligibility decision: the same batch read (GetSettleReanalysisStatesAsync)
     // and SeasonReanalysisPlanner.GetSettleReanalysisModes call the analyzer makes.
