@@ -1,11 +1,33 @@
-import type { Tab } from "../types.ts";
+import type { SegmentType, Tab } from "../types.ts";
 import * as api from "../store/api.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
-import { confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
+import { MODE_OPTIONS } from "../components/segment-editor.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 
-const timestampTypes = ["introduction", "recap", "credits", "preview", "commercial"] as const;
+// The Global Timestamp Type value that erases every mode. The other values are
+// the modes' SegmentType names.
+const ALL_MODES = "all";
+
+/**
+ * Resolves a Global Timestamp Type value to the modes it erases and the words
+ * the erase button and messages use for them.
+ */
+function eraseTarget(value: string): { modes: SegmentType[]; button: string; timestamps: string } {
+    const mode = MODE_OPTIONS.find((option) => option.value === value);
+    return mode
+        ? {
+              modes: [mode.value],
+              button: `Erase All ${mode.label} Timestamps`,
+              timestamps: `${mode.label.toLowerCase()} timestamps`,
+          }
+        : {
+              modes: MODE_OPTIONS.map((option) => option.value),
+              button: "Erase All Timestamps",
+              timestamps: "timestamps of every type",
+          };
+}
 
 export const toolsTab: Tab = {
     id: "tools",
@@ -23,69 +45,40 @@ export const toolsTab: Tab = {
             id: globalSelectId,
             name: "global-timestamp-type",
         });
-        globalSelect.append(el("option", { value: "introduction" }, "Introduction"));
-        globalSelect.append(el("option", { value: "recap" }, "Recap"));
-        globalSelect.append(el("option", { value: "credits" }, "Credits"));
-        globalSelect.append(el("option", { value: "preview" }, "Preview"));
-        globalSelect.append(el("option", { value: "commercial" }, "Commercial"));
-        globalSelect.append(el("option", { value: "all" }, "All Types"));
+        for (const mode of MODE_OPTIONS) {
+            globalSelect.append(el("option", { value: mode.value }, mode.label));
+        }
+        globalSelect.append(el("option", { value: ALL_MODES }, "All Types"));
         globalSelectGroup.append(globalSelectLabel, globalSelect);
 
         const globalEraseBtn = el(
             "button",
             { className: "action-button raised block", type: "button" },
-            "Erase All Introduction Timestamps",
+            eraseTarget(globalSelect.value).button,
         );
 
         globalSelect.addEventListener("change", () => {
-            const label = globalSelect.selectedOptions[0]?.textContent;
-            if (!label) return;
-            globalEraseBtn.textContent =
-                label === "All Types" ? "Erase All Timestamps" : "Erase All " + label + " Timestamps";
+            globalEraseBtn.textContent = eraseTarget(globalSelect.value).button;
         });
 
         globalEraseBtn.addEventListener("click", async () => {
-            const typeMap: Record<string, string> = {
-                all: "All Types",
-                introduction: "Introduction",
-                recap: "Recap",
-                credits: "Credits",
-                preview: "Preview",
-                commercial: "Commercial",
-            };
-            const type = typeMap[globalSelect.value];
-            if (!type) return;
-
+            const target = eraseTarget(globalSelect.value);
             const result = await confirmDialog({
                 title: "Confirm Timestamp Erasure",
-                body:
-                    type === "All Types"
-                        ? "Are you sure you want to erase all previously discovered timestamps of every type?"
-                        : "Are you sure you want to erase all previously discovered " +
-                          globalSelect.value +
-                          " timestamps?",
+                body: "Are you sure you want to erase all previously discovered " + target.timestamps + "?",
                 confirmLabel: "Erase",
-                checkboxes: [
-                    { label: "Include cached fingerprint files" },
-                    { label: "Remove user-created timestamp locks", checked: true },
-                ],
+                checkboxes: eraseCheckboxes,
             });
             if (!result) return;
 
-            const modes = globalSelect.value === "all" ? timestampTypes : [type];
-            const action = type === "All Types" ? "all timestamps" : type.toLowerCase() + " timestamps";
-            for (const mode of modes) {
-                const response = await api.eraseTimestamps(
-                    mode,
-                    result.checkboxValues[0] ?? false,
-                    result.checkboxValues[1] ?? true,
-                );
+            for (const mode of target.modes) {
+                const response = await api.eraseTimestamps(mode, result);
                 if (!response.ok) {
-                    window.Dashboard.alert("Failed to erase " + action);
+                    window.Dashboard.alert("Failed to erase " + target.timestamps);
                     return;
                 }
             }
-            window.Dashboard.alert(type === "All Types" ? "All timestamps erased" : type + " timestamps erased");
+            window.Dashboard.alert("Erased " + target.timestamps);
         });
 
         const rebuildBtn = el(
@@ -129,7 +122,7 @@ export const toolsTab: Tab = {
         resetBtn.addEventListener("click", async () => {
             const result = await confirmDialog({
                 title: "Confirm Settings Reset",
-                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection and the injected skip button CSS are kept. Season and show overrides are not removed.",
+                body: "Reset every setting on every tab to its default, discarding any unsaved changes? Exclusion lists, library selection, season and show overrides, and the injected skip button CSS are kept.",
                 confirmLabel: "Reset",
             });
             if (!result) return;

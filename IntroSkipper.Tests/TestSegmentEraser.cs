@@ -36,7 +36,7 @@ public sealed class TestSegmentEraser : IDisposable
         var itemId = Guid.NewGuid();
         SeedCacheRow(itemId, mode);
 
-        await CreateEraser().EraseModeAsync(mode, eraseCache, cancellationToken: CancellationToken.None);
+        await CreateEraser().EraseModeAsync(mode, eraseCache, eraseTombstones: true, CancellationToken.None);
 
         Assert.Equal(cacheKept, HasCacheRow(itemId, mode));
     }
@@ -49,7 +49,7 @@ public sealed class TestSegmentEraser : IDisposable
         var itemId = Guid.NewGuid();
         SeedCacheRow(itemId, AnalysisMode.Introduction);
 
-        var (_, removedCacheEntries) = await CreateEraser().EraseItemsAsync([itemId], eraseCache, cancellationToken: CancellationToken.None);
+        var (_, removedCacheEntries) = await CreateEraser().EraseItemsAsync([itemId], eraseCache, eraseTombstones: true, CancellationToken.None);
 
         Assert.Equal(cacheKept ? 0 : 1, removedCacheEntries);
         Assert.Equal(cacheKept, HasCacheRow(itemId, AnalysisMode.Introduction));

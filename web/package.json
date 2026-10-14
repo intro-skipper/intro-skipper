@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "build": "tsc && vite build",
-        "test": "node --experimental-strip-types --test test/season-overrides.test.mjs"
+        "test": "node --experimental-strip-types --test test/season-overrides.test.mjs test/erase-api.test.mjs"
     },
     "devDependencies": {
         "typescript": "~6.0.3",

@@ -160,7 +160,7 @@ public class SegmentsController(
 
     /// <summary>
     /// Deletes a segment. Automatic segments are tombstoned so re-analysis does not
-    /// re-add an overlapping automatic segment; user segments are removed permanently.
+    /// re-add the deleted range; user segments are removed permanently.
     /// </summary>
     /// <param name="itemId">Item (episode or movie) id.</param>
     /// <param name="segmentId">Segment id.</param>

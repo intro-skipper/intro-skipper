@@ -16,8 +16,8 @@ namespace IntroSkipper.Tests;
 
 /// <summary>
 /// Tombstone (suppressed segment) lifecycle: a user-deleted automatic segment is
-/// remembered so an identical range is not re-added by re-analysis (GitHub issue #863),
-/// while changed overlapping ranges remain eligible, and stays out of the Jellyfin mirror.
+/// remembered and its range never re-added by re-analysis (GitHub issue #863) until it is
+/// restored, and stays out of the Jellyfin mirror.
 /// </summary>
 public sealed class TestSegmentTombstones : IDisposable
 {
@@ -61,9 +61,10 @@ public sealed class TestSegmentTombstones : IDisposable
 
     [Theory]
     [InlineData(10.0, 60.0, false)]  // identical range
-    [InlineData(12.0, 63.0, true)]   // shifted re-detection, still overlapping
-    [InlineData(59.0, 100.0, true)]  // partial overlap at the tail
-    public async Task AnalysisWrite_OverlappingTombstonedRange_OnlyIdenticalRangeIsSkipped(double newStart, double newEnd, bool expectedStored)
+    [InlineData(12.0, 61.0, false)]  // shifted re-detection
+    [InlineData(20.0, 50.0, false)]  // a shorter piece of the deleted range
+    [InlineData(10.0, 120.0, true)]  // a correction reaching well past the deleted end
+    public async Task AnalysisWrite_OverATombstone_StoresOnlyACorrection(double newStart, double newEnd, bool expectedStored)
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
@@ -71,8 +72,8 @@ public sealed class TestSegmentTombstones : IDisposable
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
         await database.DeleteSegmentAsync(itemId, row.Id);
 
-        // Re-analysis may store a changed overlapping range, but must not recreate
-        // the exact range the user deleted.
+        // Re-analysis must not resurrect the segment the user deleted, nor throw on the
+        // unique index. A range reaching well past it is a correction and is stored.
         var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(newStart, newEnd))], SegmentSource.Chromaprint);
 
         Assert.Equal(expectedStored ? 1 : 0, stored);
@@ -103,12 +104,12 @@ public sealed class TestSegmentTombstones : IDisposable
         var doomed = rows.Single(r => r.StartTicks == Ticks(100));
         await database.DeleteSegmentAsync(itemId, doomed.Id);
 
-        // Re-analysis re-derives the exact range the tombstone blocks: a fully rejected
+        // Re-analysis re-derives only a range the tombstone blocks: a fully rejected
         // write must leave the surviving row standing instead of clearing the mode.
         var stored = await database.ReplaceAutoSegmentsAsync(
             itemId,
             AnalysisMode.Introduction,
-            [new Segment(itemId, new TimeRange(100, 150))],
+            [new Segment(itemId, new TimeRange(102, 151))],
             SegmentSource.Chromaprint);
 
         Assert.Equal(0, stored);
@@ -120,6 +121,28 @@ public sealed class TestSegmentTombstones : IDisposable
         var survivor = Assert.Single(allRows, segment => segment.State == SegmentState.Active);
         Assert.Equal(Ticks(10), survivor.StartTicks);
         Assert.Equal(Ticks(60), survivor.EndTicks);
+    }
+
+    // A mode erase that keeps tombstones still erases the user's own segments, and the kept
+    // tombstone goes on refusing a shifted re-detection. Purging it lets detection add the
+    // range again.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModeErase_KeptTombstoneKeepsRefusingReDetections_UserSegmentsGoEitherWay(bool eraseTombstones)
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
+        await database.DeleteSegmentAsync(itemId, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
+        await database.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(300), Ticks(330));
+
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones);
+
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(eraseTombstones ? 0 : 1, (await database.GetSegmentsAsync(itemId, includeSuppressed: true)).Count);
+        var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(12, 61))], SegmentSource.Chromaprint);
+        Assert.Equal(eraseTombstones ? 1 : 0, stored);
     }
 
     [Fact]

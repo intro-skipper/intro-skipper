@@ -13,6 +13,7 @@ import type {
     LibraryStorage,
     SystemStorageInfo,
     ClearExcludedTimestampsResponse,
+    SegmentType,
     SupportBundle,
 } from "../types.ts";
 
@@ -273,76 +274,50 @@ export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<A
 }
 
 // Timestamp deletion.
+
+/**
+ * What an erase removes besides the active segments, which every erase deletes,
+ * user segments included. Each call states both, so the client keeps no
+ * defaults of its own.
+ */
+export type EraseOptions = {
+    /** Also delete the detection cache rows (cached fingerprints). */
+    eraseCache: boolean;
+    /** Also delete tombstones, so detection may add the ranges the user deleted again. */
+    eraseTombstones: boolean;
+};
+
 export function eraseTimestamps(
-    mode: string,
-    eraseCache: boolean,
-    signal?: AbortSignal,
-): Promise<ApiResult<null>>;
-export function eraseTimestamps(
-    mode: string,
-    eraseCache: boolean,
-    eraseTombstones: boolean,
-    signal?: AbortSignal,
-): Promise<ApiResult<null>>;
-export function eraseTimestamps(
-    mode: string,
-    eraseCache: boolean,
-    eraseTombstonesOrSignal?: boolean | AbortSignal,
+    mode: SegmentType,
+    { eraseCache, eraseTombstones }: EraseOptions,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
-    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
-    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
-    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
     return request<null>(
         `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
-        { method: "POST", signal: requestSignal },
+        { method: "POST", signal },
     );
 }
 
-export function eraseItemTimestamps(
-    urlPath: string,
-    eraseCache: boolean,
-    signal?: AbortSignal,
-): Promise<ApiResult<null>>;
-export function eraseItemTimestamps(
-    urlPath: string,
-    eraseCache: boolean,
-    eraseTombstones: boolean,
-    signal?: AbortSignal,
-): Promise<ApiResult<null>>;
-export function eraseItemTimestamps(
-    urlPath: string,
-    eraseCache: boolean,
-    eraseTombstonesOrSignal?: boolean | AbortSignal,
+export function eraseSeasonTimestamps(
+    showId: string,
+    seasonId: string,
+    { eraseCache, eraseTombstones }: EraseOptions,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
-    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
-    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
-    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
     return request<null>(
-        `${urlPath}?eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
-        { method: "DELETE", signal: requestSignal },
+        `Intros/Show/${encodeURIComponent(showId)}/${encodeURIComponent(seasonId)}?eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
+        { method: "DELETE", signal },
     );
 }
 
 export function clearExcludedTimestamps(
-    signal?: AbortSignal,
-): Promise<ApiResult<ClearExcludedTimestampsResponse>>;
-export function clearExcludedTimestamps(
-    eraseTombstones: boolean,
-    signal?: AbortSignal,
-): Promise<ApiResult<ClearExcludedTimestampsResponse>>;
-export function clearExcludedTimestamps(
-    eraseTombstonesOrSignal: boolean | AbortSignal = true,
+    { eraseTombstones }: Pick<EraseOptions, "eraseTombstones">,
     signal?: AbortSignal,
 ): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
-    const hasExplicitTombstoneChoice = typeof eraseTombstonesOrSignal === "boolean";
-    const eraseTombstones = hasExplicitTombstoneChoice ? eraseTombstonesOrSignal : true;
-    const requestSignal = hasExplicitTombstoneChoice ? signal : eraseTombstonesOrSignal;
-    return request<ClearExcludedTimestampsResponse>(`Intros/ExcludedTimestamps/Clear?eraseTombstones=${eraseTombstones}`, {
-        method: "POST",
-        signal: requestSignal,
-    });
+    return request<ClearExcludedTimestampsResponse>(
+        `Intros/ExcludedTimestamps/Clear?eraseTombstones=${eraseTombstones}`,
+        { method: "POST", signal },
+    );
 }
 
 // Support and storage tools.
