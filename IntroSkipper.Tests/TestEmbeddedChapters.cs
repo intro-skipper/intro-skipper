@@ -57,6 +57,26 @@ public class TestEmbeddedChapters
     }
 
     /// <summary>
+    /// Output without a chapters array is a failed read, which the probe retries, not a file
+    /// without chapters, which would settle the episode.
+    /// </summary>
+    /// <param name="raw">ffprobe stdout.</param>
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("""{ "chapters": {} }""")]
+    public void ParseChapters_RejectsOutputWithoutAChaptersArray(string raw)
+    {
+        Assert.Throws<System.Text.Json.JsonException>(() => FFmpegOutputParser.ParseChapters(raw));
+    }
+
+    [Fact]
+    public void ParseChapters_ReadsAnEmptyChaptersArrayAsNoChapters()
+    {
+        Assert.Empty(FFmpegOutputParser.ParseChapters("""{ "chapters": [] }"""));
+    }
+
+    /// <summary>
     /// Pins the JSON shape the installed ffprobe prints for a Matroska file's chapters.
     /// </summary>
     [FactSkipFFmpegTests]

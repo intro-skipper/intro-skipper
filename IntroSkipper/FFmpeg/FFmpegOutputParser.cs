@@ -298,11 +298,12 @@ internal static partial class FFmpegOutputParser
     /// ffprobe prints each <c>start_time</c> as a string of seconds, such as <c>"90.048625"</c>,
     /// on jellyfin-ffmpeg 7.1.3 and 8.1.2. A chapter whose start is missing, not such a string,
     /// or not a representable tick count (<see cref="TickConversions.TryFromSeconds"/>) is
-    /// dropped. Only malformed JSON throws.
+    /// dropped. A chapterless file still prints an empty <c>chapters</c> array, so output
+    /// without one is unusable, not a file without chapters.
     /// </remarks>
     /// <param name="raw">JSON returned by <c>ffprobe -show_chapters -of json</c>.</param>
     /// <returns>The chapters sorted by start, with their embedded titles, or an empty title when a chapter has none.</returns>
-    /// <exception cref="JsonException"><paramref name="raw"/> is not valid JSON.</exception>
+    /// <exception cref="JsonException"><paramref name="raw"/> is not valid JSON, or has no top-level <c>chapters</c> array.</exception>
     internal static ChapterInfo[] ParseChapters(string raw)
     {
         using var document = JsonDocument.Parse(raw);
@@ -310,7 +311,7 @@ internal static partial class FFmpegOutputParser
             || !document.RootElement.TryGetProperty("chapters", out var chapters)
             || chapters.ValueKind != JsonValueKind.Array)
         {
-            return [];
+            throw new JsonException("ffprobe printed no chapters array.");
         }
 
         var result = new List<ChapterInfo>();
