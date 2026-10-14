@@ -123,6 +123,28 @@ public sealed class TestSegmentTombstones : IDisposable
         Assert.Equal(Ticks(60), survivor.EndTicks);
     }
 
+    // A mode erase that keeps tombstones still erases the user's own segments, and the kept
+    // tombstone goes on refusing a shifted re-detection. Purging it lets detection add the
+    // range again.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModeErase_KeptTombstoneKeepsRefusingReDetections_UserSegmentsGoEitherWay(bool eraseTombstones)
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
+        await database.DeleteSegmentAsync(itemId, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
+        await database.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(300), Ticks(330));
+
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones);
+
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(eraseTombstones ? 0 : 1, (await database.GetSegmentsAsync(itemId, includeSuppressed: true)).Count);
+        var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(12, 61))], SegmentSource.Chromaprint);
+        Assert.Equal(eraseTombstones ? 1 : 0, stored);
+    }
+
     [Fact]
     public async Task UpdateSegment_ReclaimsTombstonedRange_ByAbsorbingTombstone()
     {

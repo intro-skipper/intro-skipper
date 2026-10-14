@@ -413,7 +413,7 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemA, itemB], "intro-hash");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemA], "credits-hash");
 
-        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: true);
 
         Assert.Equal(2, erasedItemIds.Count);
         Assert.Contains(itemA, erasedItemIds);
@@ -435,6 +435,25 @@ public sealed class TestDatabaseFacades : IDisposable
         // analysis run may store the range again.
         await database.ReplaceAutoSegmentsAsync(itemB, AnalysisMode.Introduction, [new Segment(itemB, new TimeRange(0, 20))], SegmentSource.Chapter);
         Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
+    }
+
+    // Only the credits pass regenerates credits-derived rows, so erasing one reopens its
+    // item's Credits record even when the erase keeps the row's tombstone.
+    [Fact]
+    public async Task DeleteSegmentsByModeAsync_ReopensCreditsForPreservedCreditsDerivedRows()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.DeleteSegmentAsync(itemId, row.Id);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemId], "credits-hash");
+
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Preview, eraseTombstones: false);
+
+        Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        await using var db = _db.Context();
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == itemId && a.Type == AnalysisMode.Credits));
     }
 
     [Fact]
@@ -510,8 +529,10 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(itemId)).Source);
     }
 
-    [Fact]
-    public async Task EraseItemsAsync_CanPreserveTombstones_WhileClearingTheGivenItems()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly(bool eraseTombstones)
     {
         var targetItemId = Guid.NewGuid();
         var otherItemId = Guid.NewGuid();
@@ -519,19 +540,19 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
         await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
 
-        // Tombstone the target item's intro and add a user row. Opting out of tombstone
-        // removal keeps the lock while still removing the active user row.
-        // The records come after the delete, which clears the target's on its own.
+        // Tombstone the target item's intro and add a user row. The user row goes either
+        // way, and the tombstone only when the erase includes tombstones. The records come
+        // after the delete, which clears the target's on its own.
         var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
         await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
         await database.SeedUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [targetItemId, otherItemId], "hash");
 
-        var removed = await database.EraseItemsAsync([targetItemId], eraseTombstones: false);
+        var removed = await database.EraseItemsAsync([targetItemId], eraseTombstones);
 
-        Assert.Equal(1, removed);
+        Assert.Equal(eraseTombstones ? 2 : 1, removed);
         await using var db = _db.Context();
-        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.State == SegmentState.Suppressed));
+        Assert.Equal(!eraseTombstones, await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.State == SegmentState.Suppressed));
         Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.Source == SegmentSource.User));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
@@ -676,7 +697,7 @@ public sealed class TestDatabaseFacades : IDisposable
                 await database.ReplaceAutoSegmentsAsync(keptId, AnalysisMode.Introduction, [new Segment(keptId, new TimeRange(0, 10))], SegmentSource.Chapter);
                 await database.ReplaceAutoSegmentsAsync(staleId, AnalysisMode.Introduction, [new Segment(staleId, new TimeRange(20, 30))], SegmentSource.Chapter);
 
-                Assert.Equal(1, await database.EraseItemsAsync(Padded(staleId)));
+                Assert.Equal(1, await database.EraseItemsAsync(Padded(staleId), eraseTombstones: true));
                 Assert.Empty(await database.GetSegmentsAsync(staleId));
                 Assert.Single(await database.GetSegmentsAsync(keptId));
                 break;

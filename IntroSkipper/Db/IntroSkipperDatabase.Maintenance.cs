@@ -103,24 +103,19 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Erases the supplied items' segments, optionally including tombstones, and every
-    /// analysis record, in one transaction with every item's projection journaled.
-    /// Season state and disable flags are untouched. The ID set is bound as one JSON
-    /// parameter, so the item count is unbounded.
+    /// Erases the supplied items' segments and every analysis record of the items, in one
+    /// transaction with every item's projection journaled, items without rows included.
     /// </summary>
+    /// <remarks>
+    /// Every active row of the items goes, whatever its source, user segments included.
+    /// Tombstones go only when <paramref name="eraseTombstones"/> is set. Season state and
+    /// disable flags are untouched. The ID set is bound as one JSON parameter, so the item
+    /// count is unbounded.
+    /// </remarks>
     /// <param name="itemIds">Item IDs to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete the items' tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of deleted segment rows.</returns>
-    public Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
-        => EraseItemsAsync(itemIds, eraseTombstones: true, cancellationToken: cancellationToken);
-
-    /// <summary>
-    /// Erases the supplied items' segments and analysis state, optionally preserving tombstones.
-    /// </summary>
-    /// <param name="itemIds">Item IDs to erase.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of deleted segment rows.</returns>
+    /// <returns>The number of deleted segment rows, tombstones included.</returns>
     public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();

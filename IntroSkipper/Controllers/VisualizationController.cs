@@ -87,13 +87,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases all timestamps for the provided season, optionally including user-created
-    /// timestamp locks.
+    /// Erases all timestamps for the provided season, user segments included.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
-    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
     /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
@@ -120,18 +119,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Clears excluded timestamp data while preserving user-created timestamp locks.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Counts describing the cleared excluded timestamp state.</returns>
-    [NonAction]
-    public Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken)
-        => ClearExcludedTimestampsAsync(eraseTombstones: true, cancellationToken: cancellationToken);
-
-    /// <summary>
     /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy.
     /// </summary>
-    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Counts describing the cleared excluded timestamp state.</returns>
     [HttpPost("ExcludedTimestamps/Clear")]

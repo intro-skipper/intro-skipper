@@ -79,3 +79,9 @@ _Avoid_: Debounce, delay, cooldown
 **Feeder**:
 Anything that hands an analysis request to the queue: the library watcher, the scheduled task, and the manual scan endpoint.
 _Avoid_: Producer, trigger, source
+
+### Segments
+
+**Tombstone**:
+An automatic segment the user deleted, kept as a suppressed row. It refuses automatic segments of its item and mode that re-detect the deleted range, up to 3 s past either end. It protects nothing the user made: deleting a user segment removes it outright, and every erase removes user segments.
+_Avoid_: Lock, timestamp lock
