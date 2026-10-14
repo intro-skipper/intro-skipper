@@ -32,13 +32,13 @@ public partial class SkipIntroController(
     private readonly IntroSkipperDatabase _database = database;
 
     /// <summary>
-    /// Erases all previously discovered timestamps of a mode, optionally including
-    /// user-created timestamp locks, the mode's analyzed-episode lists so the next scan
-    /// re-detects, and the affected items' Jellyfin mirrors.
+    /// Erases all active segments of a mode, user segments included, the mode's
+    /// analyzed-episode lists so the next scan re-detects, and the affected items'
+    /// Jellyfin mirrors.
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
-    /// <param name="eraseTombstones">Erase user-created timestamp locks.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>

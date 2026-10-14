@@ -24,9 +24,28 @@ namespace IntroSkipper.Db;
 internal static class AutoSegmentAdmissionPolicy
 {
     /// <summary>
+    /// How far past either end of a tombstone an automatic candidate may reach and still
+    /// count as a re-detection of the range the user deleted: 3 seconds.
+    /// </summary>
+    /// <remarks>
+    /// Re-detections of a range rarely repeat its ticks. On five real seasons (17 episodes
+    /// at default settings), adding or removing one episode from the season's comparison
+    /// pool moved a stored boundary by up to 2.0 s: a Chromaprint end that moved 1.2 s
+    /// snapped to the neighbouring keyframe, one 2 s keyframe interval away. The tolerance
+    /// is that drift plus half a second, rounded up to a whole second. It also absorbs
+    /// Jellyfin rounding chapter starts to the millisecond while embedded chapters keep
+    /// microseconds. A source with keyframes more than 3 s apart can drift further. A
+    /// candidate reaching further than this is admitted as new evidence, such as a
+    /// correction of a segment the user deleted for being too short.
+    /// </remarks>
+    internal const long TombstoneToleranceTicks = 3 * TimeSpan.TicksPerSecond;
+
+    /// <summary>
     /// Decides whether an automatic segment may be written over an item's stored rows.
-    /// Tombstones block only an identical range; active user rows still block strict
-    /// overlap, while touching boundaries do not.
+    /// A tombstone refuses a candidate that overlaps it and reaches no more than
+    /// <see cref="TombstoneToleranceTicks"/> past either of its ends. An active user row
+    /// refuses any overlap. Overlap means at least one shared tick: touching boundaries
+    /// do not overlap.
     /// </summary>
     /// <param name="mode">The candidate's mode.</param>
     /// <param name="startTicks">The candidate's start.</param>
@@ -41,10 +60,12 @@ internal static class AutoSegmentAdmissionPolicy
     {
         bool Overlapping(DbSegment row) => startTicks < row.EndTicks && row.StartTicks < endTicks;
 
-        if (itemRows.Any(row => row.Type == mode
-            && row.State == SegmentState.Suppressed
-            && row.StartTicks == startTicks
-            && row.EndTicks == endTicks))
+        // Differences, not sums: tick values are non-negative, so neither side can overflow.
+        bool WithinDeletedRange(DbSegment row) => Overlapping(row)
+            && row.StartTicks - startTicks <= TombstoneToleranceTicks
+            && endTicks - row.EndTicks <= TombstoneToleranceTicks;
+
+        if (itemRows.Any(row => row.Type == mode && row.State == SegmentState.Suppressed && WithinDeletedRange(row)))
         {
             return AutoSegmentRejection.Tombstone;
         }

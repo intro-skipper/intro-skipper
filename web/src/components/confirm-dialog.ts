@@ -1,33 +1,28 @@
 import { el } from "./dom.ts";
+import type { EraseOptions } from "../store/api.ts";
 
-/**
- * A custom confirmation dialog that supports optional checkboxes,
- * replacing window.Dashboard.confirm() where richer content is needed.
- *
- * Uses the native <dialog> element for built-in focus trapping and
- * backdrop handling. Returns a promise that resolves with the user's
- * choices or null if cancelled.
- */
+type CheckboxSpec = {
+    label: string;
+    checked?: boolean;
+};
 
-type ConfirmDialogOptions = {
+type ConfirmDialogOptions<K extends string> = {
     title: string;
     body: string;
     confirmLabel?: string;
     cancelLabel?: string;
-    checkbox?: {
-        label: string;
-        checked?: boolean;
-    };
-    checkboxes?: readonly {
-        label: string;
-        checked?: boolean;
-    }[];
+    checkboxes?: Readonly<Record<K, CheckboxSpec>>;
 };
 
-type ConfirmDialogResult = {
-    checkboxChecked: boolean;
-    checkboxValues: readonly boolean[];
-};
+/**
+ * The erase dialogs' checkboxes, keyed by the erase option each one sets, so a
+ * dialog's result can go straight into the erase call. The tombstone box is
+ * checked by default, which keeps the full reset the API defaults to.
+ */
+export const eraseCheckboxes = {
+    eraseCache: { label: "Include cached fingerprints" },
+    eraseTombstones: { label: "Let deleted segments be detected again", checked: true },
+} as const satisfies Record<keyof EraseOptions, CheckboxSpec>;
 
 let dialogCounter = 0;
 
@@ -38,7 +33,24 @@ export function confirmDashboard(body: string, title: string): Promise<boolean> 
     });
 }
 
-export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialogResult | null> {
+/**
+ * Asks for confirmation in a dialog that can carry checkboxes, where
+ * window.Dashboard.confirm() is not enough. Uses the native <dialog> element
+ * for focus trapping and the backdrop, and focuses Cancel so Enter does not
+ * confirm.
+ *
+ * Checkboxes are keyed by name and shown in key order. The promise resolves
+ * with each key's checked state, or null when the user cancels. A dialog
+ * without checkboxes resolves to an empty record, which is still truthy.
+ *
+ * @example
+ * const result = await confirmDialog({ title, body, checkboxes: eraseCheckboxes });
+ * if (!result) return;
+ * await api.eraseTimestamps(mode, result);
+ */
+export function confirmDialog<K extends string = never>(
+    opts: ConfirmDialogOptions<K>,
+): Promise<Record<K, boolean> | null> {
     return new Promise((resolve) => {
         const uid = String(++dialogCounter);
         const titleId = "is-confirm-title-" + uid;
@@ -53,19 +65,17 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         dialog.append(heading, body);
 
-        const checkboxOptions = opts.checkboxes ?? (opts.checkbox ? [opts.checkbox] : []);
-        const checkboxes: HTMLInputElement[] = [];
-
-        checkboxOptions.forEach((option, index) => {
+        const specs: Readonly<Record<string, CheckboxSpec>> = opts.checkboxes ?? {};
+        const checkboxes = Object.entries(specs).map(([key, spec], index) => {
             const checkboxId = "is-confirm-checkbox-" + uid + "-" + String(index);
             const checkbox = el("input", { type: "checkbox", id: checkboxId });
-            checkbox.checked = option.checked ?? false;
+            checkbox.checked = spec.checked ?? false;
             const label = el("label", { className: "is-confirm-checkbox-label", for: checkboxId });
-            label.append(checkbox, document.createTextNode(" " + option.label));
+            label.append(checkbox, document.createTextNode(" " + spec.label));
             const wrapper = el("div", { className: "is-confirm-checkbox-row" });
             wrapper.append(label);
             dialog.append(wrapper);
-            checkboxes.push(checkbox);
+            return [key, checkbox] as const;
         });
 
         const cancelBtn = el(
@@ -83,7 +93,7 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
         actions.append(cancelBtn, confirmBtn);
         dialog.append(actions);
 
-        function cleanup(result: ConfirmDialogResult | null): void {
+        function cleanup(result: Record<K, boolean> | null): void {
             dialog.close();
             dialog.remove();
             resolve(result);
@@ -91,10 +101,13 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
 
         cancelBtn.addEventListener("click", () => cleanup(null));
         confirmBtn.addEventListener("click", () =>
-            cleanup({
-                checkboxChecked: checkboxes[0]?.checked ?? false,
-                checkboxValues: checkboxes.map((checkbox) => checkbox.checked),
-            }),
+            // The entries carry exactly the keys of opts.checkboxes; fromEntries
+            // only widens them to string.
+            cleanup(
+                Object.fromEntries(
+                    checkboxes.map(([key, checkbox]) => [key, checkbox.checked]),
+                ) as Record<K, boolean>,
+            ),
         );
 
         // Esc key triggers the cancel event on <dialog>.

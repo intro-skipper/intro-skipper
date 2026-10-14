@@ -762,27 +762,23 @@ public sealed partial class IntroSkipperDatabase
             .ThenBy(s => s.StartTicks);
 
     /// <summary>
-    /// Deletes every stored segment of the given analysis mode, optionally including
-    /// tombstones, and the mode's analysis records so the next scan re-detects instead
-    /// of classifying the erased items as <c>NoSegments</c>.
-    /// Items whose erased rows were credits-derived also lose their
-    /// <see cref="AnalysisMode.Credits"/> records, because only the credits pass can
-    /// regenerate those rows. Everything runs in one transaction, the affected items'
-    /// projections journaled with it, so their Jellyfin mirrors converge durably.
+    /// Deletes the stored segments of the given analysis mode and the mode's analysis
+    /// records, in one transaction with the projection of every item that held a row of
+    /// the mode journaled, so their Jellyfin mirrors converge durably.
     /// </summary>
+    /// <remarks>
+    /// Every active row of the mode goes, whatever its source, user segments included.
+    /// Tombstones go only when <paramref name="eraseTombstones"/> is set; an item whose
+    /// only row of the mode is a kept tombstone is journaled too. The mode's analysis
+    /// records go so the next scan re-detects instead of classifying the erased items as
+    /// <c>NoSegments</c>. Items with a credits-derived row of the mode, active or a
+    /// tombstone, also lose their <see cref="AnalysisMode.Credits"/> records, because only
+    /// the credits pass can regenerate those rows.
+    /// </remarks>
     /// <param name="mode">Analysis mode to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete the mode's tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The ids of the items that held a segment of the mode.</returns>
-    public Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
-        => DeleteSegmentsByModeAsync(mode, eraseTombstones: true, cancellationToken: cancellationToken);
-
-    /// <summary>
-    /// Deletes every stored segment of the given analysis mode, optionally preserving tombstones.
-    /// </summary>
-    /// <param name="mode">Analysis mode to erase.</param>
-    /// <param name="eraseTombstones"><see langword="true"/> to delete user-created timestamp locks; otherwise, preserve them.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The ids of the items that held a segment of the mode.</returns>
+    /// <returns>The ids of the items that held a row of the mode, tombstones included.</returns>
     public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);

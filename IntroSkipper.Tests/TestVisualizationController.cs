@@ -100,9 +100,10 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Theory]
-    [InlineData(true, 1)]
-    [InlineData(false, 0)]
-    public async Task ClearExcludedTimestampsAsync_RemovesOnlyCurrentlyExcludedState(bool cacheAvailable, int expectedRemovedCacheEntries)
+    [InlineData(true, 1, true)]
+    [InlineData(false, 0, true)]
+    [InlineData(true, 1, false)]
+    public async Task ClearExcludedTimestampsAsync_RemovesOnlyCurrentlyExcludedState(bool cacheAvailable, int expectedRemovedCacheEntries, bool eraseTombstones)
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -127,20 +128,20 @@ public sealed class TestVisualizationController : IDisposable
         EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
         var controller = CreateController(cacheAvailable ? pluginScope.CacheDbPath : SegmentChangeHarness.MissingCachePath(), libraryManager);
 
-        var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
+        var result = await controller.ClearExcludedTimestampsAsync(eraseTombstones, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
 
-        // The excluded episode's active segment plus its tombstone: clearing excluded
-        // items is a full erase, so suppressed rows are deleted (and counted) too. A
-        // failing cache database does not fail the request.
-        Assert.Equal(2, response.RemovedSegments);
+        // The excluded episode's active segment, plus its tombstone unless the request keeps
+        // tombstones. A failing cache database does not fail the request.
+        Assert.Equal(eraseTombstones ? 2 : 1, response.RemovedSegments);
         Assert.Equal(expectedRemovedCacheEntries, response.RemovedCacheEntries);
 
         await using var db = _h.Context();
-        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
+        Assert.Equal(!eraseTombstones, await db.Segments.AnyAsync(s => s.ItemId == excludedId && s.State == SegmentState.Suppressed));
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId && s.State == SegmentState.Active));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
@@ -689,7 +690,7 @@ public sealed class TestVisualizationController : IDisposable
             new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),
             new DbSegment(episodeIds[1], AnalysisMode.Introduction, TickConversions.FromSeconds(30), TickConversions.FromSeconds(40), SegmentSource.Chapter),
             // Tombstone (user-deleted automatic segment) on the first episode: season erase and
-            // clear-excluded are full erases, so they must delete suppressed rows too.
+            // clear-excluded delete it unless the request keeps tombstones.
             new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(50), TickConversions.FromSeconds(60), SegmentSource.Chapter)
             {
                 State = SegmentState.Suppressed,

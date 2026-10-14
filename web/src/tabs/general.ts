@@ -10,7 +10,7 @@ import { el, htmlEl } from "../components/dom.ts";
 import { configForm } from "../components/config-form.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDashboard, confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
@@ -132,12 +132,12 @@ export const generalTab: Tab = {
                     title: "Clear Excluded Timestamps",
                     body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",
                     confirmLabel: "Clear",
-                    checkboxes: [{ label: "Remove user-created timestamp locks", checked: true }],
+                    checkboxes: { eraseTombstones: eraseCheckboxes.eraseTombstones },
                 });
                 if (!result) return;
 
                 clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
-                const response = await clearExcludedTimestamps(result.checkboxValues[0] ?? true);
+                const response = await clearExcludedTimestamps(result);
                 if (!response.ok) {
                     clearStatus.show(response.error, "var(--is-error)");
                     return;

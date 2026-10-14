@@ -58,8 +58,11 @@ Test parallelization is disabled assembly-wide, so tests may share `Plugin.Insta
 There is no `main`/`master`. Branches are named for Jellyfin releases, and origin's default, `12.0`, is the current line. Target the release branch your feature branch was cut from (check the merge base).
 </important>
 
-<important if="you are editing IntroSkipper.csproj or package references">
-Never add a ProjectReference to a local `../../jellyfin` checkout. It causes NU1605 restore errors and breaks the plugin's assembly load context.
+<important if="you are editing a csproj, package references or dependabot.yml">
+- Only `IntroSkipper.csproj` references Jellyfin packages: `Jellyfin.Controller` and `Jellyfin.Model`, both at the same exact version. The tests and `tools/CreditsRunner` get them through their ProjectReference. They are the only Jellyfin versions to bump.
+- The plugin cannot load on a Jellyfin server older than the version it compiled against, so a Jellyfin bump raises the minimum server version.
+- The plugin loads the server's EF Core and UTF.Unknown, so keep their versions equal to what Jellyfin ships in the release the plugin compiles against. EF Core's assembly version is its package version, and a plugin compiled against a newer EF Core fails to load on any server that ships an older one. Dependabot ignores both, so move them by hand with a Jellyfin bump.
+- Never add a ProjectReference to a local `../../jellyfin` checkout. It causes NU1605 restore errors and breaks the plugin's assembly load context.
 </important>
 
 <important if="you are working on analyzers, the detection pipeline, or scheduled tasks">

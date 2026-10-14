@@ -12,7 +12,7 @@ internal enum AutoSegmentRejection
     /// <summary>Nothing refuses the segment; it is admitted.</summary>
     None,
 
-    /// <summary>A tombstone of the same mode: the user deleted an overlapping range.</summary>
+    /// <summary>A tombstone of the same mode: the segment lies within a range the user deleted.</summary>
     Tombstone,
 
     /// <summary>An active user segment of the same mode overlaps.</summary>

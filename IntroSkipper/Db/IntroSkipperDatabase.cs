@@ -172,7 +172,7 @@ public sealed partial class IntroSkipperDatabase
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping credits for episode {EpisodeId}: detected segment overlaps with introduction")]
     private static partial void LogCreditsOverlapWithIntro(ILogger logger, Guid episodeId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a segment the user deleted")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: lies within a segment the user deleted")]
     private static partial void LogAutoSegmentSuppressedByTombstone(ILogger logger, Data.AnalysisMode mode, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a user-provided segment")]
