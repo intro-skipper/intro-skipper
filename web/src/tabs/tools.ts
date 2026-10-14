@@ -2,7 +2,7 @@ import type { SegmentType, Tab } from "../types.ts";
 import * as api from "../store/api.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
-import { confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { MODE_OPTIONS } from "../components/segment-editor.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 
@@ -67,19 +67,12 @@ export const toolsTab: Tab = {
                 title: "Confirm Timestamp Erasure",
                 body: "Are you sure you want to erase all previously discovered " + target.timestamps + "?",
                 confirmLabel: "Erase",
-                checkboxes: [
-                    { label: "Include cached fingerprint files" },
-                    { label: "Remove user-created timestamp locks", checked: true },
-                ],
+                checkboxes: eraseCheckboxes,
             });
             if (!result) return;
 
             for (const mode of target.modes) {
-                const response = await api.eraseTimestamps(
-                    mode,
-                    result.checkboxValues[0] ?? false,
-                    result.checkboxValues[1] ?? true,
-                );
+                const response = await api.eraseTimestamps(mode, result);
                 if (!response.ok) {
                     window.Dashboard.alert("Failed to erase " + target.timestamps);
                     return;
