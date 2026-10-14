@@ -130,7 +130,7 @@ export const generalTab: Tab = {
 
                 const result = await confirmDialog({
                     title: "Clear Excluded Timestamps",
-                    body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",
+                    body: "Remove timestamp data for media currently matched by the exclusion lists. User segments and included media in the same seasons are kept.",
                     confirmLabel: "Clear",
                     checkboxes: { eraseTombstones: eraseCheckboxes.eraseTombstones },
                 });

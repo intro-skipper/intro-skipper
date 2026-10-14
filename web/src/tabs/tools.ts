@@ -65,7 +65,7 @@ export const toolsTab: Tab = {
             const target = eraseTarget(globalSelect.value);
             const result = await confirmDialog({
                 title: "Confirm Timestamp Erasure",
-                body: "Are you sure you want to erase all previously discovered " + target.timestamps + "?",
+                body: "Are you sure you want to erase all previously discovered " + target.timestamps + "? User segments are kept.",
                 confirmLabel: "Erase",
                 checkboxes: eraseCheckboxes,
             });
