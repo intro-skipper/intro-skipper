@@ -32,7 +32,7 @@ namespace IntroSkipper.Controllers;
 /// <param name="queue">Analysis queue a manual scan is handed to, and whose status the scan status endpoint reports.</param>
 /// <param name="seasonResolver">Resolver of season keys into the episodes the dashboard shows, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
-/// <param name="eraser">Erases seasons' segments, analysis state and cache rows, and converges their mirrors.</param>
+/// <param name="eraser">Erases seasons' automatic segments, analysis state and cache rows, and converges their mirrors.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
@@ -119,7 +119,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy. User segments are kept.
+    /// Clears automatic timestamps, analysis records and cache rows of media matched by the current exclusion policy. User segments are kept.
     /// </summary>
     /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are kept either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

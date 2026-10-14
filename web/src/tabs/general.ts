@@ -113,7 +113,7 @@ export const generalTab: Tab = {
             el(
                 "div",
                 { className: "field-description" },
-                "Remove timestamp, cache, and season-state rows for media currently matched by the exclusion lists.",
+                "Remove timestamp and cache rows for media currently matched by the exclusion lists.",
             ),
         );
 
