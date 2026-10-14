@@ -49,30 +49,35 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.False(marker.SourceFileFound);
     }
 
+    /// <summary>
+    /// The v12.0.5.21 pre-release created an EmbeddedChapterTransitions table that no
+    /// migration creates any more. A database that ran it keeps the table, its row and the
+    /// migration's history entry. EF Core skips a history entry it has no migration for,
+    /// so the facade still initializes over that database and serves segments.
+    /// </summary>
     [Fact]
-    public async Task EmbeddedChapterTransition_PersistsPendingAndAppliedState()
+    public async Task PreReleaseChapterTransitionTable_LeavesTheDatabaseUsable()
     {
-        var database = _db.Database;
+        await using (var db = _db.Context())
+        {
+            await db.Database.MigrateAsync();
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TABLE "EmbeddedChapterTransitions" (
+                    "Id" INTEGER NOT NULL CONSTRAINT "PK_EmbeddedChapterTransitions" PRIMARY KEY,
+                    "AppliedEmbeddedChapters" INTEGER NOT NULL,
+                    "PendingEmbeddedChapters" INTEGER NULL);
+                INSERT INTO "EmbeddedChapterTransitions" VALUES (1, 1, NULL);
+                INSERT INTO "__EFMigrationsHistory" VALUES ('20261013100000_AddEmbeddedChapterTransition', '10.0.11');
+                """);
+        }
 
-        Assert.Null(await database.GetEmbeddedChapterTransitionAsync());
+        var database = _db.CreateDatabase();
+        var itemId = Guid.NewGuid();
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
 
-        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: false);
-        var initial = await database.GetEmbeddedChapterTransitionAsync();
-        Assert.NotNull(initial);
-        Assert.False(initial!.Value.AppliedEmbeddedChapters);
-        Assert.Null(initial.Value.PendingEmbeddedChapters);
-
-        await database.SetEmbeddedChapterTransitionPendingAsync(embedded: true);
-        var pending = await database.GetEmbeddedChapterTransitionAsync();
-        Assert.NotNull(pending);
-        Assert.False(pending!.Value.AppliedEmbeddedChapters);
-        Assert.True(pending.Value.PendingEmbeddedChapters == true);
-
-        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: true);
-        var applied = await database.GetEmbeddedChapterTransitionAsync();
-        Assert.NotNull(applied);
-        Assert.True(applied!.Value.AppliedEmbeddedChapters);
-        Assert.Null(applied.Value.PendingEmbeddedChapters);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal((10.0, 20.0), (row.ToSegment().Start, row.ToSegment().End));
     }
 
     [Fact]
