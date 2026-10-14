@@ -83,5 +83,9 @@ _Avoid_: Producer, trigger, source
 ### Segments
 
 **Tombstone**:
-An automatic segment the user deleted, kept as a suppressed row. It refuses automatic segments of its item and mode that re-detect the deleted range, up to 3 s past either end. It protects nothing the user made: deleting a user segment removes it outright, and every erase removes user segments.
+An automatic segment the user deleted, kept as a suppressed row. It refuses automatic segments of its item and mode that re-detect the deleted range, up to 3 s past either end. It protects nothing the user made: deleting a user segment removes it outright.
 _Avoid_: Lock, timestamp lock
+
+**User segment**:
+A segment a person added through the segment editor or the segments API, or an automatic segment whose range they moved. It settles its mode for its item, so analysis leaves that mode alone, and no erase removes it.
+_Avoid_: Manual segment, manual edit

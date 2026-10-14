@@ -762,15 +762,16 @@ public sealed partial class IntroSkipperDatabase
             .ThenBy(s => s.StartTicks);
 
     /// <summary>
-    /// Deletes the stored segments of the given analysis mode and the mode's analysis
+    /// Deletes the automatic segments of the given analysis mode and the mode's analysis
     /// records, in one transaction with the projection of every item that held a row of
     /// the mode journaled, so their Jellyfin mirrors converge durably.
     /// </summary>
     /// <remarks>
-    /// Every active row of the mode goes, whatever its source, user segments included.
-    /// Tombstones go only when <paramref name="eraseTombstones"/> is set; an item whose
-    /// only row of the mode is a kept tombstone is journaled too. The mode's analysis
-    /// records go so the next scan re-detects instead of classifying the erased items as
+    /// User segments stay, because analysis did not create them. They settle the mode for
+    /// their items, so the next scan leaves those items alone. Tombstones go only when
+    /// <paramref name="eraseTombstones"/> is set. An item whose only rows of the mode are
+    /// kept user segments or tombstones is journaled too. The mode's analysis records go so
+    /// the next scan re-detects instead of classifying the erased items as
     /// <c>NoSegments</c>. Items with a credits-derived row of the mode, active or a
     /// tombstone, also lose their <see cref="AnalysisMode.Credits"/> records, because only
     /// the credits pass can regenerate those rows.
@@ -778,7 +779,7 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="eraseTombstones"><see langword="true"/> to delete the mode's tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The ids of the items that held a row of the mode, tombstones included.</returns>
+    /// <returns>The ids of the items that held a row of the mode, user segments and tombstones included.</returns>
     public async Task<IReadOnlyCollection<Guid>> DeleteSegmentsByModeAsync(AnalysisMode mode, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
@@ -807,12 +808,13 @@ public sealed partial class IntroSkipperDatabase
             var (_, deletedItemIds) = await DeleteSegmentsAndJournalAsync(
                 db,
                 db.Segments.Where(s => s.Type == mode
+                    && s.Source != SegmentSource.User
                     && (eraseTombstones || s.State == SegmentState.Active)),
                 cancellationToken).ConfigureAwait(false);
 
-            // A preserved tombstone may be the only row for its item. It still needs
-            // a projection marker so a stale Jellyfin mirror is cleared, even though
-            // no segment row was deleted by the erase.
+            // A kept user segment or tombstone may be the only row of the mode for its
+            // item. The item still gets a projection marker, so a stale Jellyfin mirror
+            // converges even though the erase deleted none of its rows.
             await EnqueueProjectionsAsync(db, allItemIds.Except(deletedItemIds).ToArray(), cancellationToken).ConfigureAwait(false);
 
             // Without this the erased items stay recorded as analyzed for the mode and

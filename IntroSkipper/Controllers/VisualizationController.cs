@@ -87,12 +87,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases all timestamps for the provided season, user segments included.
+    /// Erases the provided season's automatic segments and analysis records. User segments are kept.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
-    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are kept either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
     /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
@@ -119,9 +119,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy.
+    /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy. User segments are kept.
     /// </summary>
-    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are kept either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Counts describing the cleared excluded timestamp state.</returns>
     [HttpPost("ExcludedTimestamps/Clear")]
@@ -302,8 +302,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <summary>
     /// Queues a manual scan of the episodes Jellyfin shows under the provided season: as
     /// its own pass once any pass in flight has finished, the queue resolves the season
-    /// again, erases its timestamps and cache, then analyzes each episode in the season it
-    /// is analyzed in, which for an in-season special is its host season. A repeat
+    /// again, erases its automatic segments and cache but keeps user segments, then
+    /// analyzes each episode in the season it is analyzed in, which for an in-season
+    /// special is its host season. A repeat
     /// request joins the season's pending scan; one made while its scan runs queues a
     /// follow-up.
     /// </summary>

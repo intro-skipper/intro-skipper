@@ -394,10 +394,11 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task DeleteSegmentsByModeAsync_RemovesOnlyTheGivenMode_IncludingTombstones()
+    public async Task DeleteSegmentsByModeAsync_RemovesOnlyTheGivenModesAutomaticRows_IncludingTombstones()
     {
         var itemA = Guid.NewGuid();
         var itemB = Guid.NewGuid();
+        var itemC = Guid.NewGuid();
         var database = _db.Database;
         await database.ReplaceAutoSegmentsAsync(itemA, AnalysisMode.Introduction, [new Segment(itemA, new TimeRange(0, 30))], SegmentSource.Chapter);
         await database.ReplaceAutoSegmentsAsync(itemA, AnalysisMode.Credits, [new Segment(itemA, new TimeRange(1200, 1260))], SegmentSource.Chapter);
@@ -408,6 +409,11 @@ public sealed class TestDatabaseFacades : IDisposable
         var tombstoned = Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
         await database.DeleteSegmentAsync(itemB, tombstoned.Id);
 
+        // A user intro beside an automatic one, and one on its own: both stay, and both
+        // items are reported for convergence.
+        var userBesideAutomatic = await database.SeedUserSegmentAsync(itemA, AnalysisMode.Introduction, Ticks(100), Ticks(130));
+        var userAlone = await database.SeedUserSegmentAsync(itemC, AnalysisMode.Introduction, Ticks(5), Ticks(15));
+
         // Analysis records: the erased mode's must go so the next scan re-detects;
         // other modes' stay.
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemA, itemB], "intro-hash");
@@ -415,15 +421,15 @@ public sealed class TestDatabaseFacades : IDisposable
 
         var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: true);
 
-        Assert.Equal(2, erasedItemIds.Count);
-        Assert.Contains(itemA, erasedItemIds);
-        Assert.Contains(itemB, erasedItemIds);
+        Assert.Equal(new[] { itemA, itemB, itemC }.Order(), erasedItemIds.Order());
 
         await using (var db = _db.Context())
         {
             var remaining = await db.Segments.AsNoTracking().ToListAsync();
-            Assert.Equal(2, remaining.Count);
-            Assert.DoesNotContain(remaining, s => s.Type == AnalysisMode.Introduction);
+            Assert.Equal(4, remaining.Count);
+            Assert.Equal(
+                new[] { userBesideAutomatic.Id, userAlone.Id }.Order(),
+                remaining.Where(s => s.Type == AnalysisMode.Introduction).Select(s => s.Id).Order());
             Assert.Single(remaining, s => s.ItemId == itemA && s.Type == AnalysisMode.Credits);
             Assert.Single(remaining, s => s.ItemId == itemB && s.Type == AnalysisMode.Commercial);
 
@@ -431,8 +437,7 @@ public sealed class TestDatabaseFacades : IDisposable
             Assert.Equal((itemA, AnalysisMode.Credits), (record.ItemId, record.Type));
         }
 
-        // Erase-by-mode is a factory reset: with the tombstone gone, the next
-        // analysis run may store the range again.
+        // With the tombstone gone, the next analysis run may store the range again.
         await database.ReplaceAutoSegmentsAsync(itemB, AnalysisMode.Introduction, [new Segment(itemB, new TimeRange(0, 20))], SegmentSource.Chapter);
         Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
     }
@@ -532,28 +537,30 @@ public sealed class TestDatabaseFacades : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly(bool eraseTombstones)
+    public async Task EraseItemsAsync_DeletesAutomaticSegmentsAndAnalysisRecords_OfTheGivenItemsOnly(bool eraseTombstones)
     {
         var targetItemId = Guid.NewGuid();
         var otherItemId = Guid.NewGuid();
         var database = _db.Database;
         await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Credits, [new Segment(targetItemId, new TimeRange(1200, 1260))], SegmentSource.Chapter);
         await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
 
-        // Tombstone the target item's intro and add a user row. The user row goes either
-        // way, and the tombstone only when the erase includes tombstones. The records come
-        // after the delete, which clears the target's on its own.
-        var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
+        // Tombstone the target item's intro and add a user row. The active automatic
+        // credits go either way, the tombstone only when the erase includes tombstones, and
+        // the user row stays. The records come after the delete, which clears the target's
+        // on its own.
+        var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId), s => s.Type == AnalysisMode.Introduction);
         await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
-        await database.SeedUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
+        var user = await database.SeedUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [targetItemId, otherItemId], "hash");
 
         var removed = await database.EraseItemsAsync([targetItemId], eraseTombstones);
 
         Assert.Equal(eraseTombstones ? 2 : 1, removed);
+        Assert.Equal(user.Id, Assert.Single(await database.GetSegmentsAsync(targetItemId)).Id);
         await using var db = _db.Context();
         Assert.Equal(!eraseTombstones, await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.State == SegmentState.Suppressed));
-        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.Source == SegmentSource.User));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == otherItemId));

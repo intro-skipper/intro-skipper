@@ -76,6 +76,33 @@ public sealed class TestVisualizationController : IDisposable
     }
 
     [Fact]
+    public async Task EraseSeasonAsync_KeepsUserSegments_InTheDatabaseAndTheMirror()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        using var pluginScope = CreateScope(updateMediaSegments: true);
+        await SeedSeasonAsync(seasonId, episodeIds);
+        var user = await _h.Database.SeedUserSegmentAsync(episodeIds[1], AnalysisMode.Credits, DatabaseTestHelpers.Ticks(1200), DatabaseTestHelpers.Ticks(1260));
+
+        // Jellyfin holds every active row, as the mirror pushed them.
+        var activeRows = (await _h.Database.GetSegmentsAsync(episodeIds[0])).Concat(await _h.Database.GetSegmentsAsync(episodeIds[1]));
+        _h.Store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [.. activeRows.Select(row => SegmentChangeHarness.MirroredDto(row.ItemId, row.Id, AnalysisHelpers.ModeToSegmentType[row.Type], row.StartTicks, row.EndTicks))],
+        };
+        var controller = CreateController(pluginScope.CacheDbPath, SeasonLibrary(seriesId, seasonId, episodeIds));
+
+        var result = await controller.EraseSeasonAsync(seriesId, seasonId, cancellationToken: CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Empty(await _h.Database.GetSegmentsAsync(episodeIds[0], includeSuppressed: true));
+        Assert.Equal(user.Id, Assert.Single(await _h.Database.GetSegmentsAsync(episodeIds[1], includeSuppressed: true)).Id);
+        Assert.Empty(await _h.Store.GetOwnSegmentsAsync(episodeIds[0], CancellationToken.None));
+        Assert.Equal(user.Id, Assert.Single(await _h.Store.GetOwnSegmentsAsync(episodeIds[1], CancellationToken.None)).Id);
+    }
+
+    [Fact]
     public async Task EraseSeasonAsync_CacheFailureStillClearsMainDatabaseState()
     {
         var seriesId = Guid.NewGuid();
@@ -116,6 +143,7 @@ public sealed class TestVisualizationController : IDisposable
         };
         using var pluginScope = CreateScope(config);
         await SeedSeasonAsync(seasonId, [excludedId, includedId]);
+        var user = await _h.Database.SeedUserSegmentAsync(excludedId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(1200), DatabaseTestHelpers.Ticks(1260));
         SeedCache(pluginScope.CacheDbPath, excludedId, includedId);
 
         // The controller resolves the library through the season resolver, so the
@@ -134,14 +162,15 @@ public sealed class TestVisualizationController : IDisposable
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
 
-        // The excluded episode's active segment, plus its tombstone unless the request keeps
-        // tombstones. A failing cache database does not fail the request.
+        // The excluded episode's automatic segment, plus its tombstone unless the request
+        // keeps tombstones. The kept user segment is not counted. A failing cache database
+        // does not fail the request.
         Assert.Equal(eraseTombstones ? 2 : 1, response.RemovedSegments);
         Assert.Equal(expectedRemovedCacheEntries, response.RemovedCacheEntries);
+        Assert.Equal(user.Id, Assert.Single(await _h.Database.GetSegmentsAsync(excludedId)).Id);
 
         await using var db = _h.Context();
         Assert.Equal(!eraseTombstones, await db.Segments.AnyAsync(s => s.ItemId == excludedId && s.State == SegmentState.Suppressed));
-        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId && s.State == SegmentState.Active));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == excludedId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == includedId));
