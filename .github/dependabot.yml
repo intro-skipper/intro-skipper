@@ -15,10 +15,11 @@ updates:
         patterns:
           - Jellyfin.*
     ignore:
-      # The plugin loads the server's EF Core and fails to load if it compiled
-      # against a newer one. Move it by hand with a Jellyfin bump, to the
-      # version that Jellyfin release ships.
+      # The plugin loads the server's EF Core and UTF.Unknown and fails to load
+      # if it compiled against a newer one. Move them by hand with a Jellyfin
+      # bump, to the versions that Jellyfin release ships.
       - dependency-name: Microsoft.EntityFrameworkCore.*
+      - dependency-name: UTF.Unknown
     labels:
       - chore
       - dependency
