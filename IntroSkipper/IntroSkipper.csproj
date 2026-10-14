@@ -13,9 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="12.2.0" />
     <PackageReference Include="Jellyfin.Model" Version="12.2.0" />
-    <!-- The plugin loads the server's EF Core. Its assembly version is the package version, so
-         with a newer one the plugin fails to load. Keep these equal to the server's and move them
-         with a Jellyfin bump; dependabot ignores them. -->
+    <!-- Must equal the server's EF Core version (see AGENTS.md); dependabot ignores these. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
