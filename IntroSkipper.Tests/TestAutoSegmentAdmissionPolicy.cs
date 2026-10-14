@@ -53,6 +53,18 @@ public sealed class TestAutoSegmentAdmissionPolicy
         Assert.Equal(expected, AutoSegmentAdmissionPolicy.Check(AnalysisMode.Introduction, startTicks, endTicks, [tombstone]).ToString());
     }
 
+    // Adding the tolerance to an end tick near long.MaxValue would wrap and admit the identical
+    // range, which the unique range index then rejects.
+    [Fact]
+    public void Check_TombstoneRefusesAnIdenticalRangeNearTheTickLimit()
+    {
+        var tombstone = new DbSegment(ItemId, AnalysisMode.Introduction, long.MaxValue - Ticks(60), long.MaxValue, SegmentSource.Chromaprint) { State = SegmentState.Suppressed };
+
+        Assert.Equal(
+            AutoSegmentRejection.Tombstone,
+            AutoSegmentAdmissionPolicy.Check(AnalysisMode.Introduction, tombstone.StartTicks, tombstone.EndTicks, [tombstone]));
+    }
+
     // Human intent of the candidate's own mode refuses it; automatic rows never do (the
     // write replaces them). Against credits, only an active intro refuses, whatever its
     // source; a deleted intro does not, and the rule runs one way only.

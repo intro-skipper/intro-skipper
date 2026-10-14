@@ -60,9 +60,10 @@ internal static class AutoSegmentAdmissionPolicy
     {
         bool Overlapping(DbSegment row) => startTicks < row.EndTicks && row.StartTicks < endTicks;
 
+        // Differences, not sums: tick values are non-negative, so neither side can overflow.
         bool WithinDeletedRange(DbSegment row) => Overlapping(row)
-            && startTicks >= row.StartTicks - TombstoneToleranceTicks
-            && endTicks <= row.EndTicks + TombstoneToleranceTicks;
+            && row.StartTicks - startTicks <= TombstoneToleranceTicks
+            && endTicks - row.EndTicks <= TombstoneToleranceTicks;
 
         if (itemRows.Any(row => row.Type == mode && row.State == SegmentState.Suppressed && WithinDeletedRange(row)))
         {
