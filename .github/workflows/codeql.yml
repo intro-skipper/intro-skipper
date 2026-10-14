@@ -2,8 +2,9 @@ name: "CodeQL"
 
 on:
   push:
+    # Pushes run only on release branches like 12.0. Pull requests run from pull_request.
     branches:
-      - '*'  # Triggers on any branch push
+      - '[0-9]+.[0-9]+'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -11,6 +12,9 @@ on:
       - "images/**"
   pull_request:
     types:
+      - opened
+      - reopened
+      - synchronize
       - ready_for_review
 
 permissions: write-all
