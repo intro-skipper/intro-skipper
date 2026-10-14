@@ -264,7 +264,7 @@ internal static partial class FFmpegOutputParser
     /// jellyfin-ffmpeg 7.1.3 and 8.1.2.
     /// </remarks>
     /// <param name="raw">The ffmpeg standard error output.</param>
-    /// <returns>The decoder's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
+    /// <returns>The mapped input stream's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
     internal static string? ParseMappedVideoCodec(string raw)
     {
         var inBlock = false;
