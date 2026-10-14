@@ -685,41 +685,23 @@ internal sealed partial class FFmpegService : IFFmpegService
         entry.Touch(now);
         TrimEmbeddedChapterCache(now);
 
-        Task<EmbeddedChapterProbeResult> probe;
-        try
-        {
-            probe = entry.Probe.Value;
-        }
-        catch
-        {
-            RemoveEmbeddedChapterProbe(key, entry);
-            throw;
-        }
-
+        var probe = entry.Probe.Value;
         _ = probe.ContinueWith(
             completed => RemoveCompletedEmbeddedChapterProbe(key, entry, completed),
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        try
+        // Cancellation ends only this caller's wait. The shared probe runs without a caller's
+        // token, so a waiter walking away cannot fail it for the next caller.
+        var result = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
+        entry.Touch(DateTimeOffset.UtcNow);
+        if (!result.Succeeded)
         {
-            var result = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
-            entry.Touch(DateTimeOffset.UtcNow);
-            if (!result.Succeeded)
-            {
-                RemoveEmbeddedChapterProbe(key, entry);
-            }
+            RemoveEmbeddedChapterProbe(key, entry);
+        }
 
-            return GetEmbeddedChapterResult(episode.Path, result);
-        }
-        catch (OperationCanceledException)
-        {
-            // WaitAsync cancellation belongs only to this caller. The shared probe runs on
-            // the service-owned lifetime and its continuation removes a cancelled task once
-            // it completes, so a waiter walking away cannot poison the next caller.
-            throw;
-        }
+        return GetEmbeddedChapterResult(episode.Path, result);
     }
 
     private static ChapterInfo[] GetEmbeddedChapterResult(string filePath, EmbeddedChapterProbeResult result)
@@ -760,8 +742,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private void RemoveEmbeddedChapterProbe(
         (string Path, long? FileVersion) key,
         EmbeddedChapterCacheEntry entry)
-        => ((ICollection<KeyValuePair<(string Path, long? FileVersion), EmbeddedChapterCacheEntry>>)_embeddedChapters)
-            .Remove(new(key, entry));
+        => _embeddedChapters.TryRemove(KeyValuePair.Create(key, entry));
 
     private void TrimEmbeddedChapterCache(DateTimeOffset now)
     {
@@ -816,11 +797,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
             return new EmbeddedChapterProbeResult(FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span)), succeeded: true);
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is JsonException || IsProcessFailure(ex))
         {
             LogEmbeddedChapterProbeFailed(ex, filePath);
             return EmbeddedChapterProbeResult.Failed;
@@ -1513,25 +1490,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         public long ExpiresAtTicks => Volatile.Read(ref _expiresAtTicks);
 
-        public bool IsCompleted
-        {
-            get
-            {
-                if (!Probe.IsValueCreated)
-                {
-                    return true;
-                }
-
-                try
-                {
-                    return Probe.Value.IsCompleted;
-                }
-                catch
-                {
-                    return true;
-                }
-            }
-        }
+        public bool IsCompleted => !Probe.IsValueCreated || Probe.Value.IsCompleted;
 
         public bool IsExpired(DateTimeOffset now) => ExpiresAtTicks <= now.UtcTicks;
 
