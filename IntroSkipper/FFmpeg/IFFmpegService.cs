@@ -120,7 +120,7 @@ public interface IFFmpegService
     /// Probes the first audio stream's actual duration with ffprobe.
     /// </summary>
     /// <param name="filePath">Media path.</param>
-    /// <param name="cancellationToken">Token used to cancel the caller's wait for the cached ffprobe result.</param>
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
     /// <returns>A task that returns the audio duration in seconds, or null when unavailable.</returns>
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
