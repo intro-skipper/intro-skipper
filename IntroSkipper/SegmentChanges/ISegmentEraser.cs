@@ -25,11 +25,14 @@ public interface ISegmentEraser
     /// Erases the items' segments and analysis records. Every active row goes, user
     /// segments included.
     /// </summary>
+    /// <remarks>
+    /// The id count is unbounded: each delete binds the ids as one parameter.
+    /// </remarks>
     /// <param name="itemIds">The items to erase.</param>
     /// <param name="eraseCache"><see langword="true"/> to delete the items' detection cache rows too; otherwise, <see langword="false"/>.</param>
     /// <param name="eraseTombstones"><see langword="true"/> to delete the items' tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The number of removed segment rows and cache rows.</returns>
+    /// <returns>The number of removed segment rows, tombstones included when <paramref name="eraseTombstones"/> is set, and the number of removed cache rows, 0 when the cache delete failed.</returns>
     Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken);
 
     /// <summary>
