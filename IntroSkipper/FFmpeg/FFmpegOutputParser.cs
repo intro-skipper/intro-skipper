@@ -294,12 +294,20 @@ internal static partial class FFmpegOutputParser
     /// <summary>
     /// Parses ffprobe's JSON chapter listing.
     /// </summary>
-    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters</c>.</param>
-    /// <returns>The chapter start times and embedded chapter titles.</returns>
+    /// <remarks>
+    /// ffprobe prints each <c>start_time</c> as a string of seconds, such as <c>"90.048625"</c>,
+    /// on jellyfin-ffmpeg 7.1.3 and 8.1.2. A chapter whose start is missing, not such a string,
+    /// or not a representable tick count (<see cref="TickConversions.TryFromSeconds"/>) is
+    /// dropped. Only malformed JSON throws.
+    /// </remarks>
+    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters -of json</c>.</param>
+    /// <returns>The chapters sorted by start, with their embedded titles, or an empty title when a chapter has none.</returns>
+    /// <exception cref="JsonException"><paramref name="raw"/> is not valid JSON.</exception>
     internal static ChapterInfo[] ParseChapters(string raw)
     {
         using var document = JsonDocument.Parse(raw);
-        if (!document.RootElement.TryGetProperty("chapters", out var chapters)
+        if (document.RootElement.ValueKind != JsonValueKind.Object
+            || !document.RootElement.TryGetProperty("chapters", out var chapters)
             || chapters.ValueKind != JsonValueKind.Array)
         {
             return [];
@@ -308,51 +316,25 @@ internal static partial class FFmpegOutputParser
         var result = new List<ChapterInfo>();
         foreach (var chapter in chapters.EnumerateArray())
         {
-            if (!chapter.TryGetProperty("start_time", out var startElement)
-                || !TryParseDouble(startElement, out var startSeconds)
-                || !double.IsFinite(startSeconds)
-                || startSeconds < 0
-                || startSeconds > TimeSpan.MaxValue.TotalSeconds)
+            if (chapter.ValueKind != JsonValueKind.Object
+                || !chapter.TryGetProperty("start_time", out var start)
+                || start.ValueKind != JsonValueKind.String
+                || !double.TryParse(start.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var startSeconds)
+                || !TickConversions.TryFromSeconds(startSeconds, out var startTicks))
             {
                 continue;
             }
 
-            var name = string.Empty;
-            if (chapter.TryGetProperty("tags", out var tags)
+            var name = chapter.TryGetProperty("tags", out var tags)
                 && tags.ValueKind == JsonValueKind.Object
-                && tags.TryGetProperty("title", out var title))
-            {
-                name = title.ValueKind == JsonValueKind.String ? title.GetString() ?? string.Empty : string.Empty;
-            }
-
-            try
-            {
-                result.Add(new ChapterInfo
-                {
-                    StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
-                    Name = name,
-                });
-            }
-            catch (OverflowException)
-            {
-                // A value close to TimeSpan.MaxValue can still round outside the valid
-                // tick range during conversion; ignore that malformed chapter.
-            }
+                && tags.TryGetProperty("title", out var title)
+                && title.ValueKind == JsonValueKind.String
+                ? title.GetString()!
+                : string.Empty;
+            result.Add(new ChapterInfo { StartPositionTicks = startTicks, Name = name });
         }
 
         return [.. result.OrderBy(chapter => chapter.StartPositionTicks)];
-    }
-
-    private static bool TryParseDouble(JsonElement value, out double result)
-    {
-        result = default;
-        if (value.ValueKind == JsonValueKind.Number)
-        {
-            return value.TryGetDouble(out result);
-        }
-
-        return value.ValueKind == JsonValueKind.String
-            && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
 
     /// <summary>

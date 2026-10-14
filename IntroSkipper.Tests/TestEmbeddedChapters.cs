@@ -4,6 +4,8 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -18,48 +20,76 @@ using Xunit;
 public class TestEmbeddedChapters
 {
     [Fact]
-    public void ParseChapters_ReadsEmbeddedChapterStartsAndTitles()
+    public void ParseChapters_ReadsStartsAndTitlesInStartOrder()
     {
         var chapters = FFmpegOutputParser.ParseChapters("""
             {
               "chapters": [
-                { "start_time": 98.25, "tags": { "title": "Main" } },
-                { "start_time": "12.500", "tags": { "title": "Opening" } }
+                { "start_time": "98.250000", "tags": { "title": "Main" } },
+                { "start_time": "90.048625", "tags": { "title": "Opening" } },
+                { "start_time": "0.000000" }
               ]
             }
             """);
 
-        Assert.Collection(
-            chapters,
-            chapter =>
-            {
-                Assert.Equal(DatabaseTestHelpers.Ticks(12.5), chapter.StartPositionTicks);
-                Assert.Equal("Opening", chapter.Name);
-            },
-            chapter =>
-            {
-                Assert.Equal(DatabaseTestHelpers.Ticks(98.25), chapter.StartPositionTicks);
-                Assert.Equal("Main", chapter.Name);
-            });
+        Assert.Equal(
+            [(0L, string.Empty), (900_486_250L, "Opening"), (982_500_000L, "Main")],
+            chapters.Select(chapter => (chapter.StartPositionTicks, chapter.Name)));
     }
 
     [Fact]
-    public void ParseChapters_SkipsNonFiniteAndOutOfRangeStarts()
+    public void ParseChapters_DropsStartsThatAreNotTickCounts()
     {
         var chapters = FFmpegOutputParser.ParseChapters("""
             {
               "chapters": [
                 { "start_time": "NaN", "tags": { "title": "NaN" } },
                 { "start_time": "1e100", "tags": { "title": "Too late" } },
-                { "start_time": -1, "tags": { "title": "Before start" } },
-                { "start_time": 15, "tags": { "title": "Opening" } }
+                { "start_time": "-1.000000", "tags": { "title": "Before start" } },
+                { "start_time": "15.000000", "tags": { "title": "Opening" } }
               ]
             }
             """);
 
         var chapter = Assert.Single(chapters);
-        Assert.Equal(DatabaseTestHelpers.Ticks(15), chapter.StartPositionTicks);
+        Assert.Equal(150_000_000, chapter.StartPositionTicks);
         Assert.Equal("Opening", chapter.Name);
+    }
+
+    /// <summary>
+    /// Pins the JSON shape the installed ffprobe prints for a Matroska file's chapters.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task GetEmbeddedChaptersAsync_ReadsTheContainerChapters()
+    {
+        using var directory = new TempDirectory();
+        var metadata = directory.Join("chapters.txt");
+        var path = directory.Join("chapters.mkv");
+        await File.WriteAllTextAsync(
+            metadata,
+            """
+            ;FFMETADATA1
+            [CHAPTER]
+            TIMEBASE=1/1000000
+            START=0
+            END=1048625
+            title=Opening
+            [CHAPTER]
+            TIMEBASE=1/1000000
+            START=1048625
+            END=2000000
+            title=Main
+            """.ReplaceLineEndings("\n"));
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=2", "-f", "ffmetadata", "-i", metadata, "-map", "0", "-map_chapters", "1", "-c:v", "ffv1", path]);
+
+        var chapters = await FfmpegTestHelpers.CreateFFmpegService().GetEmbeddedChaptersAsync(
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "chapters", Path = path });
+
+        Assert.Equal(
+            [(0L, "Opening"), (10_486_250L, "Main")],
+            chapters.Select(chapter => (chapter.StartPositionTicks, chapter.Name)));
     }
 
     [Theory]
