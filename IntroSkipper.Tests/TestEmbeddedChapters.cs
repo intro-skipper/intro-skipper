@@ -11,6 +11,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -99,5 +100,56 @@ public class TestEmbeddedChapters
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Introduction, CancellationToken.None);
 
         Assert.Equal(expectedState, episode.GetAnalyzed(AnalysisMode.Introduction));
+    }
+
+    // Jellyfin stores chapter starts rounded to the millisecond, and the embedded probe keeps
+    // ffprobe's microseconds. After a switch to embedded chapters, the chapter intro the user
+    // deleted under Jellyfin's 90.049 s comes back at 90.048625 s, and its tombstone still
+    // refuses it.
+    [Fact]
+    public async Task EmbeddedChapterIntro_DoesNotResurrectAnIntroDeletedAtJellyfinsRoundedStart()
+    {
+        var config = new PluginConfiguration
+        {
+            EnableSponsorBlockChapterDetection = false,
+            UseEmbeddedChaptersForAnalysis = true,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            Duration = 1440,
+            Path = "/media/episode.mkv",
+        };
+        await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Introduction, [new Segment(episode.EpisodeId, new TimeRange(90.049, 180.006))], SegmentSource.Chapter, "jellyfin-chapters");
+        await database.DeleteSegmentAsync(episode.EpisodeId, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).Id);
+        var ffmpeg = new StubFFmpegService
+        {
+            EmbeddedChapters = _ =>
+            [
+                new ChapterInfo { Name = "Prologue", StartPositionTicks = 0 },
+                new ChapterInfo { Name = "Opening", StartPositionTicks = 900_486_250 },
+                new ChapterInfo { Name = "Part A", StartPositionTicks = 1_800_055_830 },
+            ],
+        };
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            seasonResolver: null!,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            cacheDatabase: null!,
+            database);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Introduction, AnalyzerAction.Chapter, false, CancellationToken.None);
+
+        var tombstone = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId, includeSuppressed: true));
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+        Assert.Equal(DatabaseTestHelpers.Ticks(90.049), tombstone.StartTicks);
     }
 }

@@ -275,11 +275,12 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal((SegmentSource.Subtitle, 20d), (recap.Source, TickConversions.ToSeconds(recap.StartTicks)));
     }
 
-    // A tombstone blocks only an identical range. The preferred Chromaprint intro is
-    // slightly shifted from the tombstone and is therefore admitted; the other episode
-    // keeps the Chromaprint intro as well.
+    // A tombstone at 20-50 s refuses the preferred Chromaprint intro of one episode, which
+    // Chromaprint quantizes to start at 19.94 s. That episode is left to the chapter
+    // analyzer after it, which finds an intro the tombstone does not cover; the other
+    // episode keeps the Chromaprint intro.
     [Fact]
-    public async Task IntroductionMode_OverlappingTombstoneAllowsTheChromaprintIntro()
+    public async Task IntroductionMode_TombstoneRefusesTheChromaprintIntro_LeavesTheEpisodeToTheChapterAnalyzer()
     {
         var config = StingConfig();
         ChapterInfo[] chapters =
@@ -300,8 +301,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await CreateTask(ffmpeg, database).AnalyzeItemsAsync([a, c], AnalysisMode.Introduction, AnalyzerAction.Default, true, CancellationToken.None);
 
         var introA = Assert.Single(await ActiveRowsAsync(database, a.EpisodeId, AnalysisMode.Introduction));
-        Assert.Equal(SegmentSource.Chromaprint, introA.Source);
-        Assert.Equal(19.9d, TickConversions.ToSeconds(introA.StartTicks), precision: 1);
+        Assert.Equal((SegmentSource.Chapter, 100d), (introA.Source, TickConversions.ToSeconds(introA.StartTicks)));
         Assert.Equal(SegmentSource.Chromaprint, Assert.Single(await ActiveRowsAsync(database, c.EpisodeId, AnalysisMode.Introduction)).Source);
     }
 
@@ -895,8 +895,11 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.NotEqual(SubtitleOutcome.Unresolved, episode.GetSubtitleOutcome(AnalysisMode.Preview));
     }
 
+    // The user deleted the preview at 100 s, so the subtitle match that finds it again is
+    // refused. The credits-derived preview starts 10 s earlier, beyond the tombstone's
+    // tolerance, so admission kept it; it stays, and Preview settles with a record.
     [Fact]
-    public async Task SubtitleMatchOverlappingTombstoneReplacesCreditsDerivedRow()
+    public async Task RejectedSubtitleMatch_PreservesRowsAndSettlesTheMode()
     {
         var config = new PluginConfiguration
         {
@@ -920,14 +923,14 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await database.ReplaceAutoSegmentsAsync(
             episodeId,
             AnalysisMode.Preview,
-            [new Segment(episodeId, new TimeRange(100, 110))],
+            [new Segment(episodeId, new TimeRange(100, 180))],
             SegmentSource.Chapter);
         var blocker = Assert.Single(await database.GetSegmentsAsync(episodeId));
         await database.DeleteSegmentAsync(episodeId, blocker.Id);
         await database.ReplaceAutoSegmentsAsync(
             episodeId,
             AnalysisMode.Preview,
-            [new Segment(episodeId, new TimeRange(140, 180))],
+            [new Segment(episodeId, new TimeRange(90, 180))],
             SegmentSource.CreditsDerived,
             configHash: "credits");
         var task = CreateTask(new StubFFmpegService { Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true) }, database);
@@ -935,8 +938,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         await task.AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
 
         var preview = Assert.Single(await database.GetSegmentsAsync(episodeId));
-        Assert.Equal(SegmentSource.Subtitle, preview.Source);
-        Assert.Equal(100d, TickConversions.ToSeconds(preview.StartTicks));
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
         Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Preview));
         var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episodeId]);
         Assert.Equal(episode.AnalysisConfigHash, snapshot.AnalysisRecords[(episodeId, AnalysisMode.Preview)].ConfigHash);

@@ -173,8 +173,8 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(Ticks(60), stored.EndTicks);
     }
 
-    // The admission gate blocks automatic rows that strictly overlap active user intent;
-    // tombstones block only an identical range, and exactly abutting either is allowed.
+    // The admission gate blocks automatic rows that overlap recorded human intent (a user
+    // row or a tombstone); exactly abutting it is not overlap.
     [Theory]
     [InlineData(100.0, 120.0, false)] // disjoint range elsewhere in the episode
     [InlineData(20.0, 30.0, false)]   // starts exactly at the blocker's end

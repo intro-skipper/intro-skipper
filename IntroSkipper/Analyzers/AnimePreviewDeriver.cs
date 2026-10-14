@@ -25,7 +25,7 @@ internal static class AnimePreviewDeriver
     /// An episode with a user-provided Preview is skipped: the admission gate only drops a derived
     /// preview that strictly overlaps it, so without this guard a non-overlapping manual Preview
     /// would gain a second, automatic one beside it, and the episode's UserProvided state would be
-    /// overwritten with Analyzed. A derived preview that overlaps a tombstone is dropped by
+    /// overwritten with Analyzed. A derived preview within the range of a tombstone is dropped by
     /// <see cref="AutoSegmentAdmissionPolicy"/>; the episode still counts as analyzed, since
     /// re-running would not change the gate's answer. An episode with any other automatic
     /// Preview, a subtitle or chapter match, is skipped too. The facade ranks a derived preview
