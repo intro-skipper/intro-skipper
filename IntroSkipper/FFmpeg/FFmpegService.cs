@@ -4,7 +4,6 @@
 
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -107,15 +106,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly DetectionCacheService _cacheService;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
-    private readonly ConditionalWeakTable<QueuedEpisode, Task<string?>> _videoCodecs = new();
 
-    private readonly ConditionalWeakTable<
-        QueuedEpisode,
-        ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>> _audioStreamSelections = new();
-
-    private readonly ConditionalWeakTable<
-        QueuedEpisode,
-        ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>>> _subtitleStreamListings = new();
+    // Results of the probes that several modes repeat, kept for one pass.
+    private readonly EpisodeProbeMemo<string, string> _videoCodecs = new();
+    private readonly EpisodeProbeMemo<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
+    private readonly EpisodeProbeMemo<(string Path, string Languages), FFmpegOutputParser.SubtitleStreamListing> _subtitleStreamListings = new();
 
     private readonly ConcurrentDictionary<(string Path, long? FileVersion), EmbeddedChapterCacheEntry> _embeddedChapters = new();
 
@@ -840,7 +835,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         try
         {
             var languages = SubtitleLanguageSelection.Parse(Plugin.Instance?.Configuration.SubtitleLanguages);
-            var listing = await GetTextSubtitleStreamsAsync(episode, languages, cancellationToken).ConfigureAwait(false);
+            var listing = await _subtitleStreamListings.GetAsync(
+                episode,
+                (episode.Path, languages.Normalized),
+                ct => ProbeTextSubtitleStreamsAsync(episode.Path, languages, ct),
+                cancellationToken).ConfigureAwait(false);
             var sidecars = SubtitleSidecarFiles.FindTextSources(episode, languages);
             complete = listing is not null;
             var outputCount = (listing?.Streams.Length ?? 0) + sidecars.Length;
@@ -944,45 +943,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         await File.WriteAllTextAsync(copy, encoding.GetString(bytes), cancellationToken).ConfigureAwait(false);
         LogSidecarDecoded(path, encoding.WebName);
         return copy;
-    }
-
-    private Task<FFmpegOutputParser.SubtitleStreamListing?> GetTextSubtitleStreamsAsync(
-        QueuedEpisode episode,
-        SubtitleLanguageSelection languages,
-        CancellationToken cancellationToken)
-    {
-        if (episode.FileVersion is not { } fileVersion)
-        {
-            return ProbeTextSubtitleStreamsAsync(episode.Path, languages, cancellationToken);
-        }
-
-        var key = (episode.Path, (long?)fileVersion, languages.Normalized);
-        var probes = _subtitleStreamListings.GetValue(
-            episode,
-            static _ => new ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>>());
-        var probe = probes.GetOrAdd(
-            key,
-            static (cacheKey, state) => state.Service.ProbeTextSubtitleStreamsAsync(
-                cacheKey.Path,
-                state.Languages,
-                CancellationToken.None),
-            (Service: this, Languages: languages));
-        return AwaitListingAsync(probe, probes, key, cancellationToken);
-
-        static async Task<FFmpegOutputParser.SubtitleStreamListing?> AwaitListingAsync(
-            Task<FFmpegOutputParser.SubtitleStreamListing?> probe,
-            ConcurrentDictionary<(string Path, long? FileVersion, string Languages), Task<FFmpegOutputParser.SubtitleStreamListing?>> probes,
-            (string Path, long? FileVersion, string Languages) key,
-            CancellationToken cancellationToken)
-        {
-            var listing = await probe.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (listing is null)
-            {
-                probes.TryRemove(key, out _);
-            }
-
-            return listing;
-        }
     }
 
     // The embedded subtitle streams to read, by stream index: those ffmpeg decodes to text, in a
@@ -1224,15 +1184,14 @@ internal sealed partial class FFmpegService : IFFmpegService
         CancellationToken cancellationToken)
         => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
 
-    // Called only on a scan cache miss. Cache one probe per queued episode; new queue objects
-    // re-probe replacement files.
+    // Called only on a scan cache miss, so an episode whose scans are all cached is never probed.
     private Task<string?> GetVideoCodecAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => _videoCodecs.GetValue(episode, e => ProbeVideoCodecAsync(e.Path)).WaitAsync(cancellationToken);
+        => _videoCodecs.GetAsync(episode, episode.Path, ct => ProbeVideoCodecAsync(episode.Path, ct), cancellationToken);
 
     // The codec name of the default video stream, such as "hevc", without starting a decode.
     // This is deliberately an ffprobe metadata query: the old zero-frame ffmpeg invocation still
     // opened and demuxed the file before returning the same codec information.
-    private async Task<string?> ProbeVideoCodecAsync(string filePath)
+    private async Task<string?> ProbeVideoCodecAsync(string filePath, CancellationToken cancellationToken)
     {
         try
         {
@@ -1249,7 +1208,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 args,
                 stderr: false,
                 timeout: 10 * 1000,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false));
+                cancellationToken: cancellationToken).ConfigureAwait(false));
 
             using var document = JsonDocument.Parse(output);
             if (!document.RootElement.TryGetProperty("streams", out var streams)
@@ -1366,60 +1325,25 @@ internal sealed partial class FFmpegService : IFFmpegService
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
+    // The audio stream to fingerprint. Null when the probe failed or listed no audio stream: that
+    // fingerprint reads ffmpeg's default stream, and the next one of the episode probes again.
     private Task<AudioStreamSelection?> GetAudioStreamSelectionAsync(
         QueuedEpisode episode,
         string preferredLanguage,
         bool preferMostChannels,
         CancellationToken cancellationToken)
     {
+        // No probe or explicit map is needed to keep ffmpeg's default selection: most channels, then lowest index.
         if (string.IsNullOrWhiteSpace(preferredLanguage) && preferMostChannels)
         {
             return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant));
         }
 
-        if (episode.FileVersion is not { } fileVersion)
-        {
-            return FindAudioStreamSelectionAsync(episode.Path, preferredLanguage, preferMostChannels, cancellationToken)
-                .WaitAsync(cancellationToken);
-        }
-
-        var key = (episode.Path, (long?)fileVersion, preferredLanguage, preferMostChannels);
-        var probes = _audioStreamSelections.GetValue(
+        return _audioStreamSelections.GetAsync(
             episode,
-            static _ => new ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>());
-        var probe = probes.GetOrAdd(
-            key,
-            static (cacheKey, service) => service.FindAudioStreamSelectionAsync(
-                cacheKey.Path,
-                cacheKey.Language,
-                cacheKey.PreferMostChannels,
-                CancellationToken.None),
-            this);
-        _ = probe.ContinueWith(
-            completed => RemoveFailedAudioStreamProbe(probes, key, completed),
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-        return probe.WaitAsync(cancellationToken);
-    }
-
-    private static void RemoveFailedAudioStreamProbe(
-        ConcurrentDictionary<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>> probes,
-        (string Path, long? FileVersion, string Language, bool PreferMostChannels) key,
-        Task<AudioStreamSelection?> probe)
-    {
-        if (!probe.IsFaulted && !probe.IsCanceled)
-        {
-            return;
-        }
-
-        if (probe.IsFaulted)
-        {
-            _ = probe.Exception;
-        }
-
-        ((ICollection<KeyValuePair<(string Path, long? FileVersion, string Language, bool PreferMostChannels), Task<AudioStreamSelection?>>>)probes)
-            .Remove(new(key, probe));
+            (episode.Path, preferredLanguage, preferMostChannels),
+            ct => FindAudioStreamSelectionAsync(episode.Path, preferredLanguage, preferMostChannels, ct),
+            cancellationToken);
     }
 
     private async Task<AudioStreamSelection?> FindAudioStreamSelectionAsync(
@@ -1429,14 +1353,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         CancellationToken cancellationToken)
     {
         var hasLanguagePreference = !string.IsNullOrWhiteSpace(preferredLanguage);
-        if (!hasLanguagePreference && preferMostChannels)
-        {
-            // No probe or explicit map is needed to preserve FFmpeg's default selection: most channels, then lowest index.
-            return new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant);
-        }
-
-        // The caller scopes this probe to a queued item and its file version, so repeated
-        // fingerprints in one pass do not start another ffprobe.
         try
         {
             string[] args =

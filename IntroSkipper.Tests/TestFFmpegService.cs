@@ -14,6 +14,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -325,6 +326,46 @@ public class TestFFmpegService
             .WaitAsync(TimeSpan.FromSeconds(10));
         Assert.All(afterSuccess, Assert.True);
         Assert.Equal(4, probeCount);
+    }
+
+    [Fact]
+    public async Task EpisodeProbeMemo_ProbesOncePerEpisodeAndInputs()
+    {
+        var probeCount = 0;
+        var memo = new EpisodeProbeMemo<string, string>();
+        Task<string?> Probe(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref probeCount);
+            return Task.FromResult<string?>("eng");
+        }
+
+        var episode = new QueuedEpisode();
+
+        Assert.Equal("eng", await memo.GetAsync(episode, "a", Probe, CancellationToken.None));
+        Assert.Equal("eng", await memo.GetAsync(episode, "a", Probe, CancellationToken.None));
+        Assert.Equal(1, probeCount);
+
+        // Other inputs, such as another audio language, and the next pass's episode object probe again.
+        await memo.GetAsync(episode, "b", Probe, CancellationToken.None);
+        await memo.GetAsync(new QueuedEpisode(), "a", Probe, CancellationToken.None);
+        Assert.Equal(3, probeCount);
+    }
+
+    [Fact]
+    public async Task EpisodeProbeMemo_KeepsNothingFromAFailedProbe()
+    {
+        var memo = new EpisodeProbeMemo<string, string>();
+        var episode = new QueuedEpisode();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        Assert.Null(await memo.GetAsync(episode, "a", _ => Task.FromResult<string?>(null), CancellationToken.None));
+        await Assert.ThrowsAsync<TimeoutException>(() => memo.GetAsync(episode, "a", _ => throw new TimeoutException(), CancellationToken.None));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => memo.GetAsync(episode, "a", Task.FromCanceled<string?>, cancellation.Token));
+
+        // Each failure left the next call to probe, and the first result is then kept.
+        Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => Task.FromResult<string?>("eng"), CancellationToken.None));
+        Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => throw new InvalidOperationException("A kept result must not probe."), CancellationToken.None));
     }
 
     [FactSkipFFmpegTests]
