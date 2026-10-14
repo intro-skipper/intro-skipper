@@ -33,6 +33,8 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _showInfoRegex = ShowInfoRegex();
 
+    private static readonly Regex _mappedStreamRegex = MappedStreamRegex();
+
     // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
     // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
     // (dvb_subtitle, dvd_subtitle, hdmv_pgs_subtitle, xsub), which would need OCR, and the
@@ -251,6 +253,45 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
+    /// Reads the codec of the input stream ffmpeg mapped to its first output stream, from the
+    /// stream mapping block a run prints at the info log level.
+    /// </summary>
+    /// <remarks>
+    /// The block is a line that reads exactly <c>Stream mapping:</c>, followed by one indented
+    /// line per output stream, such as <c>  Stream #0:1 -&gt; #0:0 (hevc (native) -&gt; wrapped_avframe (native))</c>.
+    /// A tag value can hold the same text, but ffmpeg prints every line of a tag value after
+    /// the tag's name column, so no tag line reads exactly <c>Stream mapping:</c>. Checked on
+    /// jellyfin-ffmpeg 7.1.3 and 8.1.2.
+    /// </remarks>
+    /// <param name="raw">The ffmpeg standard error output.</param>
+    /// <returns>The decoder's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
+    internal static string? ParseMappedVideoCodec(string raw)
+    {
+        var inBlock = false;
+        foreach (var line in raw.Split('\n'))
+        {
+            var text = line.TrimEnd('\r');
+            if (!inBlock)
+            {
+                inBlock = text == "Stream mapping:";
+                continue;
+            }
+
+            if (!text.StartsWith("  Stream #", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (_mappedStreamRegex.Match(text) is { Success: true } match)
+            {
+                return match.Groups["codec"].Value;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Parses ffprobe's JSON chapter listing.
     /// </summary>
     /// <param name="raw">JSON returned by <c>ffprobe -show_chapters</c>.</param>
@@ -409,6 +450,10 @@ internal static partial class FFmpegOutputParser
      */
     [GeneratedRegex(@"\[Parsed_showinfo_\d+ @ [^\]]+\] n:\s*\d+ pts:\s*-?\d+ pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)[^\n]*? s:(?<width>\d+)x(?<height>\d+)")]
     private static partial Regex ShowInfoRegex();
+
+    // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
+    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+)")]
+    private static partial Regex MappedStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);

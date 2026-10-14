@@ -1188,82 +1188,23 @@ internal sealed partial class FFmpegService : IFFmpegService
     private Task<string?> GetVideoCodecAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => _videoCodecs.GetAsync(episode, episode.Path, ct => ProbeVideoCodecAsync(episode.Path, ct), cancellationToken);
 
-    // The codec name of the default video stream, such as "hevc", without starting a decode.
-    // This is deliberately an ffprobe metadata query: the old zero-frame ffmpeg invocation still
-    // opened and demuxed the file before returning the same codec information.
+    // The codec name of the video stream a scan decodes, such as "hevc", read from the stream
+    // mapping of an ffmpeg run that decodes no frame. ffmpeg ranks the video streams by frame
+    // size, the default disposition and whether the stream delivered packets while ffmpeg
+    // probed the file. ffprobe cannot report the last, so no ffprobe rule can copy the choice.
+    // Null when the run fails or the file has no video stream.
     private async Task<string?> ProbeVideoCodecAsync(string filePath, CancellationToken cancellationToken)
     {
+        string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
         try
         {
-            string[] args =
-            [
-                "-v", "error",
-                "-select_streams", "v",
-                "-show_entries", "stream=index,codec_name,width,height:stream_disposition=attached_pic",
-                "-of", "json",
-                filePath,
-            ];
-            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
-                GetFFprobePath(),
+            var output = Encoding.UTF8.GetString(await GetOutputAsync(
                 args,
-                stderr: false,
+                stderr: true,
+                infoQuery: false,
                 timeout: 10 * 1000,
-                cancellationToken: cancellationToken).ConfigureAwait(false));
-
-            using var document = JsonDocument.Parse(output);
-            if (!document.RootElement.TryGetProperty("streams", out var streams)
-                || streams.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            string? selectedCodec = null;
-            long selectedPixels = -1;
-            var selectedIndex = int.MaxValue;
-            foreach (var stream in streams.EnumerateArray())
-            {
-                if (!stream.TryGetProperty("codec_name", out var codec)
-                    || codec.ValueKind != JsonValueKind.String)
-                {
-                    continue;
-                }
-
-                var attachedPicture = stream.TryGetProperty("disposition", out var disposition)
-                    && disposition.TryGetProperty("attached_pic", out var attached)
-                    && attached.ValueKind == JsonValueKind.Number
-                    && attached.GetInt32() != 0;
-                if (attachedPicture)
-                {
-                    continue;
-                }
-
-                var index = stream.TryGetProperty("index", out var indexElement)
-                    && indexElement.TryGetInt32(out var parsedIndex)
-                    ? parsedIndex
-                    : int.MaxValue;
-                var width = stream.TryGetProperty("width", out var widthElement)
-                    && widthElement.TryGetInt32(out var parsedWidth)
-                    ? parsedWidth
-                    : 0;
-                var height = stream.TryGetProperty("height", out var heightElement)
-                    && heightElement.TryGetInt32(out var parsedHeight)
-                    ? parsedHeight
-                    : 0;
-                var pixels = (long)Math.Max(width, 0) * Math.Max(height, 0);
-                if (pixels > selectedPixels || (pixels == selectedPixels && index < selectedIndex))
-                {
-                    selectedCodec = codec.GetString();
-                    selectedPixels = pixels;
-                    selectedIndex = index;
-                }
-            }
-
-            return selectedCodec;
-        }
-        catch (JsonException ex)
-        {
-            LogVideoCodecProbeFailed(_logger, ex, filePath);
-            return null;
+                cancellationToken).ConfigureAwait(false));
+            return FFmpegOutputParser.ParseMappedVideoCodec(output);
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
