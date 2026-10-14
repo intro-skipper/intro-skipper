@@ -199,6 +199,9 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "legacy")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
+    [InlineData(AnalysisMode.Introduction, "embedded-chapters")]
+    [InlineData(AnalysisMode.Credits, "embedded-chapters")]
+    [InlineData(AnalysisMode.Commercial, "embedded-chapters")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -216,6 +219,7 @@ public sealed class TestLegacyAnalysisCompatibility
             case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
+            case "embedded-chapters": config.UseEmbeddedChaptersForAnalysis = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
