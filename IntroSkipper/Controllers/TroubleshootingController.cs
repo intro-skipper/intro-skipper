@@ -96,8 +96,8 @@ public partial class TroubleshootingController : ControllerBase
     /// <summary>
     /// Resets every plugin setting to its default and saves the configuration. The series, movie and
     /// path exclusion lists are user data rather than tuning and are kept. Jellyfin's per-library
-    /// provider selection and the injected skip button CSS are stored outside the plugin configuration
-    /// and are left as they are.
+    /// provider selection, the injected skip button CSS, and the season and show overrides in the
+    /// plugin database are stored outside the plugin configuration and are left as they are.
     /// </summary>
     /// <response code="204">Configuration reset.</response>
     /// <returns>No content.</returns>
