@@ -370,8 +370,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     // One null output with its own filtergraph. Two of these on one input decode it once.
     private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
 
-    // The input of a keyframe-only decode of path from start, for a file whose default video
-    // stream has the given codec (GetVideoCodecAsync).
+    // The input of a keyframe-only decode of path from start, for a file whose mapped video
+    // stream (the one ffmpeg decodes, GetVideoCodecAsync) has the given codec.
     private static string[] KeyframeInput(string? codec, double start, string path) =>
     [
         "-skip_frame", "nokey",
