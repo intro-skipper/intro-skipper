@@ -181,7 +181,8 @@ public partial class BaseItemAnalyzerTask(
 
     /// <summary>
     /// Verifies one season against the stored analysis state, reopens what a replaced file
-    /// or a settled-season reanalysis invalidates, and runs every mode over it.
+    /// or a settled-season reanalysis invalidates, reads each episode's chapters, and runs
+    /// every mode over the episodes whose chapters could be read.
     /// </summary>
     private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
     {
@@ -285,6 +286,10 @@ public partial class BaseItemAnalyzerTask(
             }
         }
 
+        // An episode whose chapters cannot be read sits out the modes, but the settled-season
+        // record below keeps the full episode set, so one failed read does not reset the season
+        // again on the next pass.
+        var readable = await ReadChaptersAsync(episodes, modes, seasonStates, cancellationToken).ConfigureAwait(false);
         var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
         try
@@ -293,7 +298,7 @@ public partial class BaseItemAnalyzerTask(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await AnalyzeItemsAsync(
-                    episodes,
+                    readable,
                     mode,
                     seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
                     ffmpegValid,
@@ -324,6 +329,67 @@ public partial class BaseItemAnalyzerTask(
         {
             await _database.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Reads each episode's chapters from the chapter source into
+    /// <see cref="QueuedEpisode.Chapters"/>, before any mode runs.
+    /// </summary>
+    /// <remarks>
+    /// The source is Jellyfin's chapter table, or the chapters embedded in the media file while
+    /// <see cref="PluginConfiguration.UseEmbeddedChaptersForAnalysis"/> is on. Nothing is read
+    /// when no mode will run an analyzer over the season, which takes an episode open in a mode
+    /// whose action is not None, in a season that is not an opted-out Season 0, so a settled
+    /// season costs no probe. An episode whose embedded chapters ffprobe cannot read is left
+    /// out of the result and logged. No mode analyzes, writes or records it, and it is no
+    /// Chromaprint reference, so it keeps its rows and, without a record, is retried on the next
+    /// pass. A failed read of Jellyfin's chapter table throws and fails the season.
+    /// </remarks>
+    /// <param name="episodes">The season's verified episodes.</param>
+    /// <param name="modes">Analysis modes of the run.</param>
+    /// <param name="seasonStates">The season's analyzer action per mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episodes whose chapters were read, or every episode when nothing was read.</returns>
+    private async Task<IReadOnlyList<QueuedEpisode>> ReadChaptersAsync(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyList<AnalysisMode> modes,
+        IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)> seasonStates,
+        CancellationToken cancellationToken)
+    {
+        var config = Config;
+        var analyzerRuns = !AnalysisEligibility.IsSeasonZeroOptedOut(episodes[0], config)
+            && modes.Any(mode => (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
+                && episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed));
+        if (!analyzerRuns)
+        {
+            return episodes;
+        }
+
+        if (!config.UseEmbeddedChaptersForAnalysis)
+        {
+            foreach (var episode in episodes)
+            {
+                episode.Chapters = Plugin.Instance!.GetChapters(episode.EpisodeId);
+            }
+
+            return episodes;
+        }
+
+        var readable = new List<QueuedEpisode>(episodes.Count);
+        foreach (var episode in episodes)
+        {
+            if (await _ffmpegService.GetEmbeddedChaptersAsync(episode, cancellationToken).ConfigureAwait(false) is { } chapters)
+            {
+                episode.Chapters = chapters;
+                readable.Add(episode);
+            }
+            else
+            {
+                LogEmbeddedChaptersUnreadable(_logger, episode.Name, episode.EpisodeId);
+            }
+        }
+
+        return readable;
     }
 
     /// <summary>
@@ -833,6 +899,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to analyze {Series} season {Season} ({Key}); skipping it this pass")]
     private static partial void LogSeasonFailed(ILogger logger, Exception exception, string series, int season, Guid key);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not read the embedded chapters of {Name} ({Id}); it is skipped until the next pass")]
+    private static partial void LogEmbeddedChaptersUnreadable(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);

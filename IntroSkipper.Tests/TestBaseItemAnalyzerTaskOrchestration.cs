@@ -289,11 +289,13 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             new() { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
             new() { Name = "Episode", StartPositionTicks = DatabaseTestHelpers.Ticks(130) },
         ];
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, chapters);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var seasonId = Guid.NewGuid();
         var a = StingEpisode(seasonId, "A", 1);
         var c = StingEpisode(seasonId, "C", 2);
+        a.Chapters = chapters;
+        c.Chapters = chapters;
         await database.ReplaceAutoSegmentsAsync(a.EpisodeId, AnalysisMode.Introduction, [new Segment(a.EpisodeId, new TimeRange(20, 50))], SegmentSource.Chromaprint, "old-hash");
         await database.DeleteSegmentAsync(a.EpisodeId, Assert.Single(await database.GetSegmentsAsync(a.EpisodeId)).Id);
         var ffmpeg = new StubFFmpegService { Fingerprints = (episode, _) => Fingerprint(episode, 120, 20, 50) };
@@ -438,7 +440,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 new() { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(30) },
             ]
             : [new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(60) }];
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, chapters);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var episodeId = Guid.NewGuid();
         var episode = new QueuedEpisode
         {
@@ -448,6 +450,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Category = isRecap ? QueuedMediaCategory.Episode : QueuedMediaCategory.AnimeEpisode,
             Duration = 180,
             Path = "/media/episode-1.mkv",
+            Chapters = chapters,
         };
         var configHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: false);
         var subtitleStart = isRecap ? 6 : 100;
@@ -511,7 +514,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             new() { Name = "Ending", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
             new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(150) },
         ];
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, chapters);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
@@ -520,6 +523,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Category = QueuedMediaCategory.AnimeEpisode,
             Duration = 180,
             Path = "/media/episode-1.mkv",
+            Chapters = chapters,
         };
         using var segmentDb = new TempSegmentDb();
         var database = segmentDb.Database;
@@ -551,12 +555,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             EnableSponsorBlockChapterDetection = false,
             SnapToKeyframe = false,
         };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(
-            config,
-            [
-                new ChapterInfo { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
-                new ChapterInfo { Name = "Episode", StartPositionTicks = DatabaseTestHelpers.Ticks(90) },
-            ]);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.ReplaceAutoSegmentsAsync(
@@ -591,6 +590,11 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Duration = 180,
             Path = "/media/episode-1.mkv",
             AnalysisConfigHash = "subtitle-preview",
+            Chapters =
+            [
+                new ChapterInfo { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
+                new ChapterInfo { Name = "Episode", StartPositionTicks = DatabaseTestHelpers.Ticks(90) },
+            ],
         };
         var ffmpeg = new StubFFmpegService
         {
@@ -625,9 +629,9 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             new() { Name = "Episode", StartPositionTicks = 0 },
             new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
         ];
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, chapters);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = Guid.NewGuid(), SeasonNumber = 1, Duration = 180, Path = "/media/episode-1.mkv" };
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), SeasonId = Guid.NewGuid(), SeasonNumber = 1, Duration = 180, Path = "/media/episode-1.mkv", Chapters = chapters };
         await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [new Segment(episode.EpisodeId, new TimeRange(60, 180))], SegmentSource.Chapter, "old-chapter-pattern-hash");
         var ffmpeg = new StubFFmpegService { Subtitles = _ => new([new SubtitleCue(100, 103, "Here's the preview")], Complete: true) };
 
@@ -649,8 +653,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             EnableSponsorBlockChapterDetection = false,
         };
 
-        // A chapter the recap pattern does not match ends the subtitle recap.
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { Name = "Chapter 2", StartPositionTicks = DatabaseTestHelpers.Ticks(40) }]);
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.SeedUserSegmentAsync(
@@ -667,6 +670,9 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             IntroFingerprintEnd = 120,
             Path = "/media/episode-1.mkv",
             AnalysisConfigHash = "subtitle-recap",
+
+            // A chapter the recap pattern does not match ends the subtitle recap.
+            Chapters = [new ChapterInfo { Name = "Chapter 2", StartPositionTicks = DatabaseTestHelpers.Ticks(40) }],
         };
         var ffmpeg = new StubFFmpegService
         {

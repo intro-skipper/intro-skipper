@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using MediaBrowser.Model.Entities;
+
 namespace IntroSkipper.Data;
 
 /// <summary>
@@ -120,6 +122,15 @@ public sealed class QueuedEpisode
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public double Duration { get; set; }
+
+    /// <summary>
+    /// Gets or sets the chapters analysis reads for this item in the current pass. The season
+    /// pass reads them from the chapter source before any mode runs: Jellyfin's chapter table,
+    /// or the chapters embedded in the media file while <c>UseEmbeddedChaptersForAnalysis</c>
+    /// is on. Analyzers read chapters only here and never fetch them. Empty until the pass
+    /// reads them, and when the source has none.
+    /// </summary>
+    public IReadOnlyList<ChapterInfo> Chapters { get; set; } = [];
 
     /// <summary>
     /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks

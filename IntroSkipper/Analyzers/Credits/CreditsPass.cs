@@ -88,7 +88,7 @@ internal sealed partial class CreditsPass(
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var matches = await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false);
+                    var matches = chapter.FindChapterCandidates(episode, Mode);
                     if (matches.Count == 0)
                     {
                         continue;
@@ -161,11 +161,9 @@ internal sealed partial class CreditsPass(
                 {
                     if (_config.EnhanceChapterCredits)
                     {
-                        var chapterMatches = await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false);
-                        candidates.AddRange(chapterMatches.Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
+                        candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
                     }
-                    else if (!episode.NeedsAnalysis(Mode)
-                        && (await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false)).Count > 0)
+                    else if (!episode.NeedsAnalysis(Mode) && chapter.FindChapterCandidates(episode, Mode).Count > 0)
                     {
                         // A settled sibling's recognized chapter stays authoritative over the
                         // re-derived candidate. Pending episodes reached here only because the

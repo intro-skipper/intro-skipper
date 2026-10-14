@@ -4,20 +4,26 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
+/// <summary>
+/// The chapter source: ffprobe's chapter listing, and the season pass that reads each
+/// episode's chapters once, from Jellyfin's chapter table or, with
+/// <see cref="PluginConfiguration.UseEmbeddedChaptersForAnalysis"/>, from the media file.
+/// </summary>
 public class TestEmbeddedChapters
 {
     [Fact]
@@ -108,98 +114,245 @@ public class TestEmbeddedChapters
         var chapters = await FfmpegTestHelpers.CreateFFmpegService().GetEmbeddedChaptersAsync(
             new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "chapters", Path = path });
 
+        Assert.NotNull(chapters);
         Assert.Equal(
             [(0L, "Opening"), (10_486_250L, "Main")],
             chapters.Select(chapter => (chapter.StartPositionTicks, chapter.Name)));
     }
 
-    [Theory]
-    [InlineData(false, EpisodeState.NotAnalyzed)]
-    [InlineData(true, EpisodeState.AnalysisFailed)]
-    public async Task ChapterAnalyzer_UsesOnlyEmbeddedChaptersAndPropagatesProbeFailures(bool probeFails, EpisodeState expectedState)
+    /// <summary>
+    /// A file without chapters reads as an empty list, and one ffprobe cannot open reads as
+    /// null, so the pass never takes an unreadable file for one without chapters.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task GetEmbeddedChaptersAsync_TellsAFileWithoutChaptersFromAnUnreadableOne()
     {
-        var config = new PluginConfiguration
-        {
-            EnableSponsorBlockChapterDetection = false,
-            UseEmbeddedChaptersForAnalysis = true,
-        };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(
-            config,
-            [
-                new ChapterInfo { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(60) },
-                new ChapterInfo { Name = "Main", StartPositionTicks = DatabaseTestHelpers.Ticks(100) },
-            ]);
-        var ffmpeg = new StubFFmpegService
-        {
-            EmbeddedChapters = _ => probeFails
-                ? throw new InvalidOperationException("probe failed")
-                : [],
-        };
-        var analyzer = new ChapterAnalyzer(
-            NullLogger<ChapterAnalyzer>.Instance,
-            ffmpeg,
-            DatabaseTestHelpers.CreateTempSegmentDatabase(),
-            config);
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            Duration = 2000,
-            Path = "episode.mkv",
-        };
+        using var directory = new TempDirectory();
+        var ffmpeg = FfmpegTestHelpers.CreateFFmpegService();
 
-        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Introduction, CancellationToken.None);
+        var none = await ffmpeg.GetEmbeddedChaptersAsync(FfmpegTestHelpers.QueueFile("video/rainbow.mp4"));
+        var unreadable = await ffmpeg.GetEmbeddedChaptersAsync(
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "missing", Path = directory.Join("missing.mkv") });
 
-        Assert.Equal(expectedState, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.NotNull(none);
+        Assert.Empty(none);
+        Assert.Null(unreadable);
     }
 
-    // Jellyfin stores chapter starts rounded to the millisecond, and the embedded probe keeps
-    // ffprobe's microseconds. After a switch to embedded chapters, the chapter intro the user
-    // deleted under Jellyfin's 90.049 s comes back at 90.048625 s, and its tombstone still
-    // refuses it.
+    /// <summary>
+    /// Jellyfin's chapter table holds an intro chapter another plugin added, and the file
+    /// holds its own. The pass analyzes the chapters of the configured source only, and with
+    /// the setting off it never runs ffprobe for them.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 20, 60)]
+    [InlineData(true, 100, 140)]
+    public async Task SeasonPass_ReadsChaptersFromTheConfiguredSource(bool embedded, double start, double end)
+    {
+        var config = IntroductionOnly();
+        config.UseEmbeddedChaptersForAnalysis = embedded;
+        using var season = new SeasonFixture(config, IntroChapters(20, 60), episodeCount: 1);
+        var embeddedReads = 0;
+        var ffmpeg = Ffmpeg(chapters: _ =>
+        {
+            Interlocked.Increment(ref embeddedReads);
+            return IntroChapters(100, 140);
+        });
+
+        await season.AnalyzeAsync(ffmpeg);
+
+        var intro = Assert.Single(await season.Database.GetSegmentsAsync(season.EpisodeIds[0]));
+        Assert.Equal(SegmentSource.Chapter, intro.Source);
+        Assert.Equal((start, end), (TickConversions.ToSeconds(intro.StartTicks), TickConversions.ToSeconds(intro.EndTicks)));
+        Assert.Equal(embedded ? 1 : 0, embeddedReads);
+    }
+
+    /// <summary>
+    /// One episode's embedded chapters cannot be read. Its siblings are analyzed and
+    /// recorded in every mode, and it is no Chromaprint reference for them. It gets no
+    /// record, so the next pass retries it, and it keeps the intro it had.
+    /// </summary>
+    [Fact]
+    public async Task SeasonPass_EpisodeWithUnreadableChapters_SitsOutAndKeepsItsRows()
+    {
+        var config = IntroductionOnly();
+        config.ScanCredits = true;
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var season = new SeasonFixture(config, [], episodeCount: 3);
+        var unreadable = season.EpisodeIds[1];
+        Guid[] readable = [season.EpisodeIds[0], season.EpisodeIds[2]];
+        await season.Database.ReplaceAutoSegmentsAsync(
+            unreadable,
+            AnalysisMode.Introduction,
+            [new Segment(unreadable, new TimeRange(10, 40))],
+            SegmentSource.Chromaprint,
+            "old-hash");
+        var standing = Assert.Single(await season.Database.GetSegmentsAsync(unreadable));
+        var fingerprinted = new ConcurrentBag<Guid>();
+        var ffmpeg = Ffmpeg(
+            chapters: episode => episode.EpisodeId == unreadable ? null : [Chapter("Episode", 0), Chapter("Ending", 180)],
+            valid: true,
+            fingerprints: (episode, _) =>
+            {
+                fingerprinted.Add(episode.EpisodeId);
+                return Enumerable.Repeat(0x11111111u * (uint)episode.EpisodeNumber, 300).ToArray();
+            });
+
+        await season.AnalyzeAsync(ffmpeg);
+
+        var records = (await season.Database.GetSeasonQueueSnapshotAsync(season.SeasonId, season.EpisodeIds)).AnalysisRecords.Keys;
+        Assert.Equal(
+            readable.SelectMany(id => new[] { (id, AnalysisMode.Introduction), (id, AnalysisMode.Credits) }).Order(),
+            records.Order());
+        Assert.Equal(readable.Order(), fingerprinted.Order());
+        foreach (var id in readable)
+        {
+            var credits = Assert.Single(await season.Database.GetSegmentsAsync(id));
+            Assert.Equal((AnalysisMode.Credits, SegmentSource.Chapter), (credits.Type, credits.Source));
+        }
+
+        var kept = Assert.Single(await season.Database.GetSegmentsAsync(unreadable));
+        Assert.Equal((standing.Id, standing.StartTicks, standing.EndTicks), (kept.Id, kept.StartTicks, kept.EndTicks));
+    }
+
+    /// <summary>
+    /// A season with nothing to analyze reads no chapters, so a scheduled pass over a
+    /// settled season or an opted-out Season 0 runs no ffprobe for them.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeasonPass_WithNothingToAnalyze_ReadsNoChapters(bool seasonZero)
+    {
+        var config = IntroductionOnly();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var season = new SeasonFixture(config, [], episodeCount: 2, seasonNumber: seasonZero ? 0 : 1);
+        var embeddedReads = 0;
+        var ffmpeg = Ffmpeg(chapters: _ =>
+        {
+            Interlocked.Increment(ref embeddedReads);
+            return IntroChapters(100, 140);
+        });
+
+        // The first pass analyzes and records the season, reading each episode once.
+        if (!seasonZero)
+        {
+            await season.AnalyzeAsync(ffmpeg);
+            Assert.Equal(2, embeddedReads);
+            embeddedReads = 0;
+        }
+
+        await season.AnalyzeAsync(ffmpeg);
+
+        Assert.Equal(0, embeddedReads);
+    }
+
+    /// <summary>
+    /// Jellyfin stores chapter starts rounded to the millisecond, and the embedded read keeps
+    /// ffprobe's microseconds. After a switch to embedded chapters, the chapter intro the user
+    /// deleted under Jellyfin's 90.049 s comes back at 90.048625 s, and its tombstone still
+    /// refuses it.
+    /// </summary>
     [Fact]
     public async Task EmbeddedChapterIntro_DoesNotResurrectAnIntroDeletedAtJellyfinsRoundedStart()
     {
-        var config = new PluginConfiguration
+        var config = IntroductionOnly();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var season = new SeasonFixture(config, [], episodeCount: 1);
+        var episodeId = season.EpisodeIds[0];
+        await season.Database.ReplaceAutoSegmentsAsync(episodeId, AnalysisMode.Introduction, [new Segment(episodeId, new TimeRange(90.049, 180.006))], SegmentSource.Chapter, "jellyfin-chapters");
+        await season.Database.DeleteSegmentAsync(episodeId, Assert.Single(await season.Database.GetSegmentsAsync(episodeId)).Id);
+        var ffmpeg = Ffmpeg(chapters: _ =>
+        [
+            Chapter("Prologue", 0),
+            new ChapterInfo { Name = "Opening", StartPositionTicks = 900_486_250 },
+            new ChapterInfo { Name = "Part A", StartPositionTicks = 1_800_055_830 },
+        ]);
+
+        await season.AnalyzeAsync(ffmpeg);
+
+        var tombstone = Assert.Single(await season.Database.GetSegmentsAsync(episodeId, includeSuppressed: true));
+        Assert.Equal(SegmentState.Suppressed, tombstone.State);
+        Assert.Equal(DatabaseTestHelpers.Ticks(90.049), tombstone.StartTicks);
+    }
+
+    private static PluginConfiguration IntroductionOnly() => new()
+    {
+        ScanIntroduction = true,
+        ScanCredits = false,
+        ScanRecap = false,
+        ScanPreview = false,
+        ScanCommercial = false,
+        EnableSponsorBlockChapterDetection = false,
+    };
+
+    private static ChapterInfo Chapter(string name, double start)
+        => new() { Name = name, StartPositionTicks = DatabaseTestHelpers.Ticks(start) };
+
+    private static ChapterInfo[] IntroChapters(double start, double end)
+        => [Chapter("Episode", 0), Chapter("Opening", start), Chapter("Story", end)];
+
+    // The pass's ffmpeg: Chromaprint as given, the embedded chapter read through the hook, and
+    // time adjustment probes that find nothing, so a chapter range is stored as authored.
+    private static StubFFmpegService Ffmpeg(
+        Func<QueuedEpisode, ChapterInfo[]?> chapters,
+        bool valid = false,
+        Func<QueuedEpisode, AnalysisMode, uint[]>? fingerprints = null) => new()
+    {
+        VersionCheck = () => valid,
+        EmbeddedChapters = chapters,
+        Fingerprints = fingerprints,
+        Silence = (_, _, _) => [],
+        KeyFrames = (_, _, _) => [],
+    };
+
+    /// <summary>
+    /// One season of four-minute episodes whose media files exist on disk, the only items of
+    /// one library, over a fresh segment database. Jellyfin's chapter table answers every
+    /// episode with the given chapters.
+    /// </summary>
+    private sealed class SeasonFixture : IDisposable
+    {
+        private readonly TempSegmentDb _db = new();
+        private readonly TempDirectory _media = new();
+        private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
+        private readonly ILibraryManager _libraryManager;
+
+        public SeasonFixture(PluginConfiguration config, ChapterInfo[] jellyfinChapters, int episodeCount, int seasonNumber = 1)
         {
-            EnableSponsorBlockChapterDetection = false,
-            UseEmbeddedChaptersForAnalysis = true,
-            AdjustIntroBasedOnChapters = false,
-            AdjustIntroBasedOnSilence = false,
-            SnapToKeyframe = false,
-        };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            SeasonId = Guid.NewGuid(),
-            SeasonNumber = 1,
-            Duration = 1440,
-            Path = "/media/episode.mkv",
-        };
-        await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Introduction, [new Segment(episode.EpisodeId, new TimeRange(90.049, 180.006))], SegmentSource.Chapter, "jellyfin-chapters");
-        await database.DeleteSegmentAsync(episode.EpisodeId, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).Id);
-        var ffmpeg = new StubFFmpegService
-        {
-            EmbeddedChapters = _ =>
-            [
-                new ChapterInfo { Name = "Prologue", StartPositionTicks = 0 },
-                new ChapterInfo { Name = "Opening", StartPositionTicks = 900_486_250 },
-                new ChapterInfo { Name = "Part A", StartPositionTicks = 1_800_055_830 },
-            ],
-        };
-        var task = new BaseItemAnalyzerTask(
+            _scope = EntrypointTestHelpers.CreatePluginScope(config, jellyfinChapters);
+            var seriesId = Guid.NewGuid();
+            var episodes = Enumerable.Range(1, episodeCount).Select(number =>
+            {
+                var path = _media.Join($"episode-{number}.mkv");
+                File.WriteAllText(path, string.Empty);
+                return JellyfinItems.Episode(Guid.NewGuid(), seriesId, SeasonId, name: $"Episode {number}", path: path, seasonNumber: seasonNumber, episodeNumber: number);
+            }).ToArray();
+            EpisodeIds = [.. episodes.Select(episode => episode.Id)];
+            _libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episodes));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", _libraryManager);
+        }
+
+        public Guid SeasonId { get; } = Guid.NewGuid();
+
+        public Guid[] EpisodeIds { get; }
+
+        public IntroSkipperDatabase Database => _db.Database;
+
+        // Runs a full pass over the season, as the scheduler does.
+        public Task AnalyzeAsync(IFFmpegService ffmpeg) => new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
-            seasonResolver: null!,
+            EntrypointTestHelpers.CreateSeasonResolver(_libraryManager),
             ffmpeg,
             DatabaseTestHelpers.CreateTempCacheService(),
             cacheDatabase: null!,
-            database);
+            _db.Database).AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [SeasonId]);
 
-        await task.AnalyzeItemsAsync([episode], AnalysisMode.Introduction, AnalyzerAction.Chapter, false, CancellationToken.None);
-
-        var tombstone = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId, includeSuppressed: true));
-        Assert.Equal(SegmentState.Suppressed, tombstone.State);
-        Assert.Equal(DatabaseTestHelpers.Ticks(90.049), tombstone.StartTicks);
+        public void Dispose()
+        {
+            _scope.Dispose();
+            _media.Dispose();
+            _db.Dispose();
+        }
     }
 }

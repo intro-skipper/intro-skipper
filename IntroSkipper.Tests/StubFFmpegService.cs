@@ -33,7 +33,8 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<string, double?>? AudioDuration { get; init; }
 
-    public Func<QueuedEpisode, ChapterInfo[]>? EmbeddedChapters { get; init; }
+    /// <summary>Gets the embedded chapter read; a hook that returns <see langword="null"/> stands for a probe that could not read the file.</summary>
+    public Func<QueuedEpisode, ChapterInfo[]?>? EmbeddedChapters { get; init; }
 
     public Func<QueuedEpisode, SubtitleScan>? Subtitles { get; init; }
 
@@ -127,7 +128,7 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
-    public virtual Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public virtual Task<ChapterInfo[]?> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(EmbeddedChapters)(episode));

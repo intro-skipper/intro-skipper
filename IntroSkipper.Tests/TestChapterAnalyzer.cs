@@ -209,10 +209,13 @@ public class TestChapterAnalyzer
     public async Task InvalidChapterPattern_WarnsOnceAndMatchesNothing()
     {
         var config = new Configuration.PluginConfiguration { ChapterAnalyzerPreviewPattern = "(", EnableSponsorBlockChapterDetection = false };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, CreateChapters("Preview", AnalysisMode.Preview));
         var logger = new CapturingLogger<ChapterAnalyzer>();
         var analyzer = new ChapterAnalyzer(logger, null!, DatabaseTestHelpers.CreateTempSegmentDatabase(), config);
-        QueuedEpisode[] episodes = [new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }, new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }];
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+        ];
 
         await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Preview, CancellationToken.None);
 

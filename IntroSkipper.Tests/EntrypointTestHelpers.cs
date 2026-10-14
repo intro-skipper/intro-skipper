@@ -114,7 +114,7 @@ internal static class EntrypointTestHelpers
     internal static PluginInstanceScope CreatePluginScope(PluginConfiguration configuration, IReadOnlyList<ChapterInfo> chapters)
     {
         var scope = CreatePluginScope(configuration);
-        SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Create(chapters, out _));
+        SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Create(chapters));
         return scope;
     }
 
