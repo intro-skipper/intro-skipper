@@ -46,6 +46,10 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
 
+    // A zero-frame run prints the input dump and the stream mapping: a few KB, plus the file's
+    // metadata tags. The cap only stops a file whose tags run to megabytes from being buffered.
+    private const long VideoCodecProbeMaximumBytes = 1L * 1024 * 1024;
+
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
     // warning per packet cannot fill memory.
     private const long SubtitleLogMaximumBytes = 1024L * 1024;
@@ -1175,13 +1179,16 @@ internal sealed partial class FFmpegService : IFFmpegService
         string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
         try
         {
-            var output = Encoding.UTF8.GetString(await GetOutputAsync(
-                args,
-                stderr: true,
-                infoQuery: false,
+            // The mapping block follows the input dump, which prints every metadata tag, so the
+            // capture is capped rather than buffered whole; a run cut at the cap maps nothing.
+            var capture = await _processRunner.RunCapturedAsync(
+                FFmpegPath,
+                ProcessArgs(args, "info"),
+                VideoCodecProbeMaximumBytes,
+                expectedStdoutBytes: 0,
                 timeout: 10 * 1000,
-                cancellationToken).ConfigureAwait(false));
-            return FFmpegOutputParser.ParseMappedVideoCodec(output);
+                cancellationToken).ConfigureAwait(false);
+            return FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
