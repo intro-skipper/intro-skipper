@@ -46,6 +46,9 @@ public sealed class TestSegmentProvider : IDisposable
 
         await new SegmentProvider(database, new SegmentDtoFactory(database)).CleanupExtractedData(itemId, CancellationToken.None);
 
+        // The erase journals the item, so the worker will push the kept user segment back.
+        Assert.Equal([itemId], await _h.QueuedItemIdsAsync());
+
         var rows = await database.GetSegmentsAsync(itemId, includeSuppressed: true);
         Assert.Equal(
             new[] { (user.Id, SegmentState.Active), (tombstone.Id, SegmentState.Suppressed) }.Order(),
