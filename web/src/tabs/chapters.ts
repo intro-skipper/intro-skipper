@@ -9,13 +9,13 @@ export const chaptersTab: Tab = {
         const form = configForm(signal);
 
         container.append(
+            form.field("UseEmbeddedChaptersForAnalysis"),
             patternField(form, "ChapterAnalyzerIntroductionPattern"),
             patternField(form, "ChapterAnalyzerEndCreditsPattern"),
             patternField(form, "ChapterAnalyzerPreviewPattern"),
             patternField(form, "ChapterAnalyzerRecapPattern"),
             patternField(form, "ChapterAnalyzerCommercialPattern"),
             form.field("EnableSponsorBlockChapterDetection"),
-            form.field("UseEmbeddedChaptersForAnalysis"),
         );
     },
 };

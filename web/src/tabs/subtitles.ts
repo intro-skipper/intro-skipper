@@ -9,9 +9,9 @@ export const subtitlesTab: Tab = {
         const form = configForm(signal);
 
         container.append(
+            form.field("SubtitleLanguages"),
             patternField(form, "SubtitleRecapPattern"),
             patternField(form, "SubtitlePreviewPattern"),
-            form.field("SubtitleLanguages"),
         );
     },
 };
