@@ -20,7 +20,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Re-analyze settled seasons",
         description:
-            "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
+            "When a season has no new episodes for the configured delay, re-analyze the season (using cached fingerprints) so segments are recomputed against the full season. Media is not re-decoded.",
     },
     SettledSeasonDelayHours: {
         kind: "number",
@@ -122,7 +122,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enhance chapter credits",
         description:
-            "Combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Off, a recognized credits chapter is used as authored, even when offsets leave no skippable range. Changing this re-analyzes credits on the next scan; existing timestamps stay until then.",
+            "When enabled, combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Credits are not re-analyzed until the next scan.",
     },
     FullLengthChapters: {
         kind: "checkbox",
@@ -270,14 +270,14 @@ export const configSchema = {
         label: "Adjustment window (inward)",
         min: 0,
         description:
-            "Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.",
+            "Maximum number of seconds to look inside a detected segment for a better start or end point. A larger value can trim extra time from the beginning or end.",
     },
     AdjustWindowOutward: {
         kind: "number",
         label: "Adjustment window (outward)",
         min: 0,
         description:
-            "Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.",
+            "Maximum number of seconds to look beyond a detected segment for a better start or end point. A larger value can include more time before or after the segment.",
     },
     EndSnapThreshold: {
         kind: "number",
@@ -301,7 +301,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Set post-credits scene as preview for anime",
         description:
-            "When enabled, create a preview segment from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled and no preview was detected, create a segment from the end of the last credits block to the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",
