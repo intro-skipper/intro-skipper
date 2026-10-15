@@ -44,6 +44,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     // stream listing separately from the larger, decoded subtitle-text allowance.
     private const long SubtitleProbeMaximumBytes = 1024L * 1024;
 
+    // The codec probe only needs the short stream-mapping block. Keep malformed metadata and
+    // decoder diagnostics from accumulating in an unbounded stderr buffer.
+    private const long VideoCodecProbeMaximumBytes = 1024L * 1024;
+
     private const long ChapterProbeMaximumBytes = 4L * 1024 * 1024;
 
     // Warnings a subtitle extraction run may log before it is killed, so a stream that logs a
@@ -1175,13 +1179,20 @@ internal sealed partial class FFmpegService : IFFmpegService
         string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
         try
         {
-            var output = Encoding.UTF8.GetString(await GetOutputAsync(
-                args,
-                stderr: true,
-                infoQuery: false,
+            var capture = await _processRunner.RunCapturedAsync(
+                FFmpegPath,
+                ProcessArgs(args, "info"),
+                VideoCodecProbeMaximumBytes,
+                expectedStdoutBytes: 0,
                 timeout: 10 * 1000,
-                cancellationToken).ConfigureAwait(false));
-            return FFmpegOutputParser.ParseMappedVideoCodec(output);
+                cancellationToken).ConfigureAwait(false);
+            if (capture.ExitCode != 0 || capture.Truncated)
+            {
+                LogVideoCodecProbeUnusable(filePath, capture.ExitCode, capture.Truncated);
+                return null;
+            }
+
+            return FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
@@ -1466,6 +1477,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not determine the video codec for \"{Path}\"; using standard frame handling")]
     private static partial void LogVideoCodecProbeFailed(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Video codec probe of {File} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogVideoCodecProbeUnusable(string file, int exitCode, bool truncated);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);

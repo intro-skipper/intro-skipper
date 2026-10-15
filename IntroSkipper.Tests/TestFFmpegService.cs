@@ -333,15 +333,31 @@ public class TestFFmpegService
     {
         var probeCount = 0;
         var memo = new EpisodeProbeMemo<string, string>();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<string?> Probe(CancellationToken cancellationToken)
         {
+            Assert.False(cancellationToken.CanBeCanceled);
             Interlocked.Increment(ref probeCount);
-            return Task.FromResult<string?>("eng");
+            entered.TrySetResult();
+            return release.Task;
         }
 
         var episode = new QueuedEpisode();
 
-        Assert.Equal("eng", await memo.GetAsync(episode, "a", Probe, CancellationToken.None));
+        var first = memo.GetAsync(episode, "a", Probe, CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        using var canceled = new CancellationTokenSource();
+        var canceledWait = memo.GetAsync(episode, "a", Probe, canceled.Token);
+        await canceled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledWait);
+
+        var second = memo.GetAsync(episode, "a", Probe, CancellationToken.None);
+        Assert.False(second.IsCompleted);
+
+        release.SetResult("eng");
+        Assert.Equal("eng", await first);
+        Assert.Equal("eng", await second);
         Assert.Equal("eng", await memo.GetAsync(episode, "a", Probe, CancellationToken.None));
         Assert.Equal(1, probeCount);
 
@@ -366,6 +382,14 @@ public class TestFFmpegService
         // Each failure left the next call to probe, and the first result is then kept.
         Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => Task.FromResult<string?>("eng"), CancellationToken.None));
         Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => throw new InvalidOperationException("A kept result must not probe."), CancellationToken.None));
+
+        using var canceledCacheHit = new CancellationTokenSource();
+        await canceledCacheHit.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => memo.GetAsync(
+            episode,
+            "a",
+            _ => throw new InvalidOperationException("A canceled cache hit must not probe."),
+            canceledCacheHit.Token));
     }
 
     [FactSkipFFmpegTests]
