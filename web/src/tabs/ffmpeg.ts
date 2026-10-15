@@ -8,9 +8,6 @@ export const ffmpegTab: Tab = {
         const form = configForm(signal);
 
         container.append(
-            form.field("PreferredAudioLanguage"),
-            form.field("PreferAudioStreamWithMostChannels"),
-            form.field("ProbeAudioDuration"),
             form.field("MaxParallelism"),
             form.field("ProcessPriority"),
             form.field("ProcessThreads"),
