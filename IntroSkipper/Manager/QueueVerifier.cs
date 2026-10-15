@@ -15,9 +15,11 @@ namespace IntroSkipper.Manager;
 /// <see cref="EpisodeState.NoSegments"/> without), user segments always settle it, and
 /// anything else stays <see cref="EpisodeState.NotAnalyzed"/>. A record whose file
 /// version differs from the episode's current one no longer describes the file: the
-/// episode is flagged <see cref="QueuedEpisode.FileChanged"/> and stays open. The
-/// expected hash depends on the season's analyzer action and the mode, not on the
-/// episode, so every per-mode value is computed once per instance.
+/// episode is flagged <see cref="QueuedEpisode.FileChanged"/> and stays open. Shortcut
+/// records also compare the resolved target path, since the shortcut file's timestamp
+/// may not change when its target does. The expected hash depends on the season's
+/// analyzer action and the mode, not on the episode, so every per-mode value is computed
+/// once per instance.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -139,7 +141,10 @@ internal sealed partial class QueueVerifier
     /// <param name="candidate">A queued episode that exists on disk and is not excluded.</param>
     public void Classify(QueuedEpisode candidate)
     {
+        var shortcutChanged = ClassifyShortcutPath(candidate);
         var (fileChanged, reopened) = ClassifyFileVersion(candidate);
+        fileChanged |= shortcutChanged;
+        candidate.FileChanged |= shortcutChanged;
         foreach (var mode in _modes)
         {
             // An empty hash is equivalent to no durable analysis state. It can be present on
@@ -308,6 +313,25 @@ internal sealed partial class QueueVerifier
         }
 
         return (false, reopened);
+    }
+
+    private bool ClassifyShortcutPath(QueuedEpisode candidate)
+    {
+        var shortcutPath = candidate.IsShortcut && !string.IsNullOrEmpty(candidate.ShortcutPath)
+            ? candidate.ShortcutPath
+            : null;
+
+        foreach (var mode in AllModes)
+        {
+            if (_snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
+                && !string.Equals(record.ShortcutPath, shortcutPath, StringComparison.Ordinal))
+            {
+                candidate.FileChanged = true;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

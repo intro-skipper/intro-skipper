@@ -116,8 +116,10 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                var chromaprintResult = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                chromaprintCandidates = chromaprintResult.Candidates;
+                fingerprintFailures = chromaprintResult.FingerprintFailures;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -125,11 +127,11 @@ internal sealed partial class CreditsPass(
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
                 LogChromaprintComparisonFailed(ex);
-                fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
+                fingerprintFailures = [.. pendingItems.Select(e => e.EpisodeId)];
             }
         }
 
-        foreach (var episode in items)
+        foreach (var episode in items.Where(e => e.IsAnalysisTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
 

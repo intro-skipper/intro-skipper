@@ -127,6 +127,13 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
+    public virtual Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _probeCalls);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(AudioDuration)(filePath));
+    }
+
     public virtual Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
