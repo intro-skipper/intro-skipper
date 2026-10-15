@@ -45,17 +45,21 @@ public sealed class TestServableWriteJournaling : IDisposable
     [Fact]
     public async Task EraseItems_JournalsEveryAddressedItem()
     {
-        var withRows = Guid.NewGuid();
+        var withAutomaticRow = Guid.NewGuid();
+        var withUserRow = Guid.NewGuid();
         var withoutRows = Guid.NewGuid();
         var database = _h.Database;
-        await database.SeedUserSegmentAsync(withRows, AnalysisMode.Introduction, 10, 20);
+        await database.ReplaceAutoSegmentsAsync(withAutomaticRow, AnalysisMode.Introduction, [new Segment(withAutomaticRow, new TimeRange(10, 20))], SegmentSource.Chapter);
+        await database.SeedUserSegmentAsync(withUserRow, AnalysisMode.Introduction, 10, 20);
         await _h.ClearQueueAsync();
 
-        // The zero-row item is journaled too: it may hold ghost Jellyfin rows that
-        // only a projection heals, and the erase names it explicitly.
-        await database.EraseItemsAsync([withRows, withoutRows], eraseTombstones: true);
+        // The erase deletes nothing of the last two items and journals them too. Jellyfin
+        // clears a file-changed item's mirror after the provider's erase, so a kept user
+        // row needs a push back, and an item without rows may hold ghost Jellyfin rows
+        // that only a projection heals.
+        await database.EraseItemsAsync([withAutomaticRow, withUserRow, withoutRows], eraseTombstones: true);
 
-        Assert.Equal(new[] { withRows, withoutRows }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
+        Assert.Equal(new[] { withAutomaticRow, withUserRow, withoutRows }.Order(), await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -65,9 +69,12 @@ public sealed class TestServableWriteJournaling : IDisposable
         var second = Guid.NewGuid();
         var untouched = Guid.NewGuid();
         var database = _h.Database;
-        await database.SeedUserSegmentAsync(first, AnalysisMode.Introduction, 10, 20);
+
+        // The first item loses its automatic row. The second keeps its user row and is
+        // journaled anyway, so a diverged mirror of the mode converges.
+        await database.ReplaceAutoSegmentsAsync(first, AnalysisMode.Introduction, [new Segment(first, new TimeRange(10, 20))], SegmentSource.Chapter);
         await database.SeedUserSegmentAsync(second, AnalysisMode.Introduction, 30, 40);
-        await database.SeedUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
+        await database.ReplaceAutoSegmentsAsync(untouched, AnalysisMode.Credits, [new Segment(untouched, new TimeRange(50, 60))], SegmentSource.Chapter);
         await _h.ClearQueueAsync();
 
         await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: true);

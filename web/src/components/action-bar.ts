@@ -399,7 +399,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         const result = await abortable(
             confirmDialog({
                 title: "Confirm Timestamp Erasure",
-                body: "Are you sure you want to erase all timestamps for this " + label + "?",
+                body: "Are you sure you want to erase the detected timestamps for this " + label + "? User segments are kept.",
                 confirmLabel: "Erase",
                 checkboxes: eraseCheckboxes,
             }),

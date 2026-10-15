@@ -147,6 +147,22 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task ManualScan_KeepsUserSegments_AndLeavesTheirModeSettled()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var database = h.Segments.Database;
+        await database.ReplaceAutoSegmentsAsync(h.EpisodeId, AnalysisMode.Introduction, [new Segment(h.EpisodeId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var user = await database.SeedUserSegmentAsync(h.EpisodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(100), DatabaseTestHelpers.Ticks(130));
+
+        await h.Scan().WaitAsync(Timeout);
+
+        // The erase took the automatic intro and kept the user's. The user segment settles
+        // Introduction, the only mode the harness scans, so the pass records no analysis.
+        Assert.Equal(user.Id, Assert.Single(await database.GetSegmentsAsync(h.EpisodeId, includeSuppressed: true)).Id);
+        Assert.False(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
     public async Task ManualScan_OfASeasonThatNoLongerResolves_CompletesWithoutRunning()
     {
         await using var h = await QueueHarness.StartAsync();
