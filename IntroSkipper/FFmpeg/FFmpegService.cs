@@ -671,6 +671,44 @@ internal sealed partial class FFmpegService : IFFmpegService
         return null;
     }
 
+    /// <inheritdoc/>
+    public async Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            string[] args =
+            [
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                filePath,
+            ];
+
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
+                GetFFprobePath(),
+                args,
+                stderr: false,
+                timeout: 15 * 1000,
+                cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (double.TryParse(output, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+                && seconds > 0)
+            {
+                return seconds;
+            }
+
+            LogMediaDurationProbeInvalid(_logger, filePath, output);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogMediaDurationProbeFailed(_logger, ex, filePath);
+        }
+
+        return null;
+    }
+
     /// <inheritdoc />
     public async Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {

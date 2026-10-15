@@ -312,7 +312,7 @@ public sealed partial class AnalysisScheduler(
                 dropped.Add(reanalysis);
             }
 
-            if (_libraryRequest is { } library)
+            if (_regularLibraryRequest is { } regularLibrary)
             {
                 dropped.Add(regularLibrary.Completion);
             }
@@ -435,7 +435,7 @@ public sealed partial class AnalysisScheduler(
             return (new Pass(PassKind.Reanalysis, null, cancellationToken => RunReanalysisAsync(reanalysisIds, cancellationToken), [reanalysis], CancellationToken.None), null);
         }
 
-        if (_libraryRequest is { } library)
+        if (_regularLibraryRequest is { } regularLibrary)
         {
             _regularLibraryRequest = null;
             return (new Pass(

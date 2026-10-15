@@ -65,12 +65,16 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
     /// <param name="forceReanalysis">Whether the scoped items must be reopened after file-version verification.</param>
+    /// <param name="shortcutsOnly">Whether the pass should analyze only shortcut media.</param>
+    /// <param name="shortcutBatchSize">Maximum shortcut media items to select for the pass.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? itemIds = null,
-        bool forceReanalysis = false)
+        bool forceReanalysis = false,
+        bool shortcutsOnly = false,
+        int shortcutBatchSize = 0)
     {
         if (itemIds?.Count == 0)
         {

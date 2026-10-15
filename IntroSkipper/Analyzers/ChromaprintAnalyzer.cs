@@ -77,7 +77,9 @@ internal sealed partial class ChromaprintAnalyzer(
             comparisonQueue = combinedQueue;
         }
 
-        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
+        var candidates = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
+        var seasonIntros = candidates.Candidates;
+        var fingerprintFailures = candidates.FingerprintFailures;
         foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
         {
             episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);

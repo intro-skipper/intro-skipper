@@ -82,7 +82,15 @@ public sealed partial class IntroSkipperDatabase
             configHash,
             cancellationToken);
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Records analysis results together with each item's shortcut target and probed duration.
+    /// These values let shortcut analysis detect target replacement and reuse duration probes.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="items">Items with their file version, resolved shortcut path, and duration.</param>
+    /// <param name="configHash">Configuration hash used for the analysis.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
     public Task MarkItemsAnalyzedAsync(AnalysisMode mode, IEnumerable<(Guid ItemId, long? FileVersion, string? ShortcutPath, double? Duration)> items, string configHash, CancellationToken cancellationToken = default)
     {
         var rows = items.DistinctBy(item => item.ItemId).ToArray();

@@ -14,6 +14,7 @@ public sealed class QueuedEpisode
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
+    private readonly HashSet<AnalysisMode> _comparisonPendingModes = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -61,8 +62,7 @@ public sealed class QueuedEpisode
     public bool IsShortcut { get; set; }
 
     /// <summary>
-    /// Gets or sets whether this item is analyzed in the current pass. Shortcut-only passes
-    /// retain other episodes as season comparison context without rewriting their state.
+    /// Gets or sets a value indicating whether this item is analyzed in the current pass.
     /// </summary>
     internal bool IsAnalysisTarget { get; set; } = true;
 
