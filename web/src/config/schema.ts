@@ -35,7 +35,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Update Missing Segments During Scan",
         description:
-            "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
+            "Enable this option to update media segments for any uncached media during a library scan, including recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
     },
     SeriesExclusions: {
         kind: "list",
@@ -234,6 +234,18 @@ export const configSchema = {
     },
 
     // Detection
+    SnapToKeyframe: {
+        kind: "checkbox",
+        label: "Enable keyframe snapping",
+        description:
+            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+    },
+    AdjustIntroBasedOnChapters: {
+        kind: "checkbox",
+        label: "Enable chapter snapping",
+        description:
+            "When enabled, segment start and end times will be adjusted to the nearest chapter boundary.",
+    },
     AdjustIntroBasedOnSilence: {
         kind: "checkbox",
         label: "Enable silence detection",
@@ -252,18 +264,6 @@ export const configSchema = {
         min: 0,
         step: 0.01,
         description: "Minimum silence duration in seconds before adjusting introduction end time.",
-    },
-    SnapToKeyframe: {
-        kind: "checkbox",
-        label: "Enable keyframe snapping",
-        description:
-            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
-    },
-    AdjustIntroBasedOnChapters: {
-        kind: "checkbox",
-        label: "Enable chapter snapping",
-        description:
-            "When enabled, segment start and end times will be adjusted to the nearest chapter boundary.",
     },
     AdjustWindowInward: {
         kind: "number",
@@ -377,6 +377,12 @@ export const configSchema = {
     },
 
     // Chapters
+    UseEmbeddedChaptersForAnalysis: {
+        kind: "checkbox",
+        label: "Use embedded chapters for analysis",
+        description:
+            "Read chapters from the media container instead of Jellyfin's chapter table. This ignores chapters injected by other plugins, but requires an ffprobe per queued episode and may be slower.",
+    },
     ChapterAnalyzerIntroductionPattern: {
         kind: "regex",
         label: "Introductions",
@@ -417,14 +423,15 @@ export const configSchema = {
         description:
             "Detect known SponsorBlock chapter labels in addition to the regular expressions above.",
     },
-    UseEmbeddedChaptersForAnalysis: {
-        kind: "checkbox",
-        label: "Use embedded chapters for analysis",
-        description:
-            "Read chapters from the media container instead of Jellyfin's chapter table. This ignores chapters injected by other plugins, but requires an ffprobe per queued episode and may be slower.",
-    },
 
     // Subtitles
+    SubtitleLanguages: {
+        kind: "text",
+        label: "Subtitle languages",
+        placeholder: "ger, eng",
+        description:
+            "Comma-separated language codes to read. Empty reads all. Recap title cards are often subtitled only in translation tracks, so reading only the audio language can miss them.",
+    },
     SubtitleRecapPattern: {
         kind: "regex",
         label: "Recap regex for subtitles",
@@ -441,14 +448,26 @@ export const configSchema = {
         default:
             "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
     },
-    SubtitleLanguages: {
-        kind: "text",
-        label: "Subtitle languages",
-        placeholder: "ger, eng",
-        description:
-            "Comma-separated language codes to read. Empty reads all. Recap title cards are often subtitled only in translation tracks, so reading only the audio language can miss them.",
-    },
     // FFmpeg
+    PreferredAudioLanguage: {
+        kind: "text",
+        label: "Preferred stream audio language",
+        placeholder: "eng",
+        description:
+            "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
+    },
+    PreferAudioStreamWithMostChannels: {
+        kind: "checkbox",
+        label: "Prefer highest audio channel count",
+        description:
+            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
+    },
+    ProbeAudioDuration: {
+        kind: "checkbox",
+        label: "Probe audio duration for credits",
+        description:
+            "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
+    },
     MaxParallelism: {
         kind: "number",
         label: "Maximum degree of parallelism",
@@ -483,25 +502,6 @@ export const configSchema = {
         min: 0,
         description:
             "Kill a fingerprint or detection scan that runs longer than this. Raise it for high-bitrate media on slow disks. 0 disables the limit.",
-    },
-    ProbeAudioDuration: {
-        kind: "checkbox",
-        label: "Probe audio duration for credits",
-        description:
-            "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
-    },
-    PreferredAudioLanguage: {
-        kind: "text",
-        label: "Preferred stream audio language",
-        placeholder: "eng",
-        description:
-            "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
-    },
-    PreferAudioStreamWithMostChannels: {
-        kind: "checkbox",
-        label: "Prefer highest audio channel count",
-        description:
-            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
     },
     CacheCompressionLevel: {
         kind: "select",
