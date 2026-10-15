@@ -34,8 +34,8 @@ export const analysisTab: Tab = {
 
         container.append(
             form.field("PreferChromaprint"),
-            form.field("EnhanceChapterCredits"),
             form.field("FullLengthChapters"),
+            form.field("EnhanceChapterCredits"),
             form.field("AnalysisPercent"),
             form.field("AnalysisLengthLimit"),
             info,

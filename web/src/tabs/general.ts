@@ -155,12 +155,20 @@ export const generalTab: Tab = {
             configStore.get("UseFileTransformationPlugin") === true;
 
         container.append(
+            form.checkboxGroup("Analyze for:", [
+                "ScanIntroduction",
+                "ScanCredits",
+                "ScanRecap",
+                "ScanPreview",
+                "ScanCommercial",
+            ]),
             form.field("AutoDetectIntros"),
             form.field("ReanalyzeSettledSeasons"),
             form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             form.field("UpdateMediaSegments"),
+            form.field("AnalyzeSeasonZero"),
             form.list("SeriesExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Series"),
             }),
@@ -172,14 +180,6 @@ export const generalTab: Tab = {
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            form.checkboxGroup("Analyze for:", [
-                "ScanIntroduction",
-                "ScanCredits",
-                "ScanRecap",
-                "ScanPreview",
-                "ScanCommercial",
-            ]),
-            form.field("AnalyzeSeasonZero"),
             form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),
