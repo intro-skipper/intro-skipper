@@ -366,6 +366,9 @@ public class TestFFmpegService
         // Each failure left the next call to probe, and the first result is then kept.
         Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => Task.FromResult<string?>("eng"), CancellationToken.None));
         Assert.Equal("eng", await memo.GetAsync(episode, "a", _ => throw new InvalidOperationException("A kept result must not probe."), CancellationToken.None));
+
+        // A kept result is no shortcut past the caller's cancellation.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => memo.GetAsync(episode, "a", _ => throw new InvalidOperationException("A kept result must not probe."), cancellation.Token));
     }
 
     [FactSkipFFmpegTests]

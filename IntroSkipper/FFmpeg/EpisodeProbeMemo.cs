@@ -38,14 +38,16 @@ internal sealed class EpisodeProbeMemo<TInputs, TResult>
     /// <param name="episode">The episode object of the current pass.</param>
     /// <param name="inputs">The inputs the result depends on.</param>
     /// <param name="probe">Runs the probe on the token it is given and returns <see langword="null"/> when it failed.</param>
-    /// <param name="cancellationToken">The token passed to <paramref name="probe"/>.</param>
+    /// <param name="cancellationToken">The token passed to <paramref name="probe"/>. A kept result honours it too, so a cancelled caller never gets one.</param>
     /// <returns>The kept or new result, or <see langword="null"/> when the probe failed.</returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is cancelled.</exception>
     public async Task<TResult?> GetAsync(
         QueuedEpisode episode,
         TInputs inputs,
         Func<CancellationToken, Task<TResult?>> probe,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var results = _results.GetOrCreateValue(episode);
         if (results.TryGetValue(inputs, out var kept))
         {
