@@ -133,6 +133,15 @@ public sealed class QueuedEpisode
     public IReadOnlyList<ChapterInfo> Chapters { get; set; } = [];
 
     /// <summary>
+    /// Gets or sets where <see cref="Chapters"/> came from in the current pass: <see langword="true"/>
+    /// for the media file, <see langword="false"/> for Jellyfin's chapter table, <see langword="null"/>
+    /// while nothing was read. The analysis record a mode writes names this source, not the
+    /// setting at the moment the mode ran, so a setting changed while the pass runs reopens the
+    /// episode on the next pass.
+    /// </summary>
+    public bool? ChaptersFromEmbeddedSource { get; set; }
+
+    /// <summary>
     /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks
     /// Jellyfin's created timestamp; metadata refreshes update <c>DateLastSaved</c> and must not make
     /// an already-settled season look newly updated.

@@ -615,6 +615,37 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
     }
 
+    // The setting can change while a season's pass runs. The chapters were read once, so the
+    // record names the source they came from, and the next pass under the new setting reruns.
+    [Fact]
+    public async Task ChapterSourceSwitch_DuringAPass_RecordsTheSourceTheChaptersCameFrom()
+    {
+        var config = ChapterSourceConfig();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
+        var database = fixture.CreateDatabase();
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = _ =>
+            {
+                // The admin turns the setting off while the pass reads the file's chapters.
+                config.UseEmbeddedChaptersForAnalysis = false;
+                return IntroChapters(100, 140);
+            },
+            Silence = (_, _, _) => [],
+            KeyFrames = (_, _, _) => [],
+        };
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((100d, 140d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+
+        // The setting stays off. The record names the embedded source, so this pass reruns
+        // Introduction from Jellyfin's table instead of keeping the embedded intro.
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+    }
+
     // A Commercial row from a chapter only Jellyfin's table holds stays while Commercial
     // scanning is off at the switch. The first pass with Commercial on again reruns the mode
     // against the file's chapters, which have no commercial, and removes the row.

@@ -343,7 +343,10 @@ public partial class BaseItemAnalyzerTask(
     /// whose embedded chapters ffprobe cannot read is left out of the result and logged. No
     /// mode analyzes, writes or records it, and it is no Chromaprint reference, so it keeps the
     /// rows the earlier steps of the pass left and, without a record, is retried on the next
-    /// pass. A failed read of Jellyfin's chapter table throws and fails the season.
+    /// pass. A failed read of Jellyfin's chapter table throws and fails the season. Each episode
+    /// also remembers the source it was read from (<see cref="QueuedEpisode.ChaptersFromEmbeddedSource"/>),
+    /// which the modes hash instead of the live setting, so a setting changed while the pass
+    /// runs reopens the episode on the next pass rather than recording the wrong source.
     /// </remarks>
     /// <param name="episodes">The season's verified episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
@@ -370,6 +373,7 @@ public partial class BaseItemAnalyzerTask(
             foreach (var episode in episodes)
             {
                 episode.Chapters = Plugin.Instance!.GetChapters(episode.EpisodeId);
+                episode.ChaptersFromEmbeddedSource = false;
             }
 
             return episodes;
@@ -381,6 +385,7 @@ public partial class BaseItemAnalyzerTask(
             if (await _ffmpegService.GetEmbeddedChaptersAsync(episode, cancellationToken).ConfigureAwait(false) is { } chapters)
             {
                 episode.Chapters = chapters;
+                episode.ChaptersFromEmbeddedSource = true;
                 readable.Add(episode);
             }
             else
@@ -555,7 +560,8 @@ public partial class BaseItemAnalyzerTask(
             first.AnalysisLengthLimitOverride,
             ShouldDerivePreview(first, Config),
             first.SubtitleRecapDetectionOverride,
-            first.SubtitlePreviewDetectionOverride);
+            first.SubtitlePreviewDetectionOverride,
+            embeddedChaptersOverride: first.ChaptersFromEmbeddedSource);
 
         if (action == AnalyzerAction.None)
         {
