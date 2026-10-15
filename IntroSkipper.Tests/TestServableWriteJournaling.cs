@@ -59,7 +59,7 @@ public sealed class TestServableWriteJournaling : IDisposable
         // that only a projection heals.
         await database.EraseItemsAsync([withAutomaticRow, withUserRow, withoutRows], eraseTombstones: true);
 
-        Assert.Equal(new[] { withAutomaticRow, withUserRow, withoutRows }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
+        Assert.Equal(new[] { withAutomaticRow, withUserRow, withoutRows }.Order(), await _h.QueuedItemIdsAsync());
     }
 
     [Fact]

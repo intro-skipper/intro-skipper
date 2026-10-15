@@ -815,7 +815,7 @@ public sealed partial class IntroSkipperDatabase
             // A kept user segment or tombstone may be the only row of the mode for its
             // item. The item still gets a projection marker, so a stale Jellyfin mirror
             // converges even though the erase deleted none of its rows.
-            await EnqueueProjectionsAsync(db, allItemIds.Except(deletedItemIds).ToArray(), cancellationToken).ConfigureAwait(false);
+            await EnqueueProjectionsAsync(db, [.. allItemIds.Except(deletedItemIds)], cancellationToken).ConfigureAwait(false);
 
             // Without this the erased items stay recorded as analyzed for the mode and
             // VerifyQueueAsync settles them as NoSegments, so nothing would re-detect them.
