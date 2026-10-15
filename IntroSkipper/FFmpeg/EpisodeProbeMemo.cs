@@ -66,12 +66,6 @@ internal sealed class EpisodeProbeMemo<TInputs, TResult>
                 throw;
             }
 
-            if (task.IsFaulted || task.IsCanceled)
-            {
-                Remove(probes, inputs, entry);
-                continue;
-            }
-
             _ = task.ContinueWith(
                 completed => RemoveUnsuccessful(probes, inputs, entry, completed),
                 CancellationToken.None,
