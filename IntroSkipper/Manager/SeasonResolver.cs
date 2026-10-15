@@ -282,9 +282,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         => episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
 
     /// <summary>
-    /// Returns the cache identity for an item. Ordinary media combines Jellyfin's file
-    /// version with adjacent subtitle sidecar versions; shortcuts use their resolved
-    /// target path so replacing a target invalidates the cached analysis.
+    /// Returns the media cache identity. Shortcut items include their resolved target path
+    /// so replacing a target invalidates analysis; ordinary media also includes subtitle
+    /// sidecar versions when present.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The file version.</returns>
@@ -298,8 +298,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             var target = item.ShortcutPath ?? string.Empty;
             var identity = target.Length.ToString(CultureInfo.InvariantCulture) + ":" + target + "|" + modified;
             var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
-            // Keep the identity within the exact integer range of an IEEE-754 double: the
-            // detection-cache key stores it in SQLite's REAL columns.
+            // SQLite stores cache keys in REAL columns, so keep the hash within the exact
+            // integer range of an IEEE-754 double.
             return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
         }
 

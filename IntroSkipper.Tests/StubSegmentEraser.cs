@@ -23,13 +23,13 @@ internal sealed class StubSegmentEraser(ISegmentEraser? inner = null) : ISegment
 
     public Func<CancellationToken, Task> OnErase { get; set; } = _ => Task.CompletedTask;
 
-    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, CancellationToken cancellationToken)
+    public async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _erases);
         await OnErase(cancellationToken);
-        return inner is null ? (0, 0) : await inner.EraseItemsAsync(itemIds, eraseCache, cancellationToken);
+        return inner is null ? (0, 0) : await inner.EraseItemsAsync(itemIds, eraseCache, eraseTombstones, cancellationToken);
     }
 
-    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, CancellationToken cancellationToken)
-        => inner?.EraseModeAsync(mode, eraseCache, cancellationToken) ?? Task.CompletedTask;
+    public Task EraseModeAsync(AnalysisMode mode, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken)
+        => inner?.EraseModeAsync(mode, eraseCache, eraseTombstones, cancellationToken) ?? Task.CompletedTask;
 }

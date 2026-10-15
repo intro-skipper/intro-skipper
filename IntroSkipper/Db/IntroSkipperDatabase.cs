@@ -22,6 +22,7 @@ namespace IntroSkipper.Db;
 /// <item><description><c>IntroSkipperDatabase.Segments.cs</c> — <see cref="DbSegment"/> reads and writes.</description></item>
 /// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes and the queue-verification snapshot.</description></item>
 /// <item><description><c>IntroSkipperDatabase.AnalyzedItems.cs</c> — <see cref="DbAnalyzedItem"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.EmbeddedChapterTransitions.cs</c> — durable chapter-source transition state.</description></item>
 /// <item><description><c>IntroSkipperDatabase.DisabledItems.cs</c> — <see cref="DbDisabledItem"/> reads and writes.</description></item>
 /// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning several tables.</description></item>
 /// </list>
@@ -171,7 +172,7 @@ public sealed partial class IntroSkipperDatabase
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping credits for episode {EpisodeId}: detected segment overlaps with introduction")]
     private static partial void LogCreditsOverlapWithIntro(ILogger logger, Guid episodeId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a segment the user deleted")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: lies within a segment the user deleted")]
     private static partial void LogAutoSegmentSuppressedByTombstone(ILogger logger, Data.AnalysisMode mode, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping automatic {Mode} segment for item {ItemId}: overlaps a user-provided segment")]

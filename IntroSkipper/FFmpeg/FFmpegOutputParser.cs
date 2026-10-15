@@ -1,10 +1,14 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -28,6 +32,17 @@ internal static partial class FFmpegOutputParser
     private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
     private static readonly Regex _showInfoRegex = ShowInfoRegex();
+
+    // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
+    // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
+    // (dvb_subtitle, dvd_subtitle, hdmv_pgs_subtitle, xsub), which would need OCR, and the
+    // codecs neither build can decode (arib_caption, dvb_teletext, hdmv_text_subtitle,
+    // ivtv_vbi, ttml).
+    private static readonly FrozenSet<string> _textSubtitleCodecs = new[]
+    {
+        "ass", "eia_608", "jacosub", "microdvd", "mov_text", "mpl2", "pjs", "realtext", "sami",
+        "srt", "ssa", "stl", "subrip", "subviewer", "subviewer1", "text", "vplayer", "webvtt",
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
@@ -203,8 +218,106 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Parses FFmpeg's WebVTT subtitle output. Cue settings and subtitle markup are left in the
-    /// text because the analyzer owns normalization for user-configured expressions.
+    /// Reads ffprobe's <c>-show_entries stream=index,codec_name:stream_tags=language:format=format_name,start_time
+    /// -of compact=p=1:nk=1</c> listing: the subtitle streams ffmpeg can decode to text, in a
+    /// language of <paramref name="languages"/>, and the file's start time when it is Matroska.
+    /// </summary>
+    /// <param name="raw">ffprobe output: one <c>stream|index|codec_name|language</c> line per subtitle stream, where an untagged stream's line ends after the codec, and one <c>format|format_name|start_time</c> line.</param>
+    /// <param name="languages">The languages to read.</param>
+    /// <returns>The selected text subtitle streams in listing order, and the Matroska start time.</returns>
+    internal static SubtitleStreamListing ParseSubtitleStreamListing(string raw, SubtitleLanguageSelection languages)
+    {
+        List<int> streams = [];
+        double? matroskaStartTime = null;
+        foreach (var line in raw.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('|');
+            if (fields is ["stream", var index, var codec, .. var language]
+                && _textSubtitleCodecs.Contains(codec)
+                && languages.Includes(language.FirstOrDefault())
+                && int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out var streamIndex))
+            {
+                streams.Add(streamIndex);
+            }
+            else if (fields is ["format", var formats, var start]
+                && formats.Split(',').Contains("matroska", StringComparer.Ordinal)
+                && double.TryParse(start, NumberStyles.Float, CultureInfo.InvariantCulture, out var startTime))
+            {
+                matroskaStartTime = startTime;
+            }
+        }
+
+        return new([.. streams], matroskaStartTime);
+    }
+
+    /// <summary>
+    /// Parses ffprobe's JSON chapter listing.
+    /// </summary>
+    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters</c>.</param>
+    /// <returns>The chapter start times and embedded chapter titles.</returns>
+    internal static ChapterInfo[] ParseChapters(string raw)
+    {
+        using var document = JsonDocument.Parse(raw);
+        if (!document.RootElement.TryGetProperty("chapters", out var chapters)
+            || chapters.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var result = new List<ChapterInfo>();
+        foreach (var chapter in chapters.EnumerateArray())
+        {
+            if (!chapter.TryGetProperty("start_time", out var startElement)
+                || !TryParseDouble(startElement, out var startSeconds)
+                || !double.IsFinite(startSeconds)
+                || startSeconds < 0
+                || startSeconds > TimeSpan.MaxValue.TotalSeconds)
+            {
+                continue;
+            }
+
+            var name = string.Empty;
+            if (chapter.TryGetProperty("tags", out var tags)
+                && tags.ValueKind == JsonValueKind.Object
+                && tags.TryGetProperty("title", out var title))
+            {
+                name = title.ValueKind == JsonValueKind.String ? title.GetString() ?? string.Empty : string.Empty;
+            }
+
+            try
+            {
+                result.Add(new ChapterInfo
+                {
+                    StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
+                    Name = name,
+                });
+            }
+            catch (OverflowException)
+            {
+                // A value close to TimeSpan.MaxValue can still round outside the valid
+                // tick range during conversion; ignore that malformed chapter.
+            }
+        }
+
+        return [.. result.OrderBy(chapter => chapter.StartPositionTicks)];
+    }
+
+    private static bool TryParseDouble(JsonElement value, out double result)
+    {
+        result = default;
+        if (value.ValueKind == JsonValueKind.Number)
+        {
+            return value.TryGetDouble(out result);
+        }
+
+        return value.ValueKind == JsonValueKind.String
+            && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
+    /// <summary>
+    /// Parses FFmpeg's WebVTT subtitle output. Cue settings after the end time are dropped;
+    /// subtitle markup stays in the text because the analyzer owns normalization for
+    /// user-configured expressions.
     /// </summary>
     /// <param name="raw">WebVTT output.</param>
     /// <returns>Well-formed timed cues.</returns>
@@ -299,4 +412,11 @@ internal static partial class FFmpegOutputParser
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
+
+    /// <summary>
+    /// The subtitle streams to read from a media file, and what a head read needs to know about it.
+    /// </summary>
+    /// <param name="Streams">The selected text subtitle streams, by stream index.</param>
+    /// <param name="MatroskaStartTime">The file's start time in seconds when it is Matroska, else <see langword="null"/>.</param>
+    internal sealed record SubtitleStreamListing(int[] Streams, double? MatroskaStartTime);
 }

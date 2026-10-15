@@ -181,7 +181,7 @@ public sealed class TestLegacyImporter
         LegacySchemaFixtures.CreateV5(
             scope.LegacyPath,
             [
-                new(itemId, 20, 50, (int)AnalysisMode.Introduction),                       // overlaps the tombstone
+                new(itemId, 20, 50, (int)AnalysisMode.Introduction),                       // inside the tombstone
                 new(itemId, 110, 150, (int)AnalysisMode.Introduction),                     // overlaps the user intro
                 new(itemId, 400, 450, (int)AnalysisMode.Introduction),                     // admitted
                 new(itemId, 100, 160, (int)AnalysisMode.Credits),                          // admitted despite the intro

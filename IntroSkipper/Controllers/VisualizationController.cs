@@ -87,11 +87,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases all timestamps for the provided season.
+    /// Erases all timestamps for the provided season, user segments included.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased, or the season has nothing to erase.</response>
     /// <response code="404">The season id is not a season or movie of the series the server knows.</response>
@@ -100,7 +101,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
+    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, [FromQuery] bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         if (_seasonResolver.ResolveDisplayed(seasonId) is not { } season || season.SeriesId != seriesId)
         {
@@ -111,7 +112,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         if (season.Episodes.Count > 0)
         {
             LogErasingTimestamps(_logger, seriesId, seasonId);
-            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, cancellationToken).ConfigureAwait(false);
+            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -120,12 +121,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <summary>
     /// Clears timestamp, cache, and season-state data for media matched by the current exclusion policy.
     /// </summary>
+    /// <param name="eraseTombstones">Also erase tombstones (deleted automatic segments), which otherwise keep refusing re-detections of the ranges the user deleted. User segments are erased either way. Defaults to true.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Counts describing the cleared excluded timestamp state.</returns>
     [HttpPost("ExcludedTimestamps/Clear")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync(CancellationToken cancellationToken = default)
+    public async Task<ActionResult<ClearExcludedTimestampsResponse>> ClearExcludedTimestampsAsync([FromQuery] bool eraseTombstones = true, CancellationToken cancellationToken = default)
     {
         var excludedIds = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken).Seasons
             .SelectMany(static season => season.Episodes)
@@ -137,7 +139,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
         }
 
-        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(excludedIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(
+            excludedIds,
+            eraseCache: true,
+            eraseTombstones: eraseTombstones,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
     }
 

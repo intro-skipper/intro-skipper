@@ -45,21 +45,18 @@ public sealed partial class IntroSkipperDatabase
     /// whose <see cref="DbSegment.ConfigHash"/> is non-empty and differs from
     /// <paramref name="configHash"/>. Credits-derived rows belong to the credits pass.
     /// User segments, tombstones, rows with an empty hash and the automatic rows of a
-    /// type the item holds an active user row for are kept. Stale rows can also be
-    /// retained until subtitle and conventional analysis can replace or retire them. The affected items'
+    /// type the item holds an active user row for are kept. The affected items'
     /// projections are journaled with the delete.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
-    /// <param name="preserveStaleRows">Keep all stale automatic rows until subtitle and conventional analysis can replace or retire them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of rows removed.</returns>
     public async Task<int> CleanStaleAutomaticSegmentsAsync(
         IEnumerable<Guid> itemIds,
         AnalysisMode mode,
         string configHash,
-        bool preserveStaleRows = false,
         CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
@@ -87,7 +84,6 @@ public sealed partial class IntroSkipperDatabase
                 && s.State == SegmentState.Active
                 && s.ConfigHash != string.Empty
                 && s.ConfigHash != configHash
-                && !preserveStaleRows
                 && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
                     || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits))
                 && !db.Segments.Any(u => u.ItemId == s.ItemId
@@ -107,15 +103,20 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Erases the supplied items: every segment (tombstones included) and every analysis
-    /// record, in one transaction, with every item's projection journaled. Season state
-    /// and disable flags are untouched. The ID set is bound as one JSON parameter, so
-    /// the item count is unbounded.
+    /// Erases the supplied items' segments and every analysis record of the items, in one
+    /// transaction with every item's projection journaled, items without rows included.
     /// </summary>
+    /// <remarks>
+    /// Every active row of the items goes, whatever its source, user segments included.
+    /// Tombstones go only when <paramref name="eraseTombstones"/> is set. Season state and
+    /// disable flags are untouched. The ID set is bound as one JSON parameter, so the item
+    /// count is unbounded.
+    /// </remarks>
     /// <param name="itemIds">Item IDs to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete the items' tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of deleted segment rows.</returns>
-    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+    /// <returns>The number of deleted segment rows, tombstones included.</returns>
+    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones, CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
@@ -135,7 +136,8 @@ public sealed partial class IntroSkipperDatabase
             // since lost) that only a projection heals. Erases are explicit user
             // actions over bounded id sets, so the extra markers cost one no-op sync each.
             var removedSegments = await db.Segments
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                    && (eraseTombstones || s.State == SegmentState.Active))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await db.AnalyzedItems
@@ -153,13 +155,13 @@ public sealed partial class IntroSkipperDatabase
     /// Clears the items' automatic segments and analysis records for the modes in one
     /// transaction so the current pass re-analyzes them from scratch. User segments,
     /// tombstones and the automatic rows of a type the item holds an active user row
-    /// for are kept. Subtitle rows in <paramref name="preserveSubtitleModes"/> also
-    /// stay until those modes successfully reanalyze. Items whose rows were deleted
-    /// journal their projections with the reset.
+    /// for are kept. Subtitle rows of <paramref name="preserveSubtitleModes"/> also stay,
+    /// as the fallback until the subtitle pass replaces or retires them. Items whose rows
+    /// were deleted journal their projections with the reset.
     /// </summary>
     /// <param name="itemIds">Item IDs to reset.</param>
     /// <param name="modes">Analysis modes to reset.</param>
-    /// <param name="preserveSubtitleModes">Modes whose subtitle rows remain as fallback until the subtitle pass completes.</param>
+    /// <param name="preserveSubtitleModes">Modes whose subtitle rows stay, or <see langword="null"/> for none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task ResetItemsForReanalysisAsync(
@@ -209,6 +211,36 @@ public sealed partial class IntroSkipperDatabase
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Reopens analysis records for the supplied items and modes without touching their
+    /// automatic segments. This preserves results for modes the current pass cannot run while
+    /// ensuring a later pass that enables one of those modes does not accept a result produced
+    /// from a different chapter source.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to reopen.</param>
+    /// <param name="modes">Analysis modes whose records should be removed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task ReopenItemsForReanalysisAsync(
+        IEnumerable<Guid> itemIds,
+        IReadOnlyCollection<AnalysisMode> modes,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds.Distinct().ToArray();
+        var modeArray = modes.ToArray();
+        if (ids.Length == 0 || modeArray.Length == 0)
+        {
+            return;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        await db.AnalyzedItems
+            .Where(a => EF.Parameter(ids).Contains(a.ItemId) && modeArray.Contains(a.Type))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

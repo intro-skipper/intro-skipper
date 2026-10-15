@@ -43,7 +43,7 @@ public sealed class TestSkipIntroController : IDisposable
         var result = await controller.ResetIntroTimestamps(
             AnalysisMode.Introduction,
             eraseCache: true,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
         Assert.Empty(await database.GetSegmentsAsync(itemId));

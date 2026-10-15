@@ -485,6 +485,51 @@ public sealed class TestCreditsPass
         Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
+    [Fact]
+    public async Task BlackFrameScanFailure_PreservesChromaprintCandidate()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var failedScanEpisode = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(SegmentSource.Chromaprint, failedScanEpisode.Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), failedScanEpisode.ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), failedScanEpisode.ToSegment().End, 0.5);
+        Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+        Assert.Equal(2, ffmpeg.KeyframeScanCalls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task BlackFrameScanFailure_WithRejectedChromaprint_PreservesExistingCreditsAndRetries()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
+        var episode = episodes[0];
+        var sharedStart = PointTime(SharedAudioFirstPoint);
+
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            [new Segment(episode.EpisodeId, new TimeRange(sharedStart - 1, sharedStart + 1))],
+            SegmentSource.Chromaprint);
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(episode.EpisodeId, new TimeRange(700, 720))],
+            SegmentSource.BlackFrame);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var existing = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId), segment => segment.Type == AnalysisMode.Credits);
+        Assert.Equal((700, 720), (existing.ToSegment().Start, existing.ToSegment().End));
+        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(2, ffmpeg.KeyframeScanCalls);
+    }
+
     [Theory]
     [InlineData(AnalyzerAction.Default)]
     [InlineData(AnalyzerAction.BlackFrame)]

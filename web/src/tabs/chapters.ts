@@ -15,6 +15,7 @@ export const chaptersTab: Tab = {
             patternField(form, "ChapterAnalyzerRecapPattern"),
             patternField(form, "ChapterAnalyzerCommercialPattern"),
             form.field("EnableSponsorBlockChapterDetection"),
+            form.field("UseEmbeddedChaptersForAnalysis"),
         );
     },
 };

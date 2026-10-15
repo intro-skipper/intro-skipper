@@ -16,15 +16,17 @@ namespace IntroSkipper.Services;
 /// cancelled when shutdown drops it, and faults when the pass threw.
 /// </summary>
 /// <remarks>
-/// Three kinds of request. Changed items (from the library watcher) run together once the
+/// Four kinds of request. Changed items (from the library watcher) run together once the
 /// quiet period has elapsed since the most recent change. The window slides on every change
 /// and is measured from the change, so an item that waited behind a running pass runs as
 /// soon as that pass ends. A manual scan (from the dashboard) runs as its own pass, erase
 /// then analyze, ahead of any pending library pass and as soon as the worker is free;
 /// nothing absorbs it, a repeated key joins the pending scan of that key, one requested
 /// while its scan runs queues a follow-up pass, and the season is resolved when the pass
-/// starts, not when the scan was requested. A library pass (from the scheduled task)
-/// starts once the worker is free and every pending manual scan has run. It covers no
+/// starts, not when the scan was requested. A targeted reanalysis resets selected items without
+/// deleting detection-cache rows. It runs
+/// ahead of a pending library pass. The library pass starts once the worker is free and every
+/// pending manual scan has run. It covers no
 /// pending request: changed items still run in their own pass once due, a cheap one when
 /// the library pass already analyzed them. A pass waits for the pass in flight; only the
 /// scheduled task's own token or shutdown cancels a running pass. Requests arriving during
@@ -56,6 +58,7 @@ public sealed partial class AnalysisScheduler(
     private readonly ILogger<AnalysisScheduler> _logger = logger;
     private readonly Lock _lock = new();
     private readonly HashSet<Guid> _changedItems = [];
+    private readonly HashSet<Guid> _reanalysisItems = [];
     private readonly List<ManualScan> _manualScans = [];
 
     // Keys whose most recent completed manual scan failed, so the dashboard can tell a
@@ -68,6 +71,7 @@ public sealed partial class AnalysisScheduler(
 
     // One handle for the pending changed items; present exactly while the set is non-empty.
     private TaskCompletionSource? _changedCompletion;
+    private TaskCompletionSource? _reanalysisCompletion;
     private DateTimeOffset _lastChange;
     private LibraryRequest? _regularLibraryRequest;
     private LibraryRequest? _shortcutLibraryRequest;
@@ -78,6 +82,7 @@ public sealed partial class AnalysisScheduler(
     private enum PassKind
     {
         ChangedItems,
+        Reanalysis,
         ManualScan,
         Library,
     }
@@ -154,6 +159,36 @@ public sealed partial class AnalysisScheduler(
             Wake();
         }
 
+        return completion.Task;
+    }
+
+    /// <summary>
+    /// Queues a targeted reanalysis. The analyzer verifies the current file versions before
+    /// resetting the selected items, preserving detection-cache rows so a source-only change
+    /// such as embedded chapter selection does not force a full media rescan.
+    /// </summary>
+    /// <param name="itemIds">Items whose analysis source changed.</param>
+    /// <returns>A task that completes when the targeted pass finishes.</returns>
+    public Task ReanalyzeItemsAsync(IReadOnlyCollection<Guid> itemIds)
+    {
+        if (itemIds.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        TaskCompletionSource completion;
+        lock (_lock)
+        {
+            if (_stopped)
+            {
+                return Task.FromCanceled(new CancellationToken(canceled: true));
+            }
+
+            completion = _reanalysisCompletion ??= NewCompletion();
+            _reanalysisItems.UnionWith(itemIds);
+        }
+
+        Wake();
         return completion.Task;
     }
 
@@ -272,7 +307,12 @@ public sealed partial class AnalysisScheduler(
                 dropped.Add(changed);
             }
 
-            if (_regularLibraryRequest is { } regularLibrary)
+            if (_reanalysisCompletion is { } reanalysis)
+            {
+                dropped.Add(reanalysis);
+            }
+
+            if (_libraryRequest is { } library)
             {
                 dropped.Add(regularLibrary.Completion);
             }
@@ -284,6 +324,8 @@ public sealed partial class AnalysisScheduler(
 
             _changedItems.Clear();
             _changedCompletion = null;
+            _reanalysisItems.Clear();
+            _reanalysisCompletion = null;
             _manualScans.Clear();
             _regularLibraryRequest = null;
             _shortcutLibraryRequest = null;
@@ -374,8 +416,8 @@ public sealed partial class AnalysisScheduler(
         }
     }
 
-    // Under _lock. Manual scans go first, then the library pass, then changed items once
-    // their quiet period has elapsed.
+    // Under _lock. Manual scans go first, then targeted reanalysis, then the library pass,
+    // then changed items once their quiet period has elapsed.
     private (Pass? Pass, DateTimeOffset? Due) Dequeue()
     {
         if (_manualScans.Count > 0)
@@ -385,7 +427,15 @@ public sealed partial class AnalysisScheduler(
             return (new Pass(PassKind.ManualScan, scan.Key, cancellationToken => RunScanAsync(scan.Key, cancellationToken), scan.Completions, CancellationToken.None), null);
         }
 
-        if (_regularLibraryRequest is { } regularLibrary)
+        if (_reanalysisCompletion is { } reanalysis)
+        {
+            var reanalysisIds = _reanalysisItems.ToHashSet();
+            _reanalysisItems.Clear();
+            _reanalysisCompletion = null;
+            return (new Pass(PassKind.Reanalysis, null, cancellationToken => RunReanalysisAsync(reanalysisIds, cancellationToken), [reanalysis], CancellationToken.None), null);
+        }
+
+        if (_libraryRequest is { } library)
         {
             _regularLibraryRequest = null;
             return (new Pass(
@@ -534,8 +584,13 @@ public sealed partial class AnalysisScheduler(
         }
 
         var itemIds = season.Episodes.Select(episode => episode.EpisodeId).ToHashSet();
-        await _eraser.EraseItemsAsync(itemIds, eraseCache: true, cancellationToken).ConfigureAwait(false);
+        await _eraser.EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken: cancellationToken).ConfigureAwait(false);
         await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds).ConfigureAwait(false);
+    }
+
+    private async Task RunReanalysisAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds, forceReanalysis: true).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Starting analysis pass: {Kind}")]

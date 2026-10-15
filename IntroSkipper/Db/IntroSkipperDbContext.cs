@@ -66,6 +66,11 @@ public class IntroSkipperDbContext : DbContext
     public DbSet<DbImportRecord> ImportHistory => Set<DbImportRecord>();
 
     /// <summary>
+    /// Gets the singleton chapter-source transition state.
+    /// </summary>
+    public DbSet<DbEmbeddedChapterTransition> EmbeddedChapterTransitions => Set<DbEmbeddedChapterTransition>();
+
+    /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
     /// segments are withheld from Jellyfin.
     /// </summary>
@@ -154,6 +159,14 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
         });
 
+        modelBuilder.Entity<DbEmbeddedChapterTransition>(entity =>
+        {
+            entity.ToTable("EmbeddedChapterTransitions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id)
+                  .ValueGeneratedNever();
+        });
+
         modelBuilder.Entity<DbDisabledItem>(entity =>
         {
             entity.ToTable("DisabledItems");
@@ -231,6 +244,7 @@ public class IntroSkipperDbContext : DbContext
         var seasonAnalysisOverrides = new List<DbSeasonAnalysisOverride>();
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
+        DbEmbeddedChapterTransition? embeddedChapterTransition = null;
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
@@ -257,6 +271,7 @@ public class IntroSkipperDbContext : DbContext
                 seasonAnalysisOverrides = await db.SeasonAnalysisOverrides.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                embeddedChapterTransition = await db.EmbeddedChapterTransitions.AsNoTracking().SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -344,6 +359,13 @@ public class IntroSkipperDbContext : DbContext
                 await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
+                if (embeddedChapterTransition is not null)
+                {
+                    db.EmbeddedChapterTransitions.Add(embeddedChapterTransition);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    db.ChangeTracker.Clear();
+                }
+
                 await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
 

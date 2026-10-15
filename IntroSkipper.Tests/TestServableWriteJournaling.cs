@@ -53,7 +53,7 @@ public sealed class TestServableWriteJournaling : IDisposable
 
         // The zero-row item is journaled too: it may hold ghost Jellyfin rows that
         // only a projection heals, and the erase names it explicitly.
-        await database.EraseItemsAsync([withRows, withoutRows]);
+        await database.EraseItemsAsync([withRows, withoutRows], eraseTombstones: true);
 
         Assert.Equal(new[] { withRows, withoutRows }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
     }
@@ -70,9 +70,27 @@ public sealed class TestServableWriteJournaling : IDisposable
         await database.SeedUserSegmentAsync(untouched, AnalysisMode.Credits, 50, 60);
         await _h.ClearQueueAsync();
 
-        await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: true);
 
         Assert.Equal(new[] { first, second }.OrderBy(id => id).ToArray(), await _h.QueuedItemIdsAsync());
+    }
+
+    [Fact]
+    public async Task DeleteSegmentsByMode_PreservesTombstoneAndJournalsItsItemWhenRequested()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _h.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chromaprint);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.DeleteSegmentAsync(itemId, row.Id);
+        await _h.ClearQueueAsync();
+
+        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: false);
+
+        Assert.Equal([itemId], erasedItemIds);
+        var preserved = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Equal(SegmentState.Suppressed, preserved.State);
+        Assert.Equal([itemId], await _h.QueuedItemIdsAsync());
     }
 
     [Fact]
@@ -125,7 +143,7 @@ public sealed class TestServableWriteJournaling : IDisposable
             await db.SaveChangesAsync();
         }
 
-        await database.EraseItemsAsync([itemId]);
+        await database.EraseItemsAsync([itemId], eraseTombstones: true);
 
         await using var verify = _h.Context();
         var marker = Assert.Single(await verify.ProjectionQueue.ToListAsync());

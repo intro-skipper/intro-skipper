@@ -63,6 +63,7 @@ internal static class JellyfinItems
         EntrypointTestHelpers.SetPropertyOrField(episode, "IsShortcut", isShortcut);
         EntrypointTestHelpers.SetPropertyOrField(episode, "ShortcutPath", shortcutPath ?? string.Empty);
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
+        EntrypointTestHelpers.EnsureInternalMetadataPathResolvable();
         return episode;
     }
 
@@ -78,6 +79,7 @@ internal static class JellyfinItems
         EntrypointTestHelpers.SetPropertyOrField(movie, "IsShortcut", isShortcut);
         EntrypointTestHelpers.SetPropertyOrField(movie, "ShortcutPath", shortcutPath ?? string.Empty);
         EntrypointTestHelpers.EnsureLocationTypeResolvable();
+        EntrypointTestHelpers.EnsureInternalMetadataPathResolvable();
         return movie;
     }
 

@@ -95,7 +95,7 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
-    public async Task DeriveAsync_UserCreditsRowFirst_AnchorsThePreview()
+    public async Task DeriveAsync_LaterAutoBlockAfterUserRow_AnchorsThePreview()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
@@ -145,21 +145,46 @@ public class TestAnimePreviewRefresh
         Assert.Equal((1000, EpisodeDuration), (preview.Start, preview.End));
     }
 
+    // A credits pass followed by subtitle Preview detection derives without settling: the
+    // subtitle pass decides each Preview state, and a settled sibling is not reopened for
+    // another subtitle scan.
     [Fact]
-    public async Task DeriveAsync_TooLittleBeforeLaterCreditsBlock_DerivesThroughEpisodeEnd()
+    public async Task DeriveAsync_WithoutSettling_LeavesEveryPreviewStateAsItIs()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var settled = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
+        settled.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
+        var pending = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = EpisodeDuration };
+        foreach (var episode in new[] { settled, pending })
+        {
+            await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Credits, [new Segment(episode.EpisodeId, new TimeRange(1100, 1200))], SegmentSource.BlackFrame);
+        }
+
+        await AnimePreviewDeriver.DeriveAsync(database, [settled, pending], 15, CancellationToken.None, settlePreviewState: false);
+
+        Assert.Equal(EpisodeState.Analyzed, settled.GetAnalyzed(AnalysisMode.Preview));
+        Assert.Equal(EpisodeState.NotAnalyzed, pending.GetAnalyzed(AnalysisMode.Preview));
+        Assert.Single(await database.GetSegmentsAsync(pending.EpisodeId), s => s.Type == AnalysisMode.Preview);
+    }
+
+    // A subtitle or chapter preview outranks the derived one, so the facade would refuse the
+    // derived write. The derive leaves that preview the only one and the episode unsettled
+    // even with settling on, since the Preview pass may delete the row and then writes a
+    // preview only for an unsettled episode.
+    [Theory]
+    [InlineData(SegmentSource.Subtitle)]
+    [InlineData(SegmentSource.Chapter)]
+    public async Task DeriveAsync_HigherRankedPreview_KeepsItAndLeavesTheEpisodeUnsettled(SegmentSource source)
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration };
-        await database.ReplaceAutoSegmentsAsync(
-            EpisodeId,
-            AnalysisMode.Credits,
-            [new Segment(EpisodeId, new TimeRange(1100, 1200)), new Segment(EpisodeId, new TimeRange(1201, 1210))],
-            SegmentSource.BlackFrame);
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Credits, [new Segment(EpisodeId, new TimeRange(1100, 1200))], SegmentSource.BlackFrame);
+        await database.ReplaceAutoSegmentsAsync(EpisodeId, AnalysisMode.Preview, [new Segment(EpisodeId, new TimeRange(1250, EpisodeDuration))], source);
 
         await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
 
-        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).ToSegment();
-        Assert.Equal((1210, EpisodeDuration), (preview.Start, preview.End));
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview));
+        Assert.Equal(source, Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).Source);
     }
 
     [Theory]

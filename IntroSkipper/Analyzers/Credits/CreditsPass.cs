@@ -88,7 +88,7 @@ internal sealed partial class CreditsPass(
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var matches = chapter.FindChapterCandidates(episode, Mode);
+                    var matches = await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false);
                     if (matches.Count == 0)
                     {
                         continue;
@@ -163,9 +163,11 @@ internal sealed partial class CreditsPass(
                 {
                     if (_config.EnhanceChapterCredits)
                     {
-                        candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
+                        var chapterMatches = await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false);
+                        candidates.AddRange(chapterMatches.Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
                     }
-                    else if (!episode.NeedsAnalysis(Mode) && chapter.FindChapterCandidates(episode, Mode).Count > 0)
+                    else if (!episode.NeedsAnalysis(Mode)
+                        && (await chapter.FindChapterCandidatesAsync(episode, Mode, cancellationToken).ConfigureAwait(false)).Count > 0)
                     {
                         // A settled sibling's recognized chapter stays authoritative over the
                         // re-derived candidate. Pending episodes reached here only because the
@@ -181,20 +183,33 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
+                var keyframeFailed = false;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
                 // the first analysis of an episode pays for it.
                 if (detectKeyframeCredits is not null)
                 {
-                    candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                    try
+                    {
+                        candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // Keyframe detection is an enhancement to the chapter and Chromaprint
+                        // candidates. A failed black-frame scan must not erase a valid result that
+                        // was already found by another analyzer; when it is the only producer,
+                        // keep the episode failed so the black-frame analysis is retried.
+                        LogKeyframeAnalysisFailed(ex, episode.Name);
+                        keyframeFailed = true;
+                    }
                 }
 
                 var state = await StoreCandidatesAsync(
                     episode,
                     CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
                     timeAdjustmentHelper,
-                    fingerprintFailed,
+                    fingerprintFailed || keyframeFailed,
                     cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(Mode, state);
             }
@@ -210,7 +225,7 @@ internal sealed partial class CreditsPass(
         QueuedEpisode episode,
         IReadOnlyList<AttributedSegment> candidates,
         TimeAdjustmentHelper timeAdjustmentHelper,
-        bool fingerprintFailed,
+        bool analysisFailed,
         CancellationToken cancellationToken)
     {
         var adjusted = new List<AttributedSegment>();
@@ -229,7 +244,7 @@ internal sealed partial class CreditsPass(
 
         if (adjusted.Count == 0)
         {
-            if (fingerprintFailed)
+            if (analysisFailed)
             {
                 return EpisodeState.AnalysisFailed;
             }
@@ -244,8 +259,12 @@ internal sealed partial class CreditsPass(
             LogFoundCredits(episode.Name, segment.Start, segment.End, source);
         }
 
-        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
-        return EpisodeState.Analyzed;
+        var persisted = await _database
+            .ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken)
+            .ConfigureAwait(false);
+        return analysisFailed && persisted == 0
+            ? EpisodeState.AnalysisFailed
+            : EpisodeState.Analyzed;
     }
 
     /// <summary>
@@ -289,6 +308,9 @@ internal sealed partial class CreditsPass(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
     private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}; continuing with the other credits candidates")]
+    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers")]
     private partial void LogChromaprintComparisonFailed(Exception ex);

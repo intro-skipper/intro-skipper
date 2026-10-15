@@ -50,6 +50,32 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task EmbeddedChapterTransition_PersistsPendingAndAppliedState()
+    {
+        var database = _db.Database;
+
+        Assert.Null(await database.GetEmbeddedChapterTransitionAsync());
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: false);
+        var initial = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(initial);
+        Assert.False(initial!.Value.AppliedEmbeddedChapters);
+        Assert.Null(initial.Value.PendingEmbeddedChapters);
+
+        await database.SetEmbeddedChapterTransitionPendingAsync(embedded: true);
+        var pending = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(pending);
+        Assert.False(pending!.Value.AppliedEmbeddedChapters);
+        Assert.True(pending.Value.PendingEmbeddedChapters == true);
+
+        await database.SetEmbeddedChapterTransitionAppliedAsync(embedded: true);
+        var applied = await database.GetEmbeddedChapterTransitionAsync();
+        Assert.NotNull(applied);
+        Assert.True(applied!.Value.AppliedEmbeddedChapters);
+        Assert.Null(applied.Value.PendingEmbeddedChapters);
+    }
+
+    [Fact]
     public async Task SegmentWrites_RejectUndefinedMode_WithoutPersistingAnything()
     {
         var itemId = Guid.NewGuid();
@@ -97,6 +123,40 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task GetItemIdsBySegmentSourcesAsync_IncludesActiveAndSuppressedRows()
+    {
+        var database = _db.Database;
+        var activeItemId = Guid.NewGuid();
+        var suppressedItemId = Guid.NewGuid();
+        var combinedItemId = Guid.NewGuid();
+
+        await database.ReplaceAutoSegmentsAsync(
+            activeItemId,
+            AnalysisMode.Introduction,
+            [new Segment(activeItemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            suppressedItemId,
+            AnalysisMode.Introduction,
+            [new Segment(suppressedItemId, new TimeRange(30, 40))],
+            SegmentSource.Chapter);
+        var suppressedId = Assert.Single(await database.GetSegmentsAsync(suppressedItemId)).Id;
+        await database.DeleteSegmentAsync(suppressedItemId, suppressedId);
+        await database.ReplaceAutoSegmentsAsync(
+            combinedItemId,
+            AnalysisMode.Credits,
+            [new Segment(combinedItemId, new TimeRange(50, 60))],
+            SegmentSource.Combined);
+
+        var ids = await database.GetItemIdsBySegmentSourcesAsync([SegmentSource.Chapter, SegmentSource.Combined]);
+
+        Assert.Equal(3, ids.Count);
+        Assert.Contains(activeItemId, ids);
+        Assert.Contains(suppressedItemId, ids);
+        Assert.Contains(combinedItemId, ids);
+    }
+
+    [Fact]
     public async Task ReplaceAutoSegmentsAsync_DoesNotOverwriteOverlappingUserSegment()
     {
         var itemId = Guid.NewGuid();
@@ -113,8 +173,8 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(Ticks(60), stored.EndTicks);
     }
 
-    // The admission gate blocks automatic rows that strictly overlap recorded human
-    // intent (a user row or a tombstone); exactly abutting it is not overlap.
+    // The admission gate refuses automatic rows that overlap an active user row or
+    // re-detect a tombstone; exactly abutting either is not overlap.
     [Theory]
     [InlineData(100.0, 120.0, false)] // disjoint range elsewhere in the episode
     [InlineData(20.0, 30.0, false)]   // starts exactly at the blocker's end
@@ -353,7 +413,7 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [itemA, itemB], "intro-hash");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemA], "credits-hash");
 
-        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+        var erasedItemIds = await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction, eraseTombstones: true);
 
         Assert.Equal(2, erasedItemIds.Count);
         Assert.Contains(itemA, erasedItemIds);
@@ -375,6 +435,25 @@ public sealed class TestDatabaseFacades : IDisposable
         // analysis run may store the range again.
         await database.ReplaceAutoSegmentsAsync(itemB, AnalysisMode.Introduction, [new Segment(itemB, new TimeRange(0, 20))], SegmentSource.Chapter);
         Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
+    }
+
+    // Only the credits pass regenerates credits-derived rows, so erasing one reopens its
+    // item's Credits record even when the erase keeps the row's tombstone.
+    [Fact]
+    public async Task DeleteSegmentsByModeAsync_ReopensCreditsForPreservedCreditsDerivedRows()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.DeleteSegmentAsync(itemId, row.Id);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [itemId], "credits-hash");
+
+        await database.DeleteSegmentsByModeAsync(AnalysisMode.Preview, eraseTombstones: false);
+
+        Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        await using var db = _db.Context();
+        Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == itemId && a.Type == AnalysisMode.Credits));
     }
 
     [Fact]
@@ -402,45 +481,58 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Empty(await database.GetSegmentsAsync(itemId));
     }
 
+    /// <summary>
+    /// Chapter rows outrank subtitle rows, which outrank other automatic results and
+    /// credits-derived previews. Higher-ranked rows block lower-ranked writes.
+    /// </summary>
     [Fact]
-    public async Task ReplaceAutoSegmentsAsync_PreviewPasses_DoNotDeleteEachOthersRows()
+    public async Task ReplaceAutoSegmentsAsync_PreviewRows_RankChapterOverSubtitleOverCreditsDerived()
     {
         var itemId = Guid.NewGuid();
         var database = _db.Database;
-
-        // The credits pass derives a preview, then the preview pass stores a chapter
-        // preview with different boundaries. The passes share the Preview mode but
-        // own only their own rows, so neither write may delete the other's.
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(100, 110))], SegmentSource.Chapter);
+        await database.DeleteSegmentAsync(itemId, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
+        var derived = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-        var segments = await database.GetSegmentsAsync(itemId);
-        Assert.Equal(2, segments.Count);
-        Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived);
-        Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+        // A chapter write that leaves none of its segments standing keeps the derived preview:
+        // an empty one, which is the analyzer clearing its own result, and one the tombstone rejects.
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(100, 110))], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Equal(derived.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // A re-derive replaces only the derived row; the chapter row stands.
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
-        segments = await database.GetSegmentsAsync(itemId);
-        Assert.Equal(2, segments.Count);
-        Assert.Contains(segments, s => s.Source == SegmentSource.CreditsDerived && s.StartTicks == Ticks(1390));
-        Assert.Contains(segments, s => s.Source == SegmentSource.Chapter);
+        // A chapter match retires it, and lower-ranked sources cannot add beside it.
+        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [new Segment(itemId, new TimeRange(1350, 1440))],
+            SegmentSource.Chapter,
+            configHash: "preview-hash"));
+        var chapter = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(SegmentSource.Chapter, chapter.Source);
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash"));
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1350, 1440))], SegmentSource.Subtitle, configHash: "preview-hash"));
+        Assert.Equal(chapter.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
 
-        // An empty preview-pass write clears only the pass's own (chapter) row.
-        var stored = await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash");
-        Assert.Equal(0, stored);
-        var remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+        // Clearing the chapter tier removes only the chapter result. Subtitle can then
+        // replace a derived fallback and retains its id when boundaries are unchanged.
+        Assert.Equal(0, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.CreditsDerived, configHash: "credits-hash");
+        var freshDerived = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1380, 1440))], SegmentSource.Subtitle, configHash: "preview-hash"));
+        var subtitle = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal((freshDerived.Id, SegmentSource.Subtitle), (subtitle.Id, subtitle.Source));
 
-        // A chapter preview landing exactly on the derived range leaves the derived
-        // row standing instead of violating the unique quadruple index.
-        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1390, 1440))], SegmentSource.Chapter, configHash: "preview-hash");
-        remaining = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(SegmentSource.CreditsDerived, remaining.Source);
+        // An admitted chapter result supersedes the subtitle row.
+        Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Preview, [new Segment(itemId, new TimeRange(1300, 1440))], SegmentSource.Chapter, configHash: "preview-hash"));
+        Assert.Equal(SegmentSource.Chapter, Assert.Single(await database.GetSegmentsAsync(itemId)).Source);
     }
 
-    [Fact]
-    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EraseItemsAsync_DeletesSegmentsAndAnalysisRecords_OfTheGivenItemsOnly(bool eraseTombstones)
     {
         var targetItemId = Guid.NewGuid();
         var otherItemId = Guid.NewGuid();
@@ -448,19 +540,20 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.ReplaceAutoSegmentsAsync(targetItemId, AnalysisMode.Introduction, [new Segment(targetItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
         await database.ReplaceAutoSegmentsAsync(otherItemId, AnalysisMode.Introduction, [new Segment(otherItemId, new TimeRange(0, 20))], SegmentSource.Chapter);
 
-        // Tombstone the target item's intro and add a user row: an explicit erase is a
-        // factory reset, so the tombstone and the user row go too (and are counted).
-        // The records come after the delete, which clears the target's on its own.
+        // Tombstone the target item's intro and add a user row. The user row goes either
+        // way, and the tombstone only when the erase includes tombstones. The records come
+        // after the delete, which clears the target's on its own.
         var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
         await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
         await database.SeedUserSegmentAsync(targetItemId, AnalysisMode.Introduction, Ticks(100), Ticks(130));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [targetItemId, otherItemId], "hash");
 
-        var removed = await database.EraseItemsAsync([targetItemId]);
+        var removed = await database.EraseItemsAsync([targetItemId], eraseTombstones);
 
-        Assert.Equal(2, removed);
+        Assert.Equal(eraseTombstones ? 2 : 1, removed);
         await using var db = _db.Context();
-        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId));
+        Assert.Equal(!eraseTombstones, await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.State == SegmentState.Suppressed));
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == targetItemId && s.Source == SegmentSource.User));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => a.ItemId == targetItemId));
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == otherItemId));
         Assert.True(await db.AnalyzedItems.AnyAsync(a => a.ItemId == otherItemId));
@@ -621,7 +714,7 @@ public sealed class TestDatabaseFacades : IDisposable
                 await database.ReplaceAutoSegmentsAsync(keptId, AnalysisMode.Introduction, [new Segment(keptId, new TimeRange(0, 10))], SegmentSource.Chapter);
                 await database.ReplaceAutoSegmentsAsync(staleId, AnalysisMode.Introduction, [new Segment(staleId, new TimeRange(20, 30))], SegmentSource.Chapter);
 
-                Assert.Equal(1, await database.EraseItemsAsync(Padded(staleId)));
+                Assert.Equal(1, await database.EraseItemsAsync(Padded(staleId), eraseTombstones: true));
                 Assert.Empty(await database.GetSegmentsAsync(staleId));
                 Assert.Single(await database.GetSegmentsAsync(keptId));
                 break;

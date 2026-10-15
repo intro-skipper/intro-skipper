@@ -10,7 +10,7 @@ import { el, htmlEl } from "../components/dom.ts";
 import { configForm } from "../components/config-form.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDashboard, confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
@@ -132,11 +132,12 @@ export const generalTab: Tab = {
                     title: "Clear Excluded Timestamps",
                     body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",
                     confirmLabel: "Clear",
+                    checkboxes: { eraseTombstones: eraseCheckboxes.eraseTombstones },
                 });
                 if (!result) return;
 
                 clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
-                const response = await clearExcludedTimestamps();
+                const response = await clearExcludedTimestamps(result);
                 if (!response.ok) {
                     clearStatus.show(response.error, "var(--is-error)");
                     return;
@@ -154,12 +155,20 @@ export const generalTab: Tab = {
             configStore.get("UseFileTransformationPlugin") === true;
 
         container.append(
+            form.checkboxGroup("Analyze for:", [
+                "ScanIntroduction",
+                "ScanCredits",
+                "ScanRecap",
+                "ScanPreview",
+                "ScanCommercial",
+            ]),
             form.field("AutoDetectIntros"),
             form.field("ReanalyzeSettledSeasons"),
             form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             form.field("UpdateMediaSegments"),
+            form.field("AnalyzeSeasonZero"),
             form.list("SeriesExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Series"),
             }),
@@ -171,18 +180,6 @@ export const generalTab: Tab = {
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            form.checkboxGroup("Analyze for:", [
-                "ScanIntroduction",
-                "ScanCredits",
-                "ScanRecap",
-                "ScanPreview",
-                "ScanCommercial",
-            ]),
-            form.field("AnalyzeSeasonZero"),
-            form.field("ProcessShortcutVideos"),
-            form.field("ShortcutAnalysisBatchSize", {
-                visible: () => configStore.get("ProcessShortcutVideos") === true,
-            }),
             form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),

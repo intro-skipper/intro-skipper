@@ -45,7 +45,9 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
 
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
         var duration = episode.Duration;
-        var chapters = useChapters ? Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [] : [];
+        var chapters = useChapters
+            ? await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false)
+            : [];
 
         LogOriginalIntro(
             _logger,

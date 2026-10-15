@@ -13,6 +13,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Serialization;
+using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -231,6 +232,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableSponsorBlockChapterDetection { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether analysis should read chapters embedded in the
+    /// media file instead of Jellyfin's chapter repository. The embedded path avoids chapters
+    /// injected by other plugins but requires one cached ffprobe per queued episode.
+    /// </summary>
+    public bool UseEmbeddedChaptersForAnalysis { get; set; }
+
+    /// <summary>
     /// Gets or sets how introductions in the first episode of a season are handled.
     /// </summary>
     /// <remarks>
@@ -272,15 +280,19 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether a recap is detected from a matching text subtitle
-    /// cue and ends at the beginning of the detected introduction. Retained for existing configurations.
+    /// Gets or sets a value indicating whether recaps are detected from text subtitle cues that
+    /// match <see cref="SubtitleRecapPattern"/>. The dashboard turns this detection on or off per
+    /// season or series, and a season without that override inherits this value.
     /// </summary>
+    /// <value><see langword="true"/> to detect subtitle recaps in seasons without an override; otherwise, <see langword="false"/>. The default is <see langword="false"/>.</value>
     public bool EnableSubtitleRecapDetection { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether a preview is detected from a matching text subtitle
-    /// cue and runs through the end of the episode. Retained for existing configurations.
+    /// Gets or sets a value indicating whether previews are detected from text subtitle cues that
+    /// match <see cref="SubtitlePreviewPattern"/>. The dashboard turns this detection on or off per
+    /// season or series, and a season without that override inherits this value.
     /// </summary>
+    /// <value><see langword="true"/> to detect subtitle previews in seasons without an override; otherwise, <see langword="false"/>. The default is <see langword="false"/>.</value>
     public bool EnableSubtitlePreviewDetection { get; set; } = false;
 
     /// <summary>
@@ -342,7 +354,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MinimumRecapDetectionDuration { get; set; } = 15;
 
     /// <summary>
-    /// Gets or sets the maximum length of a detected black-frame/chromaprint recap.
+    /// Gets or sets the maximum length of a detected black-frame/chromaprint recap. The black-frame
+    /// scan of a recap covers the episode up to here, so a subtitle recap ends at a black run
+    /// only before it.
     /// </summary>
     public int MaximumRecapDetectionDuration { get; set; } = 120;
 
@@ -460,14 +474,45 @@ public class PluginConfiguration : BasePluginConfiguration
         @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
-    /// Gets or sets the regular expression used to detect recap subtitle cues.
+    /// Gets or sets the regular expression used to detect recap subtitle cues. It is matched
+    /// against the cue text with markup removed and whitespace collapsed.
     /// </summary>
-    public string SubtitleRecapPattern { get; set; } = @"\bpreviously\s+on\b";
+    /// <value>
+    /// The default matches recap wordings in English, German, Spanish, French, Portuguese,
+    /// Italian, Dutch, Japanese, Chinese and Korean. The English "previously on", the Italian
+    /// "episodio precedente" and "episodi precedenti" and the Chinese 前情提要, which can follow a
+    /// bracketed title, match anywhere in the cue. "previously on" ends without a word boundary,
+    /// so a cue that lost the space before the title ("Previously onShow") still matches. The
+    /// German, Spanish, French, Portuguese, Dutch and Japanese (前回までは) wordings must open the
+    /// cue, since a title card is a whole cue and some of them also occur in dialogue ("comme je
+    /// l'ai dit précédemment"). The Korean 지난 이야기 follows the title, so it must close the cue.
+    /// </value>
+    public string SubtitleRecapPattern { get; set; } =
+        @"\bpreviously\s+on|^\W*(?:zuvor\s+bei|zuletzt\s+bei|was\s+bisher\s+geschah|bisher\s+bei|anteriormente|previamente|précédemment|wat\s+voorafging)|episodio?\s+precedent[ei]|^\W*前回までは|前情提要|지난\s*이야기\W*$";
 
     /// <summary>
-    /// Gets or sets the regular expression used to detect preview subtitle cues.
+    /// Gets or sets the regular expression used to detect preview subtitle cues. It is matched
+    /// against the cue text with markup removed and whitespace collapsed.
     /// </summary>
-    public string SubtitlePreviewPattern { get; set; } = @"\b(?:(?:here(?:'|’)?s|now)\s+the\s+preview|next\s+time)\b";
+    /// <value>
+    /// The default anchors "next time" to the start of the cue, allowing one speaker label
+    /// before it (<c>NARRATOR:</c>, <c>[Narrator]</c>, <c>(narrator)</c>), so dialogue that only
+    /// contains it ("Try harder next time.") does not match.
+    /// </value>
+    public string SubtitlePreviewPattern { get; set; } = @"\b(?:here(?:'|’)?s|now)\s+the\s+preview\b|^\W*(?:\[[^\]]*\]|\([^)]*\)|[^\s:]+:)?\s*next\s+time\b";
+
+    /// <summary>
+    /// Gets or sets the comma-separated language codes of the subtitles that recap and preview
+    /// subtitle detection read, such as <c>ger, eng</c>. ISO 639-1, 639-2/B and 639-2/T codes
+    /// of a language are interchangeable. Untagged embedded streams and sidecars without a
+    /// language in their file name are always read.
+    /// </summary>
+    /// <remarks>
+    /// A recap's title card is often subtitled only in the translation tracks, while the track
+    /// of the audio language leaves it out, so a selection of only the audio language can miss it.
+    /// </remarks>
+    /// <value>The language codes. The default is empty, which reads every language.</value>
+    public string SubtitleLanguages { get; set; } = string.Empty;
 
     // ===== Playback settings =====
 
@@ -576,4 +621,55 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     [XmlIgnore]
     public bool FileTransformationPluginEnabled { get; set; }
+
+    /// <summary>
+    /// Gets the subtitle pattern that detects <paramref name="mode"/> in a season whose
+    /// detection override is <paramref name="detectionOverride"/>. The single answer to
+    /// "is subtitle detection active": the analysis hash, the recorded file version, the
+    /// queue verifier, the analyzer chain and the subtitle analyzer all ask it.
+    /// </summary>
+    /// <param name="mode">The analysis mode.</param>
+    /// <param name="detectionOverride">The season's subtitle detection override for the mode, or <see langword="null"/> to inherit the global setting.</param>
+    /// <returns>
+    /// The pattern, or <see langword="null"/> when <paramref name="mode"/> is not Recap or
+    /// Preview, its subtitle detection is off, or its pattern is blank.
+    /// </returns>
+    public string? ActiveSubtitlePattern(AnalysisMode mode, bool? detectionOverride)
+    {
+        var (enabled, pattern) = mode switch
+        {
+            AnalysisMode.Recap => (detectionOverride ?? EnableSubtitleRecapDetection, SubtitleRecapPattern),
+            AnalysisMode.Preview => (detectionOverride ?? EnableSubtitlePreviewDetection, SubtitlePreviewPattern),
+            _ => (false, string.Empty),
+        };
+        return enabled && !string.IsNullOrWhiteSpace(pattern) ? pattern : null;
+    }
+
+    /// <summary>
+    /// Gets the subtitle pattern that detects <paramref name="mode"/> for
+    /// <paramref name="episode"/>, under its season's detection override. See
+    /// <see cref="ActiveSubtitlePattern(AnalysisMode, bool?)"/>.
+    /// </summary>
+    /// <param name="episode">A queued episode carrying its season's overrides.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <returns>The pattern, or <see langword="null"/> when subtitle detection is not active.</returns>
+    public string? ActiveSubtitlePattern(QueuedEpisode episode, AnalysisMode mode)
+        => ActiveSubtitlePattern(
+            mode,
+            mode == AnalysisMode.Recap ? episode.SubtitleRecapDetectionOverride : episode.SubtitlePreviewDetectionOverride);
+
+    /// <summary>
+    /// Gets the file version an analysis record of <paramref name="mode"/> carries for
+    /// <paramref name="episode"/>. The pass stamps it on the record, and
+    /// <c>QueueVerifier</c> reopens a Recap or Preview record that no longer carries it.
+    /// </summary>
+    /// <param name="episode">A verified episode.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <returns>
+    /// <see cref="QueuedEpisode.SubtitleFileVersion"/> while the mode's subtitle detection is
+    /// active, so a changed sidecar reopens only that mode; otherwise
+    /// <see cref="QueuedEpisode.FileVersion"/>.
+    /// </returns>
+    public long? RecordedFileVersion(QueuedEpisode episode, AnalysisMode mode)
+        => ActiveSubtitlePattern(episode, mode) is null ? episode.FileVersion : episode.SubtitleFileVersion;
 }

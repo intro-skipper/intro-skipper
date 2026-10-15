@@ -230,7 +230,7 @@ export function segmentEditor(opts: {
                     title: "Delete segment",
                     body: segment.Source === "User"
                         ? "This permanently deletes the segment."
-                        : "This hides the automatically detected segment. Re-analysis will not re-add it. Erasing timestamps restores automatic detection.",
+                        : "This hides the automatically detected segment. Re-analysis will not re-add it.",
                     confirmLabel: "Delete",
                 }),
                 signal,

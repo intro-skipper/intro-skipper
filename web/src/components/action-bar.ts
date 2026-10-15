@@ -1,6 +1,6 @@
 import { el } from "./dom.ts";
 import { bindStatusMessage, withDashboardLoading } from "./async-feedback.ts";
-import { confirmDialog } from "./confirm-dialog.ts";
+import { confirmDialog, eraseCheckboxes } from "./confirm-dialog.ts";
 import { formFor } from "./input-field.ts";
 import { createOverrideStore, overrideKeys, overrideSchema } from "./season-overrides.ts";
 import * as api from "../store/api.ts";
@@ -252,15 +252,6 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         return currentSeriesSeasons.map((season) => season.Id);
     }
 
-    function seasonUrl(showId: string, seasonId: string): string {
-        return (
-            "Intros/Show/" +
-            encodeURIComponent(showId) +
-            "/" +
-            encodeURIComponent(seasonId)
-        );
-    }
-
     fullSeriesCheckbox.addEventListener("change", updateActionLabels, { signal });
 
     async function applyOverrides(): Promise<void> {
@@ -410,7 +401,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 title: "Confirm Timestamp Erasure",
                 body: "Are you sure you want to erase all timestamps for this " + label + "?",
                 confirmLabel: "Erase",
-                checkbox: { label: "Include cached fingerprints" },
+                checkboxes: eraseCheckboxes,
             }),
             signal,
         );
@@ -420,11 +411,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         statusMessage.show("Erasing timestamps…", "var(--is-text-muted)");
         try {
             for (const seasonId of seasonIds) {
-                const response = await api.eraseItemTimestamps(
-                    seasonUrl(showId, seasonId),
-                    result.checkboxChecked,
-                    signal,
-                );
+                const response = await api.eraseSeasonTimestamps(showId, seasonId, result, signal);
                 if (!response.ok) {
                     // Jellyfin can list seasons with no queued episodes. The
                     // season erase endpoint reports those as 404, which is a
