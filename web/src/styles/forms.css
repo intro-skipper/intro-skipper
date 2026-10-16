@@ -1,7 +1,8 @@
 /* Controls, fields, episode rows, the segment editor, the Information tab and
-   the confirm dialog. No surfaces: inputs are a bottom rule, every button
-   except Save is text, hierarchy is type size, weight and the host's two text
-   colors, and spacing between siblings comes from the parent's gap. */
+   the confirm dialog. No surfaces: inputs are a bottom rule, actions are
+   outlined text, every other button except Save is plain text, hierarchy is
+   type size, weight and the host's two text colors, and spacing between
+   siblings comes from the parent's gap. */
 
 :where(.is-app-shell, .is-confirm-dialog) {
     &, *, ::before, ::after { box-sizing: border-box; }
@@ -93,6 +94,15 @@
     }
 
     input[type="number"] { inline-size: min(100%, 8rem); }
+
+    /* A select also sits on a faint tint, so a dropdown reads as a control
+       rather than as a value with a line under it. */
+    select {
+        padding-inline: var(--is-space-2xs);
+        border-start-start-radius: var(--is-radius);
+        border-start-end-radius: var(--is-radius);
+        background: var(--is-tint);
+    }
 
     /* Regular expressions run long, so pattern fields take the whole column. */
     .pattern-field input { inline-size: 100%; }
@@ -250,6 +260,24 @@
     }
 
     :is(.action-button, .ts-reset-overrides) { align-self: start; }
+
+    /* Outlined actions: a hairline in the text color and the host radius mark
+       a button as a control at rest, so a destructive action is a red outline
+       rather than red copy that reads as an error. Inline links (retry, chip
+       remove, tabs, the dialog) stay plain text. Hover fills, no underline. */
+    :is(.action-button, .exclusion-add-button, .ts-manage-toggle, .ts-action-btn, .ts-edit-btn, .ts-segment-btn, .ts-reset-overrides) {
+        padding-block: var(--is-space-2xs);
+        padding-inline: var(--is-space-s);
+        border: 1px solid currentColor;
+        border-radius: var(--is-radius);
+
+        @media (hover: hover) and (pointer: fine) {
+            &:hover:not(:disabled) {
+                background: var(--is-tint);
+                text-decoration-color: transparent;
+            }
+        }
+    }
 
     .exclusion-input-row {
         display: flex;
