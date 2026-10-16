@@ -26,10 +26,18 @@ using Xunit;
 /// </summary>
 public class TestEmbeddedChapters
 {
+    private const string ChapterNameFormat = "Chapter {0}";
+    private static readonly long Runtime = DatabaseTestHelpers.Ticks(120);
+
+    /// <summary>
+    /// The read yields what Jellyfin's probe stores in its chapter table: starts rounded to the
+    /// millisecond, an untitled chapter named by its number in ffprobe's order, sorted by start.
+    /// </summary>
     [Fact]
-    public void ParseChapters_ReadsStartsAndTitlesInStartOrder()
+    public void ParseChapters_ShapesChaptersAsJellyfinStoresThem()
     {
-        var chapters = FFmpegOutputParser.ParseChapters("""
+        var chapters = FFmpegOutputParser.ParseChapters(
+            """
             {
               "chapters": [
                 { "start_time": "98.250000", "tags": { "title": "Main" } },
@@ -37,17 +45,63 @@ public class TestEmbeddedChapters
                 { "start_time": "0.000000" }
               ]
             }
-            """);
+            """,
+            Runtime,
+            ChapterNameFormat);
 
         Assert.Equal(
-            [(0L, string.Empty), (900_486_250L, "Opening"), (982_500_000L, "Main")],
+            [(0L, "Chapter 3"), (900_490_000L, "Opening"), (982_500_000L, "Main")],
             chapters.Select(chapter => (chapter.StartPositionTicks, chapter.Name)));
+    }
+
+    /// <summary>
+    /// A half millisecond rounds to even as Jellyfin rounds it, and a title that is a timestamp,
+    /// a bare number or blank is replaced like a missing one.
+    /// </summary>
+    [Theory]
+    [InlineData("1.000500", "Opening", 10_000_000L, "Opening")]
+    [InlineData("1.001500", "Opening", 10_020_000L, "Opening")]
+    [InlineData("5.000000", "1:23", 50_000_000L, "Chapter 1")]
+    [InlineData("5.000000", "12", 50_000_000L, "Chapter 1")]
+    [InlineData("5.000000", "  ", 50_000_000L, "Chapter 1")]
+    public void ParseChapters_RoundsAndNamesAsJellyfinDoes(string start, string title, long ticks, string name)
+    {
+        var chapter = Assert.Single(FFmpegOutputParser.ParseChapters(
+            $$"""{ "chapters": [ { "start_time": "{{start}}", "tags": { "title": "{{title}}" } } ] }""",
+            Runtime,
+            ChapterNameFormat));
+
+        Assert.Equal((ticks, name), (chapter.StartPositionTicks, chapter.Name));
+    }
+
+    /// <summary>
+    /// Jellyfin saves no chapter at or past the item's runtime, an end marker included, and the
+    /// rounded start is what it compares.
+    /// </summary>
+    [Fact]
+    public void ParseChapters_DropsChaptersAtOrPastTheRuntime()
+    {
+        var chapters = FFmpegOutputParser.ParseChapters(
+            """
+            {
+              "chapters": [
+                { "start_time": "0.000000", "tags": { "title": "Episode" } },
+                { "start_time": "119.999700", "tags": { "title": "End" } },
+                { "start_time": "120.000000", "tags": { "title": "Past" } }
+              ]
+            }
+            """,
+            Runtime,
+            ChapterNameFormat);
+
+        Assert.Equal(["Episode"], chapters.Select(chapter => chapter.Name));
     }
 
     [Fact]
     public void ParseChapters_DropsStartsThatAreNotTickCounts()
     {
-        var chapters = FFmpegOutputParser.ParseChapters("""
+        var chapters = FFmpegOutputParser.ParseChapters(
+            """
             {
               "chapters": [
                 { "start_time": "NaN", "tags": { "title": "NaN" } },
@@ -56,7 +110,9 @@ public class TestEmbeddedChapters
                 { "start_time": "15.000000", "tags": { "title": "Opening" } }
               ]
             }
-            """);
+            """,
+            Runtime,
+            ChapterNameFormat);
 
         var chapter = Assert.Single(chapters);
         Assert.Equal(150_000_000, chapter.StartPositionTicks);
@@ -74,13 +130,13 @@ public class TestEmbeddedChapters
     [InlineData("""{ "chapters": {} }""")]
     public void ParseChapters_RejectsOutputWithoutAChaptersArray(string raw)
     {
-        Assert.Throws<System.Text.Json.JsonException>(() => FFmpegOutputParser.ParseChapters(raw));
+        Assert.Throws<System.Text.Json.JsonException>(() => FFmpegOutputParser.ParseChapters(raw, Runtime, ChapterNameFormat));
     }
 
     [Fact]
     public void ParseChapters_ReadsAnEmptyChaptersArrayAsNoChapters()
     {
-        Assert.Empty(FFmpegOutputParser.ParseChapters("""{ "chapters": [] }"""));
+        Assert.Empty(FFmpegOutputParser.ParseChapters("""{ "chapters": [] }""", Runtime, ChapterNameFormat));
     }
 
     /// <summary>
@@ -104,19 +160,23 @@ public class TestEmbeddedChapters
             [CHAPTER]
             TIMEBASE=1/1000000
             START=1048625
-            END=2000000
+            END=1500000
             title=Main
+            [CHAPTER]
+            TIMEBASE=1/1000000
+            START=1500000
+            END=2000000
             """.ReplaceLineEndings("\n"));
         await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
             "ffmpeg",
             ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=2", "-f", "ffmetadata", "-i", metadata, "-map", "0", "-map_chapters", "1", "-c:v", "ffv1", path]);
 
         var chapters = await FfmpegTestHelpers.CreateFFmpegService().GetEmbeddedChaptersAsync(
-            new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "chapters", Path = path });
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "chapters", Path = path, Duration = 2 });
 
         Assert.NotNull(chapters);
         Assert.Equal(
-            [(0L, "Opening"), (10_486_250L, "Main")],
+            [(0L, "Opening"), (10_490_000L, "Main"), (15_000_000L, "Chapter 3")],
             chapters.Select(chapter => (chapter.StartPositionTicks, chapter.Name)));
     }
 
@@ -245,35 +305,6 @@ public class TestEmbeddedChapters
         await season.AnalyzeAsync(ffmpeg);
 
         Assert.Equal(0, embeddedReads);
-    }
-
-    /// <summary>
-    /// Jellyfin stores chapter starts rounded to the millisecond, and the embedded read keeps
-    /// ffprobe's microseconds. After a switch to embedded chapters, the chapter intro the user
-    /// deleted under Jellyfin's 90.049 s comes back at 90.048625 s, and its tombstone still
-    /// refuses it.
-    /// </summary>
-    [Fact]
-    public async Task EmbeddedChapterIntro_DoesNotResurrectAnIntroDeletedAtJellyfinsRoundedStart()
-    {
-        var config = IntroductionOnly();
-        config.UseEmbeddedChaptersForAnalysis = true;
-        using var season = new SeasonFixture(config, [], episodeCount: 1);
-        var episodeId = season.EpisodeIds[0];
-        await season.Database.ReplaceAutoSegmentsAsync(episodeId, AnalysisMode.Introduction, [new Segment(episodeId, new TimeRange(90.049, 180.006))], SegmentSource.Chapter, "jellyfin-chapters");
-        await season.Database.DeleteSegmentAsync(episodeId, Assert.Single(await season.Database.GetSegmentsAsync(episodeId)).Id);
-        var ffmpeg = Ffmpeg(chapters: _ =>
-        [
-            Chapter("Prologue", 0),
-            new ChapterInfo { Name = "Opening", StartPositionTicks = 900_486_250 },
-            new ChapterInfo { Name = "Part A", StartPositionTicks = 1_800_055_830 },
-        ]);
-
-        await season.AnalyzeAsync(ffmpeg);
-
-        var tombstone = Assert.Single(await season.Database.GetSegmentsAsync(episodeId, includeSuppressed: true));
-        Assert.Equal(SegmentState.Suppressed, tombstone.State);
-        Assert.Equal(DatabaseTestHelpers.Ticks(90.049), tombstone.StartTicks);
     }
 
     private static PluginConfiguration IntroductionOnly() => new()

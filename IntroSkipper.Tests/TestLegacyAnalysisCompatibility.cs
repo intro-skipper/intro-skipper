@@ -199,9 +199,6 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "legacy")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
-    [InlineData(AnalysisMode.Introduction, "embedded-chapters")]
-    [InlineData(AnalysisMode.Credits, "embedded-chapters")]
-    [InlineData(AnalysisMode.Commercial, "embedded-chapters")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
@@ -219,7 +216,6 @@ public sealed class TestLegacyAnalysisCompatibility
             case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
-            case "embedded-chapters": config.UseEmbeddedChaptersForAnalysis = true; break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
@@ -229,6 +225,36 @@ public sealed class TestLegacyAnalysisCompatibility
         var candidate = new QueuedEpisode { EpisodeId = id };
         new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
         Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(mode));
+    }
+
+    // 10.11 read Jellyfin's chapter table, so its record is adopted under that source's hash with
+    // embedded chapters on too. The verifier then settles the episode pending the pass's chapter
+    // source check, which reruns it only when the file holds other chapters than the table.
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Commercial)]
+    public async Task EmbeddedChaptersOn_AdoptsUnderTheChapterTableHash(AnalysisMode mode)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration { UseEmbeddedChaptersForAnalysis = true };
+        var id = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, AnalyzerAction.Default, true, false);
+        await temp.Database.MarkItemsAnalyzedAsync(mode, [id], legacyHash);
+        var tableHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true, chapterSource: ChapterSource.JellyfinTable);
+        var embeddedHash = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, true);
+
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+        // The .24 Commercial hash is the table-source hash itself, so there is nothing to rewrite.
+        Assert.Equal(legacyHash != tableHash, await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(seasonId, [id]);
+        Assert.Equal(tableHash, Assert.Single(snapshot.AnalysisRecords).Value.ConfigHash);
+
+        var candidate = new QueuedEpisode { EpisodeId = id };
+        new QueueVerifier(config, [mode], snapshot, true).Classify(candidate);
+        Assert.Equal(EpisodeState.NoSegments, candidate.GetAnalyzed(mode));
+        Assert.Equal(new ChapterSourceCheck(tableHash, embeddedHash, ChapterSource.Embedded), Assert.Single(candidate.ChapterSourceChecks).Value);
     }
 
     [Theory]

@@ -145,10 +145,10 @@ public sealed class TestConfigHasher
     }
 
     /// <summary>
-    /// Every mode reads chapters, chapter snapping even under a credits BlackFrame action, so a
-    /// switch of the chapter source reruns every record. The detection cache holds media
-    /// evidence with no chapter input, so the rerun reads it again. The pinned hashes above
-    /// show that the setting's default leaves every hash as it was.
+    /// Every mode reads chapters, chapter snapping even under a credits BlackFrame action, so
+    /// every record names its chapter source. The detection cache holds media evidence with no
+    /// chapter input, so an episode the chapter source check reruns reads it again. The pinned
+    /// hashes above show that the setting's default leaves every hash as it was.
     /// </summary>
     [Theory]
     [InlineData(AnalysisMode.Introduction, AnalyzerAction.Default)]

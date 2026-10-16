@@ -221,11 +221,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// file instead of Jellyfin's chapter table, so chapters other plugins add are ignored.
     /// </summary>
     /// <remarks>
-    /// Changing the setting reanalyzes the whole library the next time analysis runs. On a large
-    /// library that can take hours, or more than a day on a low-power server. While the setting
-    /// is on, each analyzed episode costs one ffprobe.
+    /// Jellyfin fills its chapter table from the file's embedded chapters, so for a file no other
+    /// plugin touched both sources hold the same list. Changing the setting makes the next analysis
+    /// run probe each analyzed episode once and analyze again only the episodes whose two sources
+    /// differ. While the setting is on, each analyzed episode costs one ffprobe.
     /// </remarks>
     public bool UseEmbeddedChaptersForAnalysis { get; set; }
+
+    /// <summary>
+    /// Gets the chapter source <see cref="UseEmbeddedChaptersForAnalysis"/> selects.
+    /// </summary>
+    internal ChapterSource ChapterSource => UseEmbeddedChaptersForAnalysis ? ChapterSource.Embedded : ChapterSource.JellyfinTable;
 
     /// <summary>
     /// Gets or sets how introductions in the first episode of a season are handled.

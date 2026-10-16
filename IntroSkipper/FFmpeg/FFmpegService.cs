@@ -688,7 +688,10 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return null;
             }
 
-            return FFmpegOutputParser.ParseChapters(Encoding.UTF8.GetString(capture.Stdout.Span));
+            return FFmpegOutputParser.ParseChapters(
+                Encoding.UTF8.GetString(capture.Stdout.Span),
+                TickConversions.FromSeconds(episode.Duration),
+                Plugin.Instance?.ChapterNameFormat ?? "Chapter {0}");
         }
         catch (Exception ex) when (ex is JsonException || IsProcessFailure(ex))
         {

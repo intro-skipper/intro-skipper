@@ -381,7 +381,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Use embedded chapters for analysis",
         description:
-            "Read chapters from the media file instead of Jellyfin's chapter table, so chapters other plugins add are ignored. Changing this reanalyzes the whole library the next time analysis runs, which can take hours on a large library, or more than a day on a low-power server. Each analyzed episode costs one ffprobe while it is on.",
+            "Read chapters from the media file instead of Jellyfin's chapter table, so chapters other plugins add are ignored. Changing this makes the next analysis run probe each analyzed episode once and reanalyze only the episodes whose file and table hold different chapters. Each analyzed episode costs one ffprobe while it is on.",
     },
     ChapterAnalyzerIntroductionPattern: {
         kind: "regex",

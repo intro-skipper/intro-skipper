@@ -14,6 +14,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -332,27 +333,30 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Reads each episode's chapters from the chapter source into
-    /// <see cref="QueuedEpisode.Chapters"/>, before any mode runs.
+    /// Resolves the chapter source checks the verifier flagged, then reads each episode's
+    /// chapters from the chapter source into <see cref="QueuedEpisode.Chapters"/>, before any
+    /// mode runs.
     /// </summary>
     /// <remarks>
-    /// The source is Jellyfin's chapter table, or the chapters embedded in the media file while
-    /// <see cref="PluginConfiguration.UseEmbeddedChaptersForAnalysis"/> is on. Nothing is read
-    /// when no mode will run an analyzer over the season: <see cref="IsModeOpen"/> holds for no
-    /// mode whose action is not None. A settled season therefore costs no probe. An episode
-    /// whose embedded chapters ffprobe cannot read is left out of the result and logged. No
-    /// mode analyzes, writes or records it, and it is no Chromaprint reference, so it keeps the
-    /// rows the earlier steps of the pass left and, without a record, is retried on the next
-    /// pass. A failed read of Jellyfin's chapter table throws and fails the season. Each episode
-    /// also remembers the source it was read from (<see cref="QueuedEpisode.ChaptersFromEmbeddedSource"/>),
-    /// which the modes hash instead of the live setting, so a setting changed while the pass
-    /// runs reopens the episode on the next pass rather than recording the wrong source.
+    /// Step 5 of the season's pass in <c>docs/analysis.md</c> describes the read and the chapter
+    /// source check in full. The invariants: a check (<see cref="QueuedEpisode.ChapterSourceChecks"/>)
+    /// whose two sources hold the same chapters is re-stamped through
+    /// <see cref="IntroSkipperDatabase.UpgradeAnalysisHashAsync"/> and runs no analyzer, unless
+    /// its hash names another source than the one this pass read, in which case the record
+    /// already names the source read; a check whose sources differ, or whose other source cannot
+    /// be read, reopens the mode. Beyond the checks, nothing is read unless <see cref="IsModeOpen"/>
+    /// holds for a mode whose action is not None, and an opted-out Season 0 reads nothing. An
+    /// episode whose embedded chapters ffprobe cannot read is logged, left out of the result when
+    /// a mode runs, and keeps its rows; without a record it is retried on the next pass. A failed
+    /// read of Jellyfin's chapter table throws and fails the season. Each episode records the
+    /// source it was read from in <see cref="QueuedEpisode.ChaptersSource"/>, which the modes
+    /// hash instead of the live setting.
     /// </remarks>
     /// <param name="episodes">The season's verified episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="seasonStates">The season's analyzer action per mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The episodes whose chapters were read, or every episode when nothing was read.</returns>
+    /// <returns>The episodes whose chapters were read, or every episode when no mode will run an analyzer.</returns>
     private async Task<IReadOnlyList<QueuedEpisode>> ReadChaptersAsync(
         IReadOnlyList<QueuedEpisode> episodes,
         IReadOnlyList<AnalysisMode> modes,
@@ -360,6 +364,99 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken)
     {
         var config = Config;
+        var first = episodes[0];
+        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, config))
+        {
+            return episodes;
+        }
+
+        var source = config.ChapterSource;
+        var unreadable = new HashSet<Guid>();
+
+        // Reads the episode's chapters from a source; null when ffprobe cannot read the file.
+        async Task<IReadOnlyList<ChapterInfo>?> ReadSourceAsync(QueuedEpisode episode, ChapterSource from)
+            => from == ChapterSource.JellyfinTable
+                ? Plugin.Instance!.GetChapters(episode.EpisodeId)
+                : await _ffmpegService.GetEmbeddedChaptersAsync(episode, cancellationToken).ConfigureAwait(false);
+
+        // Reads the source in effect into the episode; false when ffprobe cannot read the file.
+        async Task<bool> ReadAsync(QueuedEpisode episode)
+        {
+            if (await ReadSourceAsync(episode, source).ConfigureAwait(false) is { } chapters)
+            {
+                episode.Chapters = chapters;
+                episode.ChaptersSource = source;
+                return true;
+            }
+
+            LogEmbeddedChaptersUnreadable(_logger, episode.Name, episode.EpisodeId);
+            unreadable.Add(episode.EpisodeId);
+            return false;
+        }
+
+        // The checks go first: a difference reopens modes, which gives the season work.
+        var checks = episodes.Where(episode => episode.ChapterSourceChecks.Count > 0).ToArray();
+        var restamps = new Dictionary<(AnalysisMode Mode, ChapterSourceCheck Check), List<Guid>>();
+        var kept = 0;
+        var reopened = 0;
+        foreach (var episode in checks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await ReadAsync(episode).ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            var other = await ReadSourceAsync(episode, source == ChapterSource.Embedded ? ChapterSource.JellyfinTable : ChapterSource.Embedded).ConfigureAwait(false);
+            var same = other is not null && SameChapters(episode.Chapters, other);
+            var restamped = false;
+            var reopens = false;
+            foreach (var (mode, check) in episode.ChapterSourceChecks)
+            {
+                // An earlier step of the pass may have reset the mode already.
+                if (episode.GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.NoSegments))
+                {
+                    continue;
+                }
+
+                if (!same)
+                {
+                    episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
+                    reopens = true;
+                }
+                else if (check.Source == source)
+                {
+                    if (!restamps.TryGetValue((mode, check), out var ids))
+                    {
+                        restamps[(mode, check)] = ids = [];
+                    }
+
+                    ids.Add(episode.EpisodeId);
+                    restamped = true;
+                }
+            }
+
+            episode.ClearChapterSourceChecks();
+            if (reopens)
+            {
+                reopened++;
+            }
+            else if (restamped)
+            {
+                kept++;
+            }
+        }
+
+        foreach (var ((mode, check), ids) in restamps)
+        {
+            await _database.UpgradeAnalysisHashAsync(mode, ids, check.StoredHash, check.CurrentHash, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (checks.Length > 0)
+        {
+            LogChapterSourceChecked(_logger, first.SeriesName, first.SeasonNumber, kept, reopened);
+        }
+
         var analyzerRuns = modes.Any(mode =>
             (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
             && IsModeOpen(episodes, mode, config));
@@ -368,34 +465,23 @@ public partial class BaseItemAnalyzerTask(
             return episodes;
         }
 
-        if (!config.UseEmbeddedChaptersForAnalysis)
-        {
-            foreach (var episode in episodes)
-            {
-                episode.Chapters = Plugin.Instance!.GetChapters(episode.EpisodeId);
-                episode.ChaptersFromEmbeddedSource = false;
-            }
-
-            return episodes;
-        }
-
-        var readable = new List<QueuedEpisode>(episodes.Count);
         foreach (var episode in episodes)
         {
-            if (await _ffmpegService.GetEmbeddedChaptersAsync(episode, cancellationToken).ConfigureAwait(false) is { } chapters)
+            cancellationToken.ThrowIfCancellationRequested();
+            if (episode.ChaptersSource is null && !unreadable.Contains(episode.EpisodeId))
             {
-                episode.Chapters = chapters;
-                episode.ChaptersFromEmbeddedSource = true;
-                readable.Add(episode);
-            }
-            else
-            {
-                LogEmbeddedChaptersUnreadable(_logger, episode.Name, episode.EpisodeId);
+                await ReadAsync(episode).ConfigureAwait(false);
             }
         }
 
-        return readable;
+        return unreadable.Count == 0 ? episodes : [.. episodes.Where(episode => !unreadable.Contains(episode.EpisodeId))];
     }
+
+    // Start and name are all the analyzers read from a chapter.
+    private static bool SameChapters(IReadOnlyList<ChapterInfo> first, IReadOnlyList<ChapterInfo> second)
+        => first.Count == second.Count
+            && first.Zip(second).All(pair => pair.First.StartPositionTicks == pair.Second.StartPositionTicks
+                && string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal));
 
     /// <summary>
     /// Verifies that a season's resolved episodes are still in the library and on disk and
@@ -561,7 +647,7 @@ public partial class BaseItemAnalyzerTask(
             ShouldDerivePreview(first, Config),
             first.SubtitleRecapDetectionOverride,
             first.SubtitlePreviewDetectionOverride,
-            embeddedChaptersOverride: first.ChaptersFromEmbeddedSource);
+            chapterSource: first.ChaptersSource);
 
         if (action == AnalyzerAction.None)
         {
@@ -927,6 +1013,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not read the embedded chapters of {Name} ({Id}); it is skipped until the next pass")]
     private static partial void LogEmbeddedChaptersUnreadable(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Chapter source check for {Series} season {Season}: {Kept} episodes hold the same chapters in both sources and keep their analysis, {Reopened} are analyzed again")]
+    private static partial void LogChapterSourceChecked(ILogger logger, string series, int season, int kept, int reopened);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);

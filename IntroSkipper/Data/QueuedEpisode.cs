@@ -16,6 +16,7 @@ public sealed class QueuedEpisode
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
+    private readonly Dictionary<AnalysisMode, ChapterSourceCheck> _chapterSourceChecks = [];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -133,13 +134,19 @@ public sealed class QueuedEpisode
     public IReadOnlyList<ChapterInfo> Chapters { get; set; } = [];
 
     /// <summary>
-    /// Gets or sets where <see cref="Chapters"/> came from in the current pass: <see langword="true"/>
-    /// for the media file, <see langword="false"/> for Jellyfin's chapter table, <see langword="null"/>
-    /// while nothing was read. The analysis record a mode writes names this source, not the
-    /// setting at the moment the mode ran, so a setting changed while the pass runs reopens the
-    /// episode on the next pass.
+    /// Gets or sets the chapter source <see cref="Chapters"/> were read from in the current pass,
+    /// <see langword="null"/> while nothing was read. The analysis record a mode writes names this
+    /// source, not the setting at the moment the mode ran, so a setting changed while the pass
+    /// runs leaves the episode to the chapter source check on the next pass.
     /// </summary>
-    public bool? ChaptersFromEmbeddedSource { get; set; }
+    public ChapterSource? ChaptersSource { get; set; }
+
+    /// <summary>
+    /// Gets the modes whose record settles the episode under the other chapter source's hash
+    /// and awaits the season pass's chapter source check, each with its stored hash and the hash
+    /// the pass re-stamps it to when both sources hold the same chapters.
+    /// </summary>
+    public IReadOnlyDictionary<AnalysisMode, ChapterSourceCheck> ChapterSourceChecks => _chapterSourceChecks;
 
     /// <summary>
     /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks
@@ -222,6 +229,20 @@ public sealed class QueuedEpisode
     /// <param name="mode">Analysis mode whose conventional result is being reset.</param>
     public void ClearSubtitleOnlyReanalysis(AnalysisMode mode)
         => _subtitleOnlyReanalysisModes.Remove(mode);
+
+    /// <summary>
+    /// Marks that the mode's record was written from the other chapter source, so the season
+    /// pass compares the two sources' chapters before the episode is analyzed again.
+    /// </summary>
+    /// <param name="mode">Analysis mode whose record names the other chapter source.</param>
+    /// <param name="check">The record's hash, the hash the current settings produce, and the source that hash names.</param>
+    public void MarkChapterSourceCheck(AnalysisMode mode, ChapterSourceCheck check)
+        => _chapterSourceChecks[mode] = check;
+
+    /// <summary>
+    /// Clears the chapter source checks once the season pass has resolved them.
+    /// </summary>
+    public void ClearChapterSourceChecks() => _chapterSourceChecks.Clear();
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

@@ -125,7 +125,9 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the chapter markers embedded in the media container with ffprobe. While
+    /// Reads the chapter markers embedded in the media container with ffprobe, shaped as
+    /// Jellyfin's own probe stores them in its chapter table (<c>FFmpegOutputParser.ParseChapters</c>),
+    /// so for a file no other plugin touched both chapter sources hold the same list. While
     /// <c>UseEmbeddedChaptersForAnalysis</c> is on, the season pass reads each episode's chapters
     /// here once per pass, instead of from Jellyfin's chapter table, which can hold chapters
     /// another plugin added. Nothing is cached: every call runs ffprobe.

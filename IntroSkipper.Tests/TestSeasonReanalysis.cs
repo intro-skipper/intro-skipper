@@ -646,6 +646,42 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
     }
 
+    // The setting goes off while the pass reads the file, and both sources hold the same
+    // chapters. The record keeps naming the source the pass read, as the analysis records do,
+    // so the pass under the new setting checks it once more and keeps the result.
+    [Fact]
+    public async Task ChapterSourceSwitch_DuringAPass_WithTheSameChapters_RecordsTheSourceRead()
+    {
+        var config = ChapterSourceConfig();
+        using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
+        var database = fixture.CreateDatabase();
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = _ =>
+            {
+                config.UseEmbeddedChaptersForAnalysis = false;
+                return IntroChapters(20, 60);
+            },
+            Silence = (_, _, _) => [],
+            KeyFrames = (_, _, _) => [],
+        };
+        string Hash(ChapterSource source) => ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false, chapterSource: source);
+        async Task<string> RecordHashAsync()
+            => Assert.Single((await database.GetSeasonQueueSnapshotAsync(fixture.SeasonId, [fixture.EpisodeId])).AnalysisRecords).Value.ConfigHash;
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        var intro = Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId));
+
+        config.UseEmbeddedChaptersForAnalysis = true;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(Hash(ChapterSource.Embedded), await RecordHashAsync());
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(Hash(ChapterSource.JellyfinTable), await RecordHashAsync());
+        Assert.Equal(intro.Id, Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId)).Id);
+    }
+
     // A Commercial row from a chapter only Jellyfin's table holds stays while Commercial
     // scanning is off at the switch. The first pass with Commercial on again reruns the mode
     // against the file's chapters, which have no commercial, and removes the row.
@@ -671,6 +707,147 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         config.ScanCommercial = true;
         await fixture.AnalyzeAsync(ffmpeg);
         Assert.Empty(await CommercialsAsync());
+    }
+
+    // Jellyfin's table holds the file's own chapters, as it does for a file no other plugin
+    // touched. A switch probes the file once, finds the same chapters, re-stamps the record and
+    // its segment, and runs no analyzer. The next pass reads nothing. The switch back probes
+    // once more for the comparison and keeps the result again.
+    [Fact]
+    public async Task ChapterSourceSwitch_WithTheSameChaptersInBothSources_KeepsTheResult()
+    {
+        var config = ChapterSourceConfig();
+        using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
+        var database = fixture.CreateDatabase();
+        var probes = 0;
+        var silenceScans = 0;
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = _ =>
+            {
+                probes++;
+                return IntroChapters(20, 60);
+            },
+            Silence = (_, _, _) =>
+            {
+                silenceScans++;
+                return [];
+            },
+            KeyFrames = (_, _, _) => [],
+        };
+        string Hash(ChapterSource source) => ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false, chapterSource: source);
+        async Task<DbSegment> IntroAsync() => Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId));
+        async Task<string> RecordHashAsync()
+            => Assert.Single((await database.GetSeasonQueueSnapshotAsync(fixture.SeasonId, [fixture.EpisodeId])).AnalysisRecords).Value.ConfigHash;
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        var intro = await IntroAsync();
+        var scans = silenceScans;
+        Assert.Equal((0, Hash(ChapterSource.JellyfinTable)), (probes, await RecordHashAsync()));
+
+        config.UseEmbeddedChaptersForAnalysis = true;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((1, scans), (probes, silenceScans));
+        Assert.Equal((intro.Id, Hash(ChapterSource.Embedded)), ((await IntroAsync()).Id, (await IntroAsync()).ConfigHash));
+        Assert.Equal(Hash(ChapterSource.Embedded), await RecordHashAsync());
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal(1, probes);
+
+        config.UseEmbeddedChaptersForAnalysis = false;
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((2, scans), (probes, silenceScans));
+        Assert.Equal((intro.Id, Hash(ChapterSource.JellyfinTable)), ((await IntroAsync()).Id, (await IntroAsync()).ConfigHash));
+        Assert.Equal(Hash(ChapterSource.JellyfinTable), await RecordHashAsync());
+    }
+
+    // The setting goes off and ffprobe can no longer read the file for the comparison, so the
+    // episode is analyzed again from Jellyfin's table.
+    [Fact]
+    public async Task ChapterSourceSwitch_WhenTheFileCannotBeProbedForTheComparison_Reanalyzes()
+    {
+        var config = ChapterSourceConfig();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
+        var database = fixture.CreateDatabase();
+        ChapterInfo[]? embedded = IntroChapters(100, 140);
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = _ => embedded,
+            Silence = (_, _, _) => [],
+            KeyFrames = (_, _, _) => [],
+        };
+
+        await fixture.AnalyzeAsync(ffmpeg);
+        Assert.Equal((100d, 140d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+
+        config.UseEmbeddedChaptersForAnalysis = false;
+        embedded = null;
+        await fixture.AnalyzeAsync(ffmpeg);
+
+        Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
+    }
+
+    // A record under the other chapter source's hash settles the episode and flags the mode for
+    // the pass's chapter source check, naming the stored hash and the current one. A record
+    // written with Chromaprint available keeps that availability while the ffmpeg probe fails,
+    // as a current record would, so the re-stamp does not reopen it once ffmpeg recovers.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task VerifyQueueAsync_RecordFromTheOtherChapterSource_SettlesPendingTheCheck(bool ffmpegValid)
+    {
+        var config = ChapterSourceConfig();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var fixture = new VerifyQueueFixture(config);
+        var tableHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true, chapterSource: ChapterSource.JellyfinTable);
+        var embeddedHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+        await fixture.CreateDatabase().MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], tableHash);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid));
+
+        Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(new ChapterSourceCheck(tableHash, embeddedHash, ChapterSource.Embedded), Assert.Single(episode.ChapterSourceChecks).Value);
+    }
+
+    // A None action records episodes without an analyzer, so a record from the other chapter
+    // source is re-recorded by the mode at no cost instead of costing a probe.
+    [Fact]
+    public async Task VerifyQueueAsync_NoneAction_HasNoChapterSourceCheck()
+    {
+        var config = ChapterSourceConfig();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var fixture = new VerifyQueueFixture(config);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.None });
+        var tableHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.None, ffmpegValid: true, chapterSource: ChapterSource.JellyfinTable);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], tableHash);
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true));
+
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Empty(episode.ChapterSourceChecks);
+    }
+
+    // A user segment settles the mode whatever its record says, so a record from the other
+    // chapter source on such an episode is neither checked nor probed.
+    [Fact]
+    public async Task VerifyQueueAsync_UserProvidedEpisode_HasNoChapterSourceCheck()
+    {
+        var config = ChapterSourceConfig();
+        config.UseEmbeddedChaptersForAnalysis = true;
+        using var fixture = new VerifyQueueFixture(config);
+        var database = fixture.CreateDatabase();
+        var tableHash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true, chapterSource: ChapterSource.JellyfinTable);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(fixture.EpisodeId, (long?)0)], tableHash);
+        await database.SeedUserSegmentAsync(fixture.EpisodeId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(10), DatabaseTestHelpers.Ticks(40));
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: true));
+
+        Assert.Equal(EpisodeState.UserProvided, episode.GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Empty(episode.ChapterSourceChecks);
     }
 
     // A Recap-only library recorded a chapter recap with subtitle detection on, then the
