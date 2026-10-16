@@ -57,7 +57,6 @@ export function exclusionListField(
         "aria-live": "polite",
         "aria-atomic": "true",
     });
-    errorDiv.style.display = "none";
 
     const list = el("ul", { className: "exclusion-list-values" });
     const empty = el("div", { className: "exclusion-list-empty" }, "No entries");
@@ -70,8 +69,6 @@ export function exclusionListField(
 
     function showError(message: string | null): void {
         errorDiv.textContent = message ?? "";
-        errorDiv.style.display = message ? "" : "none";
-        input.classList.toggle("field-error-active", Boolean(message));
         if (message) {
             input.setAttribute("aria-invalid", "true");
         } else {
@@ -82,7 +79,6 @@ export function exclusionListField(
     function render(): void {
         const values = readValues(id);
         list.replaceChildren();
-        empty.style.display = values.length === 0 ? "" : "none";
 
         for (const value of values) {
             const item = el("li", { className: "exclusion-list-item" });
@@ -94,7 +90,7 @@ export function exclusionListField(
                     type: "button",
                     "aria-label": "Remove " + value,
                 },
-                "x",
+                "×",
             );
             removeButton.addEventListener("click", () => {
                 configStore.set(

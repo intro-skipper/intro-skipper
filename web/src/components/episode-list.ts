@@ -4,6 +4,7 @@ import { childScope, ignoreAbort } from "../lifecycle.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
 import { MODE_OPTIONS, segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
+import type { StatusState } from "./async-feedback.ts";
 import type { EpisodeItem, SegmentDto, ApiResult } from "../types.ts";
 
 /** Delay before filtering the episode list (ms). */
@@ -32,12 +33,12 @@ export function episodeList(signal: AbortSignal): {
     clear: () => void;
     setStatus: (
         msg: string,
-        color?: string,
+        state?: StatusState,
         action?: { label: string; onClick: () => void },
     ) => void;
     hasUnsavedEdits: () => boolean;
 } {
-    const container = el("div");
+    const container = el("div", { className: "ts-episodes" });
 
     const filterBar = el("div", { className: "ts-filter-bar" });
     const filterInput = el("input", {
@@ -53,10 +54,9 @@ export function episodeList(signal: AbortSignal): {
     filterBar.append(filterInput, countEl);
 
     const statusEl = el("div", { className: "ts-status-msg" });
-    statusEl.style.display = "none";
     statusEl.setAttribute("aria-live", "polite");
 
-    const listEl = el("div");
+    const listEl = el("div", { className: "ts-episode-list" });
 
     container.append(filterBar, statusEl, listEl);
 
@@ -118,7 +118,6 @@ export function episodeList(signal: AbortSignal): {
         info.append(header);
 
         if (!result || !result.ok) {
-            card.classList.add("error");
             const errorDiv = el("div", { className: "ts-episode-error" });
             errorDiv.append(document.createTextNode("Failed to load segments"));
 
@@ -132,7 +131,6 @@ export function episodeList(signal: AbortSignal): {
                 retryBtn.disabled = true;
                 const retryResult = await api.getEpisodeSegments(ep.Id, editorsScope.signal);
                 if (retryResult.ok) {
-                    card.classList.remove("error");
                     info.removeChild(errorDiv);
                     attachSegmentUi(ep, header, info, retryResult.data);
                 } else {
@@ -230,7 +228,8 @@ export function episodeList(signal: AbortSignal): {
             }
         });
 
-        header.append(toggle);
+        // The label gives the small switch its 44px hit area.
+        header.append(el("label", { className: "ts-episode-toggle" }, toggle));
     }
 
     function buildSegmentPills(segments: SegmentDto[]): HTMLElement {
@@ -240,7 +239,12 @@ export function episodeList(signal: AbortSignal): {
             const ofMode = active.filter((s) => s.Type === mode.value);
             if (ofMode.length === 0) {
                 row.append(
-                    el("span", { className: "ts-timestamp-missing" }, mode.label + " –"),
+                    el(
+                        "span",
+                        { className: "ts-timestamp-missing" },
+                        el("span", { className: "ts-pill-mode" }, mode.label),
+                        "–",
+                    ),
                 );
                 continue;
             }
@@ -249,7 +253,8 @@ export function episodeList(signal: AbortSignal): {
                 const pill = el(
                     "span",
                     { className: "ts-timestamp-pill" + (seg.Source === "User" ? " user" : "") },
-                    mode.label + " " + formatTime(seg.Start) + " – " + formatTime(seg.End),
+                    el("span", { className: "ts-pill-mode" }, mode.label),
+                    formatTime(seg.Start) + " – " + formatTime(seg.End),
                 );
                 pill.append(el("span", { className: "ts-pill-source" }, sourceBadgeText(seg)));
                 row.append(pill);
@@ -264,7 +269,7 @@ export function episodeList(signal: AbortSignal): {
         currentCards.forEach((card, i) => {
             const name = currentEpisodes[i]?.Name?.toLowerCase() ?? "";
             const visible = !query || name.includes(query);
-            card.style.display = visible ? "" : "none";
+            card.hidden = !visible;
             if (visible) visibleCount++;
         });
 
@@ -328,7 +333,7 @@ export function episodeList(signal: AbortSignal): {
             }
 
             countEl.textContent = pluralize(view.episodes.length, "episode");
-            statusEl.style.display = "none";
+            statusEl.replaceChildren();
         },
 
         clear() {
@@ -343,13 +348,10 @@ export function episodeList(signal: AbortSignal): {
             filterInput.value = "";
         },
 
-        setStatus(
-            msg: string,
-            color = "var(--is-text-muted)",
-            action?: { label: string; onClick: () => void },
-        ) {
+        setStatus(msg, state, action) {
+            if (state) statusEl.dataset.state = state;
+            else delete statusEl.dataset.state;
             if (!msg) {
-                statusEl.style.display = "none";
                 statusEl.replaceChildren();
                 return;
             }
@@ -363,8 +365,6 @@ export function episodeList(signal: AbortSignal): {
                 actionBtn.addEventListener("click", action.onClick);
                 statusEl.append(" ", actionBtn);
             }
-            statusEl.style.color = color;
-            statusEl.style.display = "block";
         },
 
         // True while any live inline editor (expanded or collapsed) holds

@@ -9,6 +9,7 @@ import { abortable, childScope, ignoreAbort, isAbortError } from "../lifecycle.t
 import { breadcrumbNav, type BreadcrumbSegment } from "../components/breadcrumb-nav.ts";
 import { seasonTabs } from "../components/season-tabs.ts";
 import { episodeList } from "../components/episode-list.ts";
+import type { StatusState } from "../components/async-feedback.ts";
 import { actionBar } from "../components/action-bar.ts";
 import { clickableCard } from "../components/clickable-card.ts";
 import { appendManageToggle } from "../components/manage-bar.ts";
@@ -35,7 +36,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
     let currentSeasonTabs: ReturnType<typeof seasonTabs> | null = null;
     let currentSeasons: SeasonItem[] = [];
 
-    const contentEl = el("div");
+    const contentEl = el("div", { className: "ts-view" });
     const libraryCountEls = new Map<string, HTMLElement>();
 
     const nav = breadcrumbNav({
@@ -74,10 +75,10 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         return panelScope.signal;
     }
 
-    function statusLine(message: string, color?: string): HTMLElement {
+    function statusLine(message: string, state?: StatusState): HTMLElement {
         const attrs: Record<string, string> = { className: "ts-status-msg" };
-        if (color) {
-            attrs.style = "color: " + color;
+        if (state) {
+            attrs["data-state"] = state;
         }
         return el("div", attrs, message);
     }
@@ -164,7 +165,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         } catch (err) {
             if (isAbortError(err)) throw err;
             contentEl.append(
-                statusLine("Failed to load libraries: " + errorText(err), "var(--is-error)"),
+                statusLine("Failed to load libraries: " + errorText(err), "error"),
             );
         } finally {
             nav$.hideDashboardLoading();
@@ -193,7 +194,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
                 setLibraryCount(libraryId, "Unavailable");
                 contentEl.replaceChildren();
                 contentEl.append(
-                    statusLine("Failed to load shows: " + errorText(err), "var(--is-error)"),
+                    statusLine("Failed to load shows: " + errorText(err), "error"),
                 );
                 return;
             } finally {
@@ -276,7 +277,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         } catch (err) {
             if (isAbortError(err)) throw err;
             contentEl.append(
-                statusLine("Failed to load seasons: " + errorText(err), "var(--is-error)"),
+                statusLine("Failed to load seasons: " + errorText(err), "error"),
             );
         } finally {
             nav$.hideDashboardLoading();
@@ -330,7 +331,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
             await actions.loadForSeason(show.Id, season.Id, false, panel, seriesSeasons);
         } catch (err) {
             if (isAbortError(err)) throw err;
-            epList.setStatus("Failed to load episodes: " + errorText(err), "var(--is-error)");
+            epList.setStatus("Failed to load episodes: " + errorText(err), "error");
         } finally {
             if (!panel.aborted) {
                 setPanelBusy(false);
@@ -377,7 +378,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
             await actions.loadForSeason(show.Id, show.Id, true, panel);
         } catch (err) {
             if (isAbortError(err)) throw err;
-            epList.setStatus("Failed to load timestamps: " + errorText(err), "var(--is-error)");
+            epList.setStatus("Failed to load timestamps: " + errorText(err), "error");
         } finally {
             if (!panel.aborted) {
                 setPanelBusy(false);
@@ -399,7 +400,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
 
     function warnDisableStateUnknown(disabledItemIds: string[] | null, message: string): void {
         if (disabledItemIds === null) {
-            epList.setStatus(message, "var(--is-error)");
+            epList.setStatus(message, "error");
         }
     }
 
@@ -418,7 +419,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         if (epList.hasUnsavedEdits()) {
             epList.setStatus(
                 "Results changed on the server. An editor has unsaved changes.",
-                "var(--is-warning)",
+                "warning",
                 {
                     label: "Refresh",
                     onClick: () => {

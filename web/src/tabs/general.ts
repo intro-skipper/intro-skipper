@@ -87,12 +87,12 @@ export const generalTab: Tab = {
 
         injectSection.append(
             actionButton("Inject CSS", async () => {
-                statusMessage.show("Injecting CSS…", "var(--is-accent)");
+                statusMessage.show("Injecting CSS…");
                 const response = await injectSkipButtonCss();
                 if (response.ok) {
-                    statusMessage.show("Skip button CSS injected successfully!", "var(--is-success)");
+                    statusMessage.show("Skip button CSS injected successfully!", "success");
                 } else {
-                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "var(--is-error)");
+                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "error");
                 }
             }),
         );
@@ -117,13 +117,13 @@ export const generalTab: Tab = {
             ),
         );
 
-        const clearStatus = createStatusMessage({ display: "block" });
+        const clearStatus = createStatusMessage();
         clearExcludedSection.append(
             actionButton("Clear excluded timestamp data", async () => {
                 if (configStore.isDirty()) {
                     clearStatus.show(
                         "Save configuration changes before clearing timestamp data.",
-                        "var(--is-error)",
+                        "error",
                     );
                     return;
                 }
@@ -136,18 +136,18 @@ export const generalTab: Tab = {
                 });
                 if (!result) return;
 
-                clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
+                clearStatus.show("Clearing excluded timestamp data…");
                 const response = await clearExcludedTimestamps(result);
                 if (!response.ok) {
-                    clearStatus.show(response.error, "var(--is-error)");
+                    clearStatus.show(response.error, "error");
                     return;
                 }
 
                 clearStatus.show(
                     `Cleared ${pluralize(response.data.RemovedSegments, "timestamp row", "timestamp rows")} and ${pluralize(response.data.RemovedCacheEntries, "cache row", "cache rows")} for ${pluralize(response.data.AffectedItems, "excluded item", "excluded items")}.`,
-                    "var(--is-success)",
+                    "success",
                 );
-            }),
+            }, { danger: true }),
             clearStatus.element,
         );
 
