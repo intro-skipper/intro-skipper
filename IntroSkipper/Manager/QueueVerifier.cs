@@ -191,9 +191,9 @@ internal sealed partial class QueueVerifier
 
             // A user segment settles the mode whatever the record says, so its record is neither
             // checked nor re-stamped.
-            if (otherSourceHash && candidate.GetAnalyzed(mode) is EpisodeState.Analyzed or EpisodeState.NoSegments)
+            if (sourceCheckHash is not null && candidate.GetAnalyzed(mode) is EpisodeState.Analyzed or EpisodeState.NoSegments)
             {
-                candidate.MarkChapterSourceCheck(mode, new ChapterSourceCheck(record.ConfigHash, sourceCheckHash!, _config.ChapterSource));
+                candidate.MarkChapterSourceCheck(mode, new ChapterSourceCheck(record.ConfigHash, sourceCheckHash, _config.ChapterSource));
             }
 
             if (subtitleOnlyHashChange && candidate.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
@@ -334,10 +334,15 @@ internal sealed partial class QueueVerifier
     /// Whether the hash describes the current configuration of the mode under the other
     /// chapter source, with the same Chromaprint-availability rule as <see cref="IsCurrentHash"/>.
     /// Such a record is settled pending the season pass's chapter source check, which re-stamps
-    /// it with <paramref name="currentHash"/> when both sources hold the same chapters.
+    /// it with <paramref name="currentHash"/> when both sources hold the same chapters. A record
+    /// written with Chromaprint available settles while the capability probe fails, but gets no
+    /// check (<paramref name="currentHash"/> is <see langword="null"/>): the check could reopen
+    /// the mode, and without Chromaprint the chain could not reproduce the result it would
+    /// discard, so the check waits for a pass with Chromaprint.
     /// </summary>
     private bool IsOtherSourceHash(string hash, AnalysisMode mode, out string? currentHash)
     {
+        currentHash = null;
         if (_otherSourceHashByMode.TryGetValue(mode, out var otherSourceHash)
             && string.Equals(hash, otherSourceHash, StringComparison.Ordinal))
         {
@@ -345,15 +350,8 @@ internal sealed partial class QueueVerifier
             return true;
         }
 
-        if (_availableOtherSourceHashByMode?.TryGetValue(mode, out var availableOtherSourceHash) == true
-            && string.Equals(hash, availableOtherSourceHash, StringComparison.Ordinal))
-        {
-            currentHash = _availableHashByMode![mode];
-            return true;
-        }
-
-        currentHash = null;
-        return false;
+        return _availableOtherSourceHashByMode?.TryGetValue(mode, out var availableOtherSourceHash) == true
+            && string.Equals(hash, availableOtherSourceHash, StringComparison.Ordinal);
     }
 
     /// <summary>

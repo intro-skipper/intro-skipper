@@ -792,8 +792,9 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
     // A record under the other chapter source's hash settles the episode and flags the mode for
     // the pass's chapter source check, naming the stored hash and the current one. A record
-    // written with Chromaprint available keeps that availability while the ffmpeg probe fails,
-    // as a current record would, so the re-stamp does not reopen it once ffmpeg recovers.
+    // written with Chromaprint available still settles while the ffmpeg probe fails, as a
+    // current record would, but is not checked: the check could reopen the mode, and the chain
+    // could not reproduce the Chromaprint result it would discard.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -809,7 +810,14 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid));
 
         Assert.Equal(EpisodeState.NoSegments, episode.GetAnalyzed(AnalysisMode.Introduction));
-        Assert.Equal(new ChapterSourceCheck(tableHash, embeddedHash, ChapterSource.Embedded), Assert.Single(episode.ChapterSourceChecks).Value);
+        if (ffmpegValid)
+        {
+            Assert.Equal(new ChapterSourceCheck(tableHash, embeddedHash, ChapterSource.Embedded), Assert.Single(episode.ChapterSourceChecks).Value);
+        }
+        else
+        {
+            Assert.Empty(episode.ChapterSourceChecks);
+        }
     }
 
     // A None action records episodes without an analyzer, so a record from the other chapter

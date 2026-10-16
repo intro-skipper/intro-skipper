@@ -403,7 +403,7 @@ internal sealed partial class ChapterAnalyzer(
         };
     }
 
-    private static bool ChapterMatches(
+    private bool ChapterMatches(
         string chapterName,
         string expression,
         AnalysisMode mode,
@@ -424,11 +424,24 @@ internal sealed partial class ChapterAnalyzer(
 
         // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
         // between function invocations.
-        return Regex.IsMatch(
-            chapterName,
-            expression,
-            RegexOptions.IgnoreCase,
-            TimeSpan.FromSeconds(1));
+        try
+        {
+            return Regex.IsMatch(
+                chapterName,
+                expression,
+                RegexOptions.IgnoreCase,
+                TimeSpan.FromSeconds(1));
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A pattern that backtracks for a second on a chapter name is the user's
+            // configuration, not a transient failure. The chapter counts as no match, as a
+            // subtitle pattern does (SubtitleAnalyzer), instead of stopping the season's
+            // remaining modes through the pass's TimeoutException handler, which this
+            // exception derives from.
+            LogChapterPatternTimedOut(mode, chapterName);
+            return false;
+        }
     }
 
     private static FrozenSet<string> Labels(string[] labels) => labels.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
@@ -467,4 +480,7 @@ internal sealed partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid chapter pattern for {Mode}; skipping regex chapter matches: {Message}")]
     private partial void LogInvalidChapterPattern(AnalysisMode mode, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The {Mode} chapter pattern timed out on chapter \"{Name}\"; the chapter counts as no match. Simplify the pattern in the plugin settings.")]
+    private partial void LogChapterPatternTimedOut(AnalysisMode mode, string name);
 }
