@@ -260,22 +260,21 @@ public partial class BaseItemAnalyzerTask(
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
             {
-                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
-                    settledResetModes,
-                    previewFromCreditsEnd && Config.ScanPreview);
                 LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
 
                 // The reset journals its deletions' projections, so they propagate
-                // to Jellyfin even if the recompute finds nothing.
+                // to Jellyfin even if the recompute finds nothing. A Credits reset never
+                // reopens Preview. The derive after the credits pass refreshes derived
+                // previews, and chapter and subtitle previews do not depend on credits.
                 await _database.ResetItemsForReanalysisAsync(
                     episodeIds,
-                    resetModes,
-                    GetSubtitleModesToPreserve(resetModes, seasonStates, episodes),
+                    settledResetModes,
+                    GetSubtitleModesToPreserve(settledResetModes, seasonStates, episodes),
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (var episode in episodes)
                 {
-                    foreach (var resetMode in resetModes)
+                    foreach (var resetMode in settledResetModes)
                     {
                         if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
                         {
@@ -305,10 +304,6 @@ public partial class BaseItemAnalyzerTask(
                     ffmpegValid,
                     cancellationToken).ConfigureAwait(false);
 
-                // Record only the modes we independently selected for reanalysis. A derived mode added
-                // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
-                // regenerated as a side effect of its source mode's analysis, so its completion rides on
-                // the source mode's record and is intentionally not tracked separately here.
                 if (settledResetModes.Contains(mode))
                 {
                     completedSettledModes.Add(mode);
