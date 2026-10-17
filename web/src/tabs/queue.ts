@@ -31,7 +31,7 @@ function jobItems(job: api.ScannerQueueJob): HTMLElement[] {
     const remote = job.kind === "Remote analysis";
     const libraryPass = job.kind === "Library";
     const label = remote
-        ? `Claimed batch: ${pluralize(job.items.length, "file")}.`
+        ? `${job.state === "Running" ? "Claimed" : "Queued"} batch: ${pluralize(job.items.length, "file")}.`
         : libraryPass
             ? job.items.length === 0 ? "Library pass: All selected libraries." : "Library pass: Known requested items:"
             : job.items.length === 0 ? "Requested items: none reported." : "Requested items:";
@@ -253,7 +253,7 @@ export const queueTab: Tab = {
             el(
                 "p",
                 {},
-                "Pause blocks new starts while active files finish. Stop pauses and cancels active work while retaining pending jobs. Clear removes pending jobs only.",
+                "Pause blocks new jobs while active jobs finish. Stop pauses and cancels active work while retaining pending jobs. Clear removes pending jobs only.",
             ),
             controls,
             status.element,
