@@ -310,6 +310,40 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         Assert.Equal(embedded ? null : "ChapterInputChanged", receipt.Reason);
     }
 
+    [Fact]
+    public async Task Result_RejectsDuplicateItemModeBeforeWritingAnyRow()
+    {
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var libraryId = Guid.NewGuid();
+        var episode = JellyfinItems.Episode(itemId, seriesId, seasonId);
+        var season = JellyfinItems.Season(seasonId, seriesId);
+        var series = JellyfinItems.Series(seriesId);
+        EntrypointTestHelpers.SetPropertyOrField(season, "ParentId", seriesId);
+        EntrypointTestHelpers.SetPropertyOrField(series, "ParentId", libraryId);
+        using var scope = ConfigureRemotePlugin(libraryId, episode, season, series);
+        var fileVersion = (SeasonResolver.FileVersion(episode) ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var snapshot = CreateSnapshot(itemId, seasonId, Guid.NewGuid(), "0", fileVersion);
+        snapshot = snapshot with { Items = [.. snapshot.Items, CreateSnapshotItem(Guid.NewGuid(), seasonId, "0")] };
+        Assert.True(await _harness.Database.QueueRemoteJobAsync(snapshot, default));
+        var lease = Assert.IsType<JobSnapshot>(await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default));
+        var first = CreateResult(lease, itemId, fileVersion);
+        var second = first with
+        {
+            AnalysisId = Guid.CreateVersion7(),
+            Segments = [first.Segments[0] with { StartTicks = 300, EndTicks = 400 }],
+        };
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => _harness.Database.SubmitRemoteResultsAsync(
+            lease.JobId, new LeaseRequest(lease.LeaseToken!, lease.LeaseGeneration), [first, second], default));
+
+        Assert.Empty(await _harness.Database.GetSegmentsAsync(itemId));
+        using var db = _harness.Context();
+        Assert.Empty(db.RemoteImportReceipts);
+        Assert.Empty(db.RemoteAnalysisMetadata.Where(row => row.CanonicalJson != null));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

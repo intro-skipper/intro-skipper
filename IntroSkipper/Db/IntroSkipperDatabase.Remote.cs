@@ -506,6 +506,11 @@ public sealed partial class IntroSkipperDatabase
             throw new InvalidDataException("A submission must contain 1 through 100 results.");
         }
 
+        if (results.Select(result => (result.ItemId, result.Mode)).Distinct().Count() != results.Count)
+        {
+            throw new InvalidDataException("A submission must contain at most one result per item and mode.");
+        }
+
         await InitializeAsync().ConfigureAwait(false);
         var reviewSelections = review is null ? null : ValidateReview(results, review);
         List<ImportReceipt> receipts = [];
