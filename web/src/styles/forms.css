@@ -141,7 +141,7 @@
         line-height: 1.2;
     }
 
-    :is(.checkbox-list-label, .tracks-section-divider, .ts-analysis-window > legend, .is-confirm-title) {
+    :is(.is-section-heading, .tracks-section-divider, .ts-analysis-window > legend, .is-confirm-title) {
         color: var(--is-fg);
         font-size: var(--is-step-1);
         font-weight: 400;

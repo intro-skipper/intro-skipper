@@ -94,7 +94,7 @@ export const informationTab: Tab = {
         const supportContainer = el("section", { className: "tab-readonly-section" });
         const supportTitle = el(
             "h3",
-            { className: "checkbox-list-label", id: "support-log-label" },
+            { className: "is-section-heading", id: "support-log-label" },
             "Intro Skipper Support Log",
         );
         const copyButtonEl = el(
@@ -162,7 +162,7 @@ export const informationTab: Tab = {
 
         // Storage usage — structured list with progress bars.
         const storageContainer = el("section", { className: "tab-readonly-section" });
-        const storageTitle = el("h3", { className: "checkbox-list-label" }, "Storage Usage");
+        const storageTitle = el("h3", { className: "is-section-heading" }, "Storage Usage");
         storageTitle.id = "storage-usage-label";
         const storageDesc = el(
             "div",
