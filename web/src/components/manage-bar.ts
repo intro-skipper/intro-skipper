@@ -1,8 +1,9 @@
 import { el } from "./dom.ts";
 
 /**
- * Appends a spacer and manage toggle button to a ts-season-bar container.
- * Used by seasonTabs after the season tab buttons and on its own for movies.
+ * Appends the manage toggle button to a ts-season-bar container; the
+ * stylesheet pushes it to the end of the bar. Used by seasonTabs after the
+ * season tab buttons and on its own for movies.
  */
 export function appendManageToggle(
     container: HTMLElement,
@@ -10,14 +11,7 @@ export function appendManageToggle(
 ): void {
     let open = false;
 
-    container.append(el("div", { className: "ts-season-spacer" }));
-
-    const btn = el(
-        "button",
-        { className: "ts-manage-toggle", type: "button" },
-        "⚙ Manage",
-    );
-    btn.setAttribute("aria-label", "Toggle management panel");
+    const btn = el("button", { className: "ts-manage-toggle", type: "button" }, "Manage");
     btn.setAttribute("aria-expanded", "false");
     if (opts.managePanelId) {
         btn.setAttribute("aria-controls", opts.managePanelId);

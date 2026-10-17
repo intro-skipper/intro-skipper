@@ -1,33 +1,64 @@
+/* Tokens. Every rule in these stylesheets sits under the plugin's own roots
+   because Jellyfin keeps the sheet loaded after navigating away (PR 1077). */
+
+/* The shell's container queries measure the plugin root, which excludes
+   Jellyfin's drawer and page padding. */
+#intro-skipper-dashboard-root {
+    container: host / inline-size;
+}
+
 :where(.is-app-shell, .is-confirm-dialog) {
-    color-scheme: dark;
+    /* Jellyfin's palette, emitted as MUI variables under html[data-theme].
+       Fallbacks are its dark theme. */
+    --is-fg: var(--jf-palette-text-primary, oklch(100% 0 none));
+    --is-fg-2: var(--jf-palette-text-secondary, oklch(100% 0 none / 0.7));
+    --is-line: var(--jf-palette-divider, oklch(100% 0 none / 0.12));
+    --is-bg: var(--jf-palette-background-default, oklch(17.8% 0 none));
+    --is-paper: var(--jf-palette-background-paper, oklch(24.8% 0 none));
+    --is-accent: var(--jf-palette-primary-main, oklch(66.5% 0.136 231));
+    /* Not the host's contrastText: the Apple TV theme emits white on the same
+       light cyan, at 2.9:1. Every Jellyfin accent is light, so dark text fits. */
+    --is-on-accent: oklch(0% 0 none / 0.87);
+    --is-error: var(--jf-palette-error-main, oklch(53% 0.19 27));
+    --is-warning: var(--jf-palette-warning-main, oklch(80% 0.16 68));
+    --is-success: var(--jf-palette-success-main, oklch(72% 0.14 145));
+    --is-radius: var(--jf-card-borderRadius, 0.2em);
 
-    /* Layout tokens. */
-    --sidebar-width: 180px;
-    --header-height: 56px;
+    /* Colored text and thin marks (links, focus rings, the active bar, the
+       switch) pulled toward the text color: lighter on dark themes, darker on
+       light ones, so one value keeps 4.5:1 on every theme. Error red needs a
+       stronger mix for the blue gradient themes. The raw accent only fills Save. */
+    --is-link: color-mix(in oklch, var(--is-accent), var(--is-fg) 30%);
+    --is-error-text: color-mix(in oklch, var(--is-error), var(--is-fg) 45%);
+    --is-warning-text: color-mix(in oklch, var(--is-warning), var(--is-fg) 30%);
+    --is-success-text: color-mix(in oklch, var(--is-success), var(--is-fg) 30%);
+    --is-fg-3: color-mix(in oklch, var(--is-fg) 60%, transparent);
+    --is-tint: color-mix(in oklch, var(--is-fg) 8%, transparent);
 
-    /* Color tokens with fallbacks when Jellyfin theme variables are missing. */
-    --is-bg: var(--theme-background, #1a1a2e);
-    --is-surface: var(--theme-card-background, #16213e);
-    --is-text: var(--theme-text-color, #e0e0e0);
-    --is-text-muted: var(--theme-text-color-secondary, #999);
-    --is-border: rgba(255, 255, 255, 0.1);
-    --is-accent: var(--theme-primary-color, #00a4dc);
-    --is-error: #f44336;
-    --is-warning: #ffa500;
-    --is-success: #4caf50;
+    /* One fluid type scale over the host width, 24rem to 74rem. Body text
+       stays at the host size; headings grow a little with the page. */
+    --is-fluid: clamp(0rem, (100cqi - 24rem) / 50, 1rem);
+    --is-at-narrow: calc(1rem - var(--is-fluid));
+    --is-step--1: calc(var(--is-step-0) / 1.125);
+    --is-step-0: calc(var(--is-at-narrow) + var(--is-fluid));
+    --is-step-1: calc(var(--is-at-narrow) * 1.125 + var(--is-fluid) * 1.2);
+    --is-step-2: calc(var(--is-at-narrow) * 1.265625 + var(--is-fluid) * 1.44);
 
-    /* Contrast text for use on accent / colored backgrounds. */
-    --is-on-accent: #fff;
+    --is-space-3xs: calc(var(--is-step-0) * 0.25);
+    --is-space-2xs: calc(var(--is-step-0) * 0.5);
+    --is-space-s: var(--is-step-0);
+    --is-space-m: calc(var(--is-step-0) * 1.5);
+    --is-space-l: calc(var(--is-step-0) * 2.5);
+    --is-thumb: clamp(4.5rem, 2.82rem + 7cqi, 8rem);
+    --is-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
-    /* Subtle hover overlay for dark backgrounds. */
-    --is-hover: rgba(255, 255, 255, 0.05);
-    --is-hover-strong: rgba(255, 255, 255, 0.08);
+    color: var(--is-fg-2);
+    font-size: var(--is-step-0);
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+    -webkit-tap-highlight-color: transparent;
 
-    /* Border variants. */
-    --is-border-strong: rgba(255, 255, 255, 0.2);
-
-    /* Form control tokens. */
-    --is-input-bg: rgba(255, 255, 255, 0.05);
-    --is-input-border: rgba(255, 255, 255, 0.15);
-    --is-input-focus: var(--theme-primary-color, #00a4dc);
+    /* Jellyfin sets no color-scheme, so native controls follow its data-theme. */
+    :where([data-theme]) & { color-scheme: dark; }
+    :where([data-theme="light"], [data-theme="appletv"]) & { color-scheme: light; }
 }

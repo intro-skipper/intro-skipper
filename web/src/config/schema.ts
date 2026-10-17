@@ -14,7 +14,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Automatically Analyze New Media",
         description:
-            'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
+            'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a href="#/dashboard/tasks">scheduled tasks</a>.',
     },
     ReanalyzeSettledSeasons: {
         kind: "checkbox",

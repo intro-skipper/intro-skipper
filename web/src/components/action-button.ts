@@ -1,11 +1,14 @@
 import { el } from "./dom.ts";
 
-export function actionButton(label: string, onClick: () => Promise<void> | void): HTMLElement {
+/** A text button that stays disabled while `onClick` runs. `danger` colors it as destructive. */
+export function actionButton(
+    label: string,
+    onClick: () => Promise<void> | void,
+    { danger = false } = {},
+): HTMLElement {
     const button = el(
         "button",
-        {
-            className: "action-button raised block",
-        },
+        { className: danger ? "action-button danger" : "action-button", type: "button" },
         label,
     );
 

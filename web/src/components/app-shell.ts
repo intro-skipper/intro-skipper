@@ -1,5 +1,6 @@
 import { validateAll } from "../config/validate.ts";
 import { configStore } from "../store/config-store.ts";
+import { bindStatusMessage, type StatusState } from "./async-feedback.ts";
 import { confirmDashboard } from "./confirm-dialog.ts";
 import { el } from "./dom.ts";
 
@@ -33,19 +34,14 @@ export function createAppShell(
 
     const footer = el("footer", { className: "app-footer", "aria-label": "Save controls" });
 
-    const footerStatus = el("span", {
-        className: "footer-status-message",
-        "aria-live": "polite",
-        "aria-atomic": "true",
-    });
-    footerStatus.style.display = "none";
+    const footerStatus = el("span", { className: "footer-status-message" });
+    const status = bindStatusMessage(footerStatus);
 
     const dirtyIndicator = el(
         "span",
         { className: "dirty-indicator", "aria-live": "polite" },
-        "● Unsaved changes",
+        "Unsaved changes",
     );
-    dirtyIndicator.style.display = "none";
 
     const saveButton = el(
         "button",
@@ -59,26 +55,18 @@ export function createAppShell(
 
     let statusTimer: number | null = null;
 
-    const clearStatus = () => {
-        footerStatus.textContent = "";
-        footerStatus.dataset.state = "";
-        footerStatus.style.display = "none";
-    };
-
-    const setStatus = (text: string, state: "info" | "success" | "error") => {
+    const setStatus = (text: string, state?: StatusState) => {
         if (statusTimer !== null) {
             window.clearTimeout(statusTimer);
             statusTimer = null;
         }
 
-        footerStatus.textContent = text;
-        footerStatus.dataset.state = state;
-        footerStatus.style.display = text ? "inline" : "none";
+        status.show(text, state);
 
         if (state === "success") {
             statusTimer = window.setTimeout(() => {
                 if (!configStore.isDirty()) {
-                    clearStatus();
+                    status.clear();
                 }
             }, STATUS_CLEAR_MS);
         }
@@ -89,7 +77,7 @@ export function createAppShell(
 
         saveButton.disabled = true;
         saveButton.textContent = "Saving…";
-        setStatus("Saving…", "info");
+        setStatus("Saving…");
 
         try {
             await configStore.save();
@@ -141,14 +129,14 @@ export function createAppShell(
 
     const updateDirtyIndicator = () => {
         const isDirty = configStore.isDirty();
-        dirtyIndicator.style.display = isDirty ? "inline" : "none";
+        dirtyIndicator.toggleAttribute("data-dirty", isDirty);
         if (isDirty && footerStatus.dataset.state !== "error") {
-            clearStatus();
+            status.clear();
         }
     };
 
     const clearDirtyIndicator = () => {
-        dirtyIndicator.style.display = "none";
+        dirtyIndicator.removeAttribute("data-dirty");
     };
 
     // Keep the unsaved indicator aligned with the store lifecycle.
