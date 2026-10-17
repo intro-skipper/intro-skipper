@@ -168,7 +168,9 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
                 policy.Modes.Count <= 5 && policy.Modes.All(mode => Enum.IsDefined(mode)) && policy.Modes.Distinct().Count() == policy.Modes.Count,
                 "Select supported scan types.");
             ContractValidation.Require(
-                Enum.IsDefined(policy.CreditsMethod) && policy.ConcurrentFiles is 1 or 2 or 4 && policy.LeaseMinutes is >= 1 and <= 120 && policy.PathMappings.Count <= 32,
+                Enum.IsDefined(policy.CreditsMethod)
+                    && (nodeId == IntroSkipperDatabase.LocalNodeId ? policy.ConcurrentFiles >= 1 : policy.ConcurrentFiles is 1 or 2 or 4)
+                    && policy.LeaseMinutes is >= 1 and <= 120 && policy.PathMappings.Count <= 32,
                 "Invalid node options.");
             foreach (var path in policy.PathMappings)
             {

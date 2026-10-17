@@ -24,6 +24,74 @@ using Xunit;
 public sealed class NodeManagementTests
 {
     [Theory]
+    [InlineData(0, 2)]
+    [InlineData(1, 3)]
+    [InlineData(2, 8)]
+    [InlineData(4, 2)]
+    [InlineData(8, 4)]
+    [InlineData(16, 1)]
+    [InlineData(31, 2)]
+    public async Task LocalDefaults_InheritLegacySettingsUntilPolicyIsSaved(int modes, int workers)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = (modes & 1) != 0,
+            ScanCredits = (modes & 2) != 0,
+            ScanRecap = (modes & 4) != 0,
+            ScanPreview = (modes & 8) != 0,
+            ScanCommercial = (modes & 16) != 0,
+            MaxParallelism = workers,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
+        using var harness = new SegmentChangeHarness();
+        var expected = new[] { RemoteAnalysisMode.Introduction, RemoteAnalysisMode.Credits, RemoteAnalysisMode.Recap, RemoteAnalysisMode.Preview, RemoteAnalysisMode.Commercial }
+            .Where((_, index) => (modes & (1 << index)) != 0).ToHashSet();
+
+        var initial = await harness.Database.GetLocalNodeAsync([], default);
+
+        Assert.True(initial.Enabled);
+        Assert.True(expected.SetEquals(initial.Modes));
+        Assert.True(expected.SetEquals(initial.Policy!.Modes));
+        Assert.Equal(workers, initial.Policy.ConcurrentFiles);
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(new NodePolicyUpdate(initial.Policy, true)));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, EntrypointTestHelpers.CreateLibraryManager())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+        var response = Assert.IsType<ContentResult>(await controller.SaveNodePolicy(initial.NodeId, default));
+        var saved = WireJson.Read<RemoteNodeInfo>(response.Content!);
+        config.ScanIntroduction = !config.ScanIntroduction;
+        config.ScanCredits = !config.ScanCredits;
+        config.MaxParallelism = workers + 1;
+
+        var reloaded = await harness.Database.GetLocalNodeAsync([], default);
+
+        Assert.Equal(saved.Revision, reloaded.Revision);
+        Assert.Equal(WireJson.Hash(saved.Policy), WireJson.Hash(reloaded.Policy));
+    }
+
+    [Fact]
+    public async Task RemotePolicy_StillRejectsNonstandardLocalWorkerCounts()
+    {
+        using var harness = new SegmentChangeHarness();
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(new NodePolicyUpdate(new RemoteNodePolicy { ConcurrentFiles = 3 }, false)));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, EntrypointTestHelpers.CreateLibraryManager())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await controller.SaveNodePolicy("remote-node", default));
+    }
+
+    [Theory]
     [InlineData("relative/media", "/mnt/media")]
     [InlineData("/media/../outside", "/mnt/media")]
     [InlineData("/media", "relative/media")]

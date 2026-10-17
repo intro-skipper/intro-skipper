@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Runtime.InteropServices;
+using IntroSkipper.Configuration;
 using Microsoft.EntityFrameworkCore;
 using SegmentScanner.Contracts;
 
@@ -146,17 +147,33 @@ public sealed partial class IntroSkipperDatabase
             return ToNodeInfo(node) with { Runtime = LocalRuntime(), IsLocal = true };
         }
 
+        // Until Nodes is saved, retain the local scanner's existing configuration.
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var policy = new RemoteNodePolicy
+        {
+            LibraryIds = catalogLibraryIds.Order().ToList(),
+            Modes =
+            [
+                .. config.ScanIntroduction ? [RemoteAnalysisMode.Introduction] : Array.Empty<RemoteAnalysisMode>(),
+                .. config.ScanCredits ? [RemoteAnalysisMode.Credits] : Array.Empty<RemoteAnalysisMode>(),
+                .. config.ScanRecap ? [RemoteAnalysisMode.Recap] : Array.Empty<RemoteAnalysisMode>(),
+                .. config.ScanPreview ? [RemoteAnalysisMode.Preview] : Array.Empty<RemoteAnalysisMode>(),
+                .. config.ScanCommercial ? [RemoteAnalysisMode.Commercial] : Array.Empty<RemoteAnalysisMode>(),
+            ],
+            CreditsMethod = CreditsDetectionMethod.IntroSkipper,
+            ConcurrentFiles = Math.Max(1, config.MaxParallelism),
+        };
         return new RemoteNodeInfo
         {
             NodeId = LocalNodeId,
             Name = "IntroSkipper",
-            LibraryIds = catalogLibraryIds.Order().ToList(),
-            Modes = [RemoteAnalysisMode.Introduction, RemoteAnalysisMode.Credits, RemoteAnalysisMode.Recap, RemoteAnalysisMode.Preview, RemoteAnalysisMode.Commercial],
+            LibraryIds = policy.LibraryIds,
+            Modes = policy.Modes,
             CreditsMethod = CreditsDetectionMethod.IntroSkipper,
             Enabled = true,
             Revision = 0,
             UpdatedUtc = DateTimeOffset.UtcNow,
-            Policy = new RemoteNodePolicy { LibraryIds = catalogLibraryIds.Order().ToList(), Modes = [RemoteAnalysisMode.Introduction, RemoteAnalysisMode.Credits, RemoteAnalysisMode.Recap, RemoteAnalysisMode.Preview, RemoteAnalysisMode.Commercial], CreditsMethod = CreditsDetectionMethod.IntroSkipper, ConcurrentFiles = 1 },
+            Policy = policy,
             Runtime = LocalRuntime(),
             IsLocal = true,
         };

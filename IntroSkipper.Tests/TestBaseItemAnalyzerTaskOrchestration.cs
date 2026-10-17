@@ -96,12 +96,14 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         }
     }
 
-    [Fact]
-    public async Task LocalNode_AnalyzesOnlyItsSelectedModesDespiteLegacyFlags()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LocalNode_AnalyzesOnlyItsSelectedModes(bool savedPolicy)
     {
         var config = new PluginConfiguration
         {
-            ScanIntroduction = false,
+            ScanIntroduction = !savedPolicy,
             ScanCredits = false,
             ScanRecap = false,
             ScanPreview = false,
@@ -130,15 +132,18 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 getCollectionFolders: _ => [new MediaBrowser.Controller.Entities.Folder { Id = libraryId }]);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
             var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-            await database.UpdateNodePolicyAsync(
-                IntroSkipperDatabase.LocalNodeId,
-                new NodePolicyUpdate(new RemoteNodePolicy
-                {
-                    LibraryIds = [libraryId],
-                    Modes = [RemoteAnalysisMode.Introduction],
-                    CreditsMethod = CreditsDetectionMethod.IntroSkipper,
-                }, true),
-                CancellationToken.None);
+            if (savedPolicy)
+            {
+                await database.UpdateNodePolicyAsync(
+                    IntroSkipperDatabase.LocalNodeId,
+                    new NodePolicyUpdate(new RemoteNodePolicy
+                    {
+                        LibraryIds = [libraryId],
+                        Modes = [RemoteAnalysisMode.Introduction],
+                        CreditsMethod = CreditsDetectionMethod.IntroSkipper,
+                    }, true),
+                    CancellationToken.None);
+            }
             var dispatcher = new ReturningRemoteDispatcher(claimTargets: false);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => false };
             var analyzer = new BaseItemAnalyzerTask(

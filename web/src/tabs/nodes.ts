@@ -82,7 +82,8 @@ function nodeCard(node: api.RemoteNodeInfo, libraries: readonly api.RemoteLibrar
     method.options[1].disabled = node.isLocal || (recipes !== undefined && !recipes.some((recipe) => recipe.method === "TextAware"));
     const gpu = check("Use GPU", policy.useGpu);
     const workers = document.createElement("select");
-    for (const value of [1, 2, 4]) { const option = document.createElement("option"); option.value = String(value); option.textContent = String(value); workers.append(option); }
+    const workerOptions = [...new Set([1, 2, 4, ...(node.isLocal ? [policy.concurrentFiles] : [])])].sort((a, b) => a - b);
+    for (const value of workerOptions) { const option = document.createElement("option"); option.value = String(value); option.textContent = String(value); workers.append(option); }
     workers.value = String(policy.concurrentFiles);
     const automaticImports = check("Use complete scan results automatically", policy.automaticImports);
     const mappings = el("div");
@@ -105,7 +106,7 @@ function nodeCard(node: api.RemoteNodeInfo, libraries: readonly api.RemoteLibrar
     method.addEventListener("change", updateGpu, { signal }); updateGpu();
     const save = actionButton("Save node", async () => {
         const concurrentFiles = Number(workers.value);
-        if (![1, 2, 4].includes(concurrentFiles)) { feedback.show("Choose 1, 2, or 4 workers."); return; }
+        if (!workerOptions.includes(concurrentFiles)) { feedback.show("Choose an available worker count."); return; }
         const pathMappings = mappingRows.map(({ mapping, server, worker }) => ({ ...mapping, serverPrefix: server.value.trim(), workerPrefix: worker.value.trim() }));
         if (pathMappings.some((mapping) => !mapping.serverPrefix || !mapping.workerPrefix)) { feedback.show("Each path mapping needs both a Jellyfin path and a node path."); return; }
         save.setAttribute("disabled", "");
