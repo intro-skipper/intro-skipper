@@ -1898,16 +1898,12 @@ public class TestBlackFrames
             ffmpeg,
             new PluginConfiguration());
 
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_chapterRepository",
-            ChapterManagerStub.Create([.. chapterStarts.Select(start => new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(start).Ticks })]));
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
             Duration = duration,
             CreditsFingerprintStart = 2000,
+            Chapters = [.. chapterStarts.Select(start => new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(start).Ticks })],
         };
 
         return (await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None), ffmpeg.Calls);

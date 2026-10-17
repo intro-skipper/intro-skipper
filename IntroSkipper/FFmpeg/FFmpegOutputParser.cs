@@ -292,7 +292,8 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Parses ffprobe's JSON chapter listing.
+    /// Parses ffprobe's JSON chapter listing into the chapters Jellyfin's own probe would store
+    /// in its chapter table for the file.
     /// </summary>
     /// <remarks>
     /// ffprobe prints each <c>start_time</c> as a string of seconds, such as <c>"90.048625"</c>,
@@ -300,11 +301,20 @@ internal static partial class FFmpegOutputParser
     /// or not a representable tick count (<see cref="TickConversions.TryFromSeconds"/>) is
     /// dropped. A chapterless file still prints an empty <c>chapters</c> array, so output
     /// without one is unusable, not a file without chapters.
+    /// The chapters are shaped as Jellyfin stores them, so for a file no other plugin touched
+    /// both chapter sources hold the same list: the start is rounded to the millisecond as
+    /// <c>ProbeResultNormalizer.GetChapterInfo</c> rounds it, a chapter whose title is blank or
+    /// a timestamp is named with <paramref name="chapterNameFormat"/> and its number in
+    /// ffprobe's order as <c>FFProbeVideoInfo.NormalizeChapterNames</c> names it, and chapters
+    /// at or past the runtime are dropped as <c>ChapterManager.SaveChapters</c> drops them.
+    /// Jellyfin keeps a chapter with a negative start, which this drops.
     /// </remarks>
     /// <param name="raw">JSON returned by <c>ffprobe -show_chapters -of json</c>.</param>
-    /// <returns>The chapters sorted by start, with their embedded titles, or an empty title when a chapter has none.</returns>
+    /// <param name="runtimeTicks">The item's runtime in ticks.</param>
+    /// <param name="chapterNameFormat">Jellyfin's chapter name format under the server's language, with <c>{0}</c> for the chapter number.</param>
+    /// <returns>The chapters sorted by start.</returns>
     /// <exception cref="JsonException"><paramref name="raw"/> is not valid JSON, or has no top-level <c>chapters</c> array.</exception>
-    internal static ChapterInfo[] ParseChapters(string raw)
+    internal static ChapterInfo[] ParseChapters(string raw, long runtimeTicks, string chapterNameFormat)
     {
         using var document = JsonDocument.Parse(raw);
         if (document.RootElement.ValueKind != JsonValueKind.Object
@@ -315,23 +325,37 @@ internal static partial class FFmpegOutputParser
         }
 
         var result = new List<ChapterInfo>();
+        var number = 0;
         foreach (var chapter in chapters.EnumerateArray())
         {
+            number++;
             if (chapter.ValueKind != JsonValueKind.Object
                 || !chapter.TryGetProperty("start_time", out var start)
                 || start.ValueKind != JsonValueKind.String
                 || !double.TryParse(start.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var startSeconds)
-                || !TickConversions.TryFromSeconds(startSeconds, out var startTicks))
+                || !TickConversions.TryFromSeconds(startSeconds, out _))
             {
                 continue;
             }
 
-            var name = chapter.TryGetProperty("tags", out var tags)
+            // Jellyfin's expression, so the two agree at a half millisecond too (to even).
+            var startTicks = TimeSpan.FromMilliseconds(Math.Round(TimeSpan.FromSeconds(startSeconds).TotalMilliseconds)).Ticks;
+            if (startTicks >= runtimeTicks)
+            {
+                continue;
+            }
+
+            var title = chapter.TryGetProperty("tags", out var tags)
                 && tags.ValueKind == JsonValueKind.Object
-                && tags.TryGetProperty("title", out var title)
-                && title.ValueKind == JsonValueKind.String
-                ? title.GetString()!
-                : string.Empty;
+                && tags.TryGetProperty("title", out var titleTag)
+                && titleTag.ValueKind == JsonValueKind.String
+                ? titleTag.GetString()
+                : null;
+            // Jellyfin's TimeSpan.TryParse(name, out _) reads the current culture; this runs in
+            // the same process, so the same titles count as timestamps.
+            var name = string.IsNullOrWhiteSpace(title) || TimeSpan.TryParse(title, CultureInfo.CurrentCulture, out _)
+                ? string.Format(CultureInfo.InvariantCulture, chapterNameFormat, number)
+                : title;
             result.Add(new ChapterInfo { StartPositionTicks = startTicks, Name = name });
         }
 

@@ -15,9 +15,12 @@ namespace IntroSkipper.Manager;
 /// <see cref="EpisodeState.NoSegments"/> without), user segments always settle it, and
 /// anything else stays <see cref="EpisodeState.NotAnalyzed"/>. A record whose file
 /// version differs from the episode's current one no longer describes the file: the
-/// episode is flagged <see cref="QueuedEpisode.FileChanged"/> and stays open. The
-/// expected hash depends on the season's analyzer action and the mode, not on the
-/// episode, so every per-mode value is computed once per instance.
+/// episode is flagged <see cref="QueuedEpisode.FileChanged"/> and stays open. A record
+/// under the hash the current settings produce for the other chapter source settles the
+/// episode too, flagged for the season pass's chapter source check
+/// (<see cref="QueuedEpisode.ChapterSourceChecks"/>), which reopens the mode only when the two
+/// sources hold different chapters. The expected hash depends on the season's analyzer action
+/// and the mode, not on the episode, so every per-mode value is computed once per instance.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -33,6 +36,12 @@ internal sealed partial class QueueVerifier
     // The hash the same configuration produces with Chromaprint available; only
     // consulted while the probe failed, see Classify.
     private readonly Dictionary<AnalysisMode, string>? _availableHashByMode;
+
+    // The hashes the same configuration produces under the other chapter source, so a record
+    // written from that source is told from one written under other settings. Only for modes
+    // whose action runs an analyzer: a None action re-records the episode at no cost.
+    private readonly Dictionary<AnalysisMode, string> _otherSourceHashByMode = [];
+    private readonly Dictionary<AnalysisMode, string>? _availableOtherSourceHashByMode;
 
     // First stored hash seen per mode, replaced by the first mismatching one, so the
     // reason log can quote the hash that caused the reprocessing.
@@ -74,57 +83,41 @@ internal sealed partial class QueueVerifier
         _expectedHashByMode = new Dictionary<AnalysisMode, string>(AllModes.Length);
         _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(AllModes.Length);
         _availableSubtitleIndependentHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>();
+        _availableOtherSourceHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>();
+        var otherSource = config.ChapterSource == ChapterSource.Embedded ? ChapterSource.JellyfinTable : ChapterSource.Embedded;
         foreach (var mode in AllModes)
         {
             var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction) ? savedAction : AnalyzerAction.Default;
             _actionByMode[mode] = action;
-            _expectedHashByMode[mode] = ConfigHasher.Analysis(
+            _expectedHashByMode[mode] = Hash(mode, action, ffmpegValid);
+            _availableHashByMode?.Add(mode, Hash(mode, action, available: true));
+            if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
+            {
+                _subtitleIndependentHashByMode[mode] = Hash(mode, action, ffmpegValid, includeSubtitleSettings: false);
+                _availableSubtitleIndependentHashByMode?.Add(mode, Hash(mode, action, available: true, includeSubtitleSettings: false));
+            }
+
+            if (action != AnalyzerAction.None)
+            {
+                _otherSourceHashByMode[mode] = Hash(mode, action, ffmpegValid, chapterSource: otherSource);
+                _availableOtherSourceHashByMode?.Add(mode, Hash(mode, action, available: true, chapterSource: otherSource));
+            }
+        }
+
+        // The season's overrides are the same for every hash of the instance.
+        string Hash(AnalysisMode mode, AnalyzerAction action, bool available, bool includeSubtitleSettings = true, ChapterSource? chapterSource = null)
+            => ConfigHasher.Analysis(
                 config,
                 mode,
                 action,
-                ffmpegValid,
+                available,
                 analysisPercentOverride,
                 analysisLengthLimitOverride,
                 previewFromCreditsEndOverride,
                 subtitleRecapDetectionOverride,
-                subtitlePreviewDetectionOverride);
-            if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
-            {
-                _subtitleIndependentHashByMode[mode] = ConfigHasher.Analysis(
-                    config,
-                    mode,
-                    action,
-                    ffmpegValid,
-                    analysisPercentOverride,
-                    analysisLengthLimitOverride,
-                    previewFromCreditsEndOverride,
-                    subtitleRecapDetectionOverride,
-                    subtitlePreviewDetectionOverride,
-                    includeSubtitleSettings: false);
-                _availableSubtitleIndependentHashByMode?.Add(mode, ConfigHasher.Analysis(
-                    config,
-                    mode,
-                    action,
-                    ffmpegValid: true,
-                    analysisPercentOverride: analysisPercentOverride,
-                    analysisLengthLimitOverride: analysisLengthLimitOverride,
-                    previewFromCreditsEndOverride: previewFromCreditsEndOverride,
-                    subtitleRecapDetectionOverride: subtitleRecapDetectionOverride,
-                    subtitlePreviewDetectionOverride: subtitlePreviewDetectionOverride,
-                    includeSubtitleSettings: false));
-            }
-
-            _availableHashByMode?.Add(mode, ConfigHasher.Analysis(
-                config,
-                mode,
-                action,
-                ffmpegValid: true,
-                analysisPercentOverride: analysisPercentOverride,
-                analysisLengthLimitOverride: analysisLengthLimitOverride,
-                previewFromCreditsEndOverride: previewFromCreditsEndOverride,
-                subtitleRecapDetectionOverride: subtitleRecapDetectionOverride,
-                subtitlePreviewDetectionOverride: subtitlePreviewDetectionOverride));
-        }
+                subtitlePreviewDetectionOverride,
+                includeSubtitleSettings,
+                chapterSource);
     }
 
     /// <summary>
@@ -147,11 +140,14 @@ internal sealed partial class QueueVerifier
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
             var hashMatches = hasAnalyzedHash && IsCurrentHash(record.ConfigHash, mode);
+            string? sourceCheckHash = null;
+            var otherSourceHash = hasAnalyzedHash && !hashMatches && IsOtherSourceHash(record.ConfigHash, mode, out sourceCheckHash);
             var subtitleOnlyHashChange = hasAnalyzedHash && !hashMatches && IsConventionalHashCurrent(record.ConfigHash, mode);
 
             if (hasAnalyzedHash && !fileChanged)
             {
-                var mismatch = !hashMatches;
+                // A record from the other chapter source is no configuration change to report.
+                var mismatch = !hashMatches && !otherSourceHash;
                 if (!_storedHashByMode.TryGetValue(mode, out var stored) || (mismatch && !stored.Mismatch))
                 {
                     _storedHashByMode[mode] = (record.ConfigHash, mismatch);
@@ -163,13 +159,18 @@ internal sealed partial class QueueVerifier
             if (fileChanged || reopened.Contains(mode))
             {
                 hashMatches = false;
+                otherSourceHash = false;
                 subtitleOnlyHashChange = false;
             }
             else if (candidate.NeedsSubtitleOnlyReanalysis(mode))
             {
                 hashMatches = false;
+                otherSourceHash = false;
             }
 
+            // A record from the other chapter source settles the episode until the season pass
+            // has compared the two sources' chapters.
+            var settled = hashMatches || otherSourceHash;
             if (_snapshot.SegmentModesByEpisodeId.TryGetValue(candidate.EpisodeId, out var modesWithSegments) &&
                 modesWithSegments.Contains(mode))
             {
@@ -178,14 +179,21 @@ internal sealed partial class QueueVerifier
 
                 // Always preserve user-provided segments. Automatic results are reusable only
                 // when the stored per-item hash still describes the current configuration.
-                if (isUserProvided || hashMatches)
+                if (isUserProvided || settled)
                 {
                     candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                 }
             }
-            else if (hashMatches)
+            else if (settled)
             {
                 candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
+            }
+
+            // A user segment settles the mode whatever the record says, so its record is neither
+            // checked nor re-stamped.
+            if (sourceCheckHash is not null && candidate.GetAnalyzed(mode) is EpisodeState.Analyzed or EpisodeState.NoSegments)
+            {
+                candidate.MarkChapterSourceCheck(mode, new ChapterSourceCheck(record.ConfigHash, sourceCheckHash, _config.ChapterSource));
             }
 
             if (subtitleOnlyHashChange && candidate.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
@@ -321,6 +329,30 @@ internal sealed partial class QueueVerifier
         => string.Equals(hash, _expectedHashByMode[mode], StringComparison.Ordinal)
             || (_availableHashByMode is { } availableHashByMode
                 && string.Equals(hash, availableHashByMode[mode], StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether the hash describes the current configuration of the mode under the other
+    /// chapter source, with the same Chromaprint-availability rule as <see cref="IsCurrentHash"/>.
+    /// Such a record is settled pending the season pass's chapter source check, which re-stamps
+    /// it with <paramref name="currentHash"/> when both sources hold the same chapters. A record
+    /// written with Chromaprint available settles while the capability probe fails, but gets no
+    /// check (<paramref name="currentHash"/> is <see langword="null"/>): the check could reopen
+    /// the mode, and without Chromaprint the chain could not reproduce the result it would
+    /// discard, so the check waits for a pass with Chromaprint.
+    /// </summary>
+    private bool IsOtherSourceHash(string hash, AnalysisMode mode, out string? currentHash)
+    {
+        currentHash = null;
+        if (_otherSourceHashByMode.TryGetValue(mode, out var otherSourceHash)
+            && string.Equals(hash, otherSourceHash, StringComparison.Ordinal))
+        {
+            currentHash = _expectedHashByMode[mode];
+            return true;
+        }
+
+        return _availableOtherSourceHashByMode?.TryGetValue(mode, out var availableOtherSourceHash) == true
+            && string.Equals(hash, availableOtherSourceHash, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Whether a Recap or Preview hash still matches the current configuration in everything

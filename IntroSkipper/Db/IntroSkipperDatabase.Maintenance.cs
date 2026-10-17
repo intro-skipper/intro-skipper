@@ -241,36 +241,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Reopens analysis records for the supplied items and modes without touching their
-    /// automatic segments. This preserves results for modes the current pass cannot run while
-    /// ensuring a later pass that enables one of those modes does not accept a result produced
-    /// from a different chapter source.
-    /// </summary>
-    /// <param name="itemIds">Item IDs to reopen.</param>
-    /// <param name="modes">Analysis modes whose records should be removed.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task ReopenItemsForReanalysisAsync(
-        IEnumerable<Guid> itemIds,
-        IReadOnlyCollection<AnalysisMode> modes,
-        CancellationToken cancellationToken = default)
-    {
-        var ids = itemIds.Distinct().ToArray();
-        var modeArray = modes.ToArray();
-        if (ids.Length == 0 || modeArray.Length == 0)
-        {
-            return;
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        await db.AnalyzedItems
-            .Where(a => EF.Parameter(ids).Contains(a.ItemId) && modeArray.Contains(a.Type))
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <summary>
     /// Gets the season-state keys that are not part of <paramref name="retainedSeasonIds"/>,
     /// so cleanup can decide per key whether the season is gone or merely missing from an
     /// enumeration that skipped its library.

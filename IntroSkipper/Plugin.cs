@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 
@@ -37,6 +38,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
+    private readonly ILocalizationManager _localization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -47,13 +49,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="chapterRepository">Chapter repository.</param>
     /// <param name="pluginManager">Plugin manager.</param>
+    /// <param name="localization">Jellyfin's localization manager.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
         ILibraryManager libraryManager,
         IChapterManager chapterRepository,
-        IPluginManager pluginManager)
+        IPluginManager pluginManager,
+        ILocalizationManager localization)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
@@ -61,6 +65,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _libraryManager = libraryManager;
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
+        _localization = localization;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
         TempDirectory = applicationPaths.TempDirectory;
@@ -82,6 +87,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.
     /// </summary>
     internal string TempDirectory { get; }
+
+    /// <summary>
+    /// Gets the format Jellyfin names a chapter without a title with, under the server's
+    /// language, with <c>{0}</c> for the chapter number: "Chapter {0}" in English. The embedded
+    /// chapter read names untitled chapters with it, so both chapter sources hold the same names.
+    /// </summary>
+    internal string ChapterNameFormat => _localization.GetServerLocalizedString("ChapterNameValue");
 
     /// <inheritdoc />
     public override string Name => ProviderName;
