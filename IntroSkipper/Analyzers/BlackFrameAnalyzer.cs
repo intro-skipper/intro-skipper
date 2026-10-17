@@ -56,6 +56,7 @@ internal sealed partial class BlackFrameAnalyzer(
     /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the caller, which marks the episode failed.</returns>
     internal async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
+        using var activity = environment?.TrackItem(episode, AnalysisMode.Credits, "Black frame detection");
         var percentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
 

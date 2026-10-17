@@ -212,6 +212,7 @@ internal sealed partial class ChromaprintAnalyzer(
             async (index, token) =>
             {
                 var episode = episodeAnalysisQueue[index];
+                using var activity = _environment.TrackItem(episode, mode, "Audio fingerprint");
                 try
                 {
                     var fingerprint = await _ffmpegService.FingerprintAsync(episode, mode, token).ConfigureAwait(false);

@@ -35,6 +35,13 @@ internal interface IAnalysisEnvironment
     /// <param name="itemId">The analyzed item identifier.</param>
     /// <returns>The video metadata, or <see langword="null"/> when it is unavailable.</returns>
     CreditVideoInfo? GetCreditVideoInfo(Guid itemId) => null;
+
+    /// <summary>Tracks actual per-file work; the scope ends when that operation completes.</summary>
+    /// <param name="episode">The file being processed.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <param name="phase">The operation shown in the queue.</param>
+    /// <returns>An activity scope, or null when the host does not report progress.</returns>
+    IDisposable? TrackItem(QueuedEpisode episode, AnalysisMode mode, string phase) => null;
 }
 
 /// <summary>
@@ -47,7 +54,7 @@ internal sealed record CreditVideoInfo(string Codec, string PixelFormat);
 /// <summary>
 /// Uses the active Jellyfin plugin as the server-host default analysis environment.
 /// </summary>
-internal sealed class PluginAnalysisEnvironment : IAnalysisEnvironment
+internal sealed class PluginAnalysisEnvironment(ScannerActivityTracker? activity = null) : IAnalysisEnvironment
 {
     public PluginConfiguration Configuration => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
@@ -58,6 +65,8 @@ internal sealed class PluginAnalysisEnvironment : IAnalysisEnvironment
     public IReadOnlyList<ChapterInfo> GetChapters(Guid itemId) => Plugin.Instance?.GetChapters(itemId) ?? [];
 
     public string? GetCacheIdentity(Guid itemId) => null;
+
+    public IDisposable? TrackItem(QueuedEpisode episode, AnalysisMode mode, string phase) => activity?.Begin(episode, mode, phase);
 }
 
 /// <summary>
@@ -70,7 +79,8 @@ internal sealed class ExplicitAnalysisEnvironment(
     string? ffprobePath = null,
     Func<Guid, string?>? cacheIdentity = null,
     CreditVideoDecoder videoDecoder = CreditVideoDecoder.Cpu,
-    Func<Guid, CreditVideoInfo?>? creditVideoInfo = null) : IAnalysisEnvironment
+    Func<Guid, CreditVideoInfo?>? creditVideoInfo = null,
+    Func<QueuedEpisode, AnalysisMode, string, IDisposable?>? trackItem = null) : IAnalysisEnvironment
 {
     public PluginConfiguration Configuration { get; } = configuration;
 
@@ -85,4 +95,6 @@ internal sealed class ExplicitAnalysisEnvironment(
     public string? GetCacheIdentity(Guid itemId) => cacheIdentity?.Invoke(itemId);
 
     public CreditVideoInfo? GetCreditVideoInfo(Guid itemId) => creditVideoInfo?.Invoke(itemId);
+
+    public IDisposable? TrackItem(QueuedEpisode episode, AnalysisMode mode, string phase) => trackItem?.Invoke(episode, mode, phase);
 }

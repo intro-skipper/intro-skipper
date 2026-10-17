@@ -181,6 +181,11 @@ public sealed partial class IntroSkipperDatabase
 
     internal async Task<JobSnapshot?> ClaimRemoteJobAsync(string workerId, TimeSpan leaseDuration, CancellationToken cancellationToken, bool requireNodePolicy = false)
     {
+        if (Plugin.Instance?.Configuration.AnalysisPaused == true)
+        {
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(workerId))
         {
             throw new ArgumentException("A worker id is required.", nameof(workerId));
@@ -556,6 +561,12 @@ public sealed partial class IntroSkipperDatabase
                     var replay = existing.PayloadHash == payloadHash;
                     var current = await CurrentCanonicalAsync(db, result.ItemId, result.Mode, null, cancellationToken).ConfigureAwait(false);
                     AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, replay ? "Accepted" : "Conflict", replay ? existing.Reason : "PayloadMismatch", current));
+                    continue;
+                }
+
+                if (job?.State == "Cancelled")
+                {
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "JobCancelled", null));
                     continue;
                 }
 

@@ -34,6 +34,7 @@ internal sealed partial class SubtitleAnalyzer(
     private readonly ILogger<SubtitleAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
     private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
@@ -72,6 +73,7 @@ internal sealed partial class SubtitleAnalyzer(
         foreach (var episode in enabledEpisodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            using var activity = _environment.TrackItem(episode, mode, "Subtitle detection");
             var window = CueWindow(episode, mode);
             var scan = await _ffmpegService.ExtractSubtitleCuesAsync(episode, window, cancellationToken).ConfigureAwait(false);
             var cues = scan.Cues.Where(cue => cue.Start >= window.Start && cue.Start < window.End).ToArray();

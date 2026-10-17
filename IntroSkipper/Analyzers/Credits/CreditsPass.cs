@@ -177,6 +177,7 @@ internal sealed partial class CreditsPass(
             // the other analyzers settles it like any other; with no result at all the episode
             // stays failed so the next scan retries instead of recording a false "no credits".
             var fingerprintFailed = fingerprintFailures.Contains(episode.EpisodeId);
+            using var activity = _environment.TrackItem(episode, Mode, "Credits detection");
 
             try
             {

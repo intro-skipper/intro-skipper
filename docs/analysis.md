@@ -11,6 +11,19 @@ How library changes become analysis passes, how a pass decides what to analyze, 
 - **Library pass.** `DetectSegmentsTask` requests a pass over every enabled library and waits for it. The pass starts once the worker is free and every pending manual scan has run, and it never cancels a running pass; only the task's own token or shutdown cancels one. It covers no pending request: changed items still run in their own pass, which is cheap when the library pass already analyzed them, so a cancelled or failed library pass drops no pending request. The library request itself is not requeued; seasons the pass did not reach wait for the next one. Cancelling the task withdraws a waiting request, or cancels the running library pass and returns once it has stopped, so Jellyfin's task list and the dashboard agree.
 - **Dashboard state.** `AnalysisSchedulerStatus.IsRunning` is true while a pass runs or a manual scan or library pass is pending. A changed item waiting out its quiet period does not count, so a library change never locks the scan button. The dashboard polls its season's `ScanStatus` until that scan has run. The queue keeps each completed manual scan's outcome per key, so a failed scan reports as failed until a follow-up succeeds.
 
+## Queue controls
+
+The **Queue** tab shows local requests and durable remote jobs, with actual per-file activity reported separately from batch membership. Pending display is limited to the first 100 batches and includes the total count. Library requests identify a whole-library pass; the currently known file list is not its full inventory.
+
+- **Start** resumes processing existing work; it does not request a new library scan.
+- **Pause** saves the paused state, preserves waiting work and blocks local dequeues and remote claims. Running work may finish. The pause flag and durable remote jobs survive restart; local requests retain the scheduler's existing in-memory lifetime.
+- **Stop** pauses the queue, cancels the active local pass and invalidates leased remote jobs. Updated nodes stop their media processes cooperatively when their next activity report is rejected. Canceled jobs cannot be released back to the queue or import late results.
+- **Clear queue** cancels only waiting local requests and pending or expired remote jobs. Active leases, accepted markers, policies and credentials are retained. Stop followed by Clear removes both running and waiting work.
+
+Automatic detection controls only new library-change events. Previously queued jobs continue until processed or controlled through Queue. Configuration saves may refresh pending snapshots; those refreshes do not run while paused. Clearing jobs does not permanently exclude their media: a later explicit scan or new library event can queue them again.
+
+Queue support is advertised through an HTTP header, preserving the strict protocol-3 capability and lease JSON contracts. A separate lease-authenticated progress endpoint validates reported items against the immutable job and renews its lease. Activity is recent telemetry, not durable ownership; it expires after missed reports and resumes after reconnect. Nodes without this support still obey server claim and result admission controls, but require the matching node update for prompt compute cancellation and per-file reporting.
+
 ## Seasons
 
 `SeasonResolver` turns library items into the seasons the analyzers work on, one series at a time, by Jellyfin's own definition: the series' episodes, fetched through the series and grouped by their season id. A series stored flat in its folder resolves like one with season folders. Virtual episodes are shown but never analyzed, and items without a path are logged and skipped.

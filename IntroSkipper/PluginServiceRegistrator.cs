@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
@@ -44,6 +45,8 @@ namespace IntroSkipper
             // gates, run on first use; every consumer goes through a facade. The
             // segment-change worker's startup recovery is the first use at boot.
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<ScannerActivityTracker>();
+            serviceCollection.AddSingleton<ScannerQueueProgressStore>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
             serviceCollection.AddSingleton<RemoteAnalysisDispatcher>();
             serviceCollection.AddSingleton<IRemoteAnalysisDispatcher>(serviceProvider => serviceProvider.GetRequiredService<RemoteAnalysisDispatcher>());

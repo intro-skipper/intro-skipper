@@ -11,6 +11,7 @@ import { abortable } from "./lifecycle.ts";
 import type { Tab } from "./types.ts";
 import { generalTab } from "./tabs/general.ts";
 import { analysisTab } from "./tabs/analysis.ts";
+import { queueTab } from "./tabs/queue.ts";
 import { nodesTab } from "./tabs/nodes.ts";
 import { detectionTab } from "./tabs/detection.ts";
 import { blackFrameTab } from "./tabs/black-frame.ts";
@@ -24,6 +25,7 @@ import { informationTab } from "./tabs/information.ts";
 const tabs: readonly Tab[] = [
     generalTab,
     analysisTab,
+    queueTab,
     nodesTab,
     detectionTab,
     blackFrameTab,

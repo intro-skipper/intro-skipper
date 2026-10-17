@@ -106,6 +106,7 @@ internal sealed partial class ChapterAnalyzer(
         foreach (var episode in episodesWithoutIntros)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            using var activity = _environment.TrackItem(episode, mode, "Chapter analysis");
 
             IReadOnlyList<Segment> matches = enableChapterDetection ? FindChapterCandidates(episode, mode) : [];
 

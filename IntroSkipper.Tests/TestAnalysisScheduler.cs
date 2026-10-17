@@ -31,6 +31,49 @@ public sealed class TestAnalysisScheduler
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     [Fact]
+    public async Task OperatorPauseAndStop_PreservePendingWorkUntilResumed()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var active = h.Scan();
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+        var waiting = h.Scan();
+        Plugin.Instance!.Configuration.AnalysisPaused = true;
+        await h.Queue.CancelRunningAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => active.WaitAsync(Timeout));
+
+        Assert.Single(h.Queue.PendingRequests);
+        Assert.False(waiting.IsCompleted);
+        Assert.Equal(1, h.Ffmpeg.VersionCheckCalls);
+        Plugin.Instance.Configuration.AnalysisPaused = false;
+        h.Queue.RefreshControlState();
+        h.Ffmpeg.Gate.TrySetResult();
+        await waiting.WaitAsync(Timeout);
+        Assert.Equal(2, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
+    public async Task ClearPending_CancelsEveryWaitingHandleWithoutCancellingActiveWork()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var active = h.Scan();
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+        var manual = h.Scan();
+        var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
+        var library = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+
+        h.Queue.ClearPending();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => manual.WaitAsync(Timeout));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => changed.WaitAsync(Timeout));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => library.WaitAsync(Timeout));
+        Assert.Empty(h.Queue.PendingRequests);
+        Assert.False(active.IsCompleted);
+        h.Ffmpeg.Gate.TrySetResult();
+        await active.WaitAsync(Timeout);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
     public async Task ChangedItem_RunsAfterTheQuietPeriod_AndANewChangeRestartsIt()
     {
         await using var h = await QueueHarness.StartAsync();

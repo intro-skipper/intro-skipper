@@ -35,6 +35,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="cacheDatabase">Detection cache database facade, for the per-item delete when a file was replaced.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="remoteAnalysisDispatcher">Optional remote analysis dispatcher.</param>
+/// <param name="activity">Optional per-file queue activity tracker.</param>
 public partial class BaseItemAnalyzerTask(
     ILoggerFactory loggerFactory,
     SeasonResolver seasonResolver,
@@ -42,7 +43,8 @@ public partial class BaseItemAnalyzerTask(
     DetectionCacheService cacheService,
     DetectionCacheDatabase cacheDatabase,
     IntroSkipperDatabase database,
-    IRemoteAnalysisDispatcher? remoteAnalysisDispatcher = null)
+    IRemoteAnalysisDispatcher? remoteAnalysisDispatcher = null,
+    ScannerActivityTracker? activity = null)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<BaseItemAnalyzerTask>();
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -64,6 +66,8 @@ public partial class BaseItemAnalyzerTask(
     /// Gets explicit inputs for portable analysis; the Jellyfin host uses its live plugin environment.
     /// </summary>
     internal IAnalysisEnvironment? AnalysisEnvironment { get; init; }
+
+    private IAnalysisEnvironment Environment => AnalysisEnvironment ?? new PluginAnalysisEnvironment(activity);
 
     /// <summary>
     /// Analyzes every season of every enabled library, or only the seasons that are, or
@@ -450,7 +454,7 @@ public partial class BaseItemAnalyzerTask(
         // Reads the episode's chapters from a source; null when ffprobe cannot read the file.
         async Task<IReadOnlyList<ChapterInfo>?> ReadSourceAsync(QueuedEpisode episode, ChapterSource from)
             => from == ChapterSource.JellyfinTable
-                ? (AnalysisEnvironment ?? new PluginAnalysisEnvironment()).GetChapters(episode.EpisodeId)
+                ? Environment.GetChapters(episode.EpisodeId)
                 : await _ffmpegService.GetEmbeddedChaptersAsync(episode, cancellationToken).ConfigureAwait(false);
 
         // Reads the source in effect into the episode; false when ffprobe cannot read the file.
@@ -727,7 +731,7 @@ public partial class BaseItemAnalyzerTask(
             return null;
         }
 
-        var creditsPass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, AnalysisEnvironment ?? new PluginAnalysisEnvironment());
+        var creditsPass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, Environment);
         var configHash = GetAnalysisConfigHash(localCredits[0], AnalysisMode.Credits, action, ffmpegValid);
         foreach (var item in localCredits)
         {
@@ -881,7 +885,7 @@ public partial class BaseItemAnalyzerTask(
             .Where(item => !item.NeedsSubtitleOnlyReanalysis(mode))
             .ToArray();
         var creditsPass = mode == AnalysisMode.Credits
-            ? new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, AnalysisEnvironment ?? new PluginAnalysisEnvironment())
+            ? new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, Environment)
             : null;
 
         // The cleanup journals the removed rows' projections, so they reach the mirror even
@@ -1021,7 +1025,7 @@ public partial class BaseItemAnalyzerTask(
             _ffmpegService,
             _database,
             Config,
-            environment: AnalysisEnvironment);
+            environment: Environment);
         await analyzer.AnalyzeMediaFiles(subtitleCandidates, mode, cancellationToken).ConfigureAwait(false);
 
         foreach (var episode in subtitleCandidates)
@@ -1093,7 +1097,7 @@ public partial class BaseItemAnalyzerTask(
         var subtitleEpisodes = items.Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is not null).ToArray();
         var configHash = items[0].AnalysisConfigHash;
         var subtitle = subtitleEpisodes.Length > 0
-            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config, AnalysisEnvironment)
+            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, Config, Environment)
             : null;
         var chapter = new ChapterAnalyzer(
             _loggerFactory.CreateLogger<ChapterAnalyzer>(),
@@ -1101,7 +1105,7 @@ public partial class BaseItemAnalyzerTask(
             _database,
             Config,
             enableRecapBlackFrameFallback: false,
-            environment: AnalysisEnvironment);
+            environment: Environment);
         var recapBlackFrameFallback = mode == AnalysisMode.Recap && Config.DetectRecapUsingBlackFrames
             ? new ChapterAnalyzer(
                 _loggerFactory.CreateLogger<ChapterAnalyzer>(),
@@ -1109,10 +1113,10 @@ public partial class BaseItemAnalyzerTask(
                 _database,
                 Config,
                 enableChapterDetection: false,
-                environment: AnalysisEnvironment)
+                environment: Environment)
             : null;
         ChromaprintAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
-            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config, AnalysisEnvironment)
+            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config, Environment)
             : null;
 
         List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];

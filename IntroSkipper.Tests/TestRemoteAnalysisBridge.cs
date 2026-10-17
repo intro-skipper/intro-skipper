@@ -40,6 +40,67 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
 
     private readonly SegmentChangeHarness _harness = new();
 
+    [Fact]
+    public async Task QueuePause_PreservesJobsAndBlocksClaimsUntilResumed()
+    {
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var snapshot = CreateSnapshot(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "0");
+        Assert.True(await _harness.Database.QueueRemoteJobAsync(snapshot, default));
+        Plugin.Instance!.Configuration.AnalysisPaused = true;
+
+        Assert.Null(await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default));
+        Assert.Equal(1, (await _harness.Database.GetRemoteQueueAsync(default)).PendingCount);
+
+        Plugin.Instance.Configuration.AnalysisPaused = false;
+        Assert.Equal(snapshot.JobId, (await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default))!.JobId);
+    }
+
+    [Fact]
+    public async Task StopRemoteQueue_RejectsLateResultsProgressRenewalAndRelease()
+    {
+        var itemId = Guid.NewGuid();
+        var snapshot = CreateSnapshot(itemId, Guid.NewGuid(), Guid.NewGuid(), "0");
+        Assert.True(await _harness.Database.QueueRemoteJobAsync(snapshot, default));
+        var lease = Assert.IsType<JobSnapshot>(await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default));
+        var leaseRequest = new LeaseRequest(lease.LeaseToken!, lease.LeaseGeneration);
+        var progress = new ScannerQueueProgressRequest(leaseRequest, [new ScannerQueueActivity(itemId, RemoteMode.Introduction, "Audio fingerprint")], []);
+        Assert.True(await _harness.Database.ReportRemoteProgressAsync(lease.JobId, progress, TimeSpan.FromMinutes(1), default));
+        var invalid = progress with { Active = [new ScannerQueueActivity(Guid.NewGuid(), RemoteMode.Introduction, "Audio fingerprint")] };
+        await Assert.ThrowsAsync<InvalidDataException>(() => _harness.Database.ReportRemoteProgressAsync(lease.JobId, invalid, TimeSpan.FromMinutes(1), default));
+
+        await _harness.Database.CancelRemoteQueueAsync(running: true, default);
+
+        Assert.False(await _harness.Database.ReportRemoteProgressAsync(lease.JobId, progress, TimeSpan.FromMinutes(1), default));
+        Assert.False(await _harness.Database.RenewRemoteLeaseAsync(lease.JobId, lease.LeaseToken!, lease.LeaseGeneration, TimeSpan.FromMinutes(1), default));
+        await _harness.Database.ReleaseRemoteLeaseAsync(lease.JobId, lease.LeaseToken!, lease.LeaseGeneration, default);
+        Assert.Null(await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default));
+        var receipt = Assert.Single(await _harness.Database.SubmitRemoteResultsAsync(lease.JobId, leaseRequest, [CreateResult(lease, itemId, "0")], default));
+        Assert.Equal("Rejected", receipt.Outcome);
+        Assert.Equal("JobCancelled", receipt.Reason);
+        Assert.Empty(await _harness.Database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task ClearRemoteQueue_PreservesActiveLeasesAndStoredMarkers()
+    {
+        var first = CreateSnapshot(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "0");
+        var second = CreateSnapshot(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "0");
+        Assert.True(await _harness.Database.QueueRemoteJobAsync(first, default));
+        Assert.True(await _harness.Database.QueueRemoteJobAsync(second, default));
+        var lease = Assert.IsType<JobSnapshot>(await _harness.Database.ClaimRemoteJobAsync("worker", TimeSpan.FromMinutes(1), default));
+        var itemId = first.Items[0].ItemId;
+        await _harness.Database.SeedUserSegmentAsync(itemId, PluginMode.Introduction, 100, 200);
+        var marker = Assert.Single(await _harness.Database.GetSegmentsAsync(itemId));
+
+        await _harness.Database.CancelRemoteQueueAsync(running: false, default);
+
+        var queue = await _harness.Database.GetRemoteQueueAsync(default);
+        Assert.Equal(0, queue.PendingCount);
+        Assert.Equal(lease.JobId, Assert.Single(queue.Jobs).Id);
+        Assert.True(await _harness.Database.RenewRemoteLeaseAsync(lease.JobId, lease.LeaseToken!, lease.LeaseGeneration, TimeSpan.FromMinutes(1), default));
+        Assert.Equal(marker.Id, Assert.Single(await _harness.Database.GetSegmentsAsync(itemId)).Id);
+    }
+
     /// <inheritdoc />
     public void Dispose() => _harness.Dispose();
 

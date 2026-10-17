@@ -45,9 +45,14 @@ public sealed partial class NodeSettingsNotifier(IntroSkipperDatabase? database 
     }
 
     /// <summary>Signals a committed configuration or node policy change.</summary>
-    public void Publish()
+    /// <param name="reschedule">Whether pending jobs need fresh analysis snapshots.</param>
+    public void Publish(bool reschedule = true)
     {
-        _reschedule.Writer.TryWrite(true);
+        if (reschedule && Plugin.Instance?.Configuration.AnalysisPaused != true)
+        {
+            _reschedule.Writer.TryWrite(true);
+        }
+
         foreach (var channel in _listeners.Values)
         {
             channel.Writer.TryWrite(true);

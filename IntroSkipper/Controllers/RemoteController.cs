@@ -24,12 +24,13 @@ namespace IntroSkipper.Controllers;
 /// <param name="libraryManager">Jellyfin library catalog used to validate node declarations.</param>
 /// <param name="notifier">Save notifications for connected nodes.</param>
 /// <param name="scheduler">Queues dependent analysis after remote imports.</param>
+/// <param name="queueProgress">Recent lease-validated scanner activity.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("IntroSkipper/Remote/v2")]
 [Route("IntroSkipper/Remote/v3")]
-public sealed class RemoteController(IntroSkipperDatabase database, IServerApplicationHost applicationHost, ILibraryManager libraryManager, NodeSettingsNotifier? notifier = null, AnalysisScheduler? scheduler = null) : ControllerBase
+public sealed class RemoteController(IntroSkipperDatabase database, IServerApplicationHost applicationHost, ILibraryManager libraryManager, NodeSettingsNotifier? notifier = null, AnalysisScheduler? scheduler = null, ScannerQueueProgressStore? queueProgress = null) : ControllerBase
 {
     private const int MaximumItems = 100;
     private const int MaximumBodyBytes = 1024 * 1024;
@@ -38,6 +39,7 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly NodeSettingsNotifier? _notifier = notifier;
     private readonly AnalysisScheduler? _scheduler = scheduler;
+    private readonly ScannerQueueProgressStore? _queueProgress = queueProgress;
 
     /// <summary>
     /// Gets the server's supported remote-analysis protocol and approved credits profiles.
@@ -48,6 +50,11 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
     public IActionResult GetCapabilities()
     {
         var plugin = Plugin.Instance!;
+        if (_queueProgress is not null && ControllerContext.HttpContext is { } context)
+        {
+            context.Response.Headers["X-IntroSkipper-Queue-Control"] = "1";
+        }
+
         return Wire(new RemoteCapabilities
         {
             ServerId = _applicationHost.SystemId,
@@ -645,6 +652,41 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
 
     private static bool ValidLease(Guid jobId, LeaseRequest? request)
         => jobId != Guid.Empty && request is { LeaseGeneration: >= 0 } && !string.IsNullOrWhiteSpace(request.LeaseToken) && request.LeaseToken.Length <= 256;
+
+    /// <summary>Reports actual file activity and renews its current lease.</summary>
+    /// <param name="jobId">The claimed job.</param>
+    /// <param name="cancellationToken">Request cancellation.</param>
+    /// <returns>No content on success, conflict when the lease is no longer current.</returns>
+    [HttpPost("jobs/{jobId:guid}/progress")]
+    public async Task<IActionResult> Progress(Guid jobId, CancellationToken cancellationToken)
+    {
+        var read = await TryReadAsync<ScannerQueueProgressRequest>(cancellationToken).ConfigureAwait(false);
+        if (read.Value is not { Active: { Count: <= 100 }, Completed: { Count: <= 100 } } request
+            || !ValidLease(jobId, request.Lease)
+            || request.Active.Any(item => item is null || item.ItemId == Guid.Empty || !Enum.IsDefined(item.Mode)
+                || string.IsNullOrWhiteSpace(item.Phase) || item.Phase.Length > 120 || item.Phase.Any(char.IsControl))
+            || request.Active.DistinctBy(item => (item.ItemId, item.Mode)).Count() != request.Active.Count
+            || request.Completed.Any(id => id == Guid.Empty) || request.Completed.Distinct().Count() != request.Completed.Count)
+        {
+            return BadRequest("Invalid scanner progress.");
+        }
+
+        try
+        {
+            var minutes = Math.Clamp(Plugin.Instance!.Configuration.RemoteAnalysisLeaseMinutes, 1, 120);
+            if (!await _database.ReportRemoteProgressAsync(jobId, request, TimeSpan.FromMinutes(minutes), cancellationToken).ConfigureAwait(false))
+            {
+                return Conflict("The scan was stopped or its lease is no longer current.");
+            }
+
+            _queueProgress?.Report(jobId, request);
+            return NoContent();
+        }
+        catch (InvalidDataException exception)
+        {
+            return BadRequest(exception.Message);
+        }
+    }
 
     private void ScheduleAcceptedImport(ImportReceipt receipt, HashSet<Guid> scheduledItemIds)
     {

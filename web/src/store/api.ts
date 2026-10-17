@@ -108,6 +108,56 @@ export function getJson<T>(url: string, signal?: AbortSignal): Promise<ApiResult
     return request<T>(url, { signal });
 }
 
+export type QueueControlAction = "start" | "pause" | "stop" | "clear";
+
+export type ScannerQueueItem = {
+    itemId: string;
+    name: string;
+    series: string | null;
+    library: string | null;
+};
+
+export type ScannerQueueActivity = {
+    itemId: string;
+    mode: RemoteAnalysisMode;
+    phase: string;
+};
+
+export type ScannerQueueJob = {
+    id: string;
+    nodeId: string;
+    nodeName: string;
+    state: string;
+    kind: string;
+    modes: RemoteAnalysisMode[];
+    items: ScannerQueueItem[];
+    active: ScannerQueueActivity[];
+    completed: string[];
+    updatedUtc: string | null;
+};
+
+export type ScannerQueueSnapshot = {
+    paused: boolean;
+    running: ScannerQueueJob[];
+    pending: ScannerQueueJob[];
+    totalPendingJobs: number;
+};
+
+export function getQueue(signal?: AbortSignal): Promise<ApiResult<ScannerQueueSnapshot>> {
+    return getJson<ScannerQueueSnapshot>("IntroSkipper/Queue", signal);
+}
+
+export function controlQueue(
+    action: QueueControlAction,
+    signal?: AbortSignal,
+): Promise<ApiResult<ScannerQueueSnapshot>> {
+    return request<ScannerQueueSnapshot>("IntroSkipper/Queue/control", {
+        method: "POST",
+        body: { action },
+        signal,
+    });
+}
+
 export type RemoteAnalysisMode = "Introduction" | "Credits" | "Recap" | "Preview" | "Commercial";
 export type CreditsDetectionMethod = "TextAware" | "IntroSkipper";
 

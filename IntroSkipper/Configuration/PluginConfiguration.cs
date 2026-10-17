@@ -95,6 +95,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether new queue execution is paused.</summary>
+    public bool AnalysisPaused { get; set; }
+
     /// <summary>
     /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops
     /// receiving new episodes. Audio fingerprint detection compares episodes against each other, so
