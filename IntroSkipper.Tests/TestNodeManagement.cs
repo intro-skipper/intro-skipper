@@ -4,11 +4,16 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Controllers;
 using IntroSkipper.Remote;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -18,6 +23,31 @@ using Xunit;
 /// <summary>Server ownership and notification contracts for node configuration.</summary>
 public sealed class NodeManagementTests
 {
+    [Theory]
+    [InlineData("relative/media", "/mnt/media")]
+    [InlineData("/media/../outside", "/mnt/media")]
+    [InlineData("/media", "relative/media")]
+    public async Task Hello_RejectsInvalidSuggestedMappingsBeforePersistence(string serverPrefix, string workerPrefix)
+    {
+        using var harness = new SegmentChangeHarness();
+        var hello = new NodeHello("invalid-path-node", "Desktop", new NodeRuntimeInformation
+        {
+            SuggestedPathMappings = [new PathMapping { ServerPrefix = serverPrefix, WorkerPrefix = workerPrefix }],
+        });
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(hello));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await controller.Hello(CancellationToken.None));
+        Assert.Empty(await harness.Database.GetRemoteNodesAsync(CancellationToken.None));
+    }
+
     [Fact]
     public async Task PolicyMigration_PreservesLegacyDeclarationThroughUpgradeAndRollback()
     {

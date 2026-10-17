@@ -92,13 +92,26 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
         var read = await TryReadAsync<NodeHello>(cancellationToken).ConfigureAwait(false);
         if (read.Value is not { } hello || string.IsNullOrWhiteSpace(hello.NodeId) || hello.NodeId.Length > 200
             || hello.NodeId == IntroSkipperDatabase.LocalNodeId || string.IsNullOrWhiteSpace(hello.Name) || hello.Name.Length > 200
-            || hello.Runtime is not { Hardware.Gpus: { } gpus, CreditsRecipes: { } recipes, SupportedModes: { } supportedModes }
-            || recipes.Count > 16 || gpus.Count > 32 || supportedModes.Count > 5
+            || hello.Runtime is not { Hardware.Gpus: { } gpus, CreditsRecipes: { } recipes, SupportedModes: { } supportedModes, SuggestedPathMappings: { } mappings }
+            || recipes.Count > 16 || gpus.Count > 32 || supportedModes.Count > 5 || mappings.Count > 32 || mappings.Any(mapping => mapping is null)
             || hello.Runtime.SupportedModes.Any(mode => !Enum.IsDefined(mode))
             || hello.Runtime.CreditsRecipes.Any(recipe => !ContractValidation.IsSha256(recipe.ProfileHash)
                 || !Enum.IsDefined(recipe.Method) || !Enum.IsDefined(recipe.VideoDecoder) || !Enum.IsDefined(recipe.InferenceBackend)))
         {
             return BadRequest("Invalid node capabilities.");
+        }
+
+        try
+        {
+            foreach (var mapping in mappings)
+            {
+                NodeScope.NormalizeAbsolutePath(mapping.ServerPrefix);
+                NodeScope.NormalizeAbsolutePath(mapping.WorkerPrefix);
+            }
+        }
+        catch (InvalidDataException exception)
+        {
+            return BadRequest(exception.Message);
         }
 
         var previous = await _database.GetRemoteNodeAsync(hello.NodeId, cancellationToken).ConfigureAwait(false);
