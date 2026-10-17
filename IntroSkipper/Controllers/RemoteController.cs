@@ -444,14 +444,13 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
 
         try
         {
-            var receipts = await _database.SubmitRemoteResultsAsync(jobId, new LeaseRequest(request.LeaseToken, request.LeaseGeneration), request.Results, cancellationToken).ConfigureAwait(false);
-            if (_scheduler is not null)
-            {
-                foreach (var itemId in receipts.Where(receipt => receipt.Outcome == "Accepted" && receipt.Mode is RemoteAnalysisMode.Introduction or RemoteAnalysisMode.Credits).Select(receipt => receipt.ItemId).Distinct())
-                {
-                    _ = _scheduler.ItemChangedAsync(itemId);
-                }
-            }
+            var scheduledItemIds = new HashSet<Guid>();
+            var receipts = await _database.SubmitRemoteResultsAsync(
+                jobId,
+                new LeaseRequest(request.LeaseToken, request.LeaseGeneration),
+                request.Results,
+                cancellationToken,
+                receipt => ScheduleAcceptedImport(receipt, scheduledItemIds)).ConfigureAwait(false);
 
             return Wire(receipts);
         }
@@ -487,14 +486,12 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
 
         try
         {
-            var receipts = await _database.ReviewRemoteResultsAsync(jobId, request, cancellationToken).ConfigureAwait(false);
-            if (_scheduler is not null)
-            {
-                foreach (var itemId in receipts.Where(receipt => receipt.Outcome == "Accepted" && receipt.Mode is RemoteAnalysisMode.Introduction or RemoteAnalysisMode.Credits).Select(receipt => receipt.ItemId).Distinct())
-                {
-                    _ = _scheduler.ItemChangedAsync(itemId);
-                }
-            }
+            var scheduledItemIds = new HashSet<Guid>();
+            var receipts = await _database.ReviewRemoteResultsAsync(
+                jobId,
+                request,
+                cancellationToken,
+                receipt => ScheduleAcceptedImport(receipt, scheduledItemIds)).ConfigureAwait(false);
 
             return Wire(receipts);
         }
@@ -648,6 +645,17 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
 
     private static bool ValidLease(Guid jobId, LeaseRequest? request)
         => jobId != Guid.Empty && request is { LeaseGeneration: >= 0 } && !string.IsNullOrWhiteSpace(request.LeaseToken) && request.LeaseToken.Length <= 256;
+
+    private void ScheduleAcceptedImport(ImportReceipt receipt, HashSet<Guid> scheduledItemIds)
+    {
+        if (_scheduler is not null
+            && receipt.Outcome == "Accepted"
+            && receipt.Mode is RemoteAnalysisMode.Introduction or RemoteAnalysisMode.Credits
+            && scheduledItemIds.Add(receipt.ItemId))
+        {
+            _ = _scheduler.ItemChangedAsync(receipt.ItemId);
+        }
+    }
 
     private List<RemoteLibrary> GetLibraryCatalog()
         => (_libraryManager.GetVirtualFolders() ?? [])

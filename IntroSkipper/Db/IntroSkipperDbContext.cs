@@ -388,7 +388,9 @@ public class IntroSkipperDbContext : DbContext
         remoteJobs = [.. remoteJobs.DistinctBy(job => job.Id)];
         remoteNodes = [.. remoteNodes.DistinctBy(node => node.NodeId)];
         remoteImportReceipts = [.. remoteImportReceipts.DistinctBy(receipt => (receipt.AnalysisId, receipt.ItemId, receipt.Mode))];
-        remoteAnalysisMetadata = [.. remoteAnalysisMetadata.DistinctBy(metadata => (metadata.ItemId, metadata.Mode))];
+        remoteAnalysisMetadata = [.. remoteAnalysisMetadata
+            .OrderByDescending(metadata => metadata.Revision)
+            .DistinctBy(metadata => (metadata.ItemId, metadata.Mode))];
         remoteExportContexts = [.. remoteExportContexts.DistinctBy(context => context.Id)];
 
         if (backupFailed)

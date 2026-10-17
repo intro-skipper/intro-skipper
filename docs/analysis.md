@@ -106,6 +106,8 @@ The worker saves connected bundles for explicit review when needed. Submissions 
 
 `SharedScanSettings` includes `UseEmbeddedChaptersForAnalysis` and `SubtitleLanguages`. A job's optional `SubtitleFileVersionToken` carries the upstream sidecar version; the server rechecks it on import and records it for modes with active subtitle detection.
 
+Already-settled local credits-derived previews are refreshed from current credits before the Preview completion gate, without rerunning media detection. Accepted result receipts notify the analysis scheduler individually after persistence, so a later result's validation failure or cancellation cannot strand earlier committed work. Rebuild salvage selects the highest remote metadata revision per item/mode, retaining that revision's canonical data and provenance together.
+
 ## Upgrading from 10.11
 
 `LegacyDatabaseImporter` turns the old per-season episode lists into analysis records under the season's hash, so upgrading does not rescan them. Old schemas that stored no season hash import with an empty hash, which settles nothing, so those seasons are analyzed again.

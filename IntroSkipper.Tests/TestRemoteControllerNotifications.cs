@@ -57,7 +57,7 @@ public sealed class RemoteControllerNotificationsTests : IDisposable
     }
 
     [Fact]
-    public async Task AcceptedHeldIntroductionReview_QueuesDependentAnalysis()
+    public async Task AcceptedHeldIntroductionReview_QueuesDependentAnalysisBeforeLaterInvalidResult()
     {
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -151,17 +151,30 @@ public sealed class RemoteControllerNotificationsTests : IDisposable
         };
         Assert.Equal("Held", Assert.Single(await _harness.Database.SubmitRemoteResultsAsync(lease.JobId, new LeaseRequest(lease.LeaseToken!, lease.LeaseGeneration), [held], default)).Outcome);
         using var scheduler = EntrypointTestHelpers.CreateEntrypoint().Queue;
+        var invalid = held with
+        {
+            AnalysisId = Guid.CreateVersion7(),
+            Mode = RemoteMode.Credits,
+            BoundaryStage = "NotFinalAdjusted",
+            Segments = [held.Segments[0] with { CandidateId = "invalid", Type = RemoteMode.Credits }],
+        };
         var review = new RemoteReviewRequest(
-            [held],
-            new ReviewDocument { Decisions = [new ReviewDecision { AnalysisId = held.AnalysisId, CandidateId = "candidate", Decision = CandidateDecision.Accept }] });
+            [held, invalid],
+            new ReviewDocument
+            {
+                Decisions =
+                [
+                    new ReviewDecision { AnalysisId = held.AnalysisId, CandidateId = "candidate", Decision = CandidateDecision.Accept },
+                    new ReviewDecision { AnalysisId = invalid.AnalysisId, CandidateId = "invalid", Decision = CandidateDecision.Accept },
+                ],
+            });
         var controller = new RemoteController(_harness.Database, null!, null!, scheduler: scheduler)
         {
             ControllerContext = new ControllerContext { HttpContext = JsonContext(review) },
         };
 
-        var response = Assert.IsType<ContentResult>(await controller.Review(lease.JobId, default));
+        Assert.IsType<BadRequestObjectResult>(await controller.Review(lease.JobId, default));
 
-        Assert.Equal("Accepted", Assert.Single(WireJson.Read<List<ImportReceipt>>(response.Content!)).Outcome);
         Assert.Equal(1, scheduler.Status.ChangedItems);
     }
 

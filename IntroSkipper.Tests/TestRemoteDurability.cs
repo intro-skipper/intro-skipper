@@ -7,6 +7,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Db;
+using Microsoft.Data.Sqlite;
 using SegmentScanner.Contracts;
 using Xunit;
 
@@ -163,5 +164,67 @@ public sealed class TestRemoteDurability : IDisposable
         Assert.Equal("{\"context\":true}", context.SnapshotJson);
         Assert.Equal("context-hash", context.SnapshotHash);
         Assert.Equal(now.AddMinutes(10).Ticks, context.ExpiresUtc!.Value.Ticks);
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_PreservesHighestRemoteMetadataRevisionFromDamagedDuplicateSchema()
+    {
+        var database = _db.Database;
+        await database.GetSegmentsAsync(Guid.NewGuid());
+
+        var itemId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        await using (var db = _db.Context())
+        {
+            db.RemoteAnalysisMetadata.Add(new DbRemoteAnalysisMetadata
+            {
+                ItemId = itemId,
+                Mode = (int)RemoteAnalysisMode.Introduction,
+                Revision = 4,
+                CanonicalJson = "{\"revision\":4}",
+                DetectorId = "old-detector",
+                ProfileHash = "old-profile",
+                UpstreamCommit = "old-commit",
+                UpdatedUtc = now,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var connection = new SqliteConnection($"Data Source={_db.Path}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE "RemoteAnalysisMetadata" RENAME TO "DamagedRemoteAnalysisMetadata";
+                CREATE TABLE "RemoteAnalysisMetadata" AS SELECT * FROM "DamagedRemoteAnalysisMetadata";
+                DROP TABLE "DamagedRemoteAnalysisMetadata";
+                """;
+            await command.ExecuteNonQueryAsync();
+
+            command.CommandText = """
+                INSERT INTO "RemoteAnalysisMetadata" ("ItemId", "Mode", "Revision", "CanonicalJson", "DetectorId", "ProfileHash", "UpstreamCommit", "UpdatedUtc")
+                VALUES ($itemId, $mode, $revision, $canonicalJson, $detectorId, $profileHash, $upstreamCommit, $updatedUtc);
+                """;
+            command.Parameters.AddWithValue("$itemId", itemId);
+            command.Parameters.AddWithValue("$mode", (int)RemoteAnalysisMode.Introduction);
+            command.Parameters.AddWithValue("$revision", 5L);
+            command.Parameters.AddWithValue("$canonicalJson", "{\"revision\":5}");
+            command.Parameters.AddWithValue("$detectorId", "new-detector");
+            command.Parameters.AddWithValue("$profileHash", "new-profile");
+            command.Parameters.AddWithValue("$upstreamCommit", "new-commit");
+            command.Parameters.AddWithValue("$updatedUtc", now.AddMinutes(1));
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await database.RebuildDatabaseAsync();
+
+        await using var rebuilt = _db.Context();
+        var metadata = Assert.Single(rebuilt.RemoteAnalysisMetadata);
+        Assert.Equal(5L, metadata.Revision);
+        Assert.Equal("{\"revision\":5}", metadata.CanonicalJson);
+        Assert.Equal("new-detector", metadata.DetectorId);
+        Assert.Equal("new-profile", metadata.ProfileHash);
+        Assert.Equal("new-commit", metadata.UpstreamCommit);
+        Assert.Equal(now.AddMinutes(1).Ticks, metadata.UpdatedUtc.Ticks);
     }
 }

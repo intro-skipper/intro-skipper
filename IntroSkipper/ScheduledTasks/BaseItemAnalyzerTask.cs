@@ -817,6 +817,20 @@ public partial class BaseItemAnalyzerTask(
     {
         var localItems = items.Where(item => IsLocallyEligible(localNode, item, mode) && !remoteOwnedIds.Contains(item.EpisodeId)).ToArray();
 
+        // Credits can change without reopening Preview; refresh its derived rows before
+        // the settled-mode gate, without reopening detection or settling pending work.
+        if (mode == AnalysisMode.Preview && action != AnalyzerAction.None)
+        {
+            var settledDerived = localItems.Where(item => item.GetAnalyzed(mode) is EpisodeState.Analyzed or EpisodeState.NoSegments
+                && ShouldDerivePreview(item, Config) && !AnalysisEligibility.IsSeasonZeroOptedOut(item, Config)).ToArray();
+            foreach (var item in settledDerived)
+            {
+                item.AnalysisConfigHash = GetAnalysisConfigHash(item, mode, action, ffmpegValid);
+            }
+
+            await AnimePreviewDeriver.DeriveAsync(_database, settledDerived, Config.MinimumPreviewDuration, cancellationToken, settlePreviewState: false).ConfigureAwait(false);
+        }
+
         // NoSegments is a negative-cache result for the current configuration; only an episode
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
         // settled-season reanalysis) reopens the season, and then NeedsAnalysis() gives the

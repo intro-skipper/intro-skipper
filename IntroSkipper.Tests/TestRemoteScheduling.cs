@@ -21,6 +21,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SegmentScanner.Contracts;
 using Xunit;
 using RemoteMode = SegmentScanner.Contracts.RemoteAnalysisMode;
+using TimeRange = IntroSkipper.Data.TimeRange;
 
 public sealed class TestRemoteScheduling
 {
@@ -68,6 +69,54 @@ public sealed class TestRemoteScheduling
             Assert.All(rows, row => Assert.Contains(contexts, segment => segment.Mode == RemoteModes.ToRemote(row.Type)
                 && segment.StartTicks == row.StartTicks && segment.EndTicks == row.EndTicks));
         }
+    }
+
+    [Fact]
+    public async Task ManagedCreditsReanalysis_RefreshesAnAlreadySettledDerivedPreview()
+    {
+        var config = new PluginConfiguration
+        {
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+            EnableSponsorBlockChapterDetection = false,
+            MinimumPreviewDuration = 10,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config,
+        [
+            new ChapterInfo { Name = "Credits", StartPositionTicks = DatabaseTestHelpers.Ticks(180) },
+            new ChapterInfo { Name = "Scene", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
+        ]);
+        using var media = new TempFile();
+        using var db = new TempSegmentDb();
+        var folder = JellyfinItems.Folder("Media");
+        var libraryId = Guid.Parse(folder.ItemId);
+        var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), path: media.Path);
+        var library = EntrypointTestHelpers.FakeLibraryManager.Create([folder], JellyfinItems.WithParents(episode), getCollectionFolders: _ => [new Folder { Id = libraryId }]);
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
+        await db.Database.SetAnalysisOverridesAsync(episode.SeasonId, null, null, previewFromCreditsEnd: true, subtitleRecapDetection: null, subtitlePreviewDetection: null);
+        await db.Database.UpdateNodePolicyAsync(IntroSkipperDatabase.LocalNodeId, new NodePolicyUpdate(new RemoteNodePolicy
+        {
+            LibraryIds = [libraryId], Modes = [RemoteMode.Credits, RemoteMode.Preview], CreditsMethod = CreditsDetectionMethod.IntroSkipper,
+        }, true), default);
+        var previewHash = ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, false, previewFromCreditsEndOverride: true);
+        await db.Database.ReplaceAutoSegmentsAsync(episode.Id, AnalysisMode.Credits, [new Segment(episode.Id, new TimeRange(180, 200))], SegmentSource.Chapter, "previous-credits-hash");
+        await db.Database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(episode.Id, SeasonResolver.FileVersion(episode))], "previous-credits-hash");
+        await db.Database.ReplaceAutoSegmentsAsync(episode.Id, AnalysisMode.Preview, [new Segment(episode.Id, new TimeRange(200, 240))], SegmentSource.CreditsDerived, previewHash);
+        await db.Database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(episode.Id, SeasonResolver.FileVersion(episode))], previewHash);
+        var ffmpeg = new StubFFmpegService { VersionCheck = () => false };
+        var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(), null!, db.Database,
+            new RemoteAnalysisDispatcher(db.Database, RemoteAnalysisBridgeTests.RemoteHostProxy.Create()));
+
+        await task.AnalyzeItemsAsync(new Progress<double>(), default);
+
+        var rows = await db.Database.GetSegmentsAsync(episode.Id);
+        Assert.Equal(DatabaseTestHelpers.Ticks(210), Assert.Single(rows, row => row.Type == AnalysisMode.Credits).EndTicks);
+        var preview = Assert.Single(rows, row => row.Type == AnalysisMode.Preview);
+        Assert.Equal(DatabaseTestHelpers.Ticks(210), preview.StartTicks);
+        Assert.Equal(previewHash, preview.ConfigHash);
+        Assert.Equal(0, ffmpeg.FingerprintCalls);
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
     }
 
     [Fact]

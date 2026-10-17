@@ -493,13 +493,13 @@ public sealed partial class IntroSkipperDatabase
                     .SetProperty(row => row.UpdatedUtc, DateTime.UtcNow),
                 cancellationToken);
 
-    internal async Task<IReadOnlyList<ImportReceipt>> SubmitRemoteResultsAsync(Guid jobId, LeaseRequest lease, IReadOnlyList<AnalysisResult> results, CancellationToken cancellationToken)
-        => await SubmitRemoteResultsCoreAsync(jobId, lease, results, cancellationToken).ConfigureAwait(false);
+    internal async Task<IReadOnlyList<ImportReceipt>> SubmitRemoteResultsAsync(Guid jobId, LeaseRequest lease, IReadOnlyList<AnalysisResult> results, CancellationToken cancellationToken, Action<ImportReceipt>? receiptCommitted = null)
+        => await SubmitRemoteResultsCoreAsync(jobId, lease, results, cancellationToken, receiptCommitted: receiptCommitted).ConfigureAwait(false);
 
-    internal async Task<IReadOnlyList<ImportReceipt>> ReviewRemoteResultsAsync(Guid jobId, RemoteReviewRequest request, CancellationToken cancellationToken)
-        => await SubmitRemoteResultsCoreAsync(jobId, null, request.Results, cancellationToken, request.Review).ConfigureAwait(false);
+    internal async Task<IReadOnlyList<ImportReceipt>> ReviewRemoteResultsAsync(Guid jobId, RemoteReviewRequest request, CancellationToken cancellationToken, Action<ImportReceipt>? receiptCommitted = null)
+        => await SubmitRemoteResultsCoreAsync(jobId, null, request.Results, cancellationToken, request.Review, receiptCommitted).ConfigureAwait(false);
 
-    private async Task<IReadOnlyList<ImportReceipt>> SubmitRemoteResultsCoreAsync(Guid jobId, LeaseRequest? lease, IReadOnlyList<AnalysisResult> results, CancellationToken cancellationToken, ReviewDocument? review = null)
+    private async Task<IReadOnlyList<ImportReceipt>> SubmitRemoteResultsCoreAsync(Guid jobId, LeaseRequest? lease, IReadOnlyList<AnalysisResult> results, CancellationToken cancellationToken, ReviewDocument? review = null, Action<ImportReceipt>? receiptCommitted = null)
     {
         if (results.Count is 0 or > 100)
         {
@@ -514,6 +514,12 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         var reviewSelections = review is null ? null : ValidateReview(results, review);
         List<ImportReceipt> receipts = [];
+        void AddReceipt(ImportReceipt receipt)
+        {
+            receipts.Add(receipt);
+            receiptCommitted?.Invoke(receipt);
+        }
+
         foreach (var rawResult in results.OrderBy(result => result.Mode == RemoteMode.Introduction ? 0 : 1))
         {
             ContractValidation.Result(rawResult);
@@ -531,7 +537,7 @@ public sealed partial class IntroSkipperDatabase
                 {
                     var replay = existing.PayloadHash == payloadHash;
                     var current = await CurrentCanonicalAsync(db, result.ItemId, result.Mode, null, cancellationToken).ConfigureAwait(false);
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, replay ? existing.Outcome : "Conflict", replay ? existing.Reason : "PayloadMismatch", current));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, replay ? existing.Outcome : "Conflict", replay ? existing.Reason : "PayloadMismatch", current));
                     continue;
                 }
 
@@ -541,7 +547,7 @@ public sealed partial class IntroSkipperDatabase
                     || (existing.Outcome == "Held" && existing.PayloadHash != rawPayloadHash)))
                 {
                     var current = await CurrentCanonicalAsync(db, result.ItemId, result.Mode, null, cancellationToken).ConfigureAwait(false);
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "HeldResultMismatch", current));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "HeldResultMismatch", current));
                     continue;
                 }
 
@@ -549,13 +555,13 @@ public sealed partial class IntroSkipperDatabase
                 {
                     var replay = existing.PayloadHash == payloadHash;
                     var current = await CurrentCanonicalAsync(db, result.ItemId, result.Mode, null, cancellationToken).ConfigureAwait(false);
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, replay ? "Accepted" : "Conflict", replay ? existing.Reason : "PayloadMismatch", current));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, replay ? "Accepted" : "Conflict", replay ? existing.Reason : "PayloadMismatch", current));
                     continue;
                 }
 
                 if (job is null || (selection is null && (lease is null ? job.State != "Exported" : !LeaseMatches(job, lease, DateTime.UtcNow))))
                 {
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "LeaseExpired", null));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "LeaseExpired", null));
                     continue;
                 }
 
@@ -563,7 +569,7 @@ public sealed partial class IntroSkipperDatabase
                 var snapshot = WireJson.Read<JobSnapshot>(job.SnapshotJson);
                 if (selection is null && snapshot.NodeId is null)
                 {
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "NodeRegistrationRequired", null));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", "NodeRegistrationRequired", null));
                     continue;
                 }
 
@@ -664,7 +670,7 @@ public sealed partial class IntroSkipperDatabase
                 if (selection is not null && reason is not null)
                 {
                     var current = await CurrentCanonicalAsync(db, result.ItemId, result.Mode, null, cancellationToken).ConfigureAwait(false);
-                    receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", reason, current));
+                    AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, "Rejected", reason, current));
                     continue;
                 }
 
@@ -718,7 +724,7 @@ public sealed partial class IntroSkipperDatabase
 
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                receipts.Add(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, outcome, reason, canonical));
+                AddReceipt(new ImportReceipt(result.AnalysisId, result.ItemId, result.Mode, outcome, reason, canonical));
             }
         }
 
