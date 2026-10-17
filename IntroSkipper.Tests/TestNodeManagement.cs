@@ -164,10 +164,14 @@ public sealed class NodeManagementTests
             SubtitleRecapPattern = "confirmed recap",
             UseLegacyBlackFrameAnalyzer = true,
             ProcessThreads = 3,
+            UseEmbeddedChaptersForAnalysis = true,
+            SubtitleLanguages = "eng, ger",
         });
         Assert.Equal("confirmed recap", settings.Configuration.GetProperty("subtitleRecapPattern").GetString());
         Assert.True(settings.Configuration.GetProperty("useLegacyBlackFrameAnalyzer").GetBoolean());
         Assert.Equal(3, settings.Configuration.GetProperty("processThreads").GetInt32());
+        Assert.True(settings.Configuration.GetProperty("useEmbeddedChaptersForAnalysis").GetBoolean());
+        Assert.Equal("eng, ger", settings.Configuration.GetProperty("subtitleLanguages").GetString());
         Assert.DoesNotContain(settings.Configuration.EnumerateObject(), property => property.Name.Contains("credential", StringComparison.OrdinalIgnoreCase)
             || property.Name.Contains("path", StringComparison.OrdinalIgnoreCase) || property.Name.Contains("remote", StringComparison.OrdinalIgnoreCase));
     }

@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using MediaBrowser.Model.Entities;
 
 /// <summary>
 /// <see cref="IFFmpegService"/> stand-in for analyzer tests. Each member runs a delegate hook; a
@@ -32,7 +33,10 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<string, double?>? AudioDuration { get; init; }
 
-    public Func<QueuedEpisode, SubtitleCue[]>? SubtitleCues { get; init; }
+    /// <summary>Gets the embedded chapter read; a hook that returns <see langword="null"/> stands for a probe that could not read the file.</summary>
+    public Func<QueuedEpisode, ChapterInfo[]?>? EmbeddedChapters { get; init; }
+
+    public Func<QueuedEpisode, SubtitleScan>? Subtitles { get; init; }
 
     public Func<QueuedEpisode, AnalysisMode, uint[]>? Fingerprints { get; init; }
 
@@ -124,10 +128,16 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
-    public virtual Task<SubtitleCue[]> ExtractSubtitleCuesAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public virtual Task<ChapterInfo[]?> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(SubtitleCues)(episode));
+        return Task.FromResult(Hook(EmbeddedChapters)(episode));
+    }
+
+    public virtual Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(Subtitles)(episode));
     }
 
     public virtual FFmpegCheckResult GetCheckResult() => FFmpegCheckResult.NotRun;

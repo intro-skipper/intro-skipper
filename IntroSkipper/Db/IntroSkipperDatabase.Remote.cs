@@ -634,7 +634,7 @@ public sealed partial class IntroSkipperDatabase
                                     TickConversions.ToSeconds(segment.EndTicks))),
                             SegmentSource.Remote))
                         .ToArray();
-                    await ReplaceAutoSegmentsInContextAsync(db, result.ItemId, mode, accepted, derivedWrite: false, item!.ServerAnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+                    await ReplaceAutoSegmentsInContextAsync(db, result.ItemId, mode, accepted, SegmentSource.Remote, item!.ServerAnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                     var analysis = await db.AnalyzedItems.FindAsync([result.ItemId, mode], cancellationToken).ConfigureAwait(false);
                     if (analysis is null)
                     {
@@ -643,7 +643,7 @@ public sealed partial class IntroSkipperDatabase
                     }
 
                     analysis.ConfigHash = item.ServerAnalysisConfigHash;
-                    analysis.FileVersion = long.Parse(result.FileVersionToken, System.Globalization.CultureInfo.InvariantCulture);
+                    analysis.FileVersion = long.Parse(item.SubtitleFileVersionToken ?? result.FileVersionToken, System.Globalization.CultureInfo.InvariantCulture);
                     var canonicalResult = result.TimelineEndTicks > 0 && result.TimelineEndTicks < serverRuntimeTicks
                         && !result.Warnings.Contains("VisualTimelineShorterThanServerRuntime", StringComparer.Ordinal)
                         ? result with { Warnings = [.. result.Warnings, "VisualTimelineShorterThanServerRuntime"] }
@@ -1030,9 +1030,26 @@ public sealed partial class IntroSkipperDatabase
             return "InputChanged";
         }
 
-        if (RemoteAnalysisDispatcher.GetChapterInputHash(item.Chapters) != RemoteAnalysisDispatcher.GetChapterInputHash(RemoteAnalysisDispatcher.GetChapterSnapshots(result.ItemId)))
+        // Embedded chapters share the media file version checked above; the mutable table does not.
+        if (Plugin.Instance?.Configuration.UseEmbeddedChaptersForAnalysis != true
+            && RemoteAnalysisDispatcher.GetChapterInputHash(item.Chapters) != RemoteAnalysisDispatcher.GetChapterInputHash(RemoteAnalysisDispatcher.GetChapterSnapshots(result.ItemId)))
         {
             return "ChapterInputChanged";
+        }
+
+        if (item.SubtitleFileVersionToken is { } subtitleVersion)
+        {
+            var episode = new QueuedEpisode
+            {
+                Path = current.Path,
+                FileVersion = SeasonResolver.FileVersion(current),
+                InternalMetadataPath = current.GetInternalMetadataPath(),
+            };
+            var version = SubtitleSidecarFiles.FileVersion(episode, SubtitleLanguageSelection.Parse(Plugin.Instance!.Configuration.SubtitleLanguages), new SubtitleSidecarFiles.FolderListings());
+            if ((version ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture) != subtitleVersion)
+            {
+                return "SubtitleInputChanged";
+            }
         }
 
         serverRuntimeTicks = current.RunTimeTicks ?? item.RuntimeTicks;

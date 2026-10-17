@@ -28,6 +28,36 @@ internal static class ConfigHasher
     private const string ChapterBeforeSubtitlePrecedenceToken = "|chapterBeforeSubtitle=v1";
     private const string SubtitleHashPrefix = "subtitle-v1:";
 
+    // Credits-derived previews run from the end of the last credits run to the episode end;
+    // 12.0.5 ran them from the first run to the next. Present only while the season derives
+    // previews, so those seasons re-derive once and no other season reopens. It sits in the
+    // conventional part of a compound hash, outside the subtitle settings.
+    private const string PreviewAnchorToken = "|previewAnchor=lastCredits";
+
+    // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
+    // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
+    // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
+    private const string SubtitleRecapEndToken = "|subtitleRecapEnd=black2";
+
+    // Chromaprint recaps end at the first black run of at least 2 s after the sting, no longer at
+    // the latest black frame before the boundary (RecapDetectionHelper.BuildRecapFromSting). It
+    // sits in the conventional part of every Recap hash, so each season reruns Recap once; the
+    // fingerprints and the black-frame scan come from the detection cache. Bump it when that rule
+    // changes.
+    private const string RecapStingEndToken = "|stingEnd=black2";
+
+    // With UseEmbeddedChaptersForAnalysis on, analysis reads the chapters embedded in the media
+    // file instead of Jellyfin's chapter table. Present only while the setting is on, so the
+    // default configuration keeps its hashes. Every mode carries it under every action: the
+    // chapter analyzer serves all five modes, and chapter-boundary snapping, the subtitle recap
+    // end and the legacy black-frame chapter markers read chapters too, snapping even under a
+    // credits BlackFrame action. The token names the source a record was computed from; a switch
+    // alone reruns nothing, because the season pass compares the two sources' chapters first and
+    // re-stamps a record whose sources agree (QueueVerifier, BaseItemAnalyzerTask.ReadChaptersAsync).
+    // It sits in the conventional part of a compound hash, so a switch is never a subtitle-only
+    // change.
+    private const string EmbeddedChapterSourceToken = "|chapterSource=embedded";
+
     /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
@@ -43,6 +73,7 @@ internal static class ConfigHasher
     /// <param name="subtitleRecapDetectionOverride">Optional season-level setting for subtitle recap detection.</param>
     /// <param name="subtitlePreviewDetectionOverride">Optional season-level setting for subtitle preview detection.</param>
     /// <param name="includeSubtitleSettings">Whether to include subtitle settings in the mode hash. Disabling this returns the conventional-settings hash used to recognize subtitle-only changes.</param>
+    /// <param name="chapterSource">The chapter source the analyzed chapters came from, when the season pass read them. <see langword="null"/> takes the setting.</param>
     /// <returns>A compact hash; enabled subtitle detection adds a separate subtitle component to Recap or Preview.</returns>
     public static string Analysis(
         PluginConfiguration config,
@@ -54,39 +85,26 @@ internal static class ConfigHasher
         bool? previewFromCreditsEndOverride = null,
         bool? subtitleRecapDetectionOverride = null,
         bool? subtitlePreviewDetectionOverride = null,
-        bool includeSubtitleSettings = true)
+        bool includeSubtitleSettings = true,
+        ChapterSource? chapterSource = null)
     {
+        // The season pass reads chapters once, so a record names the source they came from,
+        // not the setting at the moment the mode ran.
+        var source = chapterSource ?? config.ChapterSource;
         var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
         var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
         var previewFromCreditsEnd = previewFromCreditsEndOverride ?? config.AnimePreviewFromCreditsEnd;
-        var subtitleRecapDetection = subtitleRecapDetectionOverride ?? config.EnableSubtitleRecapDetection;
-        var subtitlePreviewDetection = subtitlePreviewDetectionOverride ?? config.EnableSubtitlePreviewDetection;
+        // Only Recap and Preview have subtitle detection, and a blank pattern detects nothing,
+        // so it hashes as detection off.
         var includeSubtitleSettingsForMode = includeSubtitleSettings
-            && (mode == AnalysisMode.Recap ? subtitleRecapDetection : mode == AnalysisMode.Preview && subtitlePreviewDetection);
-        if (includeSubtitleSettings
-            && mode is (AnalysisMode.Recap or AnalysisMode.Preview)
-            && !includeSubtitleSettingsForMode)
-        {
-            return Analysis(
-                config,
-                mode,
-                action,
-                ffmpegValid,
-                analysisPercentOverride,
-                analysisLengthLimitOverride,
-                previewFromCreditsEndOverride,
-                subtitleRecapDetectionOverride,
-                subtitlePreviewDetectionOverride,
-                includeSubtitleSettings: false);
-        }
-
+            && config.ActiveSubtitlePattern(mode, mode == AnalysisMode.Recap ? subtitleRecapDetectionOverride : subtitlePreviewDetectionOverride) is not null;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"{AdjustmentHash(config)}"),
+                $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             // Frozen at v3 on purpose: the credits pass replaced the first-wins chain
             // without a bump, because a bump re-fingerprints and re-scans every season a chapter
@@ -101,34 +119,29 @@ internal static class ConfigHasher
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
-                $"{AdjustmentHash(config)}"),
+                $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
-                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}{ChapterBeforeSubtitlePrecedenceToken}",
+                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
-                $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}",
-                $"{(includeSubtitleSettingsForMode ? $"|subtitle={subtitleRecapDetection}|subtitlePattern={config.SubtitleRecapPattern}" : string.Empty)}",
+                $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}{RecapColdOpenToken(config)}{RecapStingEndToken}",
+                $"{(includeSubtitleSettingsForMode ? $"|subtitle=True|subtitlePattern={config.SubtitleRecapPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}{SubtitleRecapEndToken}" : string.Empty)}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"{AdjustmentHash(config)}"),
+                $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Preview => Invariant(
-                $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}{ChapterBeforeSubtitlePrecedenceToken}",
-                $"|animePreview={previewFromCreditsEnd}{(includeSubtitleSettingsForMode ? $"|subtitle={subtitlePreviewDetection}|subtitlePattern={config.SubtitlePreviewPattern}" : string.Empty)}",
-                $"{AdjustmentHash(config)}"),
+                $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",
+                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewAnchorToken : string.Empty)}{(includeSubtitleSettingsForMode ? $"|subtitle=True|subtitlePattern={config.SubtitlePreviewPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}" : string.Empty)}",
+                $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Commercial => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerCommercialPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumCommercialDuration}|max={config.MaximumCommercialDuration}",
-                $"{AdjustmentHash(config)}"),
+                $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
 
         var hash = ComputeHash(input);
-        if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
-        {
-            return hash;
-        }
-
         if (!includeSubtitleSettingsForMode)
         {
             return hash;
@@ -144,7 +157,8 @@ internal static class ConfigHasher
             previewFromCreditsEndOverride,
             subtitleRecapDetectionOverride,
             subtitlePreviewDetectionOverride,
-            includeSubtitleSettings: false);
+            includeSubtitleSettings: false,
+            chapterSource: source);
         return $"{SubtitleHashPrefix}{conventionalHash}:{hash}";
     }
 
@@ -332,6 +346,9 @@ internal static class ConfigHasher
     // cannot observe the option, so toggling it must not re-scan those seasons.
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
         => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
+
+    private static string ChapterSourceToken(ChapterSource source)
+        => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(

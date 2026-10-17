@@ -2,8 +2,9 @@ name: "Build Plugin"
 
 on:
   push:
+    # Pushes run only on release branches like 12.0. Pull requests run from pull_request.
     branches:
-      - '*'  # Triggers on any branch push
+      - '[0-9]+.[0-9]+'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -31,8 +32,7 @@ concurrency:
 jobs:
   build:
     if: >-
-      ! startsWith(github.event.head_commit.message, 'release v') &&
-      (github.event_name == 'push' || github.event.pull_request.head.repo.fork)
+      ! startsWith(github.event.head_commit.message, 'release v')
 
     runs-on: ubuntu-latest
 

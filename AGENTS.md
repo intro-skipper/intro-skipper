@@ -5,10 +5,10 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
 ## Project map
 
 - `IntroSkipper/` plugin project
-  - `Analyzers/` ChromaprintAnalyzer (cross-episode audio fingerprints), ChapterAnalyzer, BlackFrameAnalyzer (legacy, behind `UseLegacyBlackFrameAnalyzer`), Credits/KeyframeAnalyzer (black roll and card credits from one keyframe scan), AnimePreviewDeriver
+  - `Analyzers/` ChromaprintAnalyzer (cross-episode audio fingerprints), ChapterAnalyzer, BlackFrameAnalyzer (legacy, behind `UseLegacyBlackFrameAnalyzer`), Credits/KeyframeAnalyzer (black roll and card credits from one keyframe scan), AnimePreviewDeriver, SubtitleAnalyzer (recaps and previews from text subtitle cues)
   - `ScheduledTasks/` DetectSegmentsTask, BaseItemAnalyzerTask (runs analyzers per mode)
   - `Manager/` SeasonResolver (library items into seasons, one series at a time; the season key function) and QueueVerifier (analysis state per episode), MediaSegmentMirror
-  - `FFmpeg/` FFmpegService (composes FFmpegProcessRunner and FFmpegVersionGate), the only media probing path
+  - `FFmpeg/` FFmpegService (composes FFmpegProcessRunner, FFmpegVersionGate and EpisodeProbeMemo), the only media probing path
   - `Db/` database facades, entities, admission policy, legacy importer
   - `Migrations/` EF migrations for `introskipper-v2.db`
   - `SegmentChanges/` SegmentChange coordinator, intents
@@ -37,8 +37,8 @@ Run .NET commands from the repo root. Ignore `IntroSkipper/IntroSkipper.sln`; it
 
 - The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#.
 - `TreatWarningsAsErrors` with StyleCop and all analyzers enabled (`AnalysisMode=AllEnabledByDefault`). Any new warning fails the build.
-- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build each time the test host starts and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg7` package.
-- Tests and CI pin jellyfin-ffmpeg 7.1.3, but Jellyfin 12 servers run 8.x. Check a change to ffmpeg arguments or output parsing on both.
+- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build each time the test host starts and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg8` package.
+- Tests and CI pin jellyfin-ffmpeg 8.1.3, matching Jellyfin 12 servers, but the README still accepts 7.1.3 or newer. Check a change to ffmpeg arguments or output parsing on both.
 - `web/` is plain TypeScript plus Vite, no framework. `pnpm build` runs `tsc` first, so a type error in `web/` fails the plugin build unless you pass `SkipWebBuild`.
 </important>
 
@@ -58,12 +58,15 @@ Test parallelization is disabled assembly-wide, so tests may share `Plugin.Insta
 There is no `main`/`master`. Branches are named for Jellyfin releases, and origin's default, `12.0`, is the current line. Target the release branch your feature branch was cut from (check the merge base).
 </important>
 
-<important if="you are editing IntroSkipper.csproj or package references">
-Never add a ProjectReference to a local `../../jellyfin` checkout. It causes NU1605 restore errors and breaks the plugin's assembly load context.
+<important if="you are editing a csproj, package references or dependabot.yml">
+- Only `IntroSkipper.csproj` references Jellyfin packages: `Jellyfin.Controller` and `Jellyfin.Model`, both at the same exact version. The tests and `tools/CreditsRunner` get them through their ProjectReference. They are the only Jellyfin versions to bump.
+- The plugin cannot load on a Jellyfin server older than the version it compiled against, so a Jellyfin bump raises the minimum server version.
+- The plugin loads the server's EF Core and UTF.Unknown, so keep their versions equal to what Jellyfin ships in the release the plugin compiles against. EF Core's assembly version is its package version, and a plugin compiled against a newer EF Core fails to load on any server that ships an older one. Dependabot ignores both, so move them by hand with a Jellyfin bump.
+- Never add a ProjectReference to a local `../../jellyfin` checkout. It causes NU1605 restore errors and breaks the plugin's assembly load context.
 </important>
 
 <important if="you are working on analyzers, the detection pipeline, or scheduled tasks">
-`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings.
+`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Analyzers read chapters only from `QueuedEpisode.Chapters`, which the season pass fills from the chapter source, and never fetch chapters themselves. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings.
 
 Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run; its README has the commands.
 </important>

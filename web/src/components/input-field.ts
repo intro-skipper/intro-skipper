@@ -95,11 +95,7 @@ function checkbox(
     options: FieldOptions,
 ): HTMLElement {
     const inputId = "field-" + id;
-    const container = el("div", {
-        className: spec.description
-            ? "checkbox-container checkbox-container-withDescription"
-            : "checkbox-container",
-    });
+    const container = el("div", { className: "checkbox-container" });
     const input = el("input", { type: "checkbox", id: inputId, name: id });
     container.append(el("label", { className: "checkbox-label" }, input, el("span", {}, spec.label)));
 

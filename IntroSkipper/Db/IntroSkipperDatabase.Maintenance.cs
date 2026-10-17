@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Linq.Expressions;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,21 +46,18 @@ public sealed partial class IntroSkipperDatabase
     /// whose <see cref="DbSegment.ConfigHash"/> is non-empty and differs from
     /// <paramref name="configHash"/>. Credits-derived rows belong to the credits pass.
     /// User segments, tombstones, rows with an empty hash and the automatic rows of a
-    /// type the item holds an active user row for are kept. Stale rows can also be
-    /// retained until subtitle and conventional analysis can replace or retire them. The affected items'
+    /// type the item holds an active user row for are kept. The affected items'
     /// projections are journaled with the delete.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="configHash">Current configuration hash.</param>
-    /// <param name="preserveStaleRows">Keep all stale automatic rows until subtitle and conventional analysis can replace or retire them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of rows removed.</returns>
     public async Task<int> CleanStaleAutomaticSegmentsAsync(
         IEnumerable<Guid> itemIds,
         AnalysisMode mode,
         string configHash,
-        bool preserveStaleRows = false,
         CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
@@ -87,7 +85,6 @@ public sealed partial class IntroSkipperDatabase
                 && s.State == SegmentState.Active
                 && s.ConfigHash != string.Empty
                 && s.ConfigHash != configHash
-                && !preserveStaleRows
                 && ((s.Source != SegmentSource.CreditsDerived && s.Type == mode)
                     || (s.Source == SegmentSource.CreditsDerived && mode == AnalysisMode.Credits))
                 && !db.Segments.Any(u => u.ItemId == s.ItemId
@@ -107,15 +104,46 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Erases the supplied items: every segment (tombstones included) and every analysis
-    /// record, in one transaction, with every item's projection journaled. Season state
-    /// and disable flags are untouched. The ID set is bound as one JSON parameter, so
-    /// the item count is unbounded.
+    /// Erases the supplied items' automatic segments and every analysis record of the
+    /// items, in one transaction with every item's projection journaled, items without
+    /// rows included.
     /// </summary>
+    /// <remarks>
+    /// User segments stay, because analysis did not create them. They settle their modes,
+    /// so the next pass analyzes only the item's other modes. Tombstones go only when
+    /// <paramref name="eraseTombstones"/> is set. Season state and disable flags are
+    /// untouched. The ID set is bound as one JSON parameter, so the item count is
+    /// unbounded. <see cref="ForgetItemsAsync"/> deletes user segments too, for items the
+    /// server no longer knows.
+    /// </remarks>
     /// <param name="itemIds">Item IDs to erase.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete the items' tombstones too, so detection may add the deleted ranges again; otherwise, <see langword="false"/>, and the tombstones keep refusing re-detections.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted segment rows: automatic segments, plus tombstones when <paramref name="eraseTombstones"/> is set.</returns>
+    public Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseTombstones, CancellationToken cancellationToken = default)
+        => DeleteItemsAsync(
+            itemIds,
+            s => s.Source != SegmentSource.User && (eraseTombstones || s.State == SegmentState.Active),
+            cancellationToken);
+
+    /// <summary>
+    /// Deletes every segment row of the supplied items, user segments and tombstones
+    /// included, and every analysis record of the items, in one transaction with every
+    /// item's projection journaled. Only for items the server no longer knows: an item
+    /// that still exists keeps its user segments through <see cref="EraseItemsAsync"/>.
+    /// </summary>
+    /// <param name="itemIds">IDs of items the server no longer knows.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted segment rows.</returns>
-    public async Task<int> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+    public Task<int> ForgetItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+        => DeleteItemsAsync(itemIds, static _ => true, cancellationToken);
+
+    /// <summary>
+    /// Deletes the items' segment rows that match <paramref name="doomedRows"/> and every
+    /// analysis record of the items, and journals every item's projection, in one
+    /// transaction.
+    /// </summary>
+    private async Task<int> DeleteItemsAsync(IReadOnlyCollection<Guid> itemIds, Expression<Func<DbSegment, bool>> doomedRows, CancellationToken cancellationToken)
     {
         var ids = itemIds.Distinct().ToArray();
         if (ids.Length == 0)
@@ -129,13 +157,14 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // Journal every addressed item, rows or not: an erase is the user saying
-            // "this item must serve nothing", and an item with zero plugin rows can
-            // still hold ghost Jellyfin rows (a past projection whose plugin rows were
-            // since lost) that only a projection heals. Erases are explicit user
-            // actions over bounded id sets, so the extra markers cost one no-op sync each.
+            // Journal every addressed item, rows deleted or not. An item can hold ghost
+            // Jellyfin rows (a past projection whose plugin rows were since lost) that
+            // only a projection heals, and Jellyfin clears the mirror of an item whose
+            // file changed right after the provider's erase, so its kept user segments
+            // need a push back. The extra markers cost one no-op sync each.
             var removedSegments = await db.Segments
                 .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                .Where(doomedRows)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await db.AnalyzedItems
@@ -153,13 +182,13 @@ public sealed partial class IntroSkipperDatabase
     /// Clears the items' automatic segments and analysis records for the modes in one
     /// transaction so the current pass re-analyzes them from scratch. User segments,
     /// tombstones and the automatic rows of a type the item holds an active user row
-    /// for are kept. Subtitle rows in <paramref name="preserveSubtitleModes"/> also
-    /// stay until those modes successfully reanalyze. Items whose rows were deleted
-    /// journal their projections with the reset.
+    /// for are kept. Subtitle rows of <paramref name="preserveSubtitleModes"/> also stay,
+    /// as the fallback until the subtitle pass replaces or retires them. Items whose rows
+    /// were deleted journal their projections with the reset.
     /// </summary>
     /// <param name="itemIds">Item IDs to reset.</param>
     /// <param name="modes">Analysis modes to reset.</param>
-    /// <param name="preserveSubtitleModes">Modes whose subtitle rows remain as fallback until the subtitle pass completes.</param>
+    /// <param name="preserveSubtitleModes">Modes whose subtitle rows stay, or <see langword="null"/> for none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task ResetItemsForReanalysisAsync(

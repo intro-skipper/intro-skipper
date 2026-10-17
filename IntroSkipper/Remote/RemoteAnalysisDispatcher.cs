@@ -122,13 +122,15 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
                     MediaSourceKey = item.Path,
                     SourcePath = item.Path,
                     FileVersionToken = (item.FileVersion ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    SubtitleFileVersionToken = configuration.ActiveSubtitlePattern(item, mode) is null
+                        ? null : (item.SubtitleFileVersion ?? item.FileVersion ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ServerAnalysisConfigHash = item.AnalysisConfigHash,
                     ExpectedModeRevisions = expected[item.EpisodeId],
                     SeasonKey = item.SeasonId.ToString("D"),
                     Order = order,
                     WriteTarget = selectedIds.Contains(item.EpisodeId),
                     RuntimeTicks = checked((long)(item.Duration * TimeSpan.TicksPerSecond)),
-                    Chapters = GetChapterSnapshots(item.EpisodeId),
+                    Chapters = GetChapterSnapshots(item),
                     ChaptersAreAuthoritative = true,
                     IsMovie = item.Category == QueuedMediaCategory.Movie,
                     IsAnime = item.Category == QueuedMediaCategory.AnimeEpisode,
@@ -225,10 +227,18 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
     /// <summary>
     /// Snapshots the server's chapter input without inferring authorship from Jellyfin metadata.
     /// </summary>
-    /// <param name="itemId">Library item whose chapters are requested.</param>
-    /// <returns>Ordered chapter snapshots marked unknown until an explicit provenance registry exists.</returns>
+    /// <param name="itemId">Library item whose current Jellyfin chapter table is requested.</param>
+    /// <returns>Ordered chapter snapshots with unknown table provenance.</returns>
     internal static List<ChapterSnapshot> GetChapterSnapshots(Guid itemId)
-        => Plugin.Instance?.GetChapters(itemId)
+        => GetChapterSnapshots(new QueuedEpisode { Chapters = Plugin.Instance?.GetChapters(itemId) ?? [] });
+
+    /// <summary>
+    /// Exports the chapter source already read by the season pass, without probing again.
+    /// </summary>
+    /// <param name="episode">Episode with the selected source's immutable chapters.</param>
+    /// <returns>Ordered chapter snapshots; embedded chapters have known container provenance.</returns>
+    internal static List<ChapterSnapshot> GetChapterSnapshots(QueuedEpisode episode)
+        => episode.Chapters
             .Where(chapter => chapter.StartPositionTicks >= 0)
             .OrderBy(chapter => chapter.StartPositionTicks)
             .ThenBy(chapter => chapter.Name, StringComparer.Ordinal)
@@ -236,10 +246,9 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
             {
                 Name = chapter.Name ?? string.Empty,
                 StartTicks = chapter.StartPositionTicks,
-                Origin = ChapterOrigin.Unknown,
+                Origin = episode.ChaptersSource == ChapterSource.Embedded ? ChapterOrigin.Authored : ChapterOrigin.Unknown,
             })
-            .ToList()
-            ?? [];
+            .ToList();
 
     /// <summary>
     /// Builds the portable introduction profile shared with the worker.

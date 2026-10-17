@@ -255,8 +255,10 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         Assert.Contains(itemId, await _harness.QueuedItemIdsAsync());
     }
 
-    [Fact]
-    public async Task Result_RejectsCurrentChapterInputChange()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Result_RechecksOnlyTheSelectedChapterSource(bool embedded)
     {
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -270,11 +272,12 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         using var scope = ConfigureRemotePlugin(libraryId, episode, season, series);
         Plugin.Instance!.Configuration.PreferChromaprint = true;
         Plugin.Instance.Configuration.AdjustIntroBasedOnChapters = false;
+        Plugin.Instance.Configuration.UseEmbeddedChaptersForAnalysis = embedded;
         var chapters = new List<ChapterInfo> { new() { Name = "Intro", StartPositionTicks = TimeSpan.FromSeconds(20).Ticks } };
         EntrypointTestHelpers.SetPrivateField(
             Plugin.Instance!,
             "_chapterRepository",
-            ChapterManagerStub.CreateForItems(_ => chapters, out _));
+            ChapterManagerStub.Create(chapters));
 
         var fileVersion = (IntroSkipper.Manager.SeasonResolver.FileVersion(episode) ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var snapshot = CreateSnapshot(itemId, seasonId, Guid.NewGuid(), "0", fileVersion) with
@@ -283,7 +286,11 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
             [
                 CreateSnapshotItem(itemId, seasonId, fileVersion) with
                 {
-                    Chapters = IntroSkipper.Remote.RemoteAnalysisDispatcher.GetChapterSnapshots(itemId),
+                    Chapters = IntroSkipper.Remote.RemoteAnalysisDispatcher.GetChapterSnapshots(new QueuedEpisode
+                    {
+                        Chapters = chapters,
+                        ChaptersSource = embedded ? ChapterSource.Embedded : ChapterSource.JellyfinTable,
+                    }),
                     ServerAnalysisConfigHash = ConfigHasher.Analysis(Plugin.Instance.Configuration, PluginMode.Introduction, AnalyzerAction.Default, ffmpegValid: false),
                 },
             ],
@@ -299,8 +306,73 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
             [CreateResult(lease, itemId, fileVersion)],
             default));
 
-        Assert.Equal("Rejected", receipt.Outcome);
-        Assert.Equal("ChapterInputChanged", receipt.Reason);
+        Assert.Equal(embedded ? "Accepted" : "Rejected", receipt.Outcome);
+        Assert.Equal(embedded ? null : "ChapterInputChanged", receipt.Reason);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Result_RechecksAndRecordsSubtitleVersion(bool changed)
+    {
+        using var directory = new TempDirectory();
+        var mediaPath = directory.Join("episode.mkv");
+        var subtitlePath = directory.Join("episode.eng.srt");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        await File.WriteAllTextAsync(subtitlePath, "Previously on");
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var libraryId = Guid.NewGuid();
+        var episode = JellyfinItems.Episode(itemId, seriesId, seasonId, path: mediaPath);
+        var season = JellyfinItems.Season(seasonId, seriesId);
+        var series = JellyfinItems.Series(seriesId);
+        EntrypointTestHelpers.SetPropertyOrField(season, "ParentId", seriesId);
+        EntrypointTestHelpers.SetPropertyOrField(series, "ParentId", libraryId);
+        using var scope = ConfigureRemotePlugin(libraryId, episode, season, series, PluginMode.Recap);
+        var config = Plugin.Instance!.Configuration;
+        config.EnableSubtitleRecapDetection = true;
+        var queued = CreateQueuedEpisode(itemId, seasonId, seriesId, "0");
+        queued.Path = mediaPath;
+        queued.FileVersion = SeasonResolver.FileVersion(episode);
+        var settings = RemoteAnalysisDispatcher.GetScanSettings(config);
+        var version = SubtitleSidecarFiles.FileVersion(queued, SubtitleLanguageSelection.Parse(config.SubtitleLanguages), new SubtitleSidecarFiles.FolderListings());
+        var snapshot = CreateSnapshot(itemId, seasonId, Guid.NewGuid(), "0") with
+        {
+            Modes = [RemoteMode.Recap],
+            ScanSettings = settings,
+            Items =
+            [
+                CreateSnapshotItem(itemId, seasonId, "0") with
+                {
+                    SourcePath = mediaPath,
+                    SubtitleFileVersionToken = version!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ExpectedModeRevisions = new() { [RemoteMode.Recap] = "0" },
+                    ServerAnalysisConfigHash = ConfigHasher.Analysis(config, PluginMode.Recap, AnalyzerAction.Default, ffmpegValid: false),
+                },
+            ],
+        };
+        var node = await _harness.Database.RegisterRemoteNodeAsync(new RemoteNodeRegistration
+        {
+            NodeId = "worker",
+            Name = "worker",
+            LibraryIds = [libraryId],
+            Modes = [RemoteMode.Recap],
+            ServerPaths = [new RemoteNodePath { Prefix = directory.Info.FullName }],
+        }, default);
+        var lease = await QueueLegacyLeasedJobAsync(snapshot with { NodeRevision = node.Revision });
+        if (changed) await File.AppendAllTextAsync(subtitlePath, " changed");
+        var result = CreateResult(lease, itemId, "0", mode: RemoteMode.Recap) with
+        {
+            SourcePath = mediaPath,
+            Detector = new DetectorIdentity { Id = "test", ProfileHash = WireJson.Hash(settings), ProductionApproved = true },
+        };
+        var receipt = Assert.Single(await _harness.Database.SubmitRemoteResultsAsync(lease.JobId, new LeaseRequest(lease.LeaseToken!, lease.LeaseGeneration), [result], default));
+        Assert.Equal(changed ? "SubtitleInputChanged" : null, receipt.Reason);
+        Assert.Equal(changed ? "Rejected" : "Accepted", receipt.Outcome);
+        var records = (await _harness.Database.GetSeasonQueueSnapshotAsync(seasonId, [itemId])).AnalysisRecords;
+        if (changed) Assert.Empty(records);
+        else Assert.Equal(version, records[(itemId, PluginMode.Recap)].FileVersion);
     }
 
     [Fact]
@@ -560,18 +632,6 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
             Plugin.Instance!,
             "_libraryManager",
             CreateRemoteLibraryManager([new Folder { Id = libraryId }], chapteredEpisode, unmatchedEpisode, season, series));
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_chapterRepository",
-            ChapterManagerStub.CreateForItems(
-                id => id == chapteredId
-                    ? [
-                        new ChapterInfo { Name = "Main", StartPositionTicks = TimeSpan.Zero.Ticks },
-                        new ChapterInfo { Name = "Ending", StartPositionTicks = TimeSpan.FromSeconds(180).Ticks },
-                        new ChapterInfo { Name = "Epilogue", StartPositionTicks = TimeSpan.FromSeconds(220).Ticks },
-                    ]
-                    : [],
-                out _));
         var ffmpeg = new StubFFmpegService { KeyFrames = (_, _, _) => [] };
         var task = new BaseItemAnalyzerTask(
             NullLoggerFactory.Instance,
@@ -583,12 +643,19 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
             new RemoteAnalysisDispatcher(_harness.Database, RemoteHostProxy.Create()));
         var chapteredVersion = (SeasonResolver.FileVersion(chapteredEpisode) ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var unmatchedVersion = (SeasonResolver.FileVersion(unmatchedEpisode) ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var chaptered = CreateQueuedEpisode(chapteredId, seasonId, seriesId, chapteredVersion);
+        chaptered.Chapters =
+        [
+            new ChapterInfo { Name = "Main", StartPositionTicks = 0 },
+            new ChapterInfo { Name = "Ending", StartPositionTicks = TimeSpan.FromSeconds(180).Ticks },
+            new ChapterInfo { Name = "Epilogue", StartPositionTicks = TimeSpan.FromSeconds(220).Ticks },
+        ];
         var unmatched = CreateQueuedEpisode(unmatchedId, seasonId, seriesId, unmatchedVersion);
         unmatched.EpisodeNumber = 2;
         unmatched.Path = "/media/series/s01e02.mkv";
 
         await task.AnalyzeItemsAsync(
-            [CreateQueuedEpisode(chapteredId, seasonId, seriesId, chapteredVersion), unmatched],
+            [chaptered, unmatched],
             PluginMode.Credits,
             AnalyzerAction.Default,
             ffmpegValid: false,
@@ -1470,7 +1537,7 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         var configuration = Plugin.Instance?.Configuration;
         var libraryIds = configuration?.RemoteAnalysisLibraryIds.ToList() ?? [];
         var modes = configuration?.RemoteAnalysisModes
-            .Select(mode => mode == PluginMode.Introduction ? RemoteMode.Introduction : RemoteMode.Credits)
+            .Select(RemoteModes.ToRemote)
             .ToList()
             ?? [];
         var registration = new RemoteNodeRegistration

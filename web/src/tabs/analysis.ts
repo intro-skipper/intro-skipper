@@ -34,8 +34,6 @@ export const analysisTab: Tab = {
 
         container.append(
             form.field("PreferChromaprint"),
-            form.field("EnhanceChapterCredits"),
-            form.field("FullLengthChapters"),
             form.field("AnalysisPercent"),
             form.field("AnalysisLengthLimit"),
             info,
@@ -46,6 +44,8 @@ export const analysisTab: Tab = {
             form.field("MaximumMovieCreditsDuration"),
             pairRow(form, "MinimumPreviewDuration", "MaximumPreviewDuration", chaptersOff),
             pairRow(form, "MinimumCommercialDuration", "MaximumCommercialDuration", chaptersOff),
+            form.field("FullLengthChapters"),
+            form.field("EnhanceChapterCredits"),
         );
     },
 };

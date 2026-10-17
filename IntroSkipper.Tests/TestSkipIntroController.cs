@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Controllers;
@@ -43,13 +44,43 @@ public sealed class TestSkipIntroController : IDisposable
         var result = await controller.ResetIntroTimestamps(
             AnalysisMode.Introduction,
             eraseCache: true,
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
         Assert.Empty(await database.GetSegmentsAsync(itemId));
         // The erase journaled the item's projection and the request converged it, so
         // Jellyfin stops serving the rows.
         Assert.Empty(await _h.Store.GetOwnSegmentsAsync(itemId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResetIntroTimestamps_KeepsUserSegments_InTheDatabaseAndTheMirror()
+    {
+        var itemId = Guid.NewGuid();
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = _h.Database;
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
+        var user = await database.SeedUserSegmentAsync(itemId, AnalysisMode.Introduction, DatabaseTestHelpers.Ticks(100), DatabaseTestHelpers.Ticks(130));
+
+        // Jellyfin holds both rows, as the mirror pushed them.
+        _h.Store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [.. (await database.GetSegmentsAsync(itemId)).Select(row => SegmentChangeHarness.MirroredDto(itemId, row.Id, MediaSegmentType.Intro, row.StartTicks, row.EndTicks))],
+        };
+        var controller = CreateController(DatabaseTestHelpers.CreateTempCacheDbPath());
+
+        var result = await controller.ResetIntroTimestamps(
+            AnalysisMode.Introduction,
+            eraseCache: false,
+            cancellationToken: CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(user.Id, Assert.Single(await database.GetSegmentsAsync(itemId)).Id);
+        Assert.Equal(user.Id, Assert.Single(await _h.Store.GetOwnSegmentsAsync(itemId, CancellationToken.None)).Id);
     }
 
     [Fact]

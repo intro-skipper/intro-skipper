@@ -141,8 +141,8 @@ public class TestRecapDetection
         Assert.Equal(90, adjusted.End);
     }
 
-    // Black frames at 28 s (fade after a cold open), 50 s (inside the recap) and 90 s (montage
-    // end); the sting is 5 s long and the scan window ends at 120 s.
+    // The sting is 5 s long, the scan window ends at 120 s, and the recap's black frames are
+    // BlackFrameFixtures.RecapBlackFrames: the fade before the sting at 28 s, the end at 90 s.
     [Theory]
     [InlineData(true, 35, 28)]
     [InlineData(false, 35, 0)]
@@ -151,12 +151,11 @@ public class TestRecapDetection
     public void BuildRecapFromSting_StartsAtColdOpenFadeOnlyWhenAnchored(bool anchor, double stingStart, double expectedStart)
     {
         var episodeId = Guid.NewGuid();
-        BlackFrame[] frames = [new(100, 28, 0), new(100, 50, 1), new(100, 90, 2)];
 
         var recap = RecapDetectionHelper.BuildRecapFromSting(
             episodeId,
             new Segment(episodeId, new TimeRange(stingStart, stingStart + 5)),
-            frames,
+            BlackFrameFixtures.RecapBlackFrames(),
             minimumRecapDuration: 15,
             maximumRecapBoundary: 120,
             anchor);
@@ -166,23 +165,31 @@ public class TestRecapDetection
         Assert.Equal(90, recap.End);
     }
 
-    [Fact]
-    public void BuildRecapFromSting_ReturnsNull_WhenNoBlackFrameClosesTheRecap()
+    // A recap ends at the first black run of at least 2 s that starts after both the 5 s sting
+    // and the 15 s minimum, and no later than the boundary: not at the ident before the minimum,
+    // the 1 s cut inside the recap or the dark frame of the scene after it
+    // (BlackFrameFixtures.RecapBlackFrames). Without such a run the sting gives no recap.
+    [Theory]
+    [InlineData(0, 120, 90d)]
+    [InlineData(88, 120, null)]
+    [InlineData(35, 89, null)]
+    public void BuildRecapFromSting_EndsAtTheFirstLongBlackRunAfterTheSting(double stingStart, double boundary, double? expectedEnd)
     {
         var episodeId = Guid.NewGuid();
 
         var recap = RecapDetectionHelper.BuildRecapFromSting(
             episodeId,
-            new Segment(episodeId, new TimeRange(35, 40)),
-            [new BlackFrame(100, 28, 0)],
+            new Segment(episodeId, new TimeRange(stingStart, stingStart + 5)),
+            BlackFrameFixtures.RecapBlackFrames(),
             minimumRecapDuration: 15,
-            maximumRecapBoundary: 120,
-            anchorToColdOpen: true);
+            maximumRecapBoundary: boundary,
+            anchorToColdOpen: false);
 
-        Assert.Null(recap);
+        Assert.Equal(expectedEnd, recap?.End);
     }
 
-    // Black frames at 28 and 41 close a 0-41 recap, but anchoring to 28 leaves 13 s, under the minimum.
+    // A black frame at 28 s and a run at 41 s close a 0-41 recap, but anchoring to 28 leaves
+    // 13 s, under the minimum.
     [Fact]
     public void BuildRecapFromSting_ReturnsNull_WhenAnchoredRecapIsShorterThanMinimum()
     {
@@ -191,7 +198,7 @@ public class TestRecapDetection
         var recap = RecapDetectionHelper.BuildRecapFromSting(
             episodeId,
             new Segment(episodeId, new TimeRange(35, 40)),
-            [new BlackFrame(100, 28, 0), new BlackFrame(100, 41, 1)],
+            [.. BlackFrameFixtures.CreateDenseFrames(28, 28, 100), .. BlackFrameFixtures.CreateDenseFrames(41, 43.5, 100)],
             minimumRecapDuration: 15,
             maximumRecapBoundary: 120,
             anchorToColdOpen: true);
@@ -200,9 +207,10 @@ public class TestRecapDetection
     }
 
     // Episode A opens with a logo that B also has at 0:00 and, after a cold open, a sting at 35 s
-    // that C also has. Black frames sit at 28 s (the fade before the sting), 50 s and 90 s.
-    // Whichever pair the analyzer meets first, the recap saved for A must start at the fade, and
-    // each episode's black-frame scan must run once however many pairs it takes part in.
+    // that C also has. The black frames are BlackFrameFixtures.RecapBlackFrames, with the fade
+    // before the sting at 28 s. Whichever pair the analyzer meets first, the recap saved for A
+    // must start at the fade, and each episode's black-frame scan must run once however many
+    // pairs it takes part in.
     [Theory]
     [InlineData("A,B,C")]
     [InlineData("A,C,B")]
@@ -229,7 +237,7 @@ public class TestRecapDetection
         var ffmpeg = new StubFFmpegService
         {
             Fingerprints = (episode, _) => fingerprints[episode.Name],
-            RangeBlackFrames = (_, _, _, _, _) => [new BlackFrame(100, 28, 0), new BlackFrame(100, 50, 1), new BlackFrame(100, 90, 2)],
+            RangeBlackFrames = (_, _, _, _, _) => BlackFrameFixtures.RecapBlackFrames(),
         };
         using var db = new TempSegmentDb();
         var analyzer = new ChromaprintAnalyzer(

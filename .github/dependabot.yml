@@ -7,11 +7,19 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      # Jellyfin.Controller, Jellyfin.Model, etc. ship together and must stay
-      # on the same version; one grouped PR keeps them in lockstep.
+      # Jellyfin.Controller and Jellyfin.Model ship together and must stay on
+      # the same version; one grouped PR keeps them in lockstep. The plugin
+      # cannot load on a server older than the version it compiled against,
+      # so merging a bump raises the next release's minimum Jellyfin version.
       jellyfin:
         patterns:
           - Jellyfin.*
+    ignore:
+      # The plugin loads the server's EF Core and UTF.Unknown and fails to load
+      # if it compiled against a newer one. Move them by hand with a Jellyfin
+      # bump, to the versions that Jellyfin release ships.
+      - dependency-name: Microsoft.EntityFrameworkCore.*
+      - dependency-name: UTF.Unknown
     labels:
       - chore
       - dependency

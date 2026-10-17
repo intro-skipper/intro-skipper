@@ -10,7 +10,7 @@ import { el, htmlEl } from "../components/dom.ts";
 import { configForm } from "../components/config-form.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { confirmDashboard, confirmDialog } from "../components/confirm-dialog.ts";
+import { confirmDashboard, confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { pluralize } from "../utils.ts";
 
 function normalizePathCandidate(value: string): string {
@@ -73,7 +73,7 @@ export const generalTab: Tab = {
 
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(
-            el("h3", { className: "checkbox-list-label" }, "Inject Skip Button CSS"),
+            el("h3", { className: "is-section-heading" }, "Inject Skip Button CSS"),
         );
         injectSection.append(
             el(
@@ -87,12 +87,12 @@ export const generalTab: Tab = {
 
         injectSection.append(
             actionButton("Inject CSS", async () => {
-                statusMessage.show("Injecting CSS…", "var(--is-accent)");
+                statusMessage.show("Injecting CSS…");
                 const response = await injectSkipButtonCss();
                 if (response.ok) {
-                    statusMessage.show("Skip button CSS injected successfully!", "var(--is-success)");
+                    statusMessage.show("Skip button CSS injected successfully!", "success");
                 } else {
-                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "var(--is-error)");
+                    statusMessage.show(`Failed to inject CSS: ${response.error}`, "error");
                 }
             }),
         );
@@ -109,44 +109,45 @@ export const generalTab: Tab = {
 
         const clearExcludedSection = el("div", { className: "input-container" });
         clearExcludedSection.append(
-            el("h3", { className: "checkbox-list-label" }, "Clear Excluded Timestamps"),
+            el("h3", { className: "is-section-heading" }, "Clear Excluded Timestamps"),
             el(
                 "div",
                 { className: "field-description" },
-                "Remove timestamp, cache, and season-state rows for media currently matched by the exclusion lists.",
+                "Remove timestamp and cache rows for media currently matched by the exclusion lists.",
             ),
         );
 
-        const clearStatus = createStatusMessage({ display: "block" });
+        const clearStatus = createStatusMessage();
         clearExcludedSection.append(
             actionButton("Clear excluded timestamp data", async () => {
                 if (configStore.isDirty()) {
                     clearStatus.show(
                         "Save configuration changes before clearing timestamp data.",
-                        "var(--is-error)",
+                        "error",
                     );
                     return;
                 }
 
                 const result = await confirmDialog({
                     title: "Clear Excluded Timestamps",
-                    body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",
+                    body: "Remove timestamp data for media currently matched by the exclusion lists. User segments and included media in the same seasons are kept.",
                     confirmLabel: "Clear",
+                    checkboxes: { eraseTombstones: eraseCheckboxes.eraseTombstones },
                 });
                 if (!result) return;
 
-                clearStatus.show("Clearing excluded timestamp data...", "var(--is-accent)");
-                const response = await clearExcludedTimestamps();
+                clearStatus.show("Clearing excluded timestamp data…");
+                const response = await clearExcludedTimestamps(result);
                 if (!response.ok) {
-                    clearStatus.show(response.error, "var(--is-error)");
+                    clearStatus.show(response.error, "error");
                     return;
                 }
 
                 clearStatus.show(
                     `Cleared ${pluralize(response.data.RemovedSegments, "timestamp row", "timestamp rows")} and ${pluralize(response.data.RemovedCacheEntries, "cache row", "cache rows")} for ${pluralize(response.data.AffectedItems, "excluded item", "excluded items")}.`,
-                    "var(--is-success)",
+                    "success",
                 );
-            }),
+            }, { danger: true }),
             clearStatus.element,
         );
 
@@ -154,12 +155,20 @@ export const generalTab: Tab = {
             configStore.get("UseFileTransformationPlugin") === true;
 
         container.append(
+            form.checkboxGroup("Analyze for:", [
+                "ScanIntroduction",
+                "ScanCredits",
+                "ScanRecap",
+                "ScanPreview",
+                "ScanCommercial",
+            ]),
             form.field("AutoDetectIntros"),
             form.field("ReanalyzeSettledSeasons"),
             form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             form.field("UpdateMediaSegments"),
+            form.field("AnalyzeSeasonZero"),
             form.list("SeriesExclusions", {
                 suggestions: () => loadMediaNameSuggestions("Series"),
             }),
@@ -171,7 +180,6 @@ export const generalTab: Tab = {
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            form.field("AnalyzeSeasonZero"),
             form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),

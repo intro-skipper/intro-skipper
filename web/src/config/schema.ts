@@ -14,13 +14,13 @@ export const configSchema = {
         kind: "checkbox",
         label: "Automatically Analyze New Media",
         description:
-            'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
+            'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a href="#/dashboard/tasks">scheduled tasks</a>.',
     },
     ReanalyzeSettledSeasons: {
         kind: "checkbox",
         label: "Re-analyze settled seasons",
         description:
-            "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
+            "When a season has no new episodes for the configured delay, re-analyze the season (using cached fingerprints) so segments are recomputed against the full season. Media is not re-decoded.",
     },
     SettledSeasonDelayHours: {
         kind: "number",
@@ -35,7 +35,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Update Missing Segments During Scan",
         description:
-            "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
+            "Enable this option to update media segments for any uncached media during a library scan, including recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
     },
     SeriesExclusions: {
         kind: "list",
@@ -122,7 +122,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enhance chapter credits",
         description:
-            "Combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Off, a recognized credits chapter is used as authored, even when offsets leave no skippable range. Changing this re-analyzes credits on the next scan; existing timestamps stay until then.",
+            "When enabled, combine recognized credits chapters with black-frame and chromaprint results, which can extend the credits or find additional blocks. Credits are not re-analyzed until the next scan.",
     },
     FullLengthChapters: {
         kind: "checkbox",
@@ -234,6 +234,18 @@ export const configSchema = {
     },
 
     // Detection
+    SnapToKeyframe: {
+        kind: "checkbox",
+        label: "Enable keyframe snapping",
+        description:
+            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+    },
+    AdjustIntroBasedOnChapters: {
+        kind: "checkbox",
+        label: "Enable chapter snapping",
+        description:
+            "When enabled, segment start and end times will be adjusted to the nearest chapter boundary.",
+    },
     AdjustIntroBasedOnSilence: {
         kind: "checkbox",
         label: "Enable silence detection",
@@ -253,31 +265,19 @@ export const configSchema = {
         step: 0.01,
         description: "Minimum silence duration in seconds before adjusting introduction end time.",
     },
-    SnapToKeyframe: {
-        kind: "checkbox",
-        label: "Enable keyframe snapping",
-        description:
-            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
-    },
-    AdjustIntroBasedOnChapters: {
-        kind: "checkbox",
-        label: "Enable chapter snapping",
-        description:
-            "When enabled, segment start and end times will be adjusted to the nearest chapter boundary.",
-    },
     AdjustWindowInward: {
         kind: "number",
         label: "Adjustment window (inward)",
         min: 0,
         description:
-            "Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.",
+            "Maximum number of seconds to look inside a detected segment for a better start or end point. A larger value can trim extra time from the beginning or end.",
     },
     AdjustWindowOutward: {
         kind: "number",
         label: "Adjustment window (outward)",
         min: 0,
         description:
-            "Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.",
+            "Maximum number of seconds to look beyond a detected segment for a better start or end point. A larger value can include more time before or after the segment.",
     },
     EndSnapThreshold: {
         kind: "number",
@@ -301,7 +301,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Set post-credits scene as preview for anime",
         description:
-            "When enabled, create a preview segment from the end of the last credits block to the end of the episode when no preview was detected. This can also be toggled for any season or show in Timestamps > Manage.",
+            "When enabled and no preview was detected, create a segment from the end of the last credits block to the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
     },
     IntroStartOffset: {
         kind: "number",
@@ -377,6 +377,12 @@ export const configSchema = {
     },
 
     // Chapters
+    UseEmbeddedChaptersForAnalysis: {
+        kind: "checkbox",
+        label: "Use embedded chapters for analysis",
+        description:
+            "Read chapters from the media file instead of Jellyfin's chapter table, so chapters other plugins add are ignored. Changing this makes the next analysis run probe each analyzed episode once and reanalyze only the episodes whose file and table hold different chapters. Each analyzed episode costs one ffprobe while it is on.",
+    },
     ChapterAnalyzerIntroductionPattern: {
         kind: "regex",
         label: "Introductions",
@@ -419,21 +425,49 @@ export const configSchema = {
     },
 
     // Subtitles
+    SubtitleLanguages: {
+        kind: "text",
+        label: "Subtitle languages",
+        placeholder: "ger, eng",
+        description:
+            "Comma-separated language codes to read. Empty reads all. Recap title cards are often subtitled only in translation tracks, so reading only the audio language can miss them.",
+    },
     SubtitleRecapPattern: {
         kind: "regex",
         label: "Recap regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a recap. Enable recap matching for a season or show in Timestamps > Manage.",
-        default: "\\bpreviously\\s+on\\b",
+        default:
+            "\\bpreviously\\s+on|^\\W*(?:zuvor\\s+bei|zuletzt\\s+bei|was\\s+bisher\\s+geschah|bisher\\s+bei|anteriormente|previamente|précédemment|wat\\s+voorafging)|episodio?\\s+precedent[ei]|^\\W*前回までは|前情提要|지난\\s*이야기\\W*$",
     },
     SubtitlePreviewPattern: {
         kind: "regex",
         label: "Preview regex for subtitles",
         description:
             "Matches text-subtitle cues announcing a preview. Enable preview matching for a season or show in Timestamps > Manage.",
-        default: "\\b(?:(?:here(?:'|’)?s|now)\\s+the\\s+preview|next\\s+time)\\b",
+        default:
+            "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
     },
     // FFmpeg
+    PreferredAudioLanguage: {
+        kind: "text",
+        label: "Preferred stream audio language",
+        placeholder: "eng",
+        description:
+            "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
+    },
+    PreferAudioStreamWithMostChannels: {
+        kind: "checkbox",
+        label: "Prefer highest audio channel count",
+        description:
+            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
+    },
+    ProbeAudioDuration: {
+        kind: "checkbox",
+        label: "Probe audio duration for credits",
+        description:
+            "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
+    },
     MaxParallelism: {
         kind: "number",
         label: "Maximum degree of parallelism",
@@ -468,25 +502,6 @@ export const configSchema = {
         min: 0,
         description:
             "Kill a fingerprint or detection scan that runs longer than this. Raise it for high-bitrate media on slow disks. 0 disables the limit.",
-    },
-    ProbeAudioDuration: {
-        kind: "checkbox",
-        label: "Probe audio duration for credits",
-        description:
-            "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
-    },
-    PreferredAudioLanguage: {
-        kind: "text",
-        label: "Preferred stream audio language",
-        placeholder: "eng",
-        description:
-            "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
-    },
-    PreferAudioStreamWithMostChannels: {
-        kind: "checkbox",
-        label: "Prefer highest audio channel count",
-        description:
-            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
     },
     CacheCompressionLevel: {
         kind: "select",
@@ -551,10 +566,14 @@ export type ConfigKey = keyof ConfigSchema;
 
 /**
  * The plugin configuration as the server sends it. Every schema key is
- * editable; FileTransformationPluginEnabled is set by the server and only read.
+ * editable. The rest are only read: FileTransformationPluginEnabled is set by
+ * the server, and the subtitle detection values are what a season without its
+ * own subtitle override inherits.
  */
 export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
+    readonly EnableSubtitleRecapDetection: boolean;
+    readonly EnableSubtitlePreviewDetection: boolean;
 };
 
 /** Config keys whose value has type V, so a control binds only to keys it can hold. */

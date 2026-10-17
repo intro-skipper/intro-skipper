@@ -60,8 +60,8 @@ function hardware(node: api.RemoteNodeInfo): HTMLElement {
 function nodeCard(node: api.RemoteNodeInfo, libraries: readonly api.RemoteLibrary[], signal: AbortSignal, reload: () => Promise<void>): HTMLElement {
     const policy = initialPolicy(node, libraries);
     const section = el("section", { className: "node-card" });
-    const status = el("p", { role: "status", "aria-live": "polite" });
-    const feedback = bindStatusMessage(status, { display: "block" });
+    const status = el("p", { className: "status-message", role: "status", "aria-live": "polite" });
+    const feedback = bindStatusMessage(status);
     const enabled = check("Enabled", node.enabled);
     const libraryControls = libraries.map((library) => {
         const control = check(library.name, policy.libraryIds.includes(library.id));

@@ -33,6 +33,8 @@ public sealed record JobItem
     public required string SourcePath { get; init; }
     public string? PathMapId { get; init; }
     public required string FileVersionToken { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SubtitleFileVersionToken { get; init; }
     public string ServerAnalysisConfigHash { get; init; } = "";
     public Dictionary<RemoteAnalysisMode, string> ExpectedModeRevisions { get; init; } = [];
     public string SeasonKey { get; init; } = "";
@@ -215,6 +217,7 @@ public static class ContractValidation
         {
             Require(item.ItemId != Guid.Empty && !string.IsNullOrWhiteSpace(item.MediaSourceKey) && !string.IsNullOrWhiteSpace(item.SourcePath), "Incomplete media identity.");
             Require(IsFileVersionToken(item.FileVersionToken) && item.RuntimeTicks >= 0, "Invalid file-version token or runtime.");
+            Require(item.SubtitleFileVersionToken is null || IsFileVersionToken(item.SubtitleFileVersionToken), "Invalid subtitle file-version token.");
             Require(item.ExpectedModeRevisions.Values.All(IsDecimalToken), "Invalid revision token.");
             Require(item.Chapters.All(c => c.StartTicks >= 0 && (item.RuntimeTicks == 0 || c.StartTicks < item.RuntimeTicks)), "Invalid chapter start.");
             Require(item.ExpectedModeRevisions.Keys.All(mode => Enum.IsDefined(mode)), "Unsupported revision mode.");

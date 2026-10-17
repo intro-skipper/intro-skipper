@@ -16,17 +16,16 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 internal sealed partial class TimeAdjustmentHelper(
     ILogger logger,
-    PluginConfiguration config,
+    PluginConfiguration? config,
     AnalysisMode mode,
     IFFmpegService ffmpegService,
     IAnalysisEnvironment? environment = null)
 {
     private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
-    private readonly PluginConfiguration _config = config;
+    private readonly PluginConfiguration _config = config ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly AnalysisMode _mode = mode;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
 
     /// <summary>
     /// Adjusts the intro times of an episode and returns a new Segment with the adjusted times.
@@ -51,7 +50,7 @@ internal sealed partial class TimeAdjustmentHelper(
 
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
         var duration = episode.Duration;
-        var chapters = useChapters ? _environment.GetChapters(episode.EpisodeId) : [];
+        var chapters = useChapters ? episode.Chapters : [];
 
         LogOriginalIntro(
             _logger,

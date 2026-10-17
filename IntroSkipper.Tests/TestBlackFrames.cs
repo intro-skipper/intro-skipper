@@ -85,8 +85,10 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// VP9 ignores <c>-skip_frame nokey</c>, so the listing must select packet keyframes. The VP9
-    /// stream follows a non-default FFV1 stream to verify the codec probe matches ffmpeg's choice.
+    /// VP9 ignores <c>-skip_frame nokey</c>, so the listing must select packet keyframes. The
+    /// default VP9 stream is smaller than the non-default FFV1 stream before it, so a codec probe
+    /// that picks the largest stream reads FFV1 and leaves the select out. ffmpeg decodes the
+    /// VP9 stream, so the probe must name VP9.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task DetectKeyFramesAsync_ListsOnlyKeyframesOfVp9Sources()
@@ -96,8 +98,8 @@ public class TestBlackFrames
             "ffmpeg",
             [
                 "-y", "-v", "error",
-                "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=6",
                 "-f", "lavfi", "-i", "testsrc2=s=64x64:r=25:d=6",
+                "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=6",
                 "-map", "0", "-map", "1",
                 "-c:v:0", "ffv1", "-disposition:v:0", "0",
                 "-c:v:1", "libvpx-vp9", "-g:v:1", "50", "-keyint_min:v:1", "50", "-deadline:v:1", "realtime", "-disposition:v:1", "default",
@@ -115,6 +117,51 @@ public class TestBlackFrames
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>
+    /// The stderr of a zero-frame run on an H.264 file whose title tag repeats a mapping block
+    /// for a VP9 stream, as jellyfin-ffmpeg 8.1.2 prints it. Lines end in CRLF on Windows.
+    /// </summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void ParseMappedVideoCodec_ReadsTheMappingBlockNotATagThatRepeatsIt(string newLine)
+    {
+        var stderr = """
+            Input #0, matroska,webm, from 'episode.mkv':
+              Metadata:
+                title           : x
+                                : Stream mapping:
+                                :   Stream #0:1 -> #0:0 (vp9 (native) -> wrapped_avframe (native))
+              Duration: 00:00:02.00, start: 0.000000, bitrate: 60 kb/s
+              Stream #0:0: Video: h264 (High), yuv420p(tv, progressive), 64x64 [SAR 1:1 DAR 1:1], 25 fps, 25 tbr, 1k tbn
+            Stream mapping:
+              Stream #0:0 -> #0:0 (h264 (native) -> wrapped_avframe (native))
+            Press [q] to stop, [?] for help
+            Output #0, null, to 'pipe:':
+              Metadata:
+                title           : x
+                                : Stream mapping:
+                                :   Stream #0:1 -> #0:0 (vp9 (native) -> wrapped_avframe (native))
+            """.ReplaceLineEndings(newLine);
+
+        Assert.Equal("h264", FFmpegOutputParser.ParseMappedVideoCodec(stderr));
+    }
+
+    [Fact]
+    public void ParseMappedVideoCodec_ReturnsNullWithoutAMappingBlock()
+    {
+        // A file without a video stream: ffmpeg maps nothing and prints no block.
+        const string Stderr = """
+            Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'audio.m4a':
+              Stream #0:0[0x1](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+            Output #0, null, to 'pipe:':
+            [out#0/null @ 0000000000000000] Output file does not contain any stream
+            Error opening output file -.
+            """;
+
+        Assert.Null(FFmpegOutputParser.ParseMappedVideoCodec(Stderr));
     }
 
     [FactSkipFFmpegTests]
@@ -1851,16 +1898,12 @@ public class TestBlackFrames
             ffmpeg,
             new PluginConfiguration());
 
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPrivateField(
-            Plugin.Instance!,
-            "_chapterRepository",
-            ChapterManagerStub.Create([.. chapterStarts.Select(start => new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(start).Ticks })]));
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
             Duration = duration,
             CreditsFingerprintStart = 2000,
+            Chapters = [.. chapterStarts.Select(start => new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(start).Ticks })],
         };
 
         return (await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None), ffmpeg.Calls);

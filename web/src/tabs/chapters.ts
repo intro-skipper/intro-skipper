@@ -9,6 +9,7 @@ export const chaptersTab: Tab = {
         const form = configForm(signal);
 
         container.append(
+            form.field("UseEmbeddedChaptersForAnalysis"),
             patternField(form, "ChapterAnalyzerIntroductionPattern"),
             patternField(form, "ChapterAnalyzerEndCreditsPattern"),
             patternField(form, "ChapterAnalyzerPreviewPattern"),

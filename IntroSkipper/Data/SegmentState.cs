@@ -16,7 +16,7 @@ public enum SegmentState
 
     /// <summary>
     /// Tombstone: the user deleted this automatically detected segment. The row is
-    /// kept so re-analysis does not re-add an overlapping automatic segment, is
+    /// kept so re-analysis does not re-add the deleted range, is
     /// hidden from all normal reads and never synced to Jellyfin.
     /// </summary>
     Suppressed = 1

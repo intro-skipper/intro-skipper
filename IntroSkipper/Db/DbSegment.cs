@@ -79,7 +79,7 @@ public class DbSegment
     /// <summary>
     /// Gets or sets the lifecycle state. <see cref="SegmentState.Suppressed"/> rows are
     /// tombstones: hidden from normal reads, never synced to Jellyfin, and they block
-    /// re-insertion of overlapping automatic segments.
+    /// automatic re-detections of the deleted range.
     /// </summary>
     public SegmentState State { get; set; }
 

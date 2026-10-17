@@ -1,6 +1,6 @@
 import { el } from "./dom.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
-import { createStatusMessage } from "./async-feedback.ts";
+import { createStatusMessage, type StatusState } from "./async-feedback.ts";
 import { parseTimeInput, formatTimeInput } from "../utils.ts";
 import { abortable, ignoreAbort, isAbortError } from "../lifecycle.ts";
 import * as api from "../store/api.ts";
@@ -79,8 +79,8 @@ export function segmentEditor(opts: {
 }): { container: HTMLElement; isDirty: () => boolean } {
     const { signal } = opts;
     const container = el("div", { className: "ts-segment-editor" });
-    const rowsEl = el("div");
-    const status = createStatusMessage({ className: "ts-segment-status", display: "block" });
+    const rowsEl = el("div", { className: "ts-segment-rows" });
+    const status = createStatusMessage("ts-segment-status");
 
     let busy = false;
     // Last rendered segment list; used to compute a local fallback view when a
@@ -90,8 +90,8 @@ export function segmentEditor(opts: {
     // differ from the rendered segment (or, for the add row, hold typed input).
     let dirtyChecks: Array<() => boolean> = [];
 
-    function setStatus(msg: string, color = "var(--is-text-muted)"): void {
-        status.show(msg, color);
+    function setStatus(msg: string, state?: StatusState): void {
+        status.show(msg, state);
     }
 
     // Serializes mutations: while one is in flight, further clicks are ignored.
@@ -124,11 +124,11 @@ export function segmentEditor(opts: {
         renderRows(segments);
         opts.onChanged(segments);
         if (result.ok) {
-            setStatus(successMessage + overlapWarning(segments, overlap), "var(--is-success)");
+            setStatus(successMessage + overlapWarning(segments, overlap), "success");
         } else {
             setStatus(
                 successMessage + " Reloading failed; showing the unverified local result.",
-                "var(--is-error)",
+                "error",
             );
         }
     }
@@ -183,7 +183,7 @@ export function segmentEditor(opts: {
                     );
                     await reloadAfterMutation("Segment restored.", next);
                 } else {
-                    setStatus(response.error, "var(--is-error)");
+                    setStatus(response.error, "error");
                 }
             }));
             row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
@@ -230,7 +230,7 @@ export function segmentEditor(opts: {
                     title: "Delete segment",
                     body: segment.Source === "User"
                         ? "This permanently deletes the segment."
-                        : "This hides the automatically detected segment. Re-analysis will not re-add it. Erasing timestamps restores automatic detection.",
+                        : "This hides the automatically detected segment. Re-analysis will not re-add it.",
                     confirmLabel: "Delete",
                 }),
                 signal,
@@ -246,7 +246,7 @@ export function segmentEditor(opts: {
                         : current.map((s) => (s.Id === segment.Id ? { ...s, Suppressed: true } : s));
                     await reloadAfterMutation("Segment deleted.", next);
                 } else {
-                    setStatus(result.error, "var(--is-error)");
+                    setStatus(result.error, "error");
                 }
             });
         };

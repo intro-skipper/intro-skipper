@@ -16,6 +16,7 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using static IntroSkipper.Tests.StubFFmpegService;
@@ -23,35 +24,33 @@ using static IntroSkipper.Tests.StubFFmpegService;
 public class TestChapterAnalyzer
 {
     [Theory]
-    [InlineData("Opening")]
-    [InlineData("OP")]
-    [InlineData("Intro")]
-    [InlineData("Intro:")]
-    [InlineData("Intro Start")]
-    [InlineData("Introduction")]
-    public void TestIntroductionExpression(string chapterName)
+    [InlineData("Opening", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("OP", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro:", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro Start", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Introduction", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("End Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Ending", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credit start", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Closing Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits:", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Preview", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Trailer", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Ad", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Advertisement", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Commercial", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Intermission", AnalysisMode.Commercial, 60, 90)]
+    public void ChapterExpression_MatchesExpectedLabels(string chapterName, AnalysisMode mode, double expectedStart, double expectedEnd)
     {
-        var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
+        var chapter = FindChapter(chapterName, mode);
 
-        Assert.NotNull(introChapter);
-        Assert.Equal(60, introChapter.Start);
-        Assert.Equal(90, introChapter.End);
-    }
-
-    [Theory]
-    [InlineData("End Credits")]
-    [InlineData("Ending")]
-    [InlineData("Credit start")]
-    [InlineData("Closing Credits")]
-    [InlineData("Credits")]
-    [InlineData("Credits:")]
-    public void TestEndCreditsExpression(string chapterName)
-    {
-        var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
-
-        Assert.NotNull(creditsChapter);
-        Assert.Equal(1890, creditsChapter.Start);
-        Assert.Equal(2000, creditsChapter.End);
+        Assert.NotNull(chapter);
+        Assert.Equal(expectedStart, chapter!.Start);
+        Assert.Equal(expectedEnd, chapter.End);
     }
 
     [Theory]
@@ -164,44 +163,6 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("Preview")]
-    [InlineData("Trailer")]
-    public void TestPreviewExpression(string chapterName)
-    {
-        var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
-
-        Assert.NotNull(previewChapter);
-        Assert.Equal(1890, previewChapter.Start);
-        Assert.Equal(2000, previewChapter.End);
-    }
-
-    [Theory]
-    [InlineData("Recap")]
-    [InlineData("Previously")]
-    public void TestRecapExpression(string chapterName)
-    {
-        var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
-
-        Assert.NotNull(recapChapter);
-        Assert.Equal(60, recapChapter.Start);
-        Assert.Equal(90, recapChapter.End);
-    }
-
-    [Theory]
-    [InlineData("Ad")]
-    [InlineData("Advertisement")]
-    [InlineData("Commercial")]
-    [InlineData("Intermission")]
-    public void TestCommercialExpression(string chapterName)
-    {
-        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
-
-        Assert.NotNull(commercialChapter);
-        Assert.Equal(60, commercialChapter.Start);
-        Assert.Equal(90, commercialChapter.End);
-    }
-
-    [Theory]
     [InlineData("Intermission/Intro")]
     [InlineData("Intermission/Intro Animation")]
     [InlineData("Commercial End")]
@@ -213,6 +174,24 @@ public class TestChapterAnalyzer
         var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
 
         Assert.Null(commercialChapter);
+    }
+
+    // A pattern that backtracks past the one-second match timeout on a chapter name is the
+    // user's configuration. The chapter counts as no match; the RegexMatchTimeoutException,
+    // a TimeoutException, must not reach the pass's handler and stop the season's other modes.
+    [Fact]
+    public void FindMatchingChapters_PatternThatTimesOut_CountsAsNoMatch()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = new Collection<ChapterInfo>(
+        [
+            CreateChapter("An input string that takes a long time or even makes this regex hang!", 0),
+            CreateChapter("Main Episode", 60)
+        ]);
+
+        var matches = analyzer.FindMatchingChapters(new() { Duration = 2000 }, chapters, @"^(\w+\s?)*$", AnalysisMode.Introduction);
+
+        Assert.Empty(matches);
     }
 
     [Fact]
@@ -241,18 +220,25 @@ public class TestChapterAnalyzer
         Assert.Equal(60, matches[1].End);
     }
 
+    // A chapter pattern that is not a valid regular expression matches nothing and leaves
+    // the episodes to the analyzers after this one, with one warning for the run rather than
+    // one per episode.
     [Fact]
-    public void InvalidChapterPattern_IsIgnoredWithoutThrowing()
+    public async Task InvalidChapterPattern_WarnsOnceAndMatchesNothing()
     {
-        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var config = new Configuration.PluginConfiguration { ChapterAnalyzerPreviewPattern = "(", EnableSponsorBlockChapterDetection = false };
+        var logger = new CapturingLogger<ChapterAnalyzer>();
+        var analyzer = new ChapterAnalyzer(logger, null!, DatabaseTestHelpers.CreateTempSegmentDatabase(), config);
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+        ];
 
-        var matches = analyzer.FindMatchingChapters(
-            new() { Duration = 2000 },
-            CreateChapters("Preview", AnalysisMode.Preview),
-            "(",
-            AnalysisMode.Preview);
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Preview, CancellationToken.None);
 
-        Assert.Empty(matches);
+        Assert.All(episodes, episode => Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview)));
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
     }
 
     [Theory]
@@ -337,20 +323,6 @@ public class TestChapterAnalyzer
         Assert.NotNull(introChapter);
         Assert.Equal(60, introChapter.Start);
         Assert.Equal(90, introChapter.End);
-    }
-
-    [Fact]
-    public void PluginGetChapters_ReturnsEmptyList_WhenChapterManagerReturnsNull()
-    {
-        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-        {
-            var plugin = Plugin.Instance!;
-            EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerStub.Create(null, out _));
-
-            var chapters = plugin.GetChapters(Guid.NewGuid());
-
-            Assert.Empty(chapters);
-        }
     }
 
     private Segment? FindChapter(

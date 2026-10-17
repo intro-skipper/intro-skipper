@@ -13,6 +13,7 @@ import type {
     LibraryStorage,
     SystemStorageInfo,
     ClearExcludedTimestampsResponse,
+    SegmentType,
     SupportBundle,
 } from "../types.ts";
 
@@ -306,45 +307,10 @@ export function getAnalysisOverrides(
     seasonId: string,
     signal?: AbortSignal,
 ): Promise<ApiResult<AnalysisOverrides>> {
-    return getJson<unknown>(
+    return getJson<AnalysisOverrides>(
         `Intros/AnalysisOverrides/${encodeURIComponent(seasonId)}`,
         signal,
-    ).then((result) => {
-        if (!result.ok) return result;
-
-        const data = result.data;
-        if (typeof data !== "object" || data === null) {
-            return {
-                ok: true,
-                status: result.status,
-                data: {
-                    AnalysisPercent: null,
-                    AnalysisLengthLimit: null,
-                    PreviewFromCreditsEnd: null,
-                    SubtitleRecapDetection: null,
-                    SubtitlePreviewDetection: null,
-                },
-            };
-        }
-
-        const read = (name: keyof AnalysisOverrides): unknown => {
-            if (name in data) return Reflect.get(data, name);
-            const camelCaseName = name[0].toLowerCase() + name.slice(1);
-            return Reflect.get(data, camelCaseName);
-        };
-
-        return {
-            ok: true,
-            status: result.status,
-            data: {
-                AnalysisPercent: (read("AnalysisPercent") as number | null | undefined) ?? null,
-                AnalysisLengthLimit: (read("AnalysisLengthLimit") as number | null | undefined) ?? null,
-                PreviewFromCreditsEnd: (read("PreviewFromCreditsEnd") as boolean | null | undefined) ?? null,
-                SubtitleRecapDetection: (read("SubtitleRecapDetection") as boolean | null | undefined) ?? null,
-                SubtitlePreviewDetection: (read("SubtitlePreviewDetection") as boolean | null | undefined) ?? null,
-            },
-        };
-    });
+    );
 }
 
 export function updateAnalysisOverrides(
@@ -398,32 +364,50 @@ export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<A
 }
 
 // Timestamp deletion.
+
+/**
+ * What an erase removes besides the automatic segments, which every erase
+ * deletes. User segments are always kept. Each call states both options, so the
+ * client keeps no defaults of its own.
+ */
+export type EraseOptions = {
+    /** Also delete the detection cache rows (cached fingerprints). */
+    eraseCache: boolean;
+    /** Also delete tombstones, so detection may add the ranges the user deleted again. */
+    eraseTombstones: boolean;
+};
+
 export function eraseTimestamps(
-    mode: string,
-    eraseCache: boolean,
+    mode: SegmentType,
+    { eraseCache, eraseTombstones }: EraseOptions,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
     return request<null>(
-        `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}`,
+        `Intros/EraseTimestamps?mode=${encodeURIComponent(mode)}&eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
         { method: "POST", signal },
     );
 }
 
-export function eraseItemTimestamps(
-    urlPath: string,
-    eraseCache: boolean,
+export function eraseSeasonTimestamps(
+    showId: string,
+    seasonId: string,
+    { eraseCache, eraseTombstones }: EraseOptions,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
-    return request<null>(`${urlPath}?eraseCache=${eraseCache}`, { method: "DELETE", signal });
+    return request<null>(
+        `Intros/Show/${encodeURIComponent(showId)}/${encodeURIComponent(seasonId)}?eraseCache=${eraseCache}&eraseTombstones=${eraseTombstones}`,
+        { method: "DELETE", signal },
+    );
 }
 
 export function clearExcludedTimestamps(
+    { eraseTombstones }: Pick<EraseOptions, "eraseTombstones">,
     signal?: AbortSignal,
 ): Promise<ApiResult<ClearExcludedTimestampsResponse>> {
-    return request<ClearExcludedTimestampsResponse>("Intros/ExcludedTimestamps/Clear", {
-        method: "POST",
-        signal,
-    });
+    return request<ClearExcludedTimestampsResponse>(
+        `Intros/ExcludedTimestamps/Clear?eraseTombstones=${eraseTombstones}`,
+        { method: "POST", signal },
+    );
 }
 
 // Support and storage tools.
