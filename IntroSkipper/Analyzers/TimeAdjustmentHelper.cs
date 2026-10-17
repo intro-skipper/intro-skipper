@@ -14,11 +14,16 @@ namespace IntroSkipper.Analyzers;
 /// <summary>
 /// Helper class for adjusting intro times.
 /// </summary>
-internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config, AnalysisMode mode, IFFmpegService ffmpegService)
+internal sealed partial class TimeAdjustmentHelper(
+    ILogger logger,
+    PluginConfiguration? config,
+    AnalysisMode mode,
+    IFFmpegService ffmpegService,
+    IAnalysisEnvironment? environment = null)
 {
     private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
-    private readonly PluginConfiguration _config = config;
+    private readonly PluginConfiguration _config = config ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly AnalysisMode _mode = mode;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
 

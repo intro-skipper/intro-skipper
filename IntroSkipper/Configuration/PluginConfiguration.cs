@@ -95,6 +95,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether new queue execution is paused.</summary>
+    public bool AnalysisPaused { get; set; }
+
     /// <summary>
     /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops
     /// receiving new episodes. Audio fingerprint detection compares episodes against each other, so
@@ -616,6 +619,36 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     [XmlIgnore]
     public bool FileTransformationPluginEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether selected Introduction and Credits work is owned by a remote scanner.
+    /// </summary>
+    public bool RemoteAnalysisEnabled { get; set; }
+
+    /// <summary>
+    /// Gets the library-root ids whose selected modes are queued remotely.
+    /// </summary>
+    public Collection<Guid> RemoteAnalysisLibraryIds { get; init; } = [];
+
+    /// <summary>
+    /// Gets the modes owned by the remote scanner. Defaults to no remote ownership.
+    /// </summary>
+    public Collection<AnalysisMode> RemoteAnalysisModes { get; init; } = [];
+
+    /// <summary>
+    /// Gets the approved remote credits detector profile hashes. Empty denies credits imports.
+    /// </summary>
+    public Collection<string> ApprovedRemoteCreditsProfileHashes { get; init; } = [];
+
+    /// <summary>
+    /// Gets or sets the exact credits detector profile hash pinned into connected remote jobs.
+    /// </summary>
+    public string RemoteCreditsProfileHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the remote lease duration in minutes.
+    /// </summary>
+    public int RemoteAnalysisLeaseMinutes { get; set; } = 30;
 
     /// <summary>
     /// Gets the subtitle pattern that detects <paramref name="mode"/> in a season whose

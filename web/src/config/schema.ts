@@ -517,6 +517,48 @@ export const configSchema = {
             "Higher compression reduces disk usage but increases CPU time during analysis. " +
             "Changing this only affects newly cached data.",
     },
+    // Remote analysis
+    RemoteAnalysisEnabled: {
+        kind: "checkbox",
+        label: "Queue selected analysis remotely",
+        description:
+            "Disabled by default. When enabled, the selected modes in the selected libraries are queued for remote ownership instead of being analysed by this server.",
+    },
+    RemoteAnalysisLibraryIds: {
+        kind: "list",
+        label: "Remote analysis libraries",
+        placeholder: "Library ID",
+        description:
+            "Only the selected Jellyfin library roots are queued for remote ownership. Choose from the library ID suggestions or enter an ID directly.",
+    },
+    RemoteAnalysisModes: {
+        kind: "list",
+        label: "Remote analysis modes",
+        placeholder: "Introduction or Credits",
+        description: "Queued modes are owned by the remote scanner.",
+    },
+    RemoteAnalysisLeaseMinutes: {
+        kind: "number",
+        label: "Remote analysis lease (minutes)",
+        min: 1,
+        max: 120,
+        step: 1,
+        description: "How long a remote scanner owns a queued analysis job before it can be claimed again.",
+    },
+    ApprovedRemoteCreditsProfileHashes: {
+        kind: "list",
+        label: "Approved remote credits profile hashes",
+        placeholder: "Profile hash",
+        description:
+            "Automatic credits import requires an approved detector profile hash. Add a hash only after evaluating that profile.",
+    },
+    RemoteCreditsProfileHash: {
+        kind: "text",
+        label: "Remote credits profile hash",
+        placeholder: "64-character lowercase SHA-256",
+        description:
+            "Connected credits jobs pin this worker profile. Use scanner doctor to copy the exact profile hash.",
+    },
 } as const satisfies FieldSchema;
 
 export type ConfigSchema = typeof configSchema;

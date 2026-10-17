@@ -1,0 +1,246 @@
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Tests;
+
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using IntroSkipper.Configuration;
+using IntroSkipper.Controllers;
+using IntroSkipper.Remote;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using SegmentScanner.Contracts;
+using Xunit;
+
+/// <summary>Server ownership and notification contracts for node configuration.</summary>
+public sealed class NodeManagementTests
+{
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(1, 3)]
+    [InlineData(2, 8)]
+    [InlineData(4, 2)]
+    [InlineData(8, 4)]
+    [InlineData(16, 1)]
+    [InlineData(31, 2)]
+    public async Task LocalDefaults_InheritLegacySettingsUntilPolicyIsSaved(int modes, int workers)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = (modes & 1) != 0,
+            ScanCredits = (modes & 2) != 0,
+            ScanRecap = (modes & 4) != 0,
+            ScanPreview = (modes & 8) != 0,
+            ScanCommercial = (modes & 16) != 0,
+            MaxParallelism = workers,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
+        using var harness = new SegmentChangeHarness();
+        var expected = new[] { RemoteAnalysisMode.Introduction, RemoteAnalysisMode.Credits, RemoteAnalysisMode.Recap, RemoteAnalysisMode.Preview, RemoteAnalysisMode.Commercial }
+            .Where((_, index) => (modes & (1 << index)) != 0).ToHashSet();
+
+        var initial = await harness.Database.GetLocalNodeAsync([], default);
+
+        Assert.True(initial.Enabled);
+        Assert.True(expected.SetEquals(initial.Modes));
+        Assert.True(expected.SetEquals(initial.Policy!.Modes));
+        Assert.Equal(workers, initial.Policy.ConcurrentFiles);
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(new NodePolicyUpdate(initial.Policy, true)));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, EntrypointTestHelpers.CreateLibraryManager())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+        var response = Assert.IsType<ContentResult>(await controller.SaveNodePolicy(initial.NodeId, default));
+        var saved = WireJson.Read<RemoteNodeInfo>(response.Content!);
+        config.ScanIntroduction = !config.ScanIntroduction;
+        config.ScanCredits = !config.ScanCredits;
+        config.MaxParallelism = workers + 1;
+
+        var reloaded = await harness.Database.GetLocalNodeAsync([], default);
+
+        Assert.Equal(saved.Revision, reloaded.Revision);
+        Assert.Equal(WireJson.Hash(saved.Policy), WireJson.Hash(reloaded.Policy));
+    }
+
+    [Fact]
+    public async Task RemotePolicy_StillRejectsNonstandardLocalWorkerCounts()
+    {
+        using var harness = new SegmentChangeHarness();
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(new NodePolicyUpdate(new RemoteNodePolicy { ConcurrentFiles = 3 }, false)));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, EntrypointTestHelpers.CreateLibraryManager())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await controller.SaveNodePolicy("remote-node", default));
+    }
+
+    [Theory]
+    [InlineData("relative/media", "/mnt/media")]
+    [InlineData("/media/../outside", "/mnt/media")]
+    [InlineData("/media", "relative/media")]
+    public async Task Hello_RejectsInvalidSuggestedMappingsBeforePersistence(string serverPrefix, string workerPrefix)
+    {
+        using var harness = new SegmentChangeHarness();
+        var hello = new NodeHello("invalid-path-node", "Desktop", new NodeRuntimeInformation
+        {
+            SuggestedPathMappings = [new PathMapping { ServerPrefix = serverPrefix, WorkerPrefix = workerPrefix }],
+        });
+        var payload = Encoding.UTF8.GetBytes(WireJson.Write(hello));
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = payload.Length;
+        context.Request.Body = new MemoryStream(payload);
+        var controller = new RemoteController(harness.Database, null!, null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await controller.Hello(CancellationToken.None));
+        Assert.Empty(await harness.Database.GetRemoteNodesAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task PolicyMigration_PreservesLegacyDeclarationThroughUpgradeAndRollback()
+    {
+        using var temporary = new TempSegmentDb();
+        using var db = temporary.Context();
+        var migrator = db.Database.GetService<IMigrator>();
+        const string previous = "20261014131527_AddRegisteredRemoteNodes";
+        await migrator.MigrateAsync(previous);
+        var scope = WireJson.Write(new RemoteNodeRegistration { NodeId = "legacy-node", Name = "Existing PC", AutomaticImports = true });
+        var now = DateTime.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO RemoteNodes (NodeId, ScopeJson, Enabled, Revision, UpdatedUtc, LastSeenUtc) VALUES ({"legacy-node"}, {scope}, {true}, {7L}, {now}, {now})");
+        await migrator.MigrateAsync();
+        var upgraded = await db.RemoteNodes.AsNoTracking().SingleAsync();
+        Assert.Equal(scope, upgraded.ScopeJson);
+        Assert.True(upgraded.Enabled);
+        Assert.Equal(7, upgraded.Revision);
+        Assert.Null(upgraded.PolicyJson);
+        Assert.Null(upgraded.RuntimeJson);
+        await migrator.MigrateAsync(previous);
+        Assert.Equal(scope, await db.RemoteNodes.Select(node => node.ScopeJson).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Hello_RefreshesHardwareWithoutOverwritingSavedPolicyOrRevision()
+    {
+        using var harness = new SegmentChangeHarness();
+        var runtime = new NodeRuntimeInformation
+        {
+            SuggestedPathMappings = [new PathMapping { ServerPrefix = "/media", WorkerPrefix = "I:/media" }],
+        };
+        var hello = new NodeHello("test-node", "Desktop", runtime);
+        var registered = await harness.Database.HelloRemoteNodeAsync(hello, default);
+        Assert.False(registered.Enabled);
+        var library = Guid.NewGuid();
+        var policy = new RemoteNodePolicy
+        {
+            LibraryIds = [library],
+            Modes = [RemoteAnalysisMode.Recap, RemoteAnalysisMode.Preview, RemoteAnalysisMode.Commercial],
+            PathMappings = runtime.SuggestedPathMappings,
+            ConcurrentFiles = 4,
+        };
+        var saved = await harness.Database.UpdateNodePolicyAsync(hello.NodeId, new NodePolicyUpdate(policy, true), default);
+        Assert.NotNull(saved);
+        var refreshed = await harness.Database.HelloRemoteNodeAsync(hello with
+        {
+            Runtime = runtime with
+            {
+                SuggestedPathMappings = [new PathMapping { ServerPrefix = "/other", WorkerPrefix = "Z:/other" }],
+                SuggestedConcurrentFiles = 1,
+                Hardware = new NodeHardwareInformation { CpuName = "Updated CPU", LogicalProcessors = 8 },
+            },
+        }, default);
+        Assert.True(refreshed.Enabled);
+        Assert.Equal(saved.Revision, refreshed.Revision);
+        Assert.Equal(WireJson.Hash(saved.Policy), WireJson.Hash(refreshed.Policy));
+        Assert.Equal("Updated CPU", refreshed.Runtime!.Hardware.CpuName);
+        var unchanged = await harness.Database.UpdateNodePolicyAsync(hello.NodeId, new NodePolicyUpdate(policy, true), default);
+        Assert.Equal(saved.Revision, unchanged!.Revision);
+        var persisted = await harness.Database.GetRemoteNodeAsync(hello.NodeId, default);
+        Assert.InRange((DateTimeOffset.UtcNow - persisted!.LastSeenUtc!.Value).TotalSeconds, 0, 90);
+    }
+
+    [Theory]
+    [InlineData(RemoteAnalysisMode.Introduction, Data.AnalysisMode.Introduction)]
+    [InlineData(RemoteAnalysisMode.Credits, Data.AnalysisMode.Credits)]
+    [InlineData(RemoteAnalysisMode.Recap, Data.AnalysisMode.Recap)]
+    [InlineData(RemoteAnalysisMode.Preview, Data.AnalysisMode.Preview)]
+    [InlineData(RemoteAnalysisMode.Commercial, Data.AnalysisMode.Commercial)]
+    public void Modes_KeepWireIdentityAcrossDifferentPluginEnumOrder(RemoteAnalysisMode wire, Data.AnalysisMode plugin)
+    {
+        Assert.Equal(plugin, RemoteModes.ToPlugin(wire));
+        Assert.Equal(wire, RemoteModes.ToRemote(plugin));
+    }
+
+    [Fact]
+    public async Task V3Claim_SkipsPreUpgradeSnapshotsAndClaimsFreshPolicySnapshot()
+    {
+        using var harness = new SegmentChangeHarness();
+        var registered = await harness.Database.HelloRemoteNodeAsync(new NodeHello("upgrade-node", "Desktop", new NodeRuntimeInformation()), default);
+        var enabled = await harness.Database.UpdateNodePolicyAsync(registered.NodeId, new NodePolicyUpdate(registered.Policy!, true), default);
+        var legacy = new JobSnapshot
+        {
+            JobId = Guid.NewGuid(),
+            AttemptId = Guid.NewGuid(),
+            NodeId = enabled!.NodeId,
+            NodeRevision = enabled.Revision,
+            Modes = [RemoteAnalysisMode.Introduction],
+            Items = [new JobItem { ItemId = Guid.NewGuid(), MediaSourceKey = "media", SourcePath = "/media/episode.mkv", FileVersionToken = "0" }],
+        };
+        Assert.True(await harness.Database.QueueRemoteJobAsync(legacy, default));
+        Assert.Null(await harness.Database.ClaimRemoteJobAsync(enabled.NodeId, TimeSpan.FromMinutes(1), default, requireNodePolicy: true));
+        var fresh = legacy with { JobId = Guid.NewGuid(), NodePolicy = enabled.Policy, ScanSettings = RemoteAnalysisDispatcher.GetScanSettings(new PluginConfiguration()) };
+        Assert.True(await harness.Database.QueueRemoteJobAsync(fresh, default));
+        Assert.NotNull(await harness.Database.ClaimRemoteJobAsync(enabled.NodeId, TimeSpan.FromMinutes(1), default, requireNodePolicy: true));
+    }
+
+    [Fact]
+    public async Task Notification_WakesAConnectedReaderAfterSave()
+    {
+        var notifier = new NodeSettingsNotifier();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var reader = notifier.ListenAsync(deadline.Token).GetAsyncEnumerator(deadline.Token);
+        Assert.True(await reader.MoveNextAsync());
+        var pending = reader.MoveNextAsync().AsTask();
+        notifier.Publish();
+        Assert.True(await pending);
+    }
+
+    [Fact]
+    public void SharedSettings_IncludeAnalyzerInputsAndExcludeMachinePathsAndCredentials()
+    {
+        var settings = RemoteAnalysisDispatcher.GetScanSettings(new PluginConfiguration
+        {
+            SubtitleRecapPattern = "confirmed recap",
+            UseLegacyBlackFrameAnalyzer = true,
+            ProcessThreads = 3,
+            UseEmbeddedChaptersForAnalysis = true,
+            SubtitleLanguages = "eng, ger",
+        });
+        Assert.Equal("confirmed recap", settings.Configuration.GetProperty("subtitleRecapPattern").GetString());
+        Assert.True(settings.Configuration.GetProperty("useLegacyBlackFrameAnalyzer").GetBoolean());
+        Assert.Equal(3, settings.Configuration.GetProperty("processThreads").GetInt32());
+        Assert.True(settings.Configuration.GetProperty("useEmbeddedChaptersForAnalysis").GetBoolean());
+        Assert.Equal("eng, ger", settings.Configuration.GetProperty("subtitleLanguages").GetString());
+        Assert.DoesNotContain(settings.Configuration.EnumerateObject(), property => property.Name.Contains("credential", StringComparison.OrdinalIgnoreCase)
+            || property.Name.Contains("path", StringComparison.OrdinalIgnoreCase) || property.Name.Contains("remote", StringComparison.OrdinalIgnoreCase));
+    }
+}

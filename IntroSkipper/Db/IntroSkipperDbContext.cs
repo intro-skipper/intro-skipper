@@ -83,6 +83,31 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations => Set<DbProjectionExternalOperation>();
 
+    /// <summary>
+    /// Gets durable remote analysis jobs.
+    /// </summary>
+    internal DbSet<DbRemoteJob> RemoteJobs => Set<DbRemoteJob>();
+
+    /// <summary>
+    /// Gets registered scanner-node declarations and enablement state.
+    /// </summary>
+    internal DbSet<DbRemoteNode> RemoteNodes => Set<DbRemoteNode>();
+
+    /// <summary>
+    /// Gets remote import idempotency receipts.
+    /// </summary>
+    internal DbSet<DbRemoteImportReceipt> RemoteImportReceipts => Set<DbRemoteImportReceipt>();
+
+    /// <summary>
+    /// Gets current remote result provenance and revisions.
+    /// </summary>
+    internal DbSet<DbRemoteAnalysisMetadata> RemoteAnalysisMetadata => Set<DbRemoteAnalysisMetadata>();
+
+    /// <summary>
+    /// Gets explicit offline manifest contexts.
+    /// </summary>
+    internal DbSet<DbRemoteExportContext> RemoteExportContexts => Set<DbRemoteExportContext>();
+
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -193,6 +218,51 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.ItemId);
         });
 
+        modelBuilder.Entity<DbRemoteJob>(entity =>
+        {
+            entity.ToTable("RemoteJobs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.SnapshotJson).IsRequired();
+            entity.Property(e => e.SnapshotHash).IsRequired();
+            entity.Property(e => e.State).IsRequired();
+            entity.HasIndex(e => new { e.State, e.LeaseExpiresUtc });
+            entity.HasIndex(e => new { e.NodeId, e.NodeRevision, e.State, e.LeaseExpiresUtc });
+        });
+
+        modelBuilder.Entity<DbRemoteNode>(entity =>
+        {
+            entity.ToTable("RemoteNodes");
+            entity.HasKey(e => e.NodeId);
+            entity.Property(e => e.NodeId).ValueGeneratedNever();
+            entity.Property(e => e.ScopeJson).IsRequired();
+            entity.Property(e => e.PolicyJson);
+            entity.Property(e => e.RuntimeJson);
+        });
+
+        modelBuilder.Entity<DbRemoteImportReceipt>(entity =>
+        {
+            entity.ToTable("RemoteImportReceipts");
+            entity.HasKey(e => new { e.AnalysisId, e.ItemId, e.Mode });
+            entity.Property(e => e.PayloadHash).IsRequired();
+            entity.Property(e => e.Outcome).IsRequired();
+        });
+
+        modelBuilder.Entity<DbRemoteAnalysisMetadata>(entity =>
+        {
+            entity.ToTable("RemoteAnalysisMetadata");
+            entity.HasKey(e => new { e.ItemId, e.Mode });
+        });
+
+        modelBuilder.Entity<DbRemoteExportContext>(entity =>
+        {
+            entity.ToTable("RemoteExportContexts");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.SnapshotJson).IsRequired();
+            entity.Property(e => e.SnapshotHash).IsRequired();
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 
@@ -234,6 +304,11 @@ public class IntroSkipperDbContext : DbContext
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
+        var remoteJobs = new List<DbRemoteJob>();
+        var remoteNodes = new List<DbRemoteNode>();
+        var remoteImportReceipts = new List<DbRemoteImportReceipt>();
+        var remoteAnalysisMetadata = new List<DbRemoteAnalysisMetadata>();
+        var remoteExportContexts = new List<DbRemoteExportContext>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -260,6 +335,11 @@ public class IntroSkipperDbContext : DbContext
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteJobs = await db.RemoteJobs.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteNodes = await db.RemoteNodes.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteImportReceipts = await db.RemoteImportReceipts.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteAnalysisMetadata = await db.RemoteAnalysisMetadata.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteExportContexts = await db.RemoteExportContexts.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -305,6 +385,13 @@ public class IntroSkipperDbContext : DbContext
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
+        remoteJobs = [.. remoteJobs.DistinctBy(job => job.Id)];
+        remoteNodes = [.. remoteNodes.DistinctBy(node => node.NodeId)];
+        remoteImportReceipts = [.. remoteImportReceipts.DistinctBy(receipt => (receipt.AnalysisId, receipt.ItemId, receipt.Mode))];
+        remoteAnalysisMetadata = [.. remoteAnalysisMetadata
+            .OrderByDescending(metadata => metadata.Revision)
+            .DistinctBy(metadata => (metadata.ItemId, metadata.Mode))];
+        remoteExportContexts = [.. remoteExportContexts.DistinctBy(context => context.Id)];
 
         if (backupFailed)
         {
@@ -346,6 +433,11 @@ public class IntroSkipperDbContext : DbContext
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteNodes, remoteNodes, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteJobs, remoteJobs, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteImportReceipts, remoteImportReceipts, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteAnalysisMetadata, remoteAnalysisMetadata, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteExportContexts, remoteExportContexts, cancellationToken).ConfigureAwait(false);
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }

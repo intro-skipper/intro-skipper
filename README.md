@@ -1,5 +1,3 @@
-# Intro Skipper
-
 <div align="center">
     <p>
         <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/12.0/images/logo.png" />
@@ -17,6 +15,10 @@
   <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
 </p>
 </div>
+
+## Remote scanner nodes
+
+The **Nodes** settings page manages the default local scanner and connected [IntroSkipper-Node](https://github.com/GOvEy1nw/intro-skipper-node) workers. Select libraries and analysis types per node, disable local scanning when desired, and manage remote credits methods, GPU use, parallelism and path mappings centrally. Shared detection settings synchronise on save and reconnect. The companion repository contains the node application, build instructions and setup documentation; this repository contains the Jellyfin plugin and shared protocol contracts.
 
 ## Manifest URL (All Jellyfin Versions)
 > [!NOTE]

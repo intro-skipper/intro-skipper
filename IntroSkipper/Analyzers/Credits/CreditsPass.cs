@@ -28,12 +28,14 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
+/// <param name="environment">Explicit analysis environment.</param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
-    PluginConfiguration config)
+    PluginConfiguration config,
+    IAnalysisEnvironment environment)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -43,6 +45,52 @@ internal sealed partial class CreditsPass(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
+    private readonly IAnalysisEnvironment _environment = environment;
+
+    /// <summary>
+    /// Settles recognized chapters before local detection or remote ownership is considered.
+    /// </summary>
+    /// <param name="items">The season's queued episodes.</param>
+    /// <param name="action">The season's credits analyzer action.</param>
+    /// <param name="ffmpegValid">Whether Chromaprint is available.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Chapter-owned item ids, including rejected, offset-consumed and failed writes.</returns>
+    public async Task<IReadOnlySet<Guid>> SettleChaptersAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken)
+    {
+        HashSet<Guid> handled = [];
+        if (_config.EnhanceChapterCredits || action == AnalyzerAction.BlackFrame
+            || (action == AnalyzerAction.Chromaprint && ffmpegValid && items.Count > 1))
+        {
+            return handled;
+        }
+
+        var chapter = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config, environment: _environment);
+        var adjustment = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService, _environment);
+        foreach (var episode in items.Where(item => item.NeedsAnalysis(Mode)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var matches = chapter.FindChapterCandidates(episode, Mode);
+                if (matches.Count == 0)
+                {
+                    continue;
+                }
+
+                var state = await chapter.StoreMatchesAsync(episode, Mode, matches, adjustment, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
+                episode.SetAnalyzed(Mode, state);
+                handled.Add(episode.EpisodeId);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                handled.Add(episode.EpisodeId);
+                episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                LogErrorAnalyzingCredits(ex, episode.Name);
+            }
+        }
+
+        return handled;
+    }
 
     /// <summary>
     /// Analyzes the season's credits.
@@ -59,8 +107,9 @@ internal sealed partial class CreditsPass(
     /// <param name="action">The season's analyzer action for credits.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports chromaprint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="handledChapters">Items already handled by the chapter pre-pass, or null to run it here.</param>
     /// <returns>A task that completes when every episode has been written or marked failed.</returns>
-    public async Task RunAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken)
+    public async Task RunAsync(IReadOnlyList<QueuedEpisode> items, AnalyzerAction action, bool ffmpegValid, CancellationToken cancellationToken, IReadOnlySet<Guid>? handledChapters = null)
     {
         var chromaprintAvailable = ffmpegValid && items.Count > 1;
         var restriction = action switch
@@ -73,39 +122,14 @@ internal sealed partial class CreditsPass(
         var useBlackFrame = restriction is AnalyzerAction.Default or AnalyzerAction.BlackFrame;
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
-        var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
+        var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config, environment: _environment) : null;
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService, _environment);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
         // A chapter match owns the episode even if admission rejects its write: falling through
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
         // consumed, rejected, and failed episodes remain unsettled according to their state.
-        HashSet<Guid> chapterHandled = [];
-        if (chapter is not null && !_config.EnhanceChapterCredits)
-        {
-            foreach (var episode in pendingItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    var matches = chapter.FindChapterCandidates(episode, Mode);
-                    if (matches.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    var chapterState = await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
-                    episode.SetAnalyzed(Mode, chapterState);
-                    chapterHandled.Add(episode.EpisodeId);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    chapterHandled.Add(episode.EpisodeId);
-                    episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                    LogErrorAnalyzingCredits(ex, episode.Name);
-                }
-            }
-        }
+        var chapterHandled = handledChapters ?? await SettleChaptersAsync(items, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
 
         // The whole season takes part in the comparison. A chapter-handled episode's audio is
         // a valid reference whatever its outcome, and dropping one can leave a two-episode
@@ -116,7 +140,7 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _environment)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -153,6 +177,7 @@ internal sealed partial class CreditsPass(
             // the other analyzers settles it like any other; with no result at all the episode
             // stays failed so the next scan retries instead of recording a false "no credits".
             var fingerprintFailed = fingerprintFailures.Contains(episode.EpisodeId);
+            using var activity = _environment.TrackItem(episode, Mode, "Credits detection");
 
             try
             {
@@ -272,7 +297,7 @@ internal sealed partial class CreditsPass(
     {
         if (_config.UseLegacyBlackFrameAnalyzer)
         {
-            var legacy = new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _config);
+            var legacy = new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _config, _environment);
             return async (episode, cancellationToken) => await legacy.DetectCreditsAsync(episode, cancellationToken).ConfigureAwait(false) is { } credits
                 ? [new AttributedSegment(credits, SegmentSource.BlackFrame)]
                 : [];

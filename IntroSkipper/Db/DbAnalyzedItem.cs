@@ -52,7 +52,7 @@ public sealed class DbAnalyzedItem
     /// Gets the configuration hash the item was analyzed under. The facade rewrites it
     /// with a set-based upsert, never through a tracked entity.
     /// </summary>
-    public string ConfigHash { get; private set; } = string.Empty;
+    public string ConfigHash { get; internal set; } = string.Empty;
 
     /// <summary>
     /// Gets the file version the item was analyzed at: the ticks of the last write time
@@ -62,5 +62,5 @@ public sealed class DbAnalyzedItem
     /// predates versioning, or Jellyfin held no write time and no sidecar was read. Written
     /// only by the facade's set-based statements.
     /// </summary>
-    public long? FileVersion { get; private set; }
+    public long? FileVersion { get; internal set; }
 }

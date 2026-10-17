@@ -75,7 +75,7 @@ jobs:
           output-artifact-directory: 'IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/'
 
       - name: Create archive
-        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/SegmentScanner.Contracts.dll
 
       - name: Generate SBOM
         if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}

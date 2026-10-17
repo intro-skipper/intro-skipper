@@ -154,126 +154,149 @@ public sealed partial class IntroSkipperDatabase
         string configHash,
         CancellationToken cancellationToken)
     {
-        ValidateMode(mode);
-
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // One read for the mode's rows plus, for a credits write, the intros the
-            // admission policy compares against.
-            var loadIntros = mode == AnalysisMode.Credits;
-            var itemRows = await db.Segments
-                .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var activeAutoRows = itemRows
-                .Where(s => s.Type == mode && s.State == SegmentState.Active && s.Source != SegmentSource.User)
-                .ToList();
-
-            // A stale row ranks below every writer: the configuration that produced it no
-            // longer holds, so it must not outrank the analyzers re-running under the new one.
-            // A credits-derived write carries the credits hash, not the preview hash, so it
-            // compares sources alone.
-            var rank = SourceRank(mode, writer);
-            if (activeAutoRows.Any(row => SourceRank(mode, row.Source) > rank
-                && (writer == SegmentSource.CreditsDerived || row.ConfigHash.Length == 0 || row.ConfigHash == configHash)))
-            {
-                return 0;
-            }
-
-            var accepted = new List<DbSegment>();
-            var rejected = 0;
-            foreach (var (segment, source) in segments.OrderBy(s => s.Segment.Start))
-            {
-                if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
-                {
-                    rejected++;
-                    continue;
-                }
-
-                var rejection = AutoSegmentAdmissionPolicy.Check(mode, startTicks, endTicks, itemRows);
-                if (rejection != AutoSegmentRejection.None)
-                {
-                    switch (rejection)
-                    {
-                        case AutoSegmentRejection.Tombstone:
-                            LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
-                            break;
-                        case AutoSegmentRejection.UserSegment:
-                            LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
-                            break;
-                        case AutoSegmentRejection.Introduction:
-                            LogCreditsOverlapWithIntro(_logger, itemId);
-                            break;
-                    }
-
-                    rejected++;
-                    continue;
-                }
-
-                if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
-                {
-                    continue;
-                }
-
-                accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
-            }
-
-            // A write whose candidates were all rejected by the admission gate must not
-            // clear the standing rows: each rejection records human intent (tombstone, user
-            // row) or policy (credits vs intro), not evidence that the standing detection
-            // went stale. Stale rows are CleanStaleAutomaticSegmentsAsync's job.
-            if (accepted.Count == 0 && rejected > 0)
-            {
-                return 0;
-            }
-
-            // A write with a segment standing replaces every automatic row of the mode: none
-            // ranks above it. An empty write clears only its own rank, so a chapter analyzer
-            // clearing its result keeps the credits-derived preview. Every automatic row an
-            // accepted range can collide with on the unique (ItemId, Type, StartTicks,
-            // EndTicks) index is in the replaced set, since the admission gate already
-            // rejected the ranges of user rows and tombstones.
-            List<DbSegment> replaced = segments.Count == 0
-                ? [.. activeAutoRows.Where(row => SourceRank(mode, row.Source) == rank)]
-                : activeAutoRows;
-
-            // Keep automatic rows whose boundaries are unchanged so their ids stay stable
-            // across re-analysis (Jellyfin rows keep the same Guids), taking over the range
-            // under the writer's source and hash; replace the rest.
-            var kept = 0;
-            foreach (var row in replaced)
-            {
-                var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
-                if (match is not null)
-                {
-                    accepted.Remove(match);
-                    row.Source = match.Source;
-                    row.ConfigHash = configHash;
-                    kept++;
-                }
-                else
-                {
-                    db.Segments.Remove(row);
-                }
-            }
-
-            db.Segments.AddRange(accepted);
-
-            // Journal only when the servable image changed: kept rows rewrite
-            // bookkeeping the mirror does not carry.
-            if (accepted.Count > 0 || replaced.Count > kept)
-            {
-                await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
-            }
-
+            var count = await ReplaceAutoSegmentsInContextAsync(
+                db,
+                itemId,
+                mode,
+                segments,
+                writer,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return kept + accepted.Count;
+            return count;
         }
+    }
+
+    /// <summary>
+    /// Applies automatic-segment admission to a caller-owned context. The caller owns
+    /// saving, journaling-adjacent bookkeeping and the surrounding transaction.
+    /// </summary>
+    private async Task<int> ReplaceAutoSegmentsInContextAsync(
+        IntroSkipperDbContext db,
+        Guid itemId,
+        AnalysisMode mode,
+        IReadOnlyList<AttributedSegment> segments,
+        SegmentSource? writer,
+        string configHash,
+        CancellationToken cancellationToken)
+    {
+        ValidateMode(mode);
+
+        // One read for the mode's rows plus, for a credits write, the intros the
+        // admission policy compares against.
+        var loadIntros = mode == AnalysisMode.Credits;
+        var itemRows = await db.Segments
+            .Where(s => s.ItemId == itemId && (s.Type == mode || (loadIntros && s.Type == AnalysisMode.Introduction)))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var activeAutoRows = itemRows
+            .Where(s => s.Type == mode && s.State == SegmentState.Active && s.Source != SegmentSource.User)
+            .ToList();
+
+        // A stale row ranks below every writer: the configuration that produced it no
+        // longer holds, so it must not outrank the analyzers re-running under the new one.
+        // A credits-derived write carries the credits hash, not the preview hash, so it
+        // compares sources alone.
+        var rank = SourceRank(mode, writer);
+        if (activeAutoRows.Any(row => SourceRank(mode, row.Source) > rank
+            && (writer == SegmentSource.CreditsDerived || row.ConfigHash.Length == 0 || row.ConfigHash == configHash)))
+        {
+            return 0;
+        }
+
+        var accepted = new List<DbSegment>();
+        var rejected = 0;
+        foreach (var (segment, source) in segments.OrderBy(s => s.Segment.Start))
+        {
+            if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
+            {
+                rejected++;
+                continue;
+            }
+
+            var rejection = AutoSegmentAdmissionPolicy.Check(mode, startTicks, endTicks, itemRows);
+            if (rejection != AutoSegmentRejection.None)
+            {
+                switch (rejection)
+                {
+                    case AutoSegmentRejection.Tombstone:
+                        LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                        break;
+                    case AutoSegmentRejection.UserSegment:
+                        LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                        break;
+                    case AutoSegmentRejection.Introduction:
+                        LogCreditsOverlapWithIntro(_logger, itemId);
+                        break;
+                }
+
+                rejected++;
+                continue;
+            }
+
+            if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
+            {
+                continue;
+            }
+
+            accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
+        }
+
+        // A write whose candidates were all rejected by the admission gate must not
+        // clear the standing rows: each rejection records human intent (tombstone, user
+        // row) or policy (credits vs intro), not evidence that the standing detection
+        // went stale. Stale rows are CleanStaleAutomaticSegmentsAsync's job.
+        if (accepted.Count == 0 && rejected > 0)
+        {
+            return 0;
+        }
+
+        // A write with a segment standing replaces every automatic row of the mode: none
+        // ranks above it. An empty write clears only its own rank, so a chapter analyzer
+        // clearing its result keeps the credits-derived preview. Every automatic row an
+        // accepted range can collide with on the unique (ItemId, Type, StartTicks,
+        // EndTicks) index is in the replaced set, since the admission gate already
+        // rejected the ranges of user rows and tombstones.
+        List<DbSegment> replaced = segments.Count == 0
+            ? [.. activeAutoRows.Where(row => SourceRank(mode, row.Source) == rank)]
+            : activeAutoRows;
+
+        // Keep automatic rows whose boundaries are unchanged so their ids stay stable
+        // across re-analysis (Jellyfin rows keep the same Guids), taking over the range
+        // under the writer's source and hash; replace the rest.
+        var kept = 0;
+        foreach (var row in replaced)
+        {
+            var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
+            if (match is not null)
+            {
+                accepted.Remove(match);
+                row.Source = match.Source;
+                row.ConfigHash = configHash;
+                kept++;
+            }
+            else
+            {
+                db.Segments.Remove(row);
+            }
+        }
+
+        db.Segments.AddRange(accepted);
+
+        // Journal only when the servable image changed: kept rows rewrite
+        // bookkeeping the mirror does not carry.
+        if (accepted.Count > 0 || replaced.Count > kept)
+        {
+            await EnqueueProjectionAsync(db, itemId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return kept + accepted.Count;
     }
 
     /// <summary>

@@ -3,11 +3,13 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.Remote;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
@@ -43,7 +45,13 @@ namespace IntroSkipper
             // gates, run on first use; every consumer goes through a facade. The
             // segment-change worker's startup recovery is the first use at boot.
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<ScannerActivityTracker>();
+            serviceCollection.AddSingleton<ScannerQueueProgressStore>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
+            serviceCollection.AddSingleton<RemoteAnalysisDispatcher>();
+            serviceCollection.AddSingleton<IRemoteAnalysisDispatcher>(serviceProvider => serviceProvider.GetRequiredService<RemoteAnalysisDispatcher>());
+            serviceCollection.AddSingleton<NodeSettingsNotifier>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<NodeSettingsNotifier>());
 
             // The only thing that runs the analyzer: the scheduled task, the watcher and
             // the dashboard scan enqueue requests here. Registered ahead of the watcher so

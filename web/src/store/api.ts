@@ -108,6 +108,146 @@ export function getJson<T>(url: string, signal?: AbortSignal): Promise<ApiResult
     return request<T>(url, { signal });
 }
 
+export type QueueControlAction = "start" | "pause" | "stop" | "clear";
+
+export type ScannerQueueItem = {
+    itemId: string;
+    name: string;
+    series: string | null;
+    library: string | null;
+};
+
+export type ScannerQueueActivity = {
+    itemId: string;
+    mode: RemoteAnalysisMode;
+    phase: string;
+};
+
+export type ScannerQueueJob = {
+    id: string;
+    nodeId: string;
+    nodeName: string;
+    state: string;
+    kind: string;
+    modes: RemoteAnalysisMode[];
+    items: ScannerQueueItem[];
+    active: ScannerQueueActivity[];
+    completed: string[];
+    updatedUtc: string | null;
+};
+
+export type ScannerQueueSnapshot = {
+    paused: boolean;
+    running: ScannerQueueJob[];
+    pending: ScannerQueueJob[];
+    totalPendingJobs: number;
+};
+
+export function getQueue(signal?: AbortSignal): Promise<ApiResult<ScannerQueueSnapshot>> {
+    return getJson<ScannerQueueSnapshot>("IntroSkipper/Queue", signal);
+}
+
+export function controlQueue(
+    action: QueueControlAction,
+    signal?: AbortSignal,
+): Promise<ApiResult<ScannerQueueSnapshot>> {
+    return request<ScannerQueueSnapshot>("IntroSkipper/Queue/control", {
+        method: "POST",
+        body: { action },
+        signal,
+    });
+}
+
+export type RemoteAnalysisMode = "Introduction" | "Credits" | "Recap" | "Preview" | "Commercial";
+export type CreditsDetectionMethod = "TextAware" | "IntroSkipper";
+
+export type PathMapping = {
+    id: string;
+    serverPrefix: string;
+    workerPrefix: string;
+    caseSensitive: boolean | null;
+};
+
+export type RemoteNodePolicy = {
+    libraryIds: string[];
+    modes: RemoteAnalysisMode[];
+    creditsMethod: CreditsDetectionMethod;
+    useGpu: boolean;
+    concurrentFiles: number;
+    pathMappings: PathMapping[];
+    automaticImports: boolean;
+    leaseMinutes: number;
+};
+
+export type NodeCreditRecipe = {
+    id: string;
+    method: CreditsDetectionMethod;
+    useGpu: boolean;
+    inferenceBackend: string;
+    videoDecoder: string;
+    profileHash: string;
+};
+
+export type NodeHardwareInformation = {
+    operatingSystem: string;
+    cpuName: string | null;
+    logicalProcessors: number;
+    memoryBytes: number | null;
+    gpus: Array<{ name: string; driver: string | null; memoryBytes: number | null }>;
+};
+
+export type NodeRuntimeInformation = {
+    version: string;
+    supportedModes: RemoteAnalysisMode[];
+    hardware: NodeHardwareInformation;
+    creditsRecipes: NodeCreditRecipe[];
+    syncedSettingsHash: string | null;
+};
+
+export type RemoteNodeInfo = {
+    nodeId: string;
+    name: string;
+    libraryIds: string[];
+    modes: RemoteAnalysisMode[];
+    creditsMethod?: CreditsDetectionMethod;
+    automaticImports?: boolean;
+    leaseMinutes?: number;
+    policy: RemoteNodePolicy | null;
+    runtime: NodeRuntimeInformation | null;
+    isLocal: boolean;
+    lastSeenUtc: string | null;
+    enabled: boolean;
+    revision: number;
+    updatedUtc: string;
+};
+
+export type RemoteLibrary = {
+    id: string;
+    name: string;
+    paths: string[];
+};
+
+export function getRemoteNodes(signal?: AbortSignal): Promise<ApiResult<RemoteNodeInfo[]>> {
+    return getJson<RemoteNodeInfo[]>("IntroSkipper/Remote/v3/nodes", signal);
+}
+
+export function getRemoteLibraries(signal?: AbortSignal): Promise<ApiResult<RemoteLibrary[]>> {
+    return getJson<RemoteLibrary[]>("IntroSkipper/Remote/v3/libraries", signal);
+}
+
+export function saveRemoteNodePolicy(
+    nodeId: string,
+    policy: RemoteNodePolicy,
+    enabled: boolean,
+    signal?: AbortSignal,
+): Promise<ApiResult<RemoteNodeInfo>> {
+    return request<RemoteNodeInfo>(`IntroSkipper/Remote/v3/nodes/${encodeURIComponent(nodeId)}/policy`, {
+        method: "PUT",
+        body: { policy, enabled },
+        signal,
+    });
+}
+
 // Segment browsing and editing (plural segments API). Suppressed (tombstoned)
 // segments are included so the editor can offer Restore; display code filters them.
 export function getEpisodeSegments(

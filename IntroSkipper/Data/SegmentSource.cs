@@ -55,5 +55,10 @@ public enum SegmentSource
     /// <summary>
     /// Detected from a matching text subtitle cue.
     /// </summary>
-    Subtitle = 8
+    Subtitle = 8,
+
+    /// <summary>
+    /// Accepted from the standalone remote scanner under an approved server profile.
+    /// </summary>
+    Remote = 9
 }

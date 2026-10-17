@@ -87,12 +87,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: IntroSkipper-${{ env.GIT_HASH }}.dll
-          path: IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+          path: |
+            IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+            IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/SegmentScanner.Contracts.dll
           if-no-files-found: error
 
       - name: Create archive
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
-        run: zip -j "intro-skipper-v${{ env.PRERELEASE_VERSION }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+        run: zip -j "intro-skipper-v${{ env.PRERELEASE_VERSION }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/SegmentScanner.Contracts.dll
 
       - name: Create/replace the prerelease and upload artifacts
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches

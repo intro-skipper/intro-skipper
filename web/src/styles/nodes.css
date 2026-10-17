@@ -1,0 +1,23 @@
+.is-app-shell .node-card {
+    margin: 20px 0;
+    padding: 20px;
+    border: 1px solid var(--is-border);
+    border-radius: 8px;
+    background: var(--is-surface);
+    color: var(--is-text);
+}
+
+.is-app-shell .node-hardware {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 20px;
+    margin: 16px 0;
+    font-size: 0.9em;
+}
+
+.is-app-shell .node-hardware p { margin: 0; }
+.is-app-shell .node-hardware strong { grid-column: 1 / -1; }
+.is-app-shell .node-card .check { display: inline-flex; align-items: center; gap: 8px; margin: 8px 16px 8px 0; }
+.is-app-shell .node-card fieldset { margin: 16px 0; border: 1px solid var(--is-border); }
+.is-app-shell .node-card .library small { display: block; margin: 0 0 8px 24px; color: var(--is-text-muted); }
+.is-app-shell .node-card > label:not(.check) { display: grid; gap: 6px; margin: 16px 0; }

@@ -3,6 +3,11 @@ description: "Reads build.json, installs .NET/Node/pnpm, configures NuGet, and r
 runs:
   using: "composite"
   steps:
+    - name: Select Linux SDK pin
+      if: runner.os == 'Linux'
+      shell: bash
+      run: cp .github/global.linux.json global.json
+
     - name: Read build configuration
       id: build-config
       shell: bash
@@ -10,7 +15,7 @@ runs:
         CONFIG=$(cat build.json)
         MAIN_VERSION=$(echo "$CONFIG" | jq -r '.version')
         IS_BETA=$(echo "$CONFIG" | jq -r '.beta')
-        DOTNET_VERSION=$(echo "$CONFIG" | jq -r '."dotnet-version"')
+        DOTNET_VERSION=$(jq -r '.sdk.version' global.json)
         DOTNET_MAJOR=$(echo "$DOTNET_VERSION" | cut -d'.' -f1)
 
         echo "MAIN_VERSION=$MAIN_VERSION" >> "$GITHUB_ENV"

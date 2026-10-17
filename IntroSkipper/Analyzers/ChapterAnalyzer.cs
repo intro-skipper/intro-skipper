@@ -27,20 +27,23 @@ namespace IntroSkipper.Analyzers;
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="enableChapterDetection">Whether to detect chapter-based segments.</param>
 /// <param name="enableRecapBlackFrameFallback">Whether recap detection may fall back to black-frame analysis.</param>
+/// <param name="environment">Explicit host configuration and context for a non-Jellyfin host.</param>
 internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
     IntroSkipperDatabase database,
     PluginConfiguration? configuration = null,
     bool enableChapterDetection = true,
-    bool enableRecapBlackFrameFallback = true) : IMediaFileAnalyzer
+    bool enableRecapBlackFrameFallback = true,
+    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
-    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _enableChapterDetection = enableChapterDetection;
     private readonly bool _enableRecapBlackFrameFallback = enableRecapBlackFrameFallback;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
     private readonly Dictionary<AnalysisMode, string> _expressions = [];
 
     // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which
@@ -96,13 +99,14 @@ internal sealed partial class ChapterAnalyzer(
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService, _environment);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            using var activity = _environment.TrackItem(episode, mode, "Chapter analysis");
 
             IReadOnlyList<Segment> matches = enableChapterDetection ? FindChapterCandidates(episode, mode) : [];
 

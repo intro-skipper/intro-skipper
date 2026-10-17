@@ -20,11 +20,13 @@
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <!-- The server ships this version and the plugin loads the server's copy; the release
-         zip holds only IntroSkipper.dll. Keep it equal to the server's. -->
+    <!-- The plugin loads the server's copy. Keep it equal to the server's. -->
     <PackageReference Include="UTF.Unknown" Version="2.7.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Standalone/src/SegmentScanner.Contracts/SegmentScanner.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(StandaloneBuild)' != 'true'">
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <None Remove="Configuration\introskipper.js" />
@@ -32,7 +34,7 @@
     <None Remove="Configuration\introskipper.css" />
     <EmbeddedResource Include="Configuration\introskipper.css" />
   </ItemGroup>
-  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
+  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true' and '$(StandaloneBuild)' != 'true'">
     <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
           Command="pnpm install --frozen-lockfile &amp;&amp; pnpm build" />
   </Target>

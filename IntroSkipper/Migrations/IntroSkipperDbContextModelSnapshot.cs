@@ -129,9 +129,189 @@ namespace IntroSkipper.Migrations
                     b.ToTable("ProjectionQueue", (string)null);
                 });
 
+            modelBuilder.Entity("IntroSkipper.Db.DbRemoteAnalysisMetadata", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CanonicalJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DetectorId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProfileHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpstreamCommit")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ItemId", "Mode");
+
+                    b.ToTable("RemoteAnalysisMetadata", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbRemoteExportContext", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RemoteExportContexts", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbRemoteImportReceipt", b =>
+                {
+                    b.Property<Guid>("AnalysisId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OriginalCanonicalJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("AnalysisId", "ItemId", "Mode");
+
+                    b.ToTable("RemoteImportReceipts", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbRemoteJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AttemptId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LeaseExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LeaseGeneration")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LeaseTokenHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NodeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("NodeRevision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkerId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("State", "LeaseExpiresUtc");
+
+                    b.HasIndex("NodeId", "NodeRevision", "State", "LeaseExpiresUtc");
+
+                    b.ToTable("RemoteJobs", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbRemoteNode", b =>
+                {
+                    b.Property<string>("NodeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PolicyJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ScopeJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RuntimeJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("NodeId");
+
+                    b.ToTable("RemoteNodes", (string)null);
+                });
+
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonAnalysisOverride", b =>
                 {
                     b.Property<Guid>("SeasonId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("AnalysisLengthLimit")

@@ -21,23 +21,26 @@ namespace IntroSkipper.Analyzers;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="environment">Analysis host dependencies, or <see langword="null"/> to use the active Jellyfin host.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    IntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    IntroSkipperDatabase? database,
+    PluginConfiguration? configuration = null,
+    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
     /// </summary>
     private const double RecapCardMinimumDuration = 3.0;
 
-    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
+    private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly IntroSkipperDatabase _database = database;
+    private readonly IntroSkipperDatabase? _database = database;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -68,16 +71,7 @@ internal sealed partial class ChromaprintAnalyzer(
         IReadOnlyList<QueuedEpisode> comparisonReferences,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<QueuedEpisode> comparisonQueue = analysisQueue;
-        if (comparisonReferences.Count > 0)
-        {
-            var combinedQueue = analysisQueue.ToList();
-            var includedIds = analysisQueue.Select(episode => episode.EpisodeId).ToHashSet();
-            combinedQueue.AddRange(comparisonReferences.Where(episode => includedIds.Add(episode.EpisodeId)));
-            comparisonQueue = combinedQueue;
-        }
-
-        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
+        var (seasonIntros, fingerprintFailures) = await ComputeCandidatesAsync(analysisQueue, comparisonReferences, mode, cancellationToken).ConfigureAwait(false);
         foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
         {
             episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
@@ -88,7 +82,7 @@ internal sealed partial class ChromaprintAnalyzer(
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService, _environment);
 
         foreach (var currentEpisode in analysisQueue)
         {
@@ -99,17 +93,26 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
+            if (mode == AnalysisMode.Recap && currentEpisode.GetAnalyzed(mode) == EpisodeState.Analyzed)
+            {
+                var segments = await _database!.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (segments.Any(segment => segment.Type == mode && segment.Source == SegmentSource.Subtitle && segment.State == SegmentState.Active))
+                {
+                    continue;
+                }
+            }
+
             var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!adjustedIntro.Valid)
             {
-                await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+                await _database!.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.NoSegments);
                 continue;
             }
 
             // A write a tombstone, a user segment or a higher-ranked current row refused leaves
             // the episode to the analyzers after this one, as a refused chapter write does.
-            var written = await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [adjustedIntro], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            var written = await _database!.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [adjustedIntro], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             if (written > 0)
             {
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
@@ -117,6 +120,34 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         return analysisQueue;
+    }
+
+    /// <summary>
+    /// Computes raw shared-audio candidates without persistence while retaining comparison-only episodes.
+    /// </summary>
+    /// <param name="analysisQueue">Episodes eligible for results.</param>
+    /// <param name="comparisonReferences">Episodes eligible only to contribute fingerprints.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="cancellationToken">Token used to cancel fingerprint extraction.</param>
+    /// <param name="fingerprintConcurrency">Maximum concurrent fingerprint extractions. Defaults to the plugin's serial behavior.</param>
+    /// <returns>Raw candidates and fingerprint failures for the supplied queue.</returns>
+    internal Task<ChromaprintCandidates> ComputeCandidatesAsync(
+        IReadOnlyList<QueuedEpisode> analysisQueue,
+        IReadOnlyList<QueuedEpisode> comparisonReferences,
+        AnalysisMode mode,
+        CancellationToken cancellationToken,
+        int fingerprintConcurrency = 1)
+    {
+        IReadOnlyList<QueuedEpisode> comparisonQueue = analysisQueue;
+        if (comparisonReferences.Count > 0)
+        {
+            var combinedQueue = analysisQueue.ToList();
+            var includedIds = analysisQueue.Select(episode => episode.EpisodeId).ToHashSet();
+            combinedQueue.AddRange(comparisonReferences.Where(episode => includedIds.Add(episode.EpisodeId)));
+            comparisonQueue = combinedQueue;
+        }
+
+        return FindCandidatesAsync(comparisonQueue, mode, cancellationToken, fingerprintConcurrency);
     }
 
     /// <summary>
@@ -134,11 +165,13 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="fingerprintConcurrency">Maximum concurrent fingerprint extractions.</param>
     /// <returns>The raw candidate per episode id, in file seconds, and the episodes whose fingerprint failed; both empty when the season has nothing to compare.</returns>
     internal async Task<ChromaprintCandidates> FindCandidatesAsync(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int fingerprintConcurrency = 1)
     {
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -168,26 +201,48 @@ internal sealed partial class ChromaprintAnalyzer(
                 .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
         }
 
-        // Compute fingerprints for all episodes in the season
-        foreach (var episode in episodeAnalysisQueue)
-        {
-            try
+        var fingerprintResults = new (uint[] Fingerprint, FingerprintException? Error)[episodeAnalysisQueue.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, episodeAnalysisQueue.Count),
+            new ParallelOptions
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                fingerprintCache[episode.EpisodeId] = await _ffmpegService.FingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false);
-            }
-            catch (FingerprintException ex)
+                MaxDegreeOfParallelism = fingerprintConcurrency,
+                CancellationToken = cancellationToken,
+            },
+            async (index, token) =>
             {
-                LogCaughtFingerprintError(ex);
-                WarningManager.RecordFingerprintFailure(ex.Message);
-
-                // Keep a transient fingerprint failure retriable. A completed neighbor may be
-                // included only to provide a comparison fingerprint; do not discard its valid result.
-                fingerprintCache[episode.EpisodeId] = [];
-                if (episode.NeedsAnalysis(mode))
+                var episode = episodeAnalysisQueue[index];
+                using var activity = _environment.TrackItem(episode, mode, "Audio fingerprint");
+                try
                 {
-                    fingerprintFailures.Add(episode.EpisodeId);
+                    var fingerprint = await _ffmpegService.FingerprintAsync(episode, mode, token).ConfigureAwait(false);
+                    fingerprintResults[index] = (fingerprint, null);
                 }
+                catch (FingerprintException ex)
+                {
+                    fingerprintResults[index] = ([], ex);
+                }
+            }).ConfigureAwait(false);
+
+        // Keep matching and all shared analysis state serial after bounded extraction.
+        for (var index = 0; index < episodeAnalysisQueue.Count; index++)
+        {
+            var episode = episodeAnalysisQueue[index];
+            var result = fingerprintResults[index];
+            fingerprintCache[episode.EpisodeId] = result.Fingerprint;
+            if (result.Error is not { } error)
+            {
+                continue;
+            }
+
+            LogCaughtFingerprintError(error);
+            WarningManager.RecordFingerprintFailure(error.Message);
+
+            // Keep a transient fingerprint failure retriable. A completed neighbor may be
+            // included only to provide a comparison fingerprint; do not discard its valid result.
+            if (episode.NeedsAnalysis(mode))
+            {
+                fingerprintFailures.Add(episode.EpisodeId);
             }
         }
 
@@ -441,7 +496,7 @@ internal sealed partial class ChromaprintAnalyzer(
         if (!_recapBoundaryCache.TryGetValue(episode.EpisodeId, out var maximumBoundary))
         {
             maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
-                _database,
+                _database!,
                 episode,
                 _config,
                 cancellationToken).ConfigureAwait(false);

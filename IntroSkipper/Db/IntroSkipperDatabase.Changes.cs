@@ -83,6 +83,7 @@ public sealed partial class IntroSkipperDatabase
             // a diverged mirror (a ghost or missing Jellyfin row) heals when the
             // user retries — the legacy editor synced idempotent requests for the
             // same reason.
+            await BumpRemoteRevisionsAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
             await EnqueueProjectionAsync(db, intent.ItemId, cancellationToken).ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             var revision = intent is ReplaceUserSegmentsForItemIntent

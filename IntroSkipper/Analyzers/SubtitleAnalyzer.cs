@@ -16,9 +16,9 @@ namespace IntroSkipper.Analyzers;
 /// <remarks>
 /// Subtitle detection is deliberately independent from credits detection. A recap starts at the
 /// first matching cue whose start lies inside the recap fingerprint window
-/// (<see cref="QueuedEpisode.GetFingerprintRange"/>), and ends at a chapter start or, without
-/// one, at the start of a black run, within the recap duration limits and before an intro that
-/// follows the cue. Without such an end, the episode settles with its standing rows, as for a
+/// (<see cref="QueuedEpisode.GetFingerprintRange"/>), and ends at a chapter start or the start
+/// of a black run within the recap duration limits and before an intro that follows the cue.
+/// Without such an end, the episode settles with its standing rows, as for a
 /// match admission rejected. A preview runs from its matching cue through the episode duration.
 /// When no subtitle cue matches, the normal analyzer chain remains eligible. A pattern that is
 /// not a valid .NET regular expression leaves every pending episode unresolved, so the mode
@@ -28,12 +28,14 @@ internal sealed partial class SubtitleAnalyzer(
     ILogger<SubtitleAnalyzer> logger,
     IFFmpegService ffmpegService,
     IntroSkipperDatabase database,
-    PluginConfiguration configuration) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null,
+    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<SubtitleAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
-    private readonly PluginConfiguration _config = configuration;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
+    private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -71,6 +73,7 @@ internal sealed partial class SubtitleAnalyzer(
         foreach (var episode in enabledEpisodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            using var activity = _environment.TrackItem(episode, mode, "Subtitle detection");
             var window = CueWindow(episode, mode);
             var scan = await _ffmpegService.ExtractSubtitleCuesAsync(episode, window, cancellationToken).ConfigureAwait(false);
             var cues = scan.Cues.Where(cue => cue.Start >= window.Start && cue.Start < window.End).ToArray();

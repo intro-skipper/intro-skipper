@@ -11,7 +11,9 @@ using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
+using SegmentScanner.Contracts;
 using UtfUnknown;
+using TimeRange = IntroSkipper.Data.TimeRange;
 
 namespace IntroSkipper.FFmpeg;
 
@@ -101,6 +103,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     private readonly ILogger<FFmpegService> _logger;
     private readonly DetectionCacheService _cacheService;
+    private readonly IAnalysisEnvironment _environment;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
 
@@ -115,7 +118,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
     public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService)
-        : this(logger, cacheService, null, null)
+        : this(logger, cacheService, null, null, null)
     {
     }
 
@@ -126,15 +129,18 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="cacheService">The detection cache service.</param>
     /// <param name="versionProbe">Replaces the ffmpeg version probe; <see langword="null"/> runs the real one.</param>
     /// <param name="versionProbeTimeout">Bounds one probe attempt; <see langword="null"/> uses the default.</param>
+    /// <param name="environment">Analysis host dependencies, or <see langword="null"/> to use the active Jellyfin host.</param>
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         DetectionCacheService cacheService,
         Func<CancellationToken, Task<bool>>? versionProbe,
-        TimeSpan? versionProbeTimeout)
+        TimeSpan? versionProbeTimeout,
+        IAnalysisEnvironment? environment = null)
     {
         _logger = logger;
         _cacheService = cacheService;
-        _processRunner = new FFmpegProcessRunner(logger);
+        _environment = environment ?? new PluginAnalysisEnvironment();
+        _processRunner = new FFmpegProcessRunner(logger, _environment);
         _versionGate = new FFmpegVersionGate(
             logger,
             versionProbe is null
@@ -143,7 +149,9 @@ internal sealed partial class FFmpegService : IFFmpegService
             versionProbeTimeout ?? DefaultVersionProbeTimeout);
     }
 
-    private static string FFmpegPath => Plugin.Instance?.FFmpegPath ?? "ffmpeg";
+    private string FFmpegPath => _environment.FFmpegPath;
+
+    private bool UsesCreditHardwareDecoder => _environment.VideoDecoder != CreditVideoDecoder.Cpu;
 
     /// <inheritdoc/>
     public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
@@ -208,7 +216,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
-        var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
+        var noise = _environment.Configuration.SilenceDetectionMaximumNoise.ToString(CultureInfo.InvariantCulture);
         string[] args =
         [
             "-vn", "-sn", "-dn",
@@ -241,15 +249,31 @@ internal sealed partial class FFmpegService : IFFmpegService
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
-        string[] args =
-        [
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount={amount}:threshold={threshold}",
-            "-f", "null", "-",
-        ];
+        string[] args;
+        if (UsesCreditHardwareDecoder)
+        {
+            var input = HardwareCreditVideoInput(episode, range.Start, keyframesOnly: false);
+            args =
+            [
+                .. input.Arguments,
+                "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                "-an", "-dn", "-sn",
+                "-vf", input.FilterPrefix + $"blackframe=amount={amount}:threshold={threshold}",
+                "-f", "null", "-",
+            ];
+        }
+        else
+        {
+            args =
+            [
+                "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+                "-i", episode.Path,
+                "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                "-an", "-dn", "-sn",
+                "-vf", $"blackframe=amount={amount}:threshold={threshold}",
+                "-f", "null", "-",
+            ];
+        }
 
         var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
@@ -296,6 +320,17 @@ internal sealed partial class FFmpegService : IFFmpegService
                 // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps
                 // source negotiation, while signalstats reads 8-bit yuv420p, which keeps the
                 // source's range.
+                if (UsesCreditHardwareDecoder)
+                {
+                    var input = HardwareCreditVideoInput(episode, start, keyframesOnly: true);
+                    return
+                    [
+                        .. input.Arguments,
+                        .. OutputArgs(KeyframeFilters(input.Codec, input.FilterPrefix + $"blackframe=amount=0:threshold={threshold}")),
+                        .. withVisuals ? OutputArgs(KeyframeFilters(input.Codec, input.FilterPrefix + KeyframeVisualFilters)) : [],
+                    ];
+                }
+
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
@@ -350,6 +385,17 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.End,
             async () =>
             {
+                if (UsesCreditHardwareDecoder)
+                {
+                    var input = HardwareCreditVideoInput(episode, range.Start, keyframesOnly: true);
+                    return
+                    [
+                        .. input.Arguments,
+                        "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                        .. OutputArgs(KeyframeFilters(input.Codec, input.FilterPrefix + KeyframeVisualFilters)),
+                    ];
+                }
+
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
@@ -375,6 +421,50 @@ internal sealed partial class FFmpegService : IFFmpegService
         "-i", path,
     ];
 
+    private (string[] Arguments, string Codec, string FilterPrefix) HardwareCreditVideoInput(QueuedEpisode episode, double start, bool keyframesOnly)
+    {
+        var video = _environment.GetCreditVideoInfo(episode.EpisodeId)
+            ?? throw new InvalidDataException("Hardware credits decoding requires primary video metadata.");
+        if (video.Codec is not ("h264" or "hevc" or "av1"))
+        {
+            throw new InvalidDataException("Hardware credits decoding supports only h264, hevc, or av1 video.");
+        }
+
+        var downloadFormat = video.PixelFormat switch
+        {
+            "yuv420p" => "nv12",
+            "yuv420p10le" => "p010le",
+            _ => throw new InvalidDataException("Hardware credits decoding supports only yuv420p or yuv420p10le video."),
+        };
+        var arguments = new List<string>();
+        if (keyframesOnly)
+        {
+            arguments.AddRange(["-skip_frame", "nokey"]);
+        }
+
+        arguments.AddRange(["-ss", start.ToString(CultureInfo.InvariantCulture)]);
+        switch (_environment.VideoDecoder)
+        {
+            case CreditVideoDecoder.NvidiaNvdec:
+                arguments.AddRange(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-c:v", video.Codec == "av1" ? "av1" : video.Codec + "_cuvid"]);
+                break;
+            case CreditVideoDecoder.IntelQuickSync:
+                arguments.AddRange(["-init_hw_device", "qsv=intel,child_device_type=d3d11va", "-hwaccel", "qsv", "-hwaccel_output_format", "qsv", "-c:v", video.Codec + "_qsv"]);
+                break;
+            default:
+                throw new InvalidDataException("Unsupported credits video decoder.");
+        }
+
+        // AV1 hardware decoding intentionally follows the standalone frame extractor's grain-free policy.
+        if (video.Codec == "av1")
+        {
+            arguments.AddRange(["-export_side_data", "film_grain"]);
+        }
+
+        arguments.AddRange(["-i", episode.Path]);
+        return ([.. arguments], video.Codec, "hwdownload,format=" + downloadFormat + ",");
+    }
+
     // A keyframe-only decode's filters, behind a keyframe select for VP9.
     private static string KeyframeFilters(string? codec, string filters) => codec == "vp9" ? $"{KeyframeSelect},{filters}" : filters;
 
@@ -386,16 +476,33 @@ internal sealed partial class FFmpegService : IFFmpegService
         // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
         // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
         // frames it logged.
-        string[] args =
-        [
-            "-ss", FormatSeconds(window.Start),
-            "-t", FormatSeconds(window.Duration),
-            "-i", episode.Path,
-            "-an", "-dn", "-sn",
-            "-fps_mode", "passthrough",
-            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
-            "-f", "rawvideo", "-",
-        ];
+        string[] args;
+        if (UsesCreditHardwareDecoder)
+        {
+            var input = HardwareCreditVideoInput(episode, window.Start, keyframesOnly: false);
+            args =
+            [
+                .. input.Arguments,
+                "-t", FormatSeconds(window.Duration),
+                "-an", "-dn", "-sn",
+                "-fps_mode", "passthrough",
+                "-vf", input.FilterPrefix + $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+                "-f", "rawvideo", "-",
+            ];
+        }
+        else
+        {
+            args =
+            [
+                "-ss", FormatSeconds(window.Start),
+                "-t", FormatSeconds(window.Duration),
+                "-i", episode.Path,
+                "-an", "-dn", "-sn",
+                "-fps_mode", "passthrough",
+                "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
+                "-f", "rawvideo", "-",
+            ];
+        }
 
         // Sized for 16:9 frames at 30 fps, so the capture usually fills one buffer instead of
         // doubling its way there.
@@ -458,16 +565,33 @@ internal sealed partial class FFmpegService : IFFmpegService
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
-        string[] args =
-        [
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-skip_frame", "noref",
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
-            "-f", "null", "-",
-        ];
+        string[] args;
+        if (UsesCreditHardwareDecoder)
+        {
+            var input = HardwareCreditVideoInput(episode, range.Start, keyframesOnly: false);
+            args =
+            [
+                "-skip_frame", "noref",
+                .. input.Arguments,
+                "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                "-an", "-dn", "-sn",
+                "-vf", input.FilterPrefix + $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
+                "-f", "null", "-",
+            ];
+        }
+        else
+        {
+            args =
+            [
+                "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+                "-skip_frame", "noref",
+                "-i", episode.Path,
+                "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                "-an", "-dn", "-sn",
+                "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
+                "-f", "null", "-",
+            ];
+        }
 
         var offset = range.Start - episode.CreditsFingerprintStart;
         return RunCachedScanAsync(
@@ -520,6 +644,19 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.End,
             async () =>
             {
+                if (UsesCreditHardwareDecoder)
+                {
+                    var input = HardwareCreditVideoInput(episode, range.Start, keyframesOnly: true);
+                    return
+                    [
+                        .. input.Arguments,
+                        "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+                        "-an", "-dn", "-sn",
+                        "-vf", KeyframeFilters(input.Codec, input.FilterPrefix + "showinfo"),
+                        "-f", "null", "-",
+                    ];
+                }
+
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
@@ -1096,13 +1233,13 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="args">The run's own arguments.</param>
     /// <param name="logLevel">The ffmpeg log level.</param>
     /// <param name="infoQuery"><see langword="true"/> for a version or help query, which takes no input and rejects <c>-threads</c>.</param>
-    private static List<string> ProcessArgs(IReadOnlyList<string> args, string logLevel, bool infoQuery = false)
+    private List<string> ProcessArgs(IReadOnlyList<string> args, string logLevel, bool infoQuery = false)
     {
         var processArgs = new List<string>(args.Count + 5) { "-hide_banner" };
         if (!infoQuery)
         {
             processArgs.Add("-threads");
-            processArgs.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
+            processArgs.Add(_environment.Configuration.ProcessThreads.ToString(CultureInfo.InvariantCulture));
         }
 
         processArgs.Add("-loglevel");
@@ -1120,16 +1257,21 @@ internal sealed partial class FFmpegService : IFFmpegService
     internal static int ScanTimeoutMilliseconds(int seconds) =>
         seconds > 0 ? (int)Math.Min(seconds * 1000L, int.MaxValue) : Timeout.Infinite;
 
+    private int ScanTimeout() => ScanTimeoutMilliseconds(_environment.Configuration.ScanTimeoutSeconds);
+
     // What a failed ffmpeg or ffprobe run throws through the process runner: the process could
     // not start (Win32Exception, InvalidOperationException), its pipes or files failed, or it
     // was killed at its timeout. Cancellation is not among them and always propagates.
     private static bool IsProcessFailure(Exception ex)
         => ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException;
 
-    private static int ScanTimeout() => ScanTimeoutMilliseconds(Plugin.Instance?.Configuration.ScanTimeoutSeconds ?? 300);
-
-    private static string GetFFprobePath()
+    private string GetFFprobePath()
     {
+        if (_environment.FFprobePath is { Length: > 0 } explicitPath)
+        {
+            return explicitPath;
+        }
+
         var ffmpegPath = FFmpegPath;
         var extension = Path.GetExtension(ffmpegPath);
         var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
@@ -1253,12 +1395,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
-        var configuration = Plugin.Instance?.Configuration;
-        var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
+        var configuration = _environment.Configuration;
+        var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration.PreferredAudioLanguage);
         var streamSelection = await GetAudioStreamSelectionAsync(
             episode,
             preferredLanguage,
-            configuration?.PreferAudioStreamWithMostChannels ?? true,
+            configuration.PreferAudioStreamWithMostChannels,
             cancellationToken).ConfigureAwait(false);
         var cacheVariant = streamSelection?.CacheVariant;
 

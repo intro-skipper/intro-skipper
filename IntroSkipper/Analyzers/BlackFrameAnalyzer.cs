@@ -21,10 +21,12 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="environment">Optional host configuration for portable analysis.</param>
 internal sealed partial class BlackFrameAnalyzer(
     ILogger<BlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
-    PluginConfiguration? configuration = null)
+    PluginConfiguration? configuration = null,
+    IAnalysisEnvironment? environment = null)
 {
     /// <summary>
     /// Maximum distance, in seconds, between a chapter marker and the start of the black run
@@ -35,7 +37,7 @@ internal sealed partial class BlackFrameAnalyzer(
     /// </summary>
     private const double MaxChapterOffsetFromBlackRunStart = 15;
 
-    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -54,6 +56,7 @@ internal sealed partial class BlackFrameAnalyzer(
     /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the caller, which marks the episode failed.</returns>
     internal async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
+        using var activity = environment?.TrackItem(episode, AnalysisMode.Credits, "Black frame detection");
         var percentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
 
