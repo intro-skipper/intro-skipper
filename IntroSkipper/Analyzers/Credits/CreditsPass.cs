@@ -102,7 +102,7 @@ internal sealed partial class CreditsPass(
                 {
                     chapterHandled.Add(episode.EpisodeId);
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                    LogErrorAnalyzingCredits(ex, episode.Name);
+                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
                 }
             }
         }
@@ -124,7 +124,7 @@ internal sealed partial class CreditsPass(
                 // The season-wide comparison failed as a whole; the other analyzers still
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
-                LogChromaprintComparisonFailed(ex);
+                LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
@@ -144,15 +144,15 @@ internal sealed partial class CreditsPass(
             // An already-analyzed sibling re-derived from a changed season is re-scanned only
             // when its new shared-audio candidate reaches outside what is stored; otherwise
             // the combination could not change and the black-frame scan is skipped.
-            if (!episode.NeedsAnalysis(Mode) && await IsCoveredByStoredCreditsAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false))
+            if (!episode.NeedsAnalysis(Mode) && IsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
             }
 
-            // A fingerprint failure costs the episode its shared-audio candidate. A result from
-            // the other analyzers settles it like any other; with no result at all the episode
-            // stays failed so the next scan retries instead of recording a false "no credits".
-            var fingerprintFailed = fingerprintFailures.Contains(episode.EpisodeId);
+            // A failed analyzer costs the episode its candidate, not the pass. A result from the
+            // other analyzers settles the episode like any other; with no result at all it is
+            // marked failed so the next pass retries instead of recording a false "no credits".
+            var analyzerFailed = fingerprintFailures.Contains(episode.EpisodeId);
 
             try
             {
@@ -179,7 +179,6 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
-                var keyframeFailed = false;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
@@ -192,12 +191,23 @@ internal sealed partial class CreditsPass(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        // Keyframe detection is an enhancement to the chapter and Chromaprint
-                        // candidates. A failed black-frame scan must not erase a valid result that
-                        // was already found by another analyzer; when it is the only producer,
-                        // keep the episode failed so the black-frame analysis is retried.
-                        LogKeyframeAnalysisFailed(ex, episode.Name);
-                        keyframeFailed = true;
+                        LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+
+                        // Without the keyframe result, the other candidates alone could lose the
+                        // roll the standing credits hold, so a failed keyframe scan never replaces
+                        // them. A settled sibling stays settled; a pending episode is marked failed
+                        // and the next pass retries it.
+                        if ((await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false)).Count > 0)
+                        {
+                            if (episode.NeedsAnalysis(Mode))
+                            {
+                                episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                            }
+
+                            continue;
+                        }
+
+                        analyzerFailed = true;
                     }
                 }
 
@@ -205,14 +215,14 @@ internal sealed partial class CreditsPass(
                     episode,
                     CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
                     timeAdjustmentHelper,
-                    fingerprintFailed || keyframeFailed,
+                    analyzerFailed,
                     cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(Mode, state);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name);
+                LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
             }
         }
     }
@@ -221,7 +231,7 @@ internal sealed partial class CreditsPass(
         QueuedEpisode episode,
         IReadOnlyList<AttributedSegment> candidates,
         TimeAdjustmentHelper timeAdjustmentHelper,
-        bool analysisFailed,
+        bool analyzerFailed,
         CancellationToken cancellationToken)
     {
         var adjusted = new List<AttributedSegment>();
@@ -240,7 +250,7 @@ internal sealed partial class CreditsPass(
 
         if (adjusted.Count == 0)
         {
-            if (analysisFailed)
+            if (analyzerFailed)
             {
                 return EpisodeState.AnalysisFailed;
             }
@@ -255,18 +265,16 @@ internal sealed partial class CreditsPass(
             LogFoundCredits(episode.Name, segment.Start, segment.End, source);
         }
 
-        var persisted = await _database
-            .ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken)
-            .ConfigureAwait(false);
-        return analysisFailed && persisted == 0
-            ? EpisodeState.AnalysisFailed
-            : EpisodeState.Analyzed;
+        // A result settles the episode even when admission refuses all of it. The refusal comes
+        // from a tombstone, a user row or the intro overlap rule, and every retry would meet it again.
+        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        return EpisodeState.Analyzed;
     }
 
     /// <summary>
-    /// The keyframe candidate producer: the legacy black-frame analyzer under its toggle, otherwise
-    /// the keyframe analyzer, which also produces the card candidate. One instance per season, since
-    /// the legacy analyzer carries search state between episodes.
+    /// The keyframe detector: the legacy black-frame analyzer under its toggle, otherwise the
+    /// keyframe analyzer, which also finds the card candidate. One instance per season, since the
+    /// legacy analyzer carries search state between episodes.
     /// </summary>
     private Func<QueuedEpisode, CancellationToken, Task<IReadOnlyList<AttributedSegment>>> CreateKeyframeDetector()
     {
@@ -282,19 +290,34 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Whether a stored active credits row already contains the raw candidate, allowing for
+    /// The episode's active credits rows, whoever wrote them.
+    /// </summary>
+    private async Task<IReadOnlyList<DbSegment>> StandingCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    {
+        var rows = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return [.. rows.Where(row => row.Type == Mode && row.State == SegmentState.Active)];
+    }
+
+    /// <summary>
+    /// Whether one of the standing credits rows already contains the raw candidate, allowing for
     /// the boundary movement time adjustment applies before storing.
     /// </summary>
-    private async Task<bool> IsCoveredByStoredCreditsAsync(QueuedEpisode episode, Segment candidate, CancellationToken cancellationToken)
+    private bool IsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
     {
         var tolerance = Math.Max(_config.AdjustWindowInward, _config.AdjustWindowOutward);
-        var rows = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return rows.Any(row =>
-            row.Type == Mode &&
-            row.State == SegmentState.Active &&
+        return standing.Any(row =>
             TickConversions.ToSeconds(row.StartTicks) <= candidate.Start + tolerance &&
             TickConversions.ToSeconds(row.EndTicks) >= candidate.End - tolerance);
     }
+
+    /// <summary>
+    /// The sentence a failure log appends when an ffmpeg scan timed out, naming the setting that
+    /// raises the timeout. The season-level timeout warning shares it. Empty for any other failure.
+    /// </summary>
+    private static string TimeoutHint(Exception ex) =>
+        ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
+            ? ". " + FFmpegProcessRunner.ScanTimeoutHint
+            : string.Empty;
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No credits found for {Episode}")]
     private partial void LogNoCreditsFound(string episode);
@@ -302,12 +325,12 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s to {End:F2}s ({Source})")]
     private partial void LogFoundCredits(string episode, double start, double end, SegmentSource source);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
-    private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits{Hint}")]
+    private partial void LogErrorAnalyzingCredits(Exception ex, string episode, string hint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}; continuing with the other credits candidates")]
-    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}{Hint}")]
+    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode, string hint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers")]
-    private partial void LogChromaprintComparisonFailed(Exception ex);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
+    private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 }

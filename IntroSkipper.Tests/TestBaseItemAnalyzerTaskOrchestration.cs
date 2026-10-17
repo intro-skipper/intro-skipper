@@ -1177,6 +1177,35 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal(0, settled.CreditsFingerprintEnd);
     }
 
+    [Fact]
+    public async Task CreditsMode_KeyframeFailurePreservesCreditsFromAnOlderConfigHash()
+    {
+        var config = new PluginConfiguration { ProbeAudioDuration = false };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episodes = new[] { CreditsEpisode(1), CreditsEpisode(2) };
+        const string PreviousHash = "previous-credits-config";
+        await database.ReplaceAutoSegmentsAsync(
+            episodes[0].EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(episodes[0].EpisodeId, new TimeRange(900, 1000))],
+            SegmentSource.BlackFrame,
+            PreviousHash);
+        var previous = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => [.. Enumerable.Range(0, 400).Select(index => (uint)((episode.EpisodeNumber * 1000) + index))],
+            KeyframeScan = (episode, _) => episode.EpisodeNumber == 1 ? throw new IOException("keyframe scan failed") : [],
+            RangeBlackFrames = (_, _, _, _, _) => [],
+        };
+
+        await CreateTask(ffmpeg, database).AnalyzeItemsAsync(episodes, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var kept = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((previous.Id, PreviousHash, SegmentSource.BlackFrame), (kept.Id, kept.ConfigHash, kept.Source));
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+    }
+
     private static readonly Guid CreditsSeasonId = Guid.NewGuid();
 
     private static QueuedEpisode CreditsEpisode(int episodeNumber) => new()

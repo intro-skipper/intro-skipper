@@ -392,6 +392,26 @@ public sealed class TestCreditsPass
             ffmpeg.Calls);
     }
 
+    // The keyframe roll is the failing episode's only result, and an intro over it makes
+    // admission refuse it. A refusal recurs on every retry, so it settles the episode like a
+    // written result, and the standing credits row stays as it was.
+    [Fact]
+    public async Task FingerprintFailure_WithEveryCandidateRefused_SettlesAndKeepsStandingCredits()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(fingerprintFailure: episode => episode.EpisodeNumber == 1 ? new FingerprintException("no audio") : null);
+        var failing = episodes[0];
+        await database.ReplaceAutoSegmentsAsync(failing.EpisodeId, AnalysisMode.Introduction, [new Segment(failing.EpisodeId, new TimeRange(BlackStart - 10, BlackStart + 10))], SegmentSource.Chromaprint);
+        await database.ReplaceAutoSegmentsAsync(failing.EpisodeId, AnalysisMode.Credits, [new Segment(failing.EpisodeId, new TimeRange(700, 720))], SegmentSource.BlackFrame);
+        var standing = Assert.Single(await database.GetSegmentsAsync(failing.EpisodeId), s => s.Type == AnalysisMode.Credits);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var kept = Assert.Single(await database.GetSegmentsAsync(failing.EpisodeId), s => s.Type == AnalysisMode.Credits);
+        Assert.Equal((standing.Id, 700.0, 720.0), (kept.Id, kept.ToSegment().Start, kept.ToSegment().End));
+        Assert.Equal(EpisodeState.Analyzed, failing.GetAnalyzed(AnalysisMode.Credits));
+    }
+
     [Fact]
     public async Task ComparisonFailure_WritesTheOtherCandidatesAndSettlesEveryEpisode()
     {
@@ -412,7 +432,7 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task RequeuedSibling_WhoseCandidateIsAlreadyStored_IsNotRescanned()
+    public async Task SettledSibling_WhoseCandidateIsAlreadyStored_IsNotRescanned()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
@@ -444,7 +464,7 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task RequeuedSibling_WhoseCandidateReachesOutsideStoredCredits_IsRecombined()
+    public async Task SettledSibling_WhoseCandidateReachesOutsideStoredCredits_IsRecombined()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
@@ -468,65 +488,96 @@ public sealed class TestCreditsPass
             ffmpeg.Calls);
     }
 
+    // A failed keyframe scan costs the episode its keyframe candidates, and the Chromaprint
+    // candidate settles it, as a failed fingerprint lets the keyframe roll settle an episode.
     [Fact]
-    public async Task BlackFrameScanFailure_FailsThatEpisodeAndContinues()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
-        var failing = episodes[0].EpisodeId;
-
-        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
-
-        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
-        Assert.True(episodes[0].NeedsAnalysis(AnalysisMode.Credits));
-        Assert.Empty(await database.GetSegmentsAsync(failing));
-        Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task BlackFrameScanFailure_PreservesChromaprintCandidate()
+    public async Task KeyframeScanFailure_SettlesTheEpisodeOnItsOtherCandidates()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        var failedScanEpisode = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
-        Assert.Equal(SegmentSource.Chromaprint, failedScanEpisode.Source);
-        Assert.Equal(PointTime(SharedAudioFirstPoint), failedScanEpisode.ToSegment().Start, 0.5);
-        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), failedScanEpisode.ToSegment().End, 0.5);
+        var written = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(SegmentSource.Chromaprint, written.Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), written.ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(DefaultSharedAudioLastPoint), written.ToSegment().End, 0.5);
         Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
         Assert.Equal(2, ffmpeg.KeyframeScanCalls);
         Assert.Equal([RollProbe], ffmpeg.Calls);
     }
 
+    // With the keyframe analyzer as the only analyzer in the pass, its failure leaves nothing to
+    // settle the episode on: nothing is written and the next pass retries it.
     [Fact]
-    public async Task BlackFrameScanFailure_WithRejectedChromaprint_PreservesExistingCreditsAndRetries()
+    public async Task KeyframeScanFailure_WithNoOtherCandidate_FailsThatEpisodeAndContinues()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
-        var episode = episodes[0];
-        var sharedStart = PointTime(SharedAudioFirstPoint);
 
-        await database.ReplaceAutoSegmentsAsync(
-            episode.EpisodeId,
-            AnalysisMode.Introduction,
-            [new Segment(episode.EpisodeId, new TimeRange(sharedStart - 1, sharedStart + 1))],
-            SegmentSource.Chromaprint);
-        await database.ReplaceAutoSegmentsAsync(
-            episode.EpisodeId,
-            AnalysisMode.Credits,
-            [new Segment(episode.EpisodeId, new TimeRange(700, 720))],
-            SegmentSource.BlackFrame);
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.BlackFrame, ffmpegValid: false, CancellationToken.None);
+
+        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
+    }
+
+    // A pending episode with standing credits, from a scan under another configuration or an
+    // earlier persistence failure, loses nothing to a failed keyframe scan: its Chromaprint
+    // candidate alone would drop the roll's tail, so it is not written. The roll keeps its id and
+    // the next pass retries the episode.
+    [Fact]
+    public async Task KeyframeScanFailure_NeverReplacesStandingCredits()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
+        var failing = episodes[0];
+        await database.ReplaceAutoSegmentsAsync(failing.EpisodeId, AnalysisMode.Credits, [new Segment(failing.EpisodeId, new TimeRange(BlackStart, Duration))], SegmentSource.BlackFrame);
+        var standing = Assert.Single(await database.GetSegmentsAsync(failing.EpisodeId));
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        var existing = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId), segment => segment.Type == AnalysisMode.Credits);
-        Assert.Equal((700, 720), (existing.ToSegment().Start, existing.ToSegment().End));
-        Assert.Equal(EpisodeState.AnalysisFailed, episode.GetAnalyzed(AnalysisMode.Credits));
-        Assert.Equal(2, ffmpeg.KeyframeScanCalls);
+        var kept = Assert.Single(await database.GetSegmentsAsync(failing.EpisodeId));
+        Assert.Equal((standing.Id, SegmentSource.BlackFrame, BlackStart, Duration), (kept.Id, kept.Source, kept.ToSegment().Start, kept.ToSegment().End));
+        Assert.Equal(EpisodeState.AnalysisFailed, failing.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
+    }
+
+    // A settled sibling is rescanned for a Chromaprint candidate reaching outside its stored
+    // credits. When that rescan fails, writing the candidate alone would lose the roll's tail, so
+    // the roll stays and the sibling is still settled. The failed keyframe scan is attempted even
+    // though its boundary probe never runs.
+    [Fact]
+    public async Task SettledSibling_WhoseKeyframeScanFails_KeepsItsStoredCredits()
+    {
+        using var scope = Scope();
+        var failScans = false;
+        var (episodes, ffmpeg, database) = CreateSeason(scanFailure: episode => failScans && episode.EpisodeNumber == 1 ? new InvalidOperationException("scan failed") : null);
+        var cache = DatabaseTestHelpers.CreateTempCacheService();
+        await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits, [new Segment(episodes[0].EpisodeId, new TimeRange(BlackStart, Duration))], SegmentSource.BlackFrame);
+        var roll = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        await CacheFingerprintsAsync(cache, ffmpeg, episodes);
+        episodes.Add(Episode(episodes[0].SeasonId, 3));
+        failScans = true;
+
+        await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var kept = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((roll.Id, SegmentSource.BlackFrame, BlackStart, Duration), (kept.Id, kept.Source, kept.ToSegment().Start, kept.ToSegment().End));
+        Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).Source);
+        Assert.Equal(4, ffmpeg.KeyframeScanCalls);
+
+        // Both runs: two scans in the first; in the second, the new episode probes while the
+        // settled sibling's failing scan stops before its boundary probe.
+        Assert.Equal(
+            [RollProbe, RollProbe, RollProbe],
+            ffmpeg.Calls);
     }
 
     [Theory]
@@ -623,8 +674,8 @@ public sealed class TestCreditsPass
     public async Task BoundaryProbeFailureOnAnyAcceptedScene_FailsTheEpisode(double failingSceneStart)
     {
         // A roll from 950 sits beside an accepted scene from 800 to 830, and both get the boundary
-        // probe. A probe that throws fails the episode whichever scene it belongs to, so nothing is
-        // written and the next scan retries.
+        // probe. A probe that throws fails the scan whichever scene it belongs to; with no other
+        // candidate nothing is written and the next pass retries.
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(
             [(800, 830, 100, KeyframeVisuals.Black), (BlackStart, Duration, 100, KeyframeVisuals.Black)],

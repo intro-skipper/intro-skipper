@@ -140,26 +140,6 @@ public sealed class TestSeasonReanalysisPlanner
         Assert.Equal(expected, SeasonReanalysisPlanner.GetSettleReanalysisModes(states, [Guid.NewGuid()], [mode], ffmpegValid).Contains(mode));
     }
 
-    [Fact]
-    public void ExpandSettledResetModesForDerivedSegments_AddsPreview_WhenCreditsGenerateAnimePreview()
-    {
-        var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
-
-        Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], resetModes);
-    }
-
-    [Fact]
-    public void ExpandSettledResetModesForDerivedSegments_DoesNotAddPreview_WhenDisabledOrAlreadyPresent()
-    {
-        var disabled = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], false);
-        var alreadyPresent = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
-            [AnalysisMode.Credits, AnalysisMode.Preview],
-            true);
-
-        Assert.Equal([AnalysisMode.Credits], disabled);
-        Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], alreadyPresent);
-    }
-
     private static List<QueuedEpisode> Season(
         int count,
         DateTime newestAdded,
@@ -265,9 +245,9 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             // Automatic recap on the same episode: a mode outside the reset, preserved.
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Recap, TickConversions.FromSeconds(40), TickConversions.FromSeconds(60), SegmentSource.Chapter));
 
-            // Automatic credits and the preview derived from them: both deleted, the
-            // preview through the derived-mode expansion. A subtitle preview is retained
-            // until its analyzer finishes, and the user preview is preserved.
+            // Automatic credits and the preview derived from them: both deleted, since
+            // Credits and Preview are both reset. A subtitle preview is retained until its
+            // analyzer finishes, and the user preview is preserved.
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Credits, TickConversions.FromSeconds(1000), TickConversions.FromSeconds(1100), SegmentSource.Chapter));
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Preview, TickConversions.FromSeconds(1100), TickConversions.FromSeconds(1320), SegmentSource.CreditsDerived));
             db.Segments.Add(new DbSegment(autoEpisode, AnalysisMode.Preview, TickConversions.FromSeconds(1060), TickConversions.FromSeconds(1090), SegmentSource.Subtitle));
@@ -291,13 +271,9 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
         DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath).Upsert(autoEpisode, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
 
-        IReadOnlyCollection<AnalysisMode> resetModes = [
-            AnalysisMode.Introduction,
-            .. SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true)
-        ];
         await _db.Database.ResetItemsForReanalysisAsync(
             [autoEpisode, userEpisode, mixedEpisode, userPreviewEpisode],
-            resetModes,
+            [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Preview],
             preserveSubtitleModes: [AnalysisMode.Preview]);
 
         // The reset reuses the cached fingerprints; only the derived results go.
@@ -934,6 +910,88 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(205, TickConversions.ToSeconds(preview.StartTicks), 1);
     }
 
+    // A settled season derives its previews from the credits end, and every episode's credits
+    // were set by hand, so its Credits mode analyzes nothing. Even with ScanPreview off or a
+    // Preview None action, a completed Credits reset must refresh derived previews from those
+    // user-provided credits.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnalyzeItemsAsync_SettledCreditsResetOverUserCredits_RefreshesDerivedPreviews(bool scanPreviewOnWithPreviewNone)
+    {
+        var config = SettledCreditsConfig(scanPreview: scanPreviewOnWithPreviewNone);
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, episodeCount: SeasonReanalysisPlanner.MinimumEpisodes);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: true, null, null);
+        if (scanPreviewOnWithPreviewNone)
+        {
+            await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Preview] = AnalyzerAction.None });
+        }
+
+        foreach (var id in fixture.EpisodeIds)
+        {
+            await database.SeedUserSegmentAsync(id, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(150), DatabaseTestHelpers.Ticks(190));
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, new TimeRange(170, 240))], SegmentSource.CreditsDerived);
+        }
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false });
+
+        await AssertSettledCreditsRecordedAsync(database, fixture);
+        foreach (var id in fixture.EpisodeIds)
+        {
+            var preview = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview);
+            Assert.Equal((SegmentSource.CreditsDerived, 190.0, 240.0), (preview.Source, preview.ToSegment().Start, preview.ToSegment().End));
+        }
+    }
+
+    // With ScanPreview off, the derive after the credits pass is all that keeps derived previews
+    // current. A settled Credits reset that finds the credits somewhere new, here a credits
+    // chapter, moves each derived preview to the new credits end and leaves a chapter preview.
+    [Fact]
+    public async Task AnalyzeItemsAsync_SettledCreditsResetWithScanPreviewOff_MovesDerivedPreviewsToTheNewCreditsEnd()
+    {
+        var config = SettledCreditsConfig(scanPreview: false);
+        ChapterInfo[] chapters =
+        [
+            new() { Name = "Episode", StartPositionTicks = 0 },
+            new() { Name = "Ending", StartPositionTicks = DatabaseTestHelpers.Ticks(180) },
+            new() { Name = "Epilogue", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
+        ];
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, chapters, SeasonReanalysisPlanner.MinimumEpisodes);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: true, null, null);
+        var creditsHash = ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: false, previewFromCreditsEndOverride: true);
+        var chapterPreviewEpisode = fixture.EpisodeIds[0];
+        foreach (var id in fixture.EpisodeIds)
+        {
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Credits, [new Segment(id, new TimeRange(150, 170))], SegmentSource.Chromaprint, creditsHash);
+            var (preview, source) = id == chapterPreviewEpisode ? (new TimeRange(215, 240), SegmentSource.Chapter) : (new TimeRange(170, 240), SegmentSource.CreditsDerived);
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, preview)], source);
+        }
+
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [.. fixture.EpisodeIds.Select(id => (id, (long?)2))], creditsHash);
+        var chapterPreviewId = Assert.Single(await database.GetSegmentsAsync(chapterPreviewEpisode), s => s.Type == AnalysisMode.Preview).Id;
+
+        await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false, KeyFrames = (_, _, _) => [], Silence = (_, _, _) => [] });
+
+        await AssertSettledCreditsRecordedAsync(database, fixture);
+        foreach (var id in fixture.EpisodeIds)
+        {
+            var rows = await database.GetSegmentsAsync(id);
+            var credits = Assert.Single(rows, s => s.Type == AnalysisMode.Credits).ToSegment();
+            Assert.Equal((180, 210), (credits.Start, credits.End));
+            var preview = Assert.Single(rows, s => s.Type == AnalysisMode.Preview);
+            if (id == chapterPreviewEpisode)
+            {
+                Assert.Equal((chapterPreviewId, SegmentSource.Chapter), (preview.Id, preview.Source));
+            }
+            else
+            {
+                Assert.Equal((SegmentSource.CreditsDerived, 210.0, 240.0), (preview.Source, preview.ToSegment().Start, preview.ToSegment().End));
+            }
+        }
+    }
+
     // A season override turns subtitle recap detection on against the plugin-wide setting.
     // The first pass reads the subtitles once and the next one settles without reading them
     // again. Clearing the override returns the season to the plugin-wide setting, and Recap is
@@ -1179,6 +1237,24 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         SnapToKeyframe = false,
     };
 
+    // Scans Credits, and Preview when asked, and reanalyzes settled seasons.
+    private static PluginConfiguration SettledCreditsConfig(bool scanPreview) => new()
+    {
+        ScanIntroduction = false,
+        ScanCredits = true,
+        ScanRecap = false,
+        ScanPreview = scanPreview,
+        ScanCommercial = false,
+        ReanalyzeSettledSeasons = true,
+    };
+
+    // The settled-season reset ran for Credits and recorded the season's episode set.
+    private static async Task AssertSettledCreditsRecordedAsync(IntroSkipperDatabase database, VerifyQueueFixture fixture)
+    {
+        var states = await database.GetSettleReanalysisStatesAsync(fixture.SeasonId);
+        Assert.True(states[AnalysisMode.Credits].SettledReanalysisEpisodeIds.SetEquals(fixture.EpisodeIds));
+    }
+
     // A recap chapter from 10 to 100 s.
     private static ChapterInfo[] RecapChapters() =>
     [
@@ -1240,28 +1316,35 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     /// <summary>
-    /// One queued episode, four minutes long, whose media file exists on disk, the only item
-    /// of one library in the plugin instance's library manager, over a fresh segment
-    /// database. The file version is the write time Jellyfin holds for the episode, in ticks.
-    /// The episode has the given chapters, or none.
+    /// One season of queued episodes, one by default, each four minutes long with its media
+    /// file on disk and no creation date, so a season of three counts as settled. They are
+    /// the only items of one library in the plugin instance's library manager, over a fresh
+    /// segment database. The file version is the write time Jellyfin holds for each episode,
+    /// in ticks. Every episode has the given chapters, or none.
     /// </summary>
     private sealed class VerifyQueueFixture : IDisposable
     {
         private readonly TempSegmentDb _db = new();
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
-        private readonly string _mediaPath;
+        private readonly string[] _mediaPaths;
         private readonly Episode _episode;
         private readonly List<string> _sidecars = [];
 
-        public VerifyQueueFixture(PluginConfiguration config, long fileVersion = 0, ChapterInfo[]? chapters = null)
+        public VerifyQueueFixture(PluginConfiguration config, long fileVersion = 0, ChapterInfo[]? chapters = null, int episodeCount = 1)
         {
-            _mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
-            File.WriteAllText(_mediaPath, string.Empty);
-
             _scope = EntrypointTestHelpers.CreatePluginScope(config, chapters ?? []);
-            _episode = JellyfinItems.Episode(EpisodeId, Guid.NewGuid(), SeasonId, path: _mediaPath);
-            _episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
-            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(_episode));
+            EpisodeIds = [.. Enumerable.Range(0, episodeCount).Select(_ => Guid.NewGuid())];
+            _mediaPaths = [.. EpisodeIds.Select(_ => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv"))];
+            var seriesId = Guid.NewGuid();
+            Episode[] episodes = [.. EpisodeIds.Select((id, index) =>
+            {
+                File.WriteAllText(_mediaPaths[index], string.Empty);
+                var episode = JellyfinItems.Episode(id, seriesId, SeasonId, path: _mediaPaths[index], episodeNumber: index + 1);
+                episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
+                return episode;
+            })];
+            _episode = episodes[0];
+            LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episodes));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", LibraryManager);
         }
 
@@ -1271,7 +1354,10 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         public Guid SeasonId { get; } = Guid.NewGuid();
 
-        public Guid EpisodeId { get; } = Guid.NewGuid();
+        public IReadOnlyList<Guid> EpisodeIds { get; }
+
+        // The first episode, the only one by default.
+        public Guid EpisodeId => EpisodeIds[0];
 
         public IntroSkipperDatabase CreateDatabase() => _db.CreateDatabase();
 
@@ -1281,8 +1367,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         public string WriteSidecar(string suffix, string text, bool inMetadataFolder = false)
         {
             var path = inMetadataFolder
-                ? Path.Join(Directory.CreateDirectory(_episode.GetInternalMetadataPath()).FullName, Path.GetFileNameWithoutExtension(_mediaPath) + suffix)
-                : Path.ChangeExtension(_mediaPath, suffix);
+                ? Path.Join(Directory.CreateDirectory(_episode.GetInternalMetadataPath()).FullName, Path.GetFileNameWithoutExtension(_mediaPaths[0]) + suffix)
+                : Path.ChangeExtension(_mediaPaths[0], suffix);
             File.WriteAllText(path, text);
             _sidecars.Add(path);
             return path;
@@ -1332,7 +1418,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         public void Dispose()
         {
             _scope.Dispose();
-            File.Delete(_mediaPath);
+            Array.ForEach(_mediaPaths, File.Delete);
             _sidecars.ForEach(File.Delete);
             if (Directory.Exists(_episode.GetInternalMetadataPath()))
             {
