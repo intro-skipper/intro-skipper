@@ -275,8 +275,8 @@ internal static class EntrypointTestHelpers
             return proxy;
         }
 
-        public static ILibraryManager Create(List<VirtualFolderInfo> folders, IReadOnlyList<BaseItem> items, LibraryOptions? libraryOptions = null)
-            => Create(folders, query => Filter(items, query), id => items.FirstOrDefault(item => item.Id == id), libraryOptions);
+        public static ILibraryManager Create(List<VirtualFolderInfo> folders, IReadOnlyList<BaseItem> items, LibraryOptions? libraryOptions = null, Func<BaseItem, List<Folder>>? getCollectionFolders = null)
+            => Create(folders, query => Filter(items, query), id => items.FirstOrDefault(item => item.Id == id), libraryOptions, getCollectionFolders);
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {

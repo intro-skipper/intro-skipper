@@ -304,6 +304,11 @@ public class IntroSkipperDbContext : DbContext
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
+        var remoteJobs = new List<DbRemoteJob>();
+        var remoteNodes = new List<DbRemoteNode>();
+        var remoteImportReceipts = new List<DbRemoteImportReceipt>();
+        var remoteAnalysisMetadata = new List<DbRemoteAnalysisMetadata>();
+        var remoteExportContexts = new List<DbRemoteExportContext>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -330,6 +335,11 @@ public class IntroSkipperDbContext : DbContext
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteJobs = await db.RemoteJobs.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteNodes = await db.RemoteNodes.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteImportReceipts = await db.RemoteImportReceipts.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteAnalysisMetadata = await db.RemoteAnalysisMetadata.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                remoteExportContexts = await db.RemoteExportContexts.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -375,6 +385,11 @@ public class IntroSkipperDbContext : DbContext
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
+        remoteJobs = [.. remoteJobs.DistinctBy(job => job.Id)];
+        remoteNodes = [.. remoteNodes.DistinctBy(node => node.NodeId)];
+        remoteImportReceipts = [.. remoteImportReceipts.DistinctBy(receipt => (receipt.AnalysisId, receipt.ItemId, receipt.Mode))];
+        remoteAnalysisMetadata = [.. remoteAnalysisMetadata.DistinctBy(metadata => (metadata.ItemId, metadata.Mode))];
+        remoteExportContexts = [.. remoteExportContexts.DistinctBy(context => context.Id)];
 
         if (backupFailed)
         {
@@ -416,6 +431,11 @@ public class IntroSkipperDbContext : DbContext
                 await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteNodes, remoteNodes, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteJobs, remoteJobs, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteImportReceipts, remoteImportReceipts, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteAnalysisMetadata, remoteAnalysisMetadata, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.RemoteExportContexts, remoteExportContexts, cancellationToken).ConfigureAwait(false);
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }

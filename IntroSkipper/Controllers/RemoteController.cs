@@ -311,7 +311,13 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
         }
 
         var node = await _database.SetRemoteNodeEnabledAsync(nodeId, read.Value.Enabled, cancellationToken).ConfigureAwait(false);
-        return node is null ? NotFound() : Wire(node);
+        if (node is null)
+        {
+            return NotFound();
+        }
+
+        _notifier?.Publish();
+        return Wire(node);
     }
 
     /// <summary>
@@ -481,7 +487,16 @@ public sealed class RemoteController(IntroSkipperDatabase database, IServerAppli
 
         try
         {
-            return Wire(await _database.ReviewRemoteResultsAsync(jobId, request, cancellationToken).ConfigureAwait(false));
+            var receipts = await _database.ReviewRemoteResultsAsync(jobId, request, cancellationToken).ConfigureAwait(false);
+            if (_scheduler is not null)
+            {
+                foreach (var itemId in receipts.Where(receipt => receipt.Outcome == "Accepted" && receipt.Mode is RemoteAnalysisMode.Introduction or RemoteAnalysisMode.Credits).Select(receipt => receipt.ItemId).Distinct())
+                {
+                    _ = _scheduler.ItemChangedAsync(itemId);
+                }
+            }
+
+            return Wire(receipts);
         }
         catch (InvalidDataException exception)
         {

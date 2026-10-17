@@ -264,7 +264,7 @@ public sealed partial class IntroSkipperDatabase
                 AttemptId = current.AttemptId,
                 LeaseToken = token,
                 LeaseGeneration = current.LeaseGeneration,
-                LeaseExpiresUtc = new DateTimeOffset(current.LeaseExpiresUtc.Value),
+                LeaseExpiresUtc = new DateTimeOffset(DateTime.SpecifyKind(current.LeaseExpiresUtc.Value, DateTimeKind.Utc)),
             };
             return snapshot;
         }

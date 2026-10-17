@@ -295,6 +295,8 @@ public partial class BaseItemAnalyzerTask(
         // The season-state snapshot serves the settle decision and every mode's analyzer action.
         if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
         {
+            var remoteNodes = _remoteAnalysisDispatcher is null
+                ? [] : await _database.GetEnabledRemoteNodesAsync(cancellationToken).ConfigureAwait(false);
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
             {
@@ -307,21 +309,22 @@ public partial class BaseItemAnalyzerTask(
                 // to Jellyfin even if the recompute finds nothing.
                 foreach (var resetMode in resetModes)
                 {
-                    var localResetIds = episodes
-                        .Where(episode => IsLocallyEligible(localNode, episode, resetMode))
+                    var resetIds = episodes
+                        .Where(episode => IsLocallyEligible(localNode, episode, resetMode)
+                            || remoteNodes.Any(node => RemoteAnalysisDispatcher.NodeOwns(node, episode, RemoteModes.ToRemote(resetMode))))
                         .Select(episode => episode.EpisodeId)
                         .ToArray();
-                    if (localResetIds.Length == 0)
+                    if (resetIds.Length == 0)
                     {
                         continue;
                     }
 
                     await _database.ResetItemsForReanalysisAsync(
-                        localResetIds,
+                        resetIds,
                         [resetMode],
                         GetSubtitleModesToPreserve([resetMode], seasonStates, episodes),
                         cancellationToken).ConfigureAwait(false);
-                    foreach (var episode in episodes.Where(episode => localResetIds.Contains(episode.EpisodeId)))
+                    foreach (var episode in episodes.Where(episode => resetIds.Contains(episode.EpisodeId)))
                     {
                         if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
                         {
@@ -347,12 +350,6 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var remoteOwnedByMode = new Dictionary<AnalysisMode, IReadOnlySet<Guid>>(modes.Count);
-        foreach (var mode in modes)
-        {
-            var action = seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default;
-            remoteOwnedByMode[mode] = await QueueRemoteAnalysisAsync(readable, mode, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
-        }
-
         var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
         try
@@ -360,10 +357,21 @@ public partial class BaseItemAnalyzerTask(
             foreach (var mode in modes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var action = seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default;
+                var pendingContext = readable.Where(item => IsRemotelyOwned(remoteOwnedByMode, AnalysisMode.Introduction, item.EpisodeId)
+                    || IsRemotelyOwned(remoteOwnedByMode, AnalysisMode.Credits, item.EpisodeId)).Select(item => item.EpisodeId).ToHashSet();
+                // Recap compares the full season; Preview only reads its own item's context.
+                var ready = mode switch
+                {
+                    AnalysisMode.Recap when pendingContext.Count > 0 => [],
+                    AnalysisMode.Preview => readable.Where(item => !pendingContext.Contains(item.EpisodeId)).ToArray(),
+                    _ => readable,
+                };
+                remoteOwnedByMode[mode] = await QueueRemoteAnalysisAsync(ready, mode, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
                 var locallyHandled = await AnalyzeItemsLocallyAsync(
-                    readable,
+                    ready,
                     mode,
-                    seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
+                    action,
                     ffmpegValid,
                     localNode,
                     remoteOwnedByMode[mode],
@@ -375,7 +383,7 @@ public partial class BaseItemAnalyzerTask(
                 // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
                 // regenerated as a side effect of its source mode's analysis, so its completion rides on
                 // the source mode's record and is intentionally not tracked separately here.
-                if (locallyHandled && settledResetModes.Contains(mode))
+                if (ready.Count == readable.Count && (locallyHandled || remoteOwnedByMode[mode].Count > 0) && settledResetModes.Contains(mode))
                 {
                     completedSettledModes.Add(mode);
                 }
@@ -720,6 +728,12 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var creditsPass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, AnalysisEnvironment ?? new PluginAnalysisEnvironment());
+        var configHash = GetAnalysisConfigHash(localCredits[0], AnalysisMode.Credits, action, ffmpegValid);
+        foreach (var item in localCredits)
+        {
+            item.AnalysisConfigHash = configHash;
+        }
+
         return await creditsPass.SettleChaptersAsync(localCredits, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
     }
 
@@ -896,14 +910,12 @@ public partial class BaseItemAnalyzerTask(
                 mode == AnalysisMode.Recap ? [.. subtitleOnlyItems.Where(item => item.NeedsSubtitleOnlyReanalysis(mode))] : null).ConfigureAwait(false);
         }
 
-        // Credits-derived previews are generated right after a credits result lands, and again
-        // in the Preview mode for episodes no preview analyzer settled, since a season whose
-        // credits are all user-provided never enters the credits pass but its derived previews
-        // still go stale when the preview settings change.
+        // Managed runs derive in Preview after its remote ownership is known. Legacy runs
+        // also derive after Credits; Preview still refreshes user-provided credits context.
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
         if (previewFromCreditsEnd)
         {
-            if (mode == AnalysisMode.Credits)
+            if (mode == AnalysisMode.Credits && _remoteAnalysisDispatcher is null)
             {
                 var derivedItems = localItems.Where(item => IsLocallyEligible(localNode, item, AnalysisMode.Preview)
                     && !IsRemotelyOwned(remoteOwnedByMode, AnalysisMode.Preview, item.EpisodeId)).ToArray();

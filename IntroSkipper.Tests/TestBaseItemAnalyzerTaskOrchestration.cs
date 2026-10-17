@@ -84,7 +84,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             Assert.Equal(0, ffmpeg.FingerprintCalls);
             Assert.Equal(0, subtitleCalls);
             Assert.Equal(
-                [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview, AnalysisMode.Commercial],
+                [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Commercial],
                 dispatcher.QueuedModes);
             var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
             Assert.Empty(snapshot.AnalysisRecords);
@@ -194,6 +194,41 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         Assert.Equal([episode.EpisodeId], dispatcher.QueuedIds);
         var snapshot = await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]);
         Assert.False(snapshot.AnalysisRecords.ContainsKey((episode.EpisodeId, AnalysisMode.Introduction)));
+    }
+
+    [Fact]
+    public async Task CreditsChapterPrepass_StampsHashAndAllowsLaterStaleCleanup()
+    {
+        var config = new PluginConfiguration
+        {
+            ChapterAnalyzerEndCreditsPattern = "Credits",
+            EnableSponsorBlockChapterDetection = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = CreditsEpisode(1);
+        episode.Chapters = [new ChapterInfo { Name = "Credits", StartPositionTicks = DatabaseTestHelpers.Ticks(1200) }];
+        using (EntrypointTestHelpers.CreatePluginScope(config))
+        {
+            await CreateTask(new StubFFmpegService(), database).AnalyzeItemsAsync([episode], AnalysisMode.Credits, AnalyzerAction.Default, false, CancellationToken.None);
+        }
+
+        var row = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+        Assert.Equal(ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, false), row.ConfigHash);
+        Assert.False(string.IsNullOrEmpty(row.ConfigHash));
+        episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.NotAnalyzed);
+        using (EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration
+        {
+            ChapterAnalyzerEndCreditsPattern = "Unmatched",
+            EnableSponsorBlockChapterDetection = false,
+        }))
+        {
+            await CreateTask(new StubFFmpegService { KeyframeScan = (_, _) => [] }, database)
+                .AnalyzeItemsAsync([episode], AnalysisMode.Credits, AnalyzerAction.Default, false, CancellationToken.None);
+        }
+
+        Assert.Empty(await database.GetSegmentsAsync(episode.EpisodeId));
     }
 
     // Enabling subtitle detection reuses the Chromaprint recap and rescans only subtitles.

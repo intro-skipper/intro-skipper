@@ -51,23 +51,6 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
         {
             var node = assignment.First().Node!;
             var selected = assignment.Select(value => value.Target).ToArray();
-            var prerequisite = mode switch
-            {
-                PluginMode.Recap => PluginMode.Introduction,
-                PluginMode.Preview => PluginMode.Credits,
-                _ => (PluginMode?)null,
-            };
-            var deferred = prerequisite is { } dependency
-                ? selected.Where(item => item.NeedsAnalysis(dependency) && nodes.Any(source => NodeOwns(source, item, ToRemoteMode(dependency)))).ToArray()
-                : [];
-            // The prerequisite already has durable ownership; its import schedules a fresh pass.
-            remotelyOwned.UnionWith(deferred.Select(item => item.EpisodeId));
-            selected = selected.Except(deferred).ToArray();
-            if (selected.Length == 0)
-            {
-                continue;
-            }
-
             var recipe = node.Runtime?.CreditsRecipes.FirstOrDefault(recipe => recipe.Method == node.CreditsMethod && recipe.UseGpu == (node.Policy?.UseGpu ?? false));
             if (mode == PluginMode.Credits && node.Policy is not null && recipe is null)
             {
@@ -169,7 +152,7 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
         return remotelyOwned;
     }
 
-    private static bool NodeOwns(RemoteNodeInfo node, QueuedEpisode item, RemoteMode mode)
+    internal static bool NodeOwns(RemoteNodeInfo node, QueuedEpisode item, RemoteMode mode)
     {
         var owner = Plugin.Instance?.GetItem(item.SeriesId == Guid.Empty ? item.EpisodeId : item.SeriesId);
         return !node.IsLocal && node.Modes.Contains(mode)

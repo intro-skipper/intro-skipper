@@ -1427,7 +1427,7 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
     [InlineData(PluginMode.Recap, false)]
     [InlineData(PluginMode.Preview, true)]
     [InlineData(PluginMode.Preview, false)]
-    public async Task RemotePrerequisite_DefersOnlyWhenPrerequisiteIsRemotelyOwned(PluginMode mode, bool remoteOwnsPrerequisite)
+    public async Task ConfiguredPrerequisite_WithoutDurableJob_DoesNotDefer(PluginMode mode, bool remoteOwnsPrerequisite)
     {
         var itemId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -1471,19 +1471,18 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
 
         var dispatcher = new RemoteAnalysisDispatcher(_harness.Database, RemoteHostProxy.Create());
         var target = CreateQueuedEpisode(itemId, seasonId, seriesId, "0");
+        if (remoteOwnsPrerequisite && mode == PluginMode.Recap)
+        {
+            var references = Enumerable.Range(0, 100).Select(_ => CreateQueuedEpisode(Guid.NewGuid(), seasonId, seriesId, "0")).ToArray();
+            Assert.Empty(await dispatcher.QueueAsync([target], references, PluginMode.Introduction, default));
+        }
+
         var remotelyOwned = await dispatcher.QueueAsync([target], [], mode, default);
 
         Assert.Contains(itemId, remotelyOwned);
         var lease = await _harness.Database.ClaimRemoteJobAsync(registered.NodeId, TimeSpan.FromMinutes(1), default);
-        if (remoteOwnsPrerequisite)
-        {
-            Assert.Null(lease);
-        }
-        else
-        {
-            Assert.NotNull(lease);
-            Assert.Equal(targetMode, Assert.Single(lease.Modes));
-        }
+        Assert.NotNull(lease);
+        Assert.Equal(targetMode, Assert.Single(lease.Modes));
     }
 
     [Theory]
@@ -1816,7 +1815,7 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
                 : [],
         };
 
-    private class RemoteHostProxy : DispatchProxy
+    internal class RemoteHostProxy : DispatchProxy
     {
         private string _systemId = string.Empty;
 
