@@ -319,6 +319,37 @@ public partial class BaseItemAnalyzerTask(
             LogFfmpegTimeoutDuringAnalysis(_logger, ex);
         }
 
+        // A Credits reset can change the source of derived previews even when every Credits
+        // result is user-provided, so no episode reopens Credits for AnalyzeItemsAsync. Refresh
+        // after all analyzer modes have had a chance to produce credits and Preview rows.
+        if (completedSettledModes.Contains(AnalysisMode.Credits) && previewFromCreditsEnd)
+        {
+            var creditsAction = seasonStates.TryGetValue(AnalysisMode.Credits, out var creditsState)
+                ? creditsState.Action
+                : AnalyzerAction.Default;
+            var creditsHash = ConfigHasher.Analysis(
+                Config,
+                AnalysisMode.Credits,
+                creditsAction,
+                ffmpegValid,
+                first.AnalysisPercentOverride,
+                first.AnalysisLengthLimitOverride,
+                previewFromCreditsEnd,
+                first.SubtitleRecapDetectionOverride,
+                first.SubtitlePreviewDetectionOverride,
+                chapterSource: first.ChaptersSource);
+            foreach (var episode in readable)
+            {
+                episode.AnalysisConfigHash = creditsHash;
+            }
+
+            await AnimePreviewDeriver.DeriveAsync(
+                _database,
+                readable,
+                Config.MinimumPreviewDuration,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         // No mirror push here: every write above journaled its item's projection
         // with the change, and the projection worker converges Jellyfin durably.
         if (completedSettledModes.Count > 0)
@@ -683,11 +714,18 @@ public partial class BaseItemAnalyzerTask(
         // subtitle detection active, the chain cleans up after itself instead.
         var cleanableItems = conventionalItems
             .Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is null);
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            cleanableItems.Select(item => item.EpisodeId),
-            mode,
-            configHash,
-            cancellationToken).ConfigureAwait(false);
+        var cleanableItemsSnapshot = cleanableItems.ToArray();
+        // Credits must inspect standing rows when a keyframe scan fails, even if those rows
+        // were written under an older hash. Clean only after a result settles; failed episodes
+        // retain their prior credits for the next pass.
+        if (mode != AnalysisMode.Credits)
+        {
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                cleanableItemsSnapshot.Select(item => item.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
@@ -702,6 +740,14 @@ public partial class BaseItemAnalyzerTask(
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                cleanableItemsSnapshot
+                    .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
+                    .Select(item => item.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
         }
         else if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {

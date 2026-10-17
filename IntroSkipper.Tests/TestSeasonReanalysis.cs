@@ -911,13 +911,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     // A settled season derives its previews from the credits end, and every episode's credits
-    // were set by hand, so its Credits mode analyzes nothing and never runs the derive. With
-    // ScanPreview off, or on under a Preview None action, no pass rebuilds a derived preview, so
-    // the settled Credits reset must leave them standing.
+    // were set by hand, so its Credits mode analyzes nothing. Even with ScanPreview off or a
+    // Preview None action, a completed Credits reset must refresh derived previews from those
+    // user-provided credits.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task AnalyzeItemsAsync_SettledCreditsResetOverUserCredits_KeepsDerivedPreviews(bool scanPreviewOnWithPreviewNone)
+    public async Task AnalyzeItemsAsync_SettledCreditsResetOverUserCredits_RefreshesDerivedPreviews(bool scanPreviewOnWithPreviewNone)
     {
         var config = SettledCreditsConfig(scanPreview: scanPreviewOnWithPreviewNone);
         using var fixture = new VerifyQueueFixture(config, fileVersion: 2, episodeCount: SeasonReanalysisPlanner.MinimumEpisodes);
@@ -928,12 +928,10 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             await database.SetAnalyzerActionAsync(fixture.SeasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Preview] = AnalyzerAction.None });
         }
 
-        var previewIds = new Dictionary<Guid, Guid>();
         foreach (var id in fixture.EpisodeIds)
         {
-            await database.SeedUserSegmentAsync(id, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(150), DatabaseTestHelpers.Ticks(170));
+            await database.SeedUserSegmentAsync(id, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(150), DatabaseTestHelpers.Ticks(190));
             await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, new TimeRange(170, 240))], SegmentSource.CreditsDerived);
-            previewIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview).Id;
         }
 
         await fixture.AnalyzeAsync(new StubFFmpegService { VersionCheck = () => false });
@@ -941,7 +939,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         await AssertSettledCreditsRecordedAsync(database, fixture);
         foreach (var id in fixture.EpisodeIds)
         {
-            Assert.Equal(previewIds[id], Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview).Id);
+            var preview = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview);
+            Assert.Equal((SegmentSource.CreditsDerived, 190.0, 240.0), (preview.Source, preview.ToSegment().Start, preview.ToSegment().End));
         }
     }
 
@@ -1337,13 +1336,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             EpisodeIds = [.. Enumerable.Range(0, episodeCount).Select(_ => Guid.NewGuid())];
             _mediaPaths = [.. EpisodeIds.Select(_ => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv"))];
             var seriesId = Guid.NewGuid();
-            var episodes = EpisodeIds.Select((id, index) =>
+            Episode[] episodes = [.. EpisodeIds.Select((id, index) =>
             {
                 File.WriteAllText(_mediaPaths[index], string.Empty);
                 var episode = JellyfinItems.Episode(id, seriesId, SeasonId, path: _mediaPaths[index], episodeNumber: index + 1);
                 episode.DateModified = new DateTime(fileVersion, DateTimeKind.Utc);
                 return episode;
-            }).ToArray();
+            })];
             _episode = episodes[0];
             LibraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episodes));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", LibraryManager);

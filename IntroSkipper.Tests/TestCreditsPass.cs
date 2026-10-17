@@ -548,7 +548,8 @@ public sealed class TestCreditsPass
 
     // A settled sibling is rescanned for a Chromaprint candidate reaching outside its stored
     // credits. When that rescan fails, writing the candidate alone would lose the roll's tail, so
-    // the roll stays and the sibling is still settled, with no scan of its own.
+    // the roll stays and the sibling is still settled. The failed keyframe scan is attempted even
+    // though its boundary probe never runs.
     [Fact]
     public async Task SettledSibling_WhoseKeyframeScanFails_KeepsItsStoredCredits()
     {
@@ -570,8 +571,10 @@ public sealed class TestCreditsPass
         Assert.Equal((roll.Id, SegmentSource.BlackFrame, BlackStart, Duration), (kept.Id, kept.Source, kept.ToSegment().Start, kept.ToSegment().End));
         Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).Source);
+        Assert.Equal(4, ffmpeg.KeyframeScanCalls);
 
-        // Both runs: two episodes in the first; in the second only the new episode probes.
+        // Both runs: two scans in the first; in the second, the new episode probes while the
+        // settled sibling's failing scan stops before its boundary probe.
         Assert.Equal(
             [RollProbe, RollProbe, RollProbe],
             ffmpeg.Calls);

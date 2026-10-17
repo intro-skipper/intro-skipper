@@ -178,7 +178,15 @@ internal sealed partial class ChromaprintAnalyzer(
             }
             catch (FingerprintException ex)
             {
-                LogCaughtFingerprintError(ex);
+                if (ex.InnerException is TimeoutException)
+                {
+                    LogFingerprintTimeout(ex, episode.Name);
+                }
+                else
+                {
+                    LogCaughtFingerprintError(ex);
+                }
+
                 WarningManager.RecordFingerprintFailure(ex.Message);
 
                 // Keep a transient fingerprint failure retriable. A completed neighbor may be
@@ -621,6 +629,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
     private partial void LogCaughtFingerprintError(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint fingerprint scan for {Episode} timed out. " + FFmpegProcessRunner.ScanTimeoutHint)]
+    private partial void LogFingerprintTimeout(Exception exception, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);

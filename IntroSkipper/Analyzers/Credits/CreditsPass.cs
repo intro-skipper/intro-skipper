@@ -124,7 +124,7 @@ internal sealed partial class CreditsPass(
                 // The season-wide comparison failed as a whole; the other analyzers still
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
-                LogChromaprintComparisonFailed(ex);
+                LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
@@ -315,7 +315,9 @@ internal sealed partial class CreditsPass(
     /// raises the timeout. The season-level timeout warning shares it. Empty for any other failure.
     /// </summary>
     private static string TimeoutHint(Exception ex) =>
-        ex is TimeoutException ? ". " + FFmpegProcessRunner.ScanTimeoutHint : string.Empty;
+        ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
+            ? ". " + FFmpegProcessRunner.ScanTimeoutHint
+            : string.Empty;
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No credits found for {Episode}")]
     private partial void LogNoCreditsFound(string episode);
@@ -329,6 +331,6 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}{Hint}")]
     private partial void LogKeyframeAnalysisFailed(Exception ex, string episode, string hint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers")]
-    private partial void LogChromaprintComparisonFailed(Exception ex);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
+    private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 }
