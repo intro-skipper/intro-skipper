@@ -95,6 +95,27 @@ public sealed class TestConfigHasher
         return data;
     }
 
+    [Fact]
+    public void CreditsAnalysis_IgnoresSelectedRemoteProfilePin()
+    {
+        var first = new PluginConfiguration
+        {
+            RemoteAnalysisEnabled = true,
+            RemoteAnalysisModes = [AnalysisMode.Credits],
+            RemoteCreditsProfileHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        };
+        var second = new PluginConfiguration
+        {
+            RemoteAnalysisEnabled = true,
+            RemoteAnalysisModes = [AnalysisMode.Credits],
+            RemoteCreditsProfileHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        };
+
+        Assert.Equal(
+            ConfigHasher.Analysis(first, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(second, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
     [Theory]
     [InlineData(AnalysisMode.Introduction)]
     [InlineData(AnalysisMode.Credits)]

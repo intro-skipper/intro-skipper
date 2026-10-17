@@ -23,12 +23,14 @@ internal sealed partial class SubtitleAnalyzer(
     ILogger<SubtitleAnalyzer> logger,
     IFFmpegService ffmpegService,
     IntroSkipperDatabase database,
-    PluginConfiguration configuration) : IMediaFileAnalyzer
+    PluginConfiguration configuration,
+    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<SubtitleAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = configuration;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -190,11 +192,11 @@ internal sealed partial class SubtitleAnalyzer(
 
             var recapEnd = cue.Start < introStart
                 ? introStart
-                : Plugin.Instance?.GetChapters(episode.EpisodeId)
+                : _environment.GetChapters(episode.EpisodeId)
                     .Select(chapter => TickConversions.ToSeconds(chapter.StartPositionTicks))
                     .Where(start => start > cue.Start && start < episode.Duration)
                     .OrderBy(start => start)
-                    .FirstOrDefault() ?? 0;
+                    .FirstOrDefault();
             if (recapEnd <= cue.Start)
             {
                 LogSubtitleRecapHasNoEnd(_logger, episode.Name, cue.Start);

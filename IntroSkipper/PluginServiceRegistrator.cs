@@ -8,6 +8,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.Remote;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
@@ -44,6 +45,10 @@ namespace IntroSkipper
             // segment-change worker's startup recovery is the first use at boot.
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
+            serviceCollection.AddSingleton<RemoteAnalysisDispatcher>();
+            serviceCollection.AddSingleton<IRemoteAnalysisDispatcher>(serviceProvider => serviceProvider.GetRequiredService<RemoteAnalysisDispatcher>());
+            serviceCollection.AddSingleton<NodeSettingsNotifier>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<NodeSettingsNotifier>());
 
             // The only thing that runs the analyzer: the scheduled task, the watcher and
             // the dashboard scan enqueue requests here. Registered ahead of the watcher so

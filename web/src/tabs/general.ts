@@ -171,13 +171,6 @@ export const generalTab: Tab = {
                 confirmAdd: confirmPathExclusion,
             }),
             clearExcludedSection,
-            form.checkboxGroup("Analyze for:", [
-                "ScanIntroduction",
-                "ScanCredits",
-                "ScanRecap",
-                "ScanPreview",
-                "ScanCommercial",
-            ]),
             form.field("AnalyzeSeasonZero"),
             form.field("UseFileTransformationPlugin", {
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),

@@ -11,17 +11,186 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using IntroSkipper.Remote;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
+using SegmentScanner.Contracts;
+using TimeRange = IntroSkipper.Data.TimeRange;
 using Xunit;
 using static IntroSkipper.Tests.StubFFmpegService;
 
 public sealed class TestBaseItemAnalyzerTaskOrchestration
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DisabledLocalNode_DispatchesAllModesWithoutLocalWork(bool legacyScanEnabled)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = legacyScanEnabled,
+            ScanCredits = legacyScanEnabled,
+            ScanRecap = legacyScanEnabled,
+            ScanPreview = legacyScanEnabled,
+            ScanCommercial = legacyScanEnabled,
+            EnableSubtitleRecapDetection = true,
+            SubtitleRecapPattern = "Previously",
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { Name = "Credits", StartPositionTicks = DatabaseTestHelpers.Ticks(100) }]);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var seasonId = Guid.NewGuid();
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: mediaPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(episode));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            Assert.True((await database.GetLocalNodeAsync([], CancellationToken.None)).Enabled);
+            await database.UpdateNodePolicyAsync(
+                IntroSkipperDatabase.LocalNodeId,
+                new NodePolicyUpdate(new RemoteNodePolicy { CreditsMethod = CreditsDetectionMethod.IntroSkipper }, false),
+                CancellationToken.None);
+            var subtitleCalls = 0;
+            var ffmpeg = new StubFFmpegService
+            {
+                VersionCheck = () => false,
+                SubtitleCues = _ =>
+                {
+                    subtitleCalls++;
+                    return [];
+                },
+            };
+            var dispatcher = new ReturningRemoteDispatcher();
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                ffmpeg,
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database,
+                dispatcher);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None);
+
+            Assert.Equal(0, ffmpeg.VersionCheckCalls);
+            Assert.Equal(0, ffmpeg.ProbeCalls);
+            Assert.Equal(0, ffmpeg.KeyframeScanCalls);
+            Assert.Equal(0, ffmpeg.FingerprintCalls);
+            Assert.Equal(0, subtitleCalls);
+            Assert.Equal(
+                [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview, AnalysisMode.Commercial],
+                dispatcher.QueuedModes);
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
+            Assert.Empty(snapshot.AnalysisRecords);
+            Assert.Empty(await database.GetSegmentsAsync(episode.Id));
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
+    [Fact]
+    public async Task LocalNode_AnalyzesOnlyItsSelectedModesDespiteLegacyFlags()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = false,
+            ScanCommercial = false,
+            EnableSponsorBlockChapterDetection = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config,
+        [
+            new ChapterInfo { Name = "Opening", StartPositionTicks = DatabaseTestHelpers.Ticks(5) },
+            new ChapterInfo { Name = "Episode", StartPositionTicks = DatabaseTestHelpers.Ticks(30) },
+        ]);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var libraryId = Guid.NewGuid();
+            var seasonId = Guid.NewGuid();
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), Guid.NewGuid(), seasonId, path: mediaPath);
+            var items = JellyfinItems.WithParents(episode);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
+                [JellyfinItems.Folder("Media")],
+                _ => [episode],
+                id => items.FirstOrDefault(item => item.Id == id),
+                getCollectionFolders: _ => [new MediaBrowser.Controller.Entities.Folder { Id = libraryId }]);
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+            await database.UpdateNodePolicyAsync(
+                IntroSkipperDatabase.LocalNodeId,
+                new NodePolicyUpdate(new RemoteNodePolicy
+                {
+                    LibraryIds = [libraryId],
+                    Modes = [RemoteAnalysisMode.Introduction],
+                    CreditsMethod = CreditsDetectionMethod.IntroSkipper,
+                }, true),
+                CancellationToken.None);
+            var dispatcher = new ReturningRemoteDispatcher(claimTargets: false);
+            var ffmpeg = new StubFFmpegService { VersionCheck = () => false };
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                ffmpeg,
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database,
+                dispatcher);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [episode.Id]);
+
+            Assert.Equal(
+                [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview, AnalysisMode.Commercial],
+                dispatcher.QueuedModes);
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, [episode.Id]);
+            Assert.Equal((episode.Id, AnalysisMode.Introduction), Assert.Single(snapshot.AnalysisRecords).Key);
+            var segment = Assert.Single(await database.GetSegmentsAsync(episode.Id));
+            Assert.Equal(AnalysisMode.Introduction, segment.Type);
+            Assert.Equal(SegmentSource.Chapter, segment.Source);
+            Assert.Equal(0, ffmpeg.FingerprintCalls);
+            Assert.Equal(0, ffmpeg.KeyframeScanCalls);
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
+    [Fact]
+    public async Task RemoteOwnedMode_StaysPendingWithoutLocalFallback()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var dispatcher = new ReturningRemoteDispatcher();
+        var episode = CreditsEpisode(1);
+        var task = new BaseItemAnalyzerTask(
+            NullLoggerFactory.Instance,
+            seasonResolver: null!,
+            new StubFFmpegService(),
+            DatabaseTestHelpers.CreateTempCacheService(),
+            cacheDatabase: null!,
+            database,
+            dispatcher);
+
+        await task.AnalyzeItemsAsync([episode], AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal([episode.EpisodeId], dispatcher.QueuedIds);
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(episode.SeasonId, [episode.EpisodeId]);
+        Assert.False(snapshot.AnalysisRecords.ContainsKey((episode.EpisodeId, AnalysisMode.Introduction)));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -1030,5 +1199,24 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             cacheDatabase: null!,
             DatabaseTestHelpers.CreateTempSegmentDatabase());
         return (ffmpeg, task);
+    }
+
+    private sealed class ReturningRemoteDispatcher(bool claimTargets = true) : IRemoteAnalysisDispatcher
+    {
+        internal IReadOnlyList<Guid> QueuedIds { get; private set; } = [];
+
+        internal List<AnalysisMode> QueuedModes { get; } = [];
+
+        public Task<IReadOnlySet<Guid>> QueueAsync(
+            IReadOnlyList<QueuedEpisode> writeTargets,
+            IReadOnlyList<QueuedEpisode> comparisonReferences,
+            AnalysisMode mode,
+            CancellationToken token,
+            AnalyzerAction action = AnalyzerAction.Default)
+        {
+            QueuedIds = writeTargets.Select(item => item.EpisodeId).ToArray();
+            QueuedModes.Add(mode);
+            return Task.FromResult<IReadOnlySet<Guid>>(claimTargets ? QueuedIds.ToHashSet() : new HashSet<Guid>());
+        }
     }
 }

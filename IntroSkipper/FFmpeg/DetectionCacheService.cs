@@ -4,6 +4,8 @@
 
 using System.Data.Common;
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -18,15 +20,31 @@ namespace IntroSkipper.FFmpeg;
 /// Serialization, compression and configuration-hash policy live here; all database
 /// access is delegated to <see cref="DetectionCacheDatabase"/>.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
-/// </remarks>
-/// <param name="logger">The logger instance.</param>
-/// <param name="cacheDatabase">The detection cache database facade.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, DetectionCacheDatabase cacheDatabase)
+public sealed partial class DetectionCacheService
 {
-    private readonly ILogger<DetectionCacheService> _logger = logger;
-    private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly ILogger<DetectionCacheService> _logger;
+    private readonly DetectionCacheDatabase _cacheDatabase;
+    private readonly IAnalysisEnvironment _environment;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DetectionCacheService"/> class with the active Jellyfin host environment.
+    /// </summary>
+    /// <param name="logger">Logger.</param>
+    /// <param name="cacheDatabase">Cache database facade.</param>
+    public DetectionCacheService(ILogger<DetectionCacheService> logger, DetectionCacheDatabase cacheDatabase)
+        : this(logger, cacheDatabase, new PluginAnalysisEnvironment())
+    {
+    }
+
+    internal DetectionCacheService(
+        ILogger<DetectionCacheService> logger,
+        DetectionCacheDatabase cacheDatabase,
+        IAnalysisEnvironment environment)
+    {
+        _logger = logger;
+        _cacheDatabase = cacheDatabase;
+        _environment = environment;
+    }
 
     /// <summary>
     /// Tries to read a cached detection result from the SQLite DB.
@@ -65,17 +83,18 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
-            var hashMatches = string.IsNullOrEmpty(entry.ConfigHash)
-                || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
-                || string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal);
+            var expectedHash = CacheHash(itemId, type, mode, cacheVariant);
+            var portableIdentity = !string.IsNullOrEmpty(_environment.GetCacheIdentity(itemId));
+            var hashMatches = string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                || (!portableIdentity && (string.IsNullOrEmpty(entry.ConfigHash)
+                    || string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal)));
 
             // Chromaprint rows contain raw fingerprint points.  Older releases also put
             // processing settings in their hash, so a changed comparison setting must not
             // discard an otherwise valid fingerprint. Stream-scoped rows are accepted only
             // when their effective stream matches; unscoped rows must match the explicitly
             // recognized legacy hash supplied by the fingerprint caller.
-            if (!hashMatches && type == CacheEntryType.Chromaprint)
+            if (!hashMatches && !portableIdentity && type == CacheEntryType.Chromaprint)
             {
                 hashMatches = ConfigHasher.IsStreamScopedDetectionCacheHashFor(entry.ConfigHash, cacheVariant);
             }
@@ -117,8 +136,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         T[] items,
         string? cacheVariant = null)
     {
-        var data = CompressBrotli(items);
-        var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
+        var data = CompressBrotli(items, _environment.Configuration.CacheCompressionLevel);
+        var configHash = CacheHash(itemId, type, mode, cacheVariant);
 
         try
         {
@@ -128,6 +147,14 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         {
             LogDetectionCacheWriteError(_logger, ex, itemId, mode, type);
         }
+    }
+
+    private string CacheHash(Guid itemId, CacheEntryType type, AnalysisMode mode, string? cacheVariant)
+    {
+        var hash = ConfigHasher.DetectionCache(_environment.Configuration, type, mode, cacheVariant);
+        return _environment.GetCacheIdentity(itemId) is { Length: > 0 } identity
+            ? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(hash + "|" + identity)))
+            : hash;
     }
 
     /// <summary>
@@ -183,7 +210,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     public async Task<int> DeleteUnreadableEntriesAsync(CancellationToken cancellationToken = default)
     {
-        var config = Plugin.Instance?.Configuration ?? new();
+        var config = _environment.Configuration;
 
         // Every hash some read path accepts under the current configuration: the current
         // hash of each (type, mode) pair plus the legacy pre-stream-selection Chromaprint
@@ -211,8 +238,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     /// <param name="value">The value to serialize and compress.</param>
     /// <returns>The Brotli-compressed data.</returns>
     internal static byte[] CompressBrotli<T>(T value)
+        => CompressBrotli(value, Plugin.Instance?.Configuration.CacheCompressionLevel ?? CompressionLevel.Optimal);
+
+    private static byte[] CompressBrotli<T>(T value, CompressionLevel level)
     {
-        var level = Plugin.Instance?.Configuration.CacheCompressionLevel ?? CompressionLevel.Optimal;
         using var output = new MemoryStream();
         using (var brotli = new BrotliStream(output, level))
         {

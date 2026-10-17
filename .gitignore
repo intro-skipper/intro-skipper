@@ -21,3 +21,20 @@ web/node_modules
 
 # CreditsRunner manifests, labels and results name real media and hardware
 tools/CreditsRunner/**/*.json
+
+# Local dependencies, private inputs and worker state
+.dotnet-home/
+.nuget/
+Standalone/.venv/
+Standalone/state/
+Standalone/cache/
+Standalone/private/
+model*.pb
+modelv1*
+*.user.json
+*.local.json
+.segmentscanner/
+.playwright-cli/
+output/playwright/
+__pycache__/
+TestResults/

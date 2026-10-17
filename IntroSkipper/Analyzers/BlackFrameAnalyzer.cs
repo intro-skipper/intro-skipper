@@ -21,10 +21,12 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="environment">Optional host chapter inputs for portable analysis.</param>
 internal sealed partial class BlackFrameAnalyzer(
     ILogger<BlackFrameAnalyzer> logger,
     IFFmpegService ffmpegService,
-    PluginConfiguration? configuration = null)
+    PluginConfiguration? configuration = null,
+    IAnalysisEnvironment? environment = null)
 {
     /// <summary>
     /// Maximum distance, in seconds, between a chapter marker and the start of the black run
@@ -35,7 +37,8 @@ internal sealed partial class BlackFrameAnalyzer(
     /// </summary>
     private const double MaxChapterOffsetFromBlackRunStart = 15;
 
-    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -187,7 +190,7 @@ internal sealed partial class BlackFrameAnalyzer(
     internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
         // Get chapters that fall within the valid credits duration range
-        var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
+        var suitableChapters = _environment.GetChapters(episode.EpisodeId)
             .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
             .Where(s => s >= episode.CreditsFingerprintStart &&
                         s <= episode.Duration - _config.MinimumCreditsDuration)

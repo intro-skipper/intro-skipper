@@ -11,9 +11,9 @@
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="12.1.*" />
-    <PackageReference Include="Jellyfin.Model" Version="12.1.*" />
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.1.*" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.1.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.1.0" />
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.1.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
@@ -22,6 +22,9 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Standalone/src/SegmentScanner.Contracts/SegmentScanner.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(StandaloneBuild)' != 'true'">
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <None Remove="Configuration\introskipper.js" />
@@ -29,7 +32,7 @@
     <None Remove="Configuration\introskipper.css" />
     <EmbeddedResource Include="Configuration\introskipper.css" />
   </ItemGroup>
-  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
+  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true' and '$(StandaloneBuild)' != 'true'">
     <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
           Command="pnpm install --frozen-lockfile &amp;&amp; pnpm build" />
   </Target>

@@ -839,7 +839,7 @@ public sealed class TestCreditsPass
         => new() { Name = name, StartPositionTicks = TimeSpan.FromSeconds(start).Ticks };
 
     private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IntroSkipperDatabase database, DetectionCacheService? cache = null, PluginConfiguration? config = null)
-        => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration());
+        => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration(), new PluginAnalysisEnvironment());
 
     /// <summary>
     /// A two-episode season over the stub. Each episode's keyframe scan comes from one keyframe list

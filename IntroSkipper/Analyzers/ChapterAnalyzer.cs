@@ -27,13 +27,15 @@ namespace IntroSkipper.Analyzers;
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="enableChapterDetection">Whether to detect chapter-based segments.</param>
 /// <param name="enableRecapBlackFrameFallback">Whether recap detection may fall back to black-frame analysis.</param>
+/// <param name="environment">Explicit chapter inputs for a non-Jellyfin host.</param>
 internal sealed partial class ChapterAnalyzer(
     ILogger<ChapterAnalyzer> logger,
     IFFmpegService ffmpegService,
     IntroSkipperDatabase database,
     PluginConfiguration? configuration = null,
     bool enableChapterDetection = true,
-    bool enableRecapBlackFrameFallback = true) : IMediaFileAnalyzer
+    bool enableRecapBlackFrameFallback = true,
+    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -41,6 +43,7 @@ internal sealed partial class ChapterAnalyzer(
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _enableChapterDetection = enableChapterDetection;
     private readonly bool _enableRecapBlackFrameFallback = enableRecapBlackFrameFallback;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
 
     // Labels that could mean an intro, a recap or a preview; only the Commercial mode, which
     // skips them all, treats them as a match.
@@ -95,7 +98,7 @@ internal sealed partial class ChapterAnalyzer(
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService, _environment);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
@@ -209,7 +212,7 @@ internal sealed partial class ChapterAnalyzer(
         return !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
             ? FindMatchingChapters(
                 episode,
-                Plugin.Instance!.GetChapters(episode.EpisodeId),
+                _environment.GetChapters(episode.EpisodeId),
                 expression,
                 mode,
                 _config.EnableSponsorBlockChapterDetection)

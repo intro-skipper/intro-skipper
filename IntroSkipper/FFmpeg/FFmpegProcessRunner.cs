@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Text;
+using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.FFmpeg;
@@ -12,9 +13,11 @@ namespace IntroSkipper.FFmpeg;
 /// on cancellation or timeout.
 /// </summary>
 /// <param name="logger">Logger.</param>
-internal sealed partial class FFmpegProcessRunner(ILogger logger)
+/// <param name="environment">Analysis host dependencies, or <see langword="null"/> to use the active Jellyfin host.</param>
+internal sealed partial class FFmpegProcessRunner(ILogger logger, IAnalysisEnvironment? environment = null)
 {
     private readonly ILogger _logger = logger;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
 
     /// <summary>
     /// Runs a process to completion and returns one of its output streams.
@@ -109,7 +112,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
         {
             try
             {
-                process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+                process.PriorityClass = _environment.Configuration.ProcessPriority;
             }
             catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
             {

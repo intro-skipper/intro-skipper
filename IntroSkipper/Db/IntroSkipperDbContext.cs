@@ -83,6 +83,31 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations => Set<DbProjectionExternalOperation>();
 
+    /// <summary>
+    /// Gets durable remote analysis jobs.
+    /// </summary>
+    internal DbSet<DbRemoteJob> RemoteJobs => Set<DbRemoteJob>();
+
+    /// <summary>
+    /// Gets registered scanner-node declarations and enablement state.
+    /// </summary>
+    internal DbSet<DbRemoteNode> RemoteNodes => Set<DbRemoteNode>();
+
+    /// <summary>
+    /// Gets remote import idempotency receipts.
+    /// </summary>
+    internal DbSet<DbRemoteImportReceipt> RemoteImportReceipts => Set<DbRemoteImportReceipt>();
+
+    /// <summary>
+    /// Gets current remote result provenance and revisions.
+    /// </summary>
+    internal DbSet<DbRemoteAnalysisMetadata> RemoteAnalysisMetadata => Set<DbRemoteAnalysisMetadata>();
+
+    /// <summary>
+    /// Gets explicit offline manifest contexts.
+    /// </summary>
+    internal DbSet<DbRemoteExportContext> RemoteExportContexts => Set<DbRemoteExportContext>();
+
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -191,6 +216,51 @@ public class IntroSkipperDbContext : DbContext
 
             // Serves the per-item FIFO read during projection.
             entity.HasIndex(e => e.ItemId);
+        });
+
+        modelBuilder.Entity<DbRemoteJob>(entity =>
+        {
+            entity.ToTable("RemoteJobs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.SnapshotJson).IsRequired();
+            entity.Property(e => e.SnapshotHash).IsRequired();
+            entity.Property(e => e.State).IsRequired();
+            entity.HasIndex(e => new { e.State, e.LeaseExpiresUtc });
+            entity.HasIndex(e => new { e.NodeId, e.NodeRevision, e.State, e.LeaseExpiresUtc });
+        });
+
+        modelBuilder.Entity<DbRemoteNode>(entity =>
+        {
+            entity.ToTable("RemoteNodes");
+            entity.HasKey(e => e.NodeId);
+            entity.Property(e => e.NodeId).ValueGeneratedNever();
+            entity.Property(e => e.ScopeJson).IsRequired();
+            entity.Property(e => e.PolicyJson);
+            entity.Property(e => e.RuntimeJson);
+        });
+
+        modelBuilder.Entity<DbRemoteImportReceipt>(entity =>
+        {
+            entity.ToTable("RemoteImportReceipts");
+            entity.HasKey(e => new { e.AnalysisId, e.ItemId, e.Mode });
+            entity.Property(e => e.PayloadHash).IsRequired();
+            entity.Property(e => e.Outcome).IsRequired();
+        });
+
+        modelBuilder.Entity<DbRemoteAnalysisMetadata>(entity =>
+        {
+            entity.ToTable("RemoteAnalysisMetadata");
+            entity.HasKey(e => new { e.ItemId, e.Mode });
+        });
+
+        modelBuilder.Entity<DbRemoteExportContext>(entity =>
+        {
+            entity.ToTable("RemoteExportContexts");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.SnapshotJson).IsRequired();
+            entity.Property(e => e.SnapshotHash).IsRequired();
         });
 
         base.OnModelCreating(modelBuilder);

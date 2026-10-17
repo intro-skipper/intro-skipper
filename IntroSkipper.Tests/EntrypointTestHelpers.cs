@@ -230,19 +230,22 @@ internal static class EntrypointTestHelpers
         private List<VirtualFolderInfo> _folders = [];
         private Func<InternalItemsQuery?, List<BaseItem>> _getItemList = _ => [];
         private Func<Guid, BaseItem?> _getItemById = _ => null;
+        private Func<BaseItem, List<Folder>> _getCollectionFolders = _ => [];
         private LibraryOptions _libraryOptions = new();
 
         public static ILibraryManager Create(
             List<VirtualFolderInfo> folders,
             Func<InternalItemsQuery?, List<BaseItem>> getItemList,
             Func<Guid, BaseItem?>? getItemById = null,
-            LibraryOptions? libraryOptions = null)
+            LibraryOptions? libraryOptions = null,
+            Func<BaseItem, List<Folder>>? getCollectionFolders = null)
         {
             var proxy = Create<ILibraryManager, FakeLibraryManager>();
             var fake = (FakeLibraryManager)(object)proxy;
             fake._folders = folders;
             fake._getItemList = getItemList;
             fake._getItemById = getItemById ?? (_ => null);
+            fake._getCollectionFolders = getCollectionFolders ?? (_ => []);
             fake._libraryOptions = libraryOptions ?? new LibraryOptions();
             return proxy;
         }
@@ -257,6 +260,7 @@ internal static class EntrypointTestHelpers
                 nameof(ILibraryManager.GetVirtualFolders) => _folders,
                 nameof(ILibraryManager.GetItemList) => _getItemList(args?.OfType<InternalItemsQuery>().FirstOrDefault()),
                 nameof(ILibraryManager.GetItemById) => _getItemById(args?.OfType<Guid>().FirstOrDefault() ?? Guid.Empty),
+                nameof(ILibraryManager.GetCollectionFolders) => _getCollectionFolders(args?.OfType<BaseItem>().FirstOrDefault()!),
                 nameof(ILibraryManager.GetLibraryOptions) => _libraryOptions,
                 _ => throw new NotImplementedException(targetMethod?.Name),
             };

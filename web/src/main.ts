@@ -1,6 +1,7 @@
 import "./styles/variables.css";
 import "./styles/layout.css";
 import "./styles/forms.css";
+import "./styles/nodes.css";
 
 import { createAppShell } from "./components/app-shell.ts";
 import { Router } from "./router/router.ts";
@@ -10,6 +11,7 @@ import { abortable } from "./lifecycle.ts";
 import type { Tab } from "./types.ts";
 import { generalTab } from "./tabs/general.ts";
 import { analysisTab } from "./tabs/analysis.ts";
+import { nodesTab } from "./tabs/nodes.ts";
 import { detectionTab } from "./tabs/detection.ts";
 import { blackFrameTab } from "./tabs/black-frame.ts";
 import { chaptersTab } from "./tabs/chapters.ts";
@@ -22,6 +24,7 @@ import { informationTab } from "./tabs/information.ts";
 const tabs: readonly Tab[] = [
     generalTab,
     analysisTab,
+    nodesTab,
     detectionTab,
     blackFrameTab,
     chaptersTab,
