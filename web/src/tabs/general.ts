@@ -73,7 +73,7 @@ export const generalTab: Tab = {
 
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(
-            el("h3", { className: "checkbox-list-label" }, "Inject Skip Button CSS"),
+            el("h3", { className: "is-section-heading" }, "Inject Skip Button CSS"),
         );
         injectSection.append(
             el(
@@ -109,7 +109,7 @@ export const generalTab: Tab = {
 
         const clearExcludedSection = el("div", { className: "input-container" });
         clearExcludedSection.append(
-            el("h3", { className: "checkbox-list-label" }, "Clear Excluded Timestamps"),
+            el("h3", { className: "is-section-heading" }, "Clear Excluded Timestamps"),
             el(
                 "div",
                 { className: "field-description" },
