@@ -112,7 +112,7 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(
             SeasonsInScope(owners, scope, progress, shortcutsOnly, shortcutBatchSize),
             options,
-            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, shortcutsOnly, ct))).ConfigureAwait(false);
         progress.Report(100);
     }
 
@@ -120,11 +120,11 @@ public partial class BaseItemAnalyzerTask(
     // changed-items pass at the end of a library scan covers every item Jellyfin saved,
     // and one broken season must not cost the rest their analysis. Cancellation still
     // stops the pass.
-    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool shortcutsOnly, CancellationToken cancellationToken)
     {
         try
         {
-            await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await AnalyzeSeasonAsync(season, modes, ffmpegValid, shortcutsOnly, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -263,7 +263,7 @@ public partial class BaseItemAnalyzerTask(
     /// or a settled-season reanalysis invalidates, reads each episode's chapters, and runs
     /// every mode over the episodes whose chapters could be read.
     /// </summary>
-    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool shortcutsOnly, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
