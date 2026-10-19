@@ -14,6 +14,11 @@ namespace IntroSkipper.FFmpeg;
 /// <param name="logger">Logger.</param>
 internal sealed partial class FFmpegProcessRunner(ILogger logger)
 {
+    /// <summary>
+    /// The sentence a log appends when a scan hit the timeout, naming the setting that raises it.
+    /// </summary>
+    internal const string ScanTimeoutHint = "Raise the FFmpeg scan timeout in the plugin settings if this repeats.";
+
     private readonly ILogger _logger = logger;
 
     /// <summary>

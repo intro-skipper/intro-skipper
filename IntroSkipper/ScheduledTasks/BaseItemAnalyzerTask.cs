@@ -260,22 +260,28 @@ public partial class BaseItemAnalyzerTask(
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
             {
-                var resetModes = SeasonReanalysisPlanner.ExpandSettledResetModesForDerivedSegments(
-                    settledResetModes,
-                    previewFromCreditsEnd && Config.ScanPreview);
                 LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
 
                 // The reset journals its deletions' projections, so they propagate
-                // to Jellyfin even if the recompute finds nothing.
+                // to Jellyfin even if the recompute finds nothing. A Credits reset never
+                // reopens Preview. Keep automatic Credits rows as fallbacks until the
+                // per-episode result decides whether to replace, clear, or retain them.
+                // A failed scan must not blank the user's view. The final derive refreshes
+                // previews from settled results and can derive a fallback from retained Credits
+                // rows for unreadable or failed episodes.
+                IReadOnlyCollection<AnalysisMode> preserveAutomaticModes = settledResetModes.Contains(AnalysisMode.Credits)
+                    ? [AnalysisMode.Credits]
+                    : [];
                 await _database.ResetItemsForReanalysisAsync(
                     episodeIds,
-                    resetModes,
-                    GetSubtitleModesToPreserve(resetModes, seasonStates, episodes),
+                    settledResetModes,
+                    GetSubtitleModesToPreserve(settledResetModes, seasonStates, episodes),
+                    preserveAutomaticModes,
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (var episode in episodes)
                 {
-                    foreach (var resetMode in resetModes)
+                    foreach (var resetMode in settledResetModes)
                     {
                         if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
                         {
@@ -291,6 +297,22 @@ public partial class BaseItemAnalyzerTask(
         // record below keeps the full episode set, so one failed read does not reset the season
         // again on the next pass.
         var readable = await ReadChaptersAsync(episodes, modes, seasonStates, cancellationToken).ConfigureAwait(false);
+        var creditsAction = seasonStates.TryGetValue(AnalysisMode.Credits, out var creditsState)
+            ? creditsState.Action
+            : AnalyzerAction.Default;
+        var creditsHashes = episodes.ToDictionary(
+            episode => episode.EpisodeId,
+            episode => ConfigHasher.Analysis(
+                Config,
+                AnalysisMode.Credits,
+                creditsAction,
+                ffmpegValid,
+                episode.AnalysisPercentOverride,
+                episode.AnalysisLengthLimitOverride,
+                ShouldDerivePreview(episode, Config),
+                episode.SubtitleRecapDetectionOverride,
+                episode.SubtitlePreviewDetectionOverride,
+                chapterSource: episode.ChaptersSource ?? Config.ChapterSource));
         var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
         try
@@ -303,12 +325,9 @@ public partial class BaseItemAnalyzerTask(
                     mode,
                     seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
                     ffmpegValid,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    creditsHashes).ConfigureAwait(false);
 
-                // Record only the modes we independently selected for reanalysis. A derived mode added
-                // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
-                // regenerated as a side effect of its source mode's analysis, so its completion rides on
-                // the source mode's record and is intentionally not tracked separately here.
                 if (settledResetModes.Contains(mode))
                 {
                     completedSettledModes.Add(mode);
@@ -322,6 +341,45 @@ public partial class BaseItemAnalyzerTask(
         catch (TimeoutException ex)
         {
             LogFfmpegTimeoutDuringAnalysis(_logger, ex);
+        }
+
+        // A Credits reset can change the source of derived previews even when every Credits
+        // result is user-provided, so no episode reopens Credits for AnalyzeItemsAsync. Refresh
+        // after all analyzer modes have had a chance to produce credits and Preview rows.
+        if (completedSettledModes.Contains(AnalysisMode.Credits) && previewFromCreditsEnd)
+        {
+            List<QueuedEpisode> creditsPreviewEpisodes = [.. episodes
+                .Where(episode => episode.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
+            foreach (var episode in creditsPreviewEpisodes)
+            {
+                episode.AnalysisConfigHash = creditsHashes[episode.EpisodeId];
+            }
+
+            // A failed or unreadable episode can still derive from its retained Credits rows.
+            // Use their hash so refreshing or creating that fallback Preview does not make it
+            // appear newer than the Credits result that feeds it.
+            foreach (var episode in episodes.Where(episode => episode.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.NotAnalyzed or EpisodeState.AnalysisFailed))
+            {
+                var retainedCredits = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                var retainedCreditsHashes = retainedCredits
+                    .Where(segment => segment.Type == AnalysisMode.Credits && segment.State == SegmentState.Active && segment.Source != SegmentSource.User)
+                    .Select(segment => segment.ConfigHash)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (retainedCreditsHashes.Length != 1)
+                {
+                    continue;
+                }
+
+                episode.AnalysisConfigHash = retainedCreditsHashes[0];
+                creditsPreviewEpisodes.Add(episode);
+            }
+
+            await AnimePreviewDeriver.DeriveAsync(
+                _database,
+                creditsPreviewEpisodes,
+                Config.MinimumPreviewDuration,
+                cancellationToken).ConfigureAwait(false);
         }
 
         // No mirror push here: every write above journaled its item's projection
@@ -617,13 +675,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="action">The season's analyzer action for the mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="creditsConfigHashes">Current per-episode Credits hashes, used when deriving Preview rows.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
         bool ffmpegValid,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<Guid, string>? creditsConfigHashes = null)
     {
         // NoSegments is a negative-cache result for the current configuration; only an episode
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
@@ -688,11 +748,18 @@ public partial class BaseItemAnalyzerTask(
         // subtitle detection active, the chain cleans up after itself instead.
         var cleanableItems = conventionalItems
             .Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is null);
-        await _database.CleanStaleAutomaticSegmentsAsync(
-            cleanableItems.Select(item => item.EpisodeId),
-            mode,
-            configHash,
-            cancellationToken).ConfigureAwait(false);
+        QueuedEpisode[] cleanableItemsSnapshot = [.. cleanableItems];
+        // Credits must inspect standing rows when a keyframe scan fails, even if those rows
+        // were written under an older hash. Clean only after a result settles; failed episodes
+        // retain their prior credits for the next pass.
+        if (mode != AnalysisMode.Credits)
+        {
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                cleanableItemsSnapshot.Select(item => item.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
@@ -707,6 +774,14 @@ public partial class BaseItemAnalyzerTask(
             // with other candidates. A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
+
+            await _database.CleanStaleAutomaticSegmentsAsync(
+                cleanableItemsSnapshot
+                    .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
+                    .Select(item => item.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
         }
         else if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
         {
@@ -720,10 +795,12 @@ public partial class BaseItemAnalyzerTask(
                 mode == AnalysisMode.Recap ? [.. subtitleOnlyItems.Where(item => item.NeedsSubtitleOnlyReanalysis(mode))] : null).ConfigureAwait(false);
         }
 
-        // Credits-derived previews are generated right after a credits result lands, and again
-        // in the Preview mode for episodes no preview analyzer settled, since a season whose
-        // credits are all user-provided never enters the credits pass but its derived previews
-        // still go stale when the preview settings change.
+        // Credits-derived previews are generated after settled credits results, and again in
+        // Preview mode for episodes no preview analyzer settled, since a season whose credits
+        // are all user-provided never enters the credits pass but its derived previews still
+        // go stale when preview settings change. Failed Credits episodes retain their prior
+        // rows here; a settled-season reset may later refresh their Preview from retained
+        // Credits under the stored hash.
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
         if (previewFromCreditsEnd)
         {
@@ -732,16 +809,50 @@ public partial class BaseItemAnalyzerTask(
                 // Subtitle detection in the Preview mode later in this pass can still supersede
                 // the derived preview, so the derive leaves the Preview state to it.
                 var subtitlePreviewWillRun = Config.ScanPreview && Config.ActiveSubtitlePattern(first, AnalysisMode.Preview) is not null;
+                QueuedEpisode[] settledCreditsItems = [.. items
+                    .Where(item => item.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
-                    items,
+                    settledCreditsItems,
                     Config.MinimumPreviewDuration,
                     cancellationToken,
                     settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);
             }
             else if (mode == AnalysisMode.Preview)
             {
-                List<QueuedEpisode> unsettled = [.. items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) is EpisodeState.NotAnalyzed or EpisodeState.NoSegments or EpisodeState.AnalysisFailed)];
+                List<QueuedEpisode> unsettled = [];
+                foreach (var item in items.Where(item => item.GetAnalyzed(AnalysisMode.Preview) is EpisodeState.NotAnalyzed or EpisodeState.NoSegments or EpisodeState.AnalysisFailed))
+                {
+                    if (creditsConfigHashes is not null && creditsConfigHashes.TryGetValue(item.EpisodeId, out var creditsConfigHash))
+                    {
+                        var creditsState = item.GetAnalyzed(AnalysisMode.Credits);
+                        if (creditsState is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)
+                        {
+                            item.AnalysisConfigHash = creditsConfigHash;
+                        }
+                        else
+                        {
+                            // A Preview retry can run even when Credits failed or is closed.
+                            // If retained automatic Credits rows feed the Preview, keep their
+                            // hash so a Preview refresh cannot make those fallbacks look stale.
+                            var segments = await _database.GetSegmentsAsync(item.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                            var retainedCreditsHashes = segments
+                                .Where(segment => segment.Type == AnalysisMode.Credits && segment.State == SegmentState.Active && segment.Source != SegmentSource.User)
+                                .Select(segment => segment.ConfigHash)
+                                .Distinct(StringComparer.Ordinal)
+                                .ToArray();
+                            if (retainedCreditsHashes.Length > 1)
+                            {
+                                continue;
+                            }
+
+                            item.AnalysisConfigHash = retainedCreditsHashes.Length == 1 ? retainedCreditsHashes[0] : creditsConfigHash;
+                        }
+                    }
+
+                    unsettled.Add(item);
+                }
+
                 await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -838,7 +949,7 @@ public partial class BaseItemAnalyzerTask(
     /// season is not an opted-out Season 0.
     /// </summary>
     /// <remarks>
-    /// <see cref="AnalyzeItemsAsync(IReadOnlyList{QueuedEpisode}, AnalysisMode, AnalyzerAction, bool, CancellationToken)"/>
+    /// <c>AnalyzeItemsAsync</c>
     /// returns at once when this is false, and with a None action records the episodes without
     /// running an analyzer. <see cref="ReadChaptersAsync"/> reads chapters only when this holds
     /// for a mode whose action is not None. Both use this one check, so an analyzer never runs
@@ -1035,7 +1146,7 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis.")]
     private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, Exception ex);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season. Raise the FFmpeg scan timeout in the plugin settings if this repeats.")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "An ffmpeg scan timed out during analysis; skipping this season. " + FFmpegProcessRunner.ScanTimeoutHint)]
     private static partial void LogFfmpegTimeoutDuringAnalysis(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
