@@ -82,7 +82,8 @@ public class DbDetectionCache
     /// <see cref="CacheEntryType.Silence"/> stores <c>TimeRange[]</c>,
     /// <see cref="CacheEntryType.BlackFrame"/> stores <c>BlackFrame[]</c>,
     /// <see cref="CacheEntryType.BlackInterval"/> stores <c>BlackInterval[]</c>,
-    /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>,
+    /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>, and
+    /// <see cref="CacheEntryType.ShortcutDuration"/> stores a single <c>double</c>.
     /// <see cref="CacheEntryType.KeyframeVisual"/> stores <c>KeyframeVisual[]</c>,
     /// <see cref="CacheEntryType.LeadIn"/> stores <c>double[]</c> with the start, or empty to keep the keyframe.
     /// </value>

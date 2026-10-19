@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -278,13 +282,28 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         => episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
 
     /// <summary>
-    /// Returns the file version Jellyfin holds for an item: its modification time in
-    /// ticks, or <see langword="null"/> when Jellyfin has none.
+    /// Returns Jellyfin's file version, including the resolved target identity for shortcuts.
+    /// Subtitle sidecars are tracked separately by queue verification.
     /// </summary>
     /// <param name="item">An episode or movie.</param>
     /// <returns>The file version.</returns>
     internal static long? FileVersion(BaseItem item)
-        => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+    {
+        if (item.IsShortcut)
+        {
+            var modified = item.DateModified == DateTime.MinValue
+                ? "none"
+                : item.DateModified.Ticks.ToString(CultureInfo.InvariantCulture);
+            var target = item.ShortcutPath ?? string.Empty;
+            var identity = target.Length.ToString(CultureInfo.InvariantCulture) + ":" + target + "|" + modified;
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+            // SQLite stores cache keys in REAL columns, so keep the hash within the exact
+            // integer range of an IEEE-754 double.
+            return BinaryPrimitives.ReadInt64LittleEndian(hash) & 0x001F_FFFF_FFFF_FFFFL;
+        }
+
+        return item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
+    }
 
     // Whether Jellyfin has probed the item's file. A library scan creates an item, and
     // raises ItemAdded, before the metadata refresh that probes its runtime and chapters,
@@ -434,6 +453,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 Category = category,
                 IsExcluded = decision.IsExcluded,
                 Path = episode.Path,
+                IsShortcut = episode.IsShortcut,
+                ShortcutPath = episode.ShortcutPath ?? string.Empty,
                 Duration = duration,
                 DateAdded = EpisodeAvailabilityDate(episode),
                 IntroFingerprintEnd = Math.Min(duration >= 5 * 60 ? duration * analysisPercent : duration, 60 * config.AnalysisLengthLimit),
@@ -475,6 +496,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             Category = QueuedMediaCategory.Movie,
             IsExcluded = decision.IsExcluded,
             Path = movie.Path,
+            IsShortcut = movie.IsShortcut,
+            ShortcutPath = movie.ShortcutPath ?? string.Empty,
             Duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds,
             FileVersion = FileVersion(movie),
         };

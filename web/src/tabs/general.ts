@@ -167,6 +167,10 @@ export const generalTab: Tab = {
             form.field("SettledSeasonDelayHours", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
+            form.field("ProcessShortcutVideos"),
+            form.field("ShortcutAnalysisBatchSize", {
+                visible: () => configStore.get("ProcessShortcutVideos") === true,
+            }),
             form.field("UpdateMediaSegments"),
             form.field("AnalyzeSeasonZero"),
             form.list("SeriesExclusions", {

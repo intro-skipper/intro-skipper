@@ -332,6 +332,49 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
+    public async Task ShortcutTargetWithoutComparisonContext_RemainsPendingAfterFingerprinting()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(spans: []);
+        var target = episodes[0];
+        episodes[1].IsAnalysisTarget = false;
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Chromaprint, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(1, ffmpeg.FingerprintCalls);
+        Assert.True(target.IsComparisonPending(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.NotAnalyzed, target.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Empty(await database.GetSegmentsAsync(target.EpisodeId));
+    }
+
+    [Fact]
+    public async Task ShortcutChapterPass_DoesNotWriteUnselectedComparisonEpisode()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]);
+        var target = episodes[0];
+        var comparisonEpisode = episodes[1];
+        comparisonEpisode.IsAnalysisTarget = false;
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.NotEmpty(await database.GetSegmentsAsync(target.EpisodeId));
+        Assert.Empty(await database.GetSegmentsAsync(comparisonEpisode.EpisodeId));
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
+    }
+
+    [Fact]
+    public void NoSegmentsResult_DoesNotCloseAnIncompleteComparison()
+    {
+        var episode = new QueuedEpisode();
+        episode.SetComparisonPending(AnalysisMode.Recap, true);
+
+        episode.SetAnalyzed(AnalysisMode.Recap, EpisodeState.NoSegments);
+
+        Assert.True(episode.IsComparisonPending(AnalysisMode.Recap));
+    }
+
+    [Fact]
     public async Task ChromaprintWithinMinimumDurationOfTheEnd_IsExtendedToIt()
     {
         using var scope = Scope();

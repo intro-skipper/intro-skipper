@@ -213,7 +213,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         [
             "-vn", "-sn", "-dn",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-af", $"silencedetect=noise={noise}dB:duration=0.1",
             "-f", "null", "-",
@@ -244,7 +244,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         string[] args =
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackframe=amount={amount}:threshold={threshold}",
@@ -390,7 +390,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         [
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough",
             "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
@@ -462,7 +462,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-skip_frame", "noref",
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
@@ -577,7 +577,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             return cached;
         }
 
-        LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
+        LogDetectionScan(_logger, entryType, start, end, episode.AnalysisPath, episode.EpisodeId);
 
         var arguments = await args().ConfigureAwait(false);
         var raw = await RunScanAsync(arguments).ConfigureAwait(false);
@@ -656,6 +656,44 @@ internal sealed partial class FFmpegService : IFFmpegService
         catch (Exception ex) when (IsProcessFailure(ex))
         {
             LogAudioDurationProbeFailed(_logger, ex, filePath);
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            string[] args =
+            [
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                filePath,
+            ];
+
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
+                GetFFprobePath(),
+                args,
+                stderr: false,
+                timeout: 15 * 1000,
+                cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
+
+            if (double.TryParse(output, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+                && seconds > 0)
+            {
+                return seconds;
+            }
+
+            LogMediaDurationProbeInvalid(_logger, filePath, output);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
+        {
+            LogMediaDurationProbeFailed(_logger, ex, filePath);
         }
 
         return null;
@@ -1158,8 +1196,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         return _audioStreamSelections.GetAsync(
             episode,
-            (episode.Path, preferredLanguage, preferMostChannels),
-            ct => FindAudioStreamSelectionAsync(episode.Path, preferredLanguage, preferMostChannels, ct),
+            (episode.AnalysisPath, preferredLanguage, preferMostChannels),
+            ct => FindAudioStreamSelectionAsync(episode.AnalysisPath, preferredLanguage, preferMostChannels, ct),
             cancellationToken);
     }
 
@@ -1286,12 +1324,12 @@ internal sealed partial class FFmpegService : IFFmpegService
             return cachedFingerprint;
         }
 
-        LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
+        LogFingerprinting(_logger, start, end, episode.AnalysisPath, episode.EpisodeId);
 
         var args = new List<string>
         {
             "-ss", start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
+            "-i", episode.AnalysisPath,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
         };
 
@@ -1317,13 +1355,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (TimeoutException ex)
         {
-            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.AnalysisPath}\" timed out", ex);
         }
 
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
-            LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
+            LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.AnalysisPath);
+            throw new FingerprintException("chromaprint output for \"" + episode.AnalysisPath + "\" was malformed");
         }
 
         var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
@@ -1371,6 +1409,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe media duration for {File}")]
+    private static partial void LogMediaDurationProbeFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ffprobe returned an invalid duration for {File}: {Output}")]
+    private static partial void LogMediaDurationProbeInvalid(ILogger logger, string file, string output);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);

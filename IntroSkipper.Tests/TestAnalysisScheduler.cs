@@ -308,7 +308,7 @@ public sealed class TestAnalysisScheduler
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         using var cancellation = new CancellationTokenSource();
         var first = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None));
+        await Assert.ThrowsAsync<LibraryRequestAlreadyQueuedException>(() => h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None));
 
         await cancellation.CancelAsync();
 
@@ -320,6 +320,26 @@ public sealed class TestAnalysisScheduler
         h.Ffmpeg.Gate.SetResult();
         await Task.WhenAll(scan, restarted).WaitAsync(Timeout);
         Assert.Equal(2, h.Ffmpeg.VersionCheckCalls);
+    }
+
+    [Fact]
+    public async Task LibraryRequests_RegularAndShortcutCanWaitTogether_WithoutDroppingEither()
+    {
+        await using var h = await QueueHarness.StartAsync(gated: true);
+        var holding = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+        await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
+
+        var shortcut = h.Queue.RunLibraryAsync(
+            new RecordingProgress(),
+            CancellationToken.None,
+            shortcutsOnly: true,
+            shortcutBatchSize: 1);
+        var regular = h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None);
+
+        h.Ffmpeg.Gate.SetResult();
+
+        await Task.WhenAll(holding, shortcut, regular).WaitAsync(Timeout);
+        Assert.Equal(3, h.Ffmpeg.VersionCheckCalls);
     }
 
     [Fact]

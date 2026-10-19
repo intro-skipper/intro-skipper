@@ -76,7 +76,7 @@ internal sealed partial class CreditsPass(
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
-        var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        var pendingItems = items.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(Mode)).ToList();
         // A chapter match owns the episode even if admission rejects its write: falling through
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
         // consumed, rejected, and failed episodes remain unsettled according to their state.
@@ -112,12 +112,16 @@ internal sealed partial class CreditsPass(
         // season with nothing to compare against.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
+        HashSet<Guid> comparisonIncomplete = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                var chromaprintResult = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                chromaprintCandidates = chromaprintResult.Candidates;
+                fingerprintFailures = chromaprintResult.FingerprintFailures;
+                comparisonIncomplete = chromaprintResult.ComparisonIncomplete;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -129,7 +133,7 @@ internal sealed partial class CreditsPass(
             }
         }
 
-        foreach (var episode in items)
+        foreach (var episode in items.Where(e => e.IsAnalysisTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -209,6 +213,17 @@ internal sealed partial class CreditsPass(
 
                         analyzerFailed = true;
                     }
+                }
+
+                if (candidates.Count == 0
+                    && comparisonIncomplete.Contains(episode.EpisodeId)
+                    && !analyzerFailed)
+                {
+                    // A later shortcut batch may supply the missing comparison fingerprint.
+                    // Do not persist this temporary lack of context as a durable NoSegments result.
+                    episode.SetComparisonPending(Mode, true);
+                    episode.SetAnalyzed(Mode, EpisodeState.NotAnalyzed);
+                    continue;
                 }
 
                 var state = await StoreCandidatesAsync(

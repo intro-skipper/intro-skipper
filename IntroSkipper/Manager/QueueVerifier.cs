@@ -132,7 +132,10 @@ internal sealed partial class QueueVerifier
     /// <param name="candidate">A queued episode that exists on disk and is not excluded.</param>
     public void Classify(QueuedEpisode candidate)
     {
+        var shortcutChanged = ClassifyShortcutPath(candidate);
         var (fileChanged, reopened) = ClassifyFileVersion(candidate);
+        fileChanged |= shortcutChanged;
+        candidate.FileChanged |= shortcutChanged;
         foreach (var mode in _modes)
         {
             // An empty hash is equivalent to no durable analysis state. It can be present on
@@ -316,6 +319,25 @@ internal sealed partial class QueueVerifier
         }
 
         return (false, reopened);
+    }
+
+    private bool ClassifyShortcutPath(QueuedEpisode candidate)
+    {
+        var shortcutPath = candidate.IsShortcut && !string.IsNullOrEmpty(candidate.ShortcutPath)
+            ? candidate.ShortcutPath
+            : null;
+
+        foreach (var mode in AllModes)
+        {
+            if (_snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
+                && !string.Equals(record.ShortcutPath, shortcutPath, StringComparison.Ordinal))
+            {
+                candidate.FileChanged = true;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
