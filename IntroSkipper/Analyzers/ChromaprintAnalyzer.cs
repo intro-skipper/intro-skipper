@@ -35,7 +35,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
     // Confirm candidates against the two episodes nearest them in season order. A local window
     // lets anime openings and endings change mid-season without one theme dominating the season.
-    private const int ConsensusNeighborRadius = 2;
+    private const int ConsensusNeighborCount = 2;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
@@ -341,42 +341,56 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
+        var nearestNeighbors = GetNearestNeighborIndexes(orderedEpisodes.Count);
+        var neighborPairs = new SortedSet<(int LeftIndex, int RightIndex)>();
+        for (var episodeIndex = 0; episodeIndex < nearestNeighbors.Length; episodeIndex++)
+        {
+            foreach (var neighborIndex in nearestNeighbors[episodeIndex])
+            {
+                neighborPairs.Add((Math.Min(episodeIndex, neighborIndex), Math.Max(episodeIndex, neighborIndex)));
+            }
+        }
+
         var confirmed = new Dictionary<Guid, Segment>();
 
-        for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
+        foreach (var (leftIndex, rightIndex) in neighborPairs)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var leftEpisode = orderedEpisodes[leftIndex];
             var leftFingerprint = fingerprints[leftEpisode.EpisodeId];
+            var rightEpisode = orderedEpisodes[rightIndex];
+            var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
+            var confirmsLeft = nearestNeighbors[leftIndex].Contains(rightIndex);
+            var confirmsRight = nearestNeighbors[rightIndex].Contains(leftIndex);
 
-            var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
-            for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
+            var (leftCandidate, rightCandidate) = CompareEpisodes(
+                leftEpisode.EpisodeId,
+                leftFingerprint,
+                rightEpisode.EpisodeId,
+                rightFingerprint);
+
+            var leftCandidateValid = confirmsLeft &&
+                leftCandidate.Valid &&
+                leftCandidate.Duration <= GetMaximumSegmentDuration(leftEpisode);
+            var rightCandidateValid = confirmsRight &&
+                rightCandidate.Valid &&
+                rightCandidate.Duration <= GetMaximumSegmentDuration(rightEpisode);
+
+            if (_analysisMode == AnalysisMode.Credits)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var rightEpisode = orderedEpisodes[rightIndex];
-                var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
+                leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
+                leftCandidate.End += leftEpisode.CreditsFingerprintStart;
+                rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
+                rightCandidate.End += rightEpisode.CreditsFingerprintStart;
+            }
 
-                var (leftCandidate, rightCandidate) = CompareEpisodes(
-                    leftEpisode.EpisodeId,
-                    leftFingerprint,
-                    rightEpisode.EpisodeId,
-                    rightFingerprint);
-
-                if (!leftCandidate.Valid || !rightCandidate.Valid ||
-                    leftCandidate.Duration > GetMaximumSegmentDuration(leftEpisode) ||
-                    rightCandidate.Duration > GetMaximumSegmentDuration(rightEpisode))
-                {
-                    continue;
-                }
-
-                if (_analysisMode == AnalysisMode.Credits)
-                {
-                    leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
-                    leftCandidate.End += leftEpisode.CreditsFingerprintStart;
-                    rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
-                    rightCandidate.End += rightEpisode.CreditsFingerprintStart;
-                }
-
+            if (leftCandidateValid)
+            {
                 KeepBetterCandidate(confirmed, leftCandidate);
+            }
+
+            if (rightCandidateValid)
+            {
                 KeepBetterCandidate(confirmed, rightCandidate);
             }
         }
@@ -388,6 +402,41 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         return confirmed;
+    }
+
+    private static HashSet<int>[] GetNearestNeighborIndexes(int episodeCount)
+    {
+        var nearestNeighbors = new HashSet<int>[episodeCount];
+        for (var episodeIndex = 0; episodeIndex < episodeCount; episodeIndex++)
+        {
+            var neighbors = new HashSet<int>();
+            var leftIndex = episodeIndex - 1;
+            var rightIndex = episodeIndex + 1;
+
+            while (neighbors.Count < Math.Min(ConsensusNeighborCount, episodeCount - 1))
+            {
+                if (leftIndex < 0)
+                {
+                    neighbors.Add(rightIndex++);
+                }
+                else if (rightIndex >= episodeCount)
+                {
+                    neighbors.Add(leftIndex--);
+                }
+                else if (episodeIndex - leftIndex <= rightIndex - episodeIndex)
+                {
+                    neighbors.Add(leftIndex--);
+                }
+                else
+                {
+                    neighbors.Add(rightIndex++);
+                }
+            }
+
+            nearestNeighbors[episodeIndex] = neighbors;
+        }
+
+        return nearestNeighbors;
     }
 
     private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
