@@ -320,6 +320,15 @@ public partial class BaseItemAnalyzerTask(
             }
         }
 
+        if (analysisTargets.Any(episode => episode.IsShortcut))
+        {
+            await PrepareShortcutDurationsAsync(
+                analysisTargets,
+                analysisTargets.Where(episode => episode.FileChanged).Select(episode => episode.EpisodeId).ToHashSet(),
+                cancellationToken).ConfigureAwait(false);
+            analysisTargets = episodes.Where(episode => episode.IsAnalysisTarget).ToArray();
+        }
+
         // Run settled-season reanalysis from scratch after no new episodes have been added
         // for the configured delay so segments first derived from a partial season are
         // recomputed against the full season.
@@ -329,7 +338,7 @@ public partial class BaseItemAnalyzerTask(
         var episodeIds = analysisTargets.Select(e => e.EpisodeId).ToArray();
 
         // The season-state snapshot serves the settle decision and every mode's analyzer action.
-        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        if (analysisTargets.Length > 0 && SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
@@ -883,9 +892,11 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyDictionary<Guid, string>? creditsConfigHashes = null)
     {
-        var analysisTargets = analysisItemIds is null
-            ? items.Where(item => item.IsAnalysisTarget).ToArray()
-            : items.Where(item => analysisItemIds.Contains(item.EpisodeId)).ToArray();
+        var analysisTargets = items.Where(item => item.IsAnalysisTarget).ToArray();
+        if (analysisTargets.Length == 0)
+        {
+            return;
+        }
 
         // NoSegments is a negative-cache result for the current configuration; only an episode
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,

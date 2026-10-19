@@ -28,10 +28,13 @@ internal class StubFFmpegService : IFFmpegService
     private int _keyframeScanCalls;
     private int _fingerprintCalls;
     private int _probeCalls;
+    private int _durationProbeCalls;
 
     public Func<bool>? VersionCheck { get; init; }
 
     public Func<string, double?>? AudioDuration { get; init; }
+
+    public Func<string, double?>? MediaDuration { get; init; }
 
     /// <summary>Gets the embedded chapter read; a hook that returns <see langword="null"/> stands for a probe that could not read the file.</summary>
     public Func<QueuedEpisode, ChapterInfo[]?>? EmbeddedChapters { get; init; }
@@ -59,6 +62,8 @@ internal class StubFFmpegService : IFFmpegService
     public int FingerprintCalls => Volatile.Read(ref _fingerprintCalls);
 
     public int ProbeCalls => Volatile.Read(ref _probeCalls);
+
+    public int DurationProbeCalls => Volatile.Read(ref _durationProbeCalls);
 
     /// <summary>Gets the probes the stub received, in order: tests assert the whole log.</summary>
     public IReadOnlyList<Call> Calls => [.. _calls];
@@ -126,6 +131,13 @@ internal class StubFFmpegService : IFFmpegService
         Interlocked.Increment(ref _probeCalls);
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Hook(AudioDuration)(filePath));
+    }
+
+    public virtual Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _durationProbeCalls);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Hook(MediaDuration)(filePath));
     }
 
     public virtual Task<ChapterInfo[]?> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)

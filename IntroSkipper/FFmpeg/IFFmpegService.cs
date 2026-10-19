@@ -125,6 +125,14 @@ public interface IFFmpegService
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Probes the media container duration with ffprobe.
+    /// </summary>
+    /// <param name="filePath">Media path.</param>
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
+    /// <returns>A task that returns the media duration in seconds, or null when unavailable.</returns>
+    Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the chapter markers embedded in the media container with ffprobe, shaped as
     /// Jellyfin's own probe stores them in its chapter table (<c>FFmpegOutputParser.ParseChapters</c>),
     /// so for a file no other plugin touched both chapter sources hold the same list. While

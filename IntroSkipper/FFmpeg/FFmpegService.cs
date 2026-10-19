@@ -1196,8 +1196,8 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         return _audioStreamSelections.GetAsync(
             episode,
-            (episode.Path, preferredLanguage, preferMostChannels),
-            ct => FindAudioStreamSelectionAsync(episode.Path, preferredLanguage, preferMostChannels, ct),
+            (episode.AnalysisPath, preferredLanguage, preferMostChannels),
+            ct => FindAudioStreamSelectionAsync(episode.AnalysisPath, preferredLanguage, preferMostChannels, ct),
             cancellationToken);
     }
 

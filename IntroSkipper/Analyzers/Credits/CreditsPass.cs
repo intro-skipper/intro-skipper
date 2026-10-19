@@ -76,7 +76,7 @@ internal sealed partial class CreditsPass(
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
-        var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        var pendingItems = items.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(Mode)).ToList();
         // A chapter match owns the episode even if admission rejects its write: falling through
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
         // consumed, rejected, and failed episodes remain unsettled according to their state.
