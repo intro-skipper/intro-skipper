@@ -1030,6 +1030,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var unreadableEpisodeId = fixture.EpisodeIds[0];
         var failedEpisodeId = fixture.EpisodeIds[1];
         var rehashedEpisodeId = fixture.EpisodeIds[2];
+        var completedEpisodeId = fixture.EpisodeIds[3];
         var creditIds = new Dictionary<Guid, Guid>();
         var previewIds = new Dictionary<Guid, Guid>();
         foreach (var id in fixture.EpisodeIds)
@@ -1077,7 +1078,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             Assert.Equal((170.0, 240.0), (preview.ToSegment().Start, preview.ToSegment().End));
         }
 
-        var completedSegments = await database.GetSegmentsAsync(fixture.EpisodeIds[2]);
+        var completedSegments = await database.GetSegmentsAsync(completedEpisodeId);
         Assert.DoesNotContain(completedSegments, s => s.Type == AnalysisMode.Credits);
         Assert.DoesNotContain(completedSegments, s => s.Type == AnalysisMode.Preview);
     }
