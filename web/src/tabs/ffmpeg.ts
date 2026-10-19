@@ -12,9 +12,6 @@ export const ffmpegTab: Tab = {
             form.field("ProcessPriority"),
             form.field("ProcessThreads"),
             form.field("ScanTimeoutSeconds"),
-            form.field("ProbeAudioDuration"),
-            form.field("PreferredAudioLanguage"),
-            form.field("PreferAudioStreamWithMostChannels"),
             form.field("CacheCompressionLevel"),
         );
     },

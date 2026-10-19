@@ -33,6 +33,8 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _showInfoRegex = ShowInfoRegex();
 
+    private static readonly Regex _mappedStreamRegex = MappedStreamRegex();
+
     // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
     // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
     // (dvb_subtitle, dvd_subtitle, hdmv_pgs_subtitle, xsub), which would need OCR, and the
@@ -251,67 +253,113 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Parses ffprobe's JSON chapter listing.
+    /// Reads the codec of the input stream ffmpeg mapped to its first output stream, from the
+    /// stream mapping block a run prints at the info log level.
     /// </summary>
-    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters</c>.</param>
-    /// <returns>The chapter start times and embedded chapter titles.</returns>
-    internal static ChapterInfo[] ParseChapters(string raw)
+    /// <remarks>
+    /// The block is a line that reads exactly <c>Stream mapping:</c>, followed by one indented
+    /// line per output stream, such as <c>  Stream #0:1 -&gt; #0:0 (hevc (native) -&gt; wrapped_avframe (native))</c>.
+    /// A tag value can hold the same text, but ffmpeg prints every line of a tag value after
+    /// the tag's name column, so no tag line reads exactly <c>Stream mapping:</c>. Checked on
+    /// jellyfin-ffmpeg 7.1.3 and 8.1.2.
+    /// </remarks>
+    /// <param name="raw">The ffmpeg standard error output.</param>
+    /// <returns>The mapped input stream's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
+    internal static string? ParseMappedVideoCodec(string raw)
+    {
+        var inBlock = false;
+        foreach (var line in raw.Split('\n'))
+        {
+            var text = line.TrimEnd('\r');
+            if (!inBlock)
+            {
+                inBlock = text == "Stream mapping:";
+                continue;
+            }
+
+            if (!text.StartsWith("  Stream #", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (_mappedStreamRegex.Match(text) is { Success: true } match)
+            {
+                return match.Groups["codec"].Value;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Parses ffprobe's JSON chapter listing into the chapters Jellyfin's own probe would store
+    /// in its chapter table for the file.
+    /// </summary>
+    /// <remarks>
+    /// ffprobe prints each <c>start_time</c> as a string of seconds, such as <c>"90.048625"</c>,
+    /// on jellyfin-ffmpeg 7.1.3 and 8.1.2. A chapter whose start is missing, not such a string,
+    /// or not a representable tick count (<see cref="TickConversions.TryFromSeconds"/>) is
+    /// dropped. A chapterless file still prints an empty <c>chapters</c> array, so output
+    /// without one is unusable, not a file without chapters.
+    /// The chapters are shaped as Jellyfin stores them, so for a file no other plugin touched
+    /// both chapter sources hold the same list: the start is rounded to the millisecond as
+    /// <c>ProbeResultNormalizer.GetChapterInfo</c> rounds it, a chapter whose title is blank or
+    /// a timestamp is named with <paramref name="chapterNameFormat"/> and its number in
+    /// ffprobe's order as <c>FFProbeVideoInfo.NormalizeChapterNames</c> names it, and chapters
+    /// at or past the runtime are dropped as <c>ChapterManager.SaveChapters</c> drops them.
+    /// Jellyfin keeps a chapter with a negative start, which this drops.
+    /// </remarks>
+    /// <param name="raw">JSON returned by <c>ffprobe -show_chapters -of json</c>.</param>
+    /// <param name="runtimeTicks">The item's runtime in ticks.</param>
+    /// <param name="chapterNameFormat">Jellyfin's chapter name format under the server's language, with <c>{0}</c> for the chapter number.</param>
+    /// <returns>The chapters sorted by start.</returns>
+    /// <exception cref="JsonException"><paramref name="raw"/> is not valid JSON, or has no top-level <c>chapters</c> array.</exception>
+    internal static ChapterInfo[] ParseChapters(string raw, long runtimeTicks, string chapterNameFormat)
     {
         using var document = JsonDocument.Parse(raw);
-        if (!document.RootElement.TryGetProperty("chapters", out var chapters)
+        if (document.RootElement.ValueKind != JsonValueKind.Object
+            || !document.RootElement.TryGetProperty("chapters", out var chapters)
             || chapters.ValueKind != JsonValueKind.Array)
         {
-            return [];
+            throw new JsonException("ffprobe printed no chapters array.");
         }
 
         var result = new List<ChapterInfo>();
+        var number = 0;
         foreach (var chapter in chapters.EnumerateArray())
         {
-            if (!chapter.TryGetProperty("start_time", out var startElement)
-                || !TryParseDouble(startElement, out var startSeconds)
-                || !double.IsFinite(startSeconds)
-                || startSeconds < 0
-                || startSeconds > TimeSpan.MaxValue.TotalSeconds)
+            number++;
+            if (chapter.ValueKind != JsonValueKind.Object
+                || !chapter.TryGetProperty("start_time", out var start)
+                || start.ValueKind != JsonValueKind.String
+                || !double.TryParse(start.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var startSeconds)
+                || !TickConversions.TryFromSeconds(startSeconds, out _))
             {
                 continue;
             }
 
-            var name = string.Empty;
-            if (chapter.TryGetProperty("tags", out var tags)
-                && tags.ValueKind == JsonValueKind.Object
-                && tags.TryGetProperty("title", out var title))
+            // Jellyfin's expression, so the two agree at a half millisecond too (to even).
+            var startTicks = TimeSpan.FromMilliseconds(Math.Round(TimeSpan.FromSeconds(startSeconds).TotalMilliseconds)).Ticks;
+            if (startTicks >= runtimeTicks)
             {
-                name = title.ValueKind == JsonValueKind.String ? title.GetString() ?? string.Empty : string.Empty;
+                continue;
             }
 
-            try
-            {
-                result.Add(new ChapterInfo
-                {
-                    StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks,
-                    Name = name,
-                });
-            }
-            catch (OverflowException)
-            {
-                // A value close to TimeSpan.MaxValue can still round outside the valid
-                // tick range during conversion; ignore that malformed chapter.
-            }
+            var title = chapter.TryGetProperty("tags", out var tags)
+                && tags.ValueKind == JsonValueKind.Object
+                && tags.TryGetProperty("title", out var titleTag)
+                && titleTag.ValueKind == JsonValueKind.String
+                ? titleTag.GetString()
+                : null;
+            // Jellyfin's TimeSpan.TryParse(name, out _) reads the current culture; this runs in
+            // the same process, so the same titles count as timestamps.
+            var name = string.IsNullOrWhiteSpace(title) || TimeSpan.TryParse(title, CultureInfo.CurrentCulture, out _)
+                ? string.Format(CultureInfo.InvariantCulture, chapterNameFormat, number)
+                : title;
+            result.Add(new ChapterInfo { StartPositionTicks = startTicks, Name = name });
         }
 
         return [.. result.OrderBy(chapter => chapter.StartPositionTicks)];
-    }
-
-    private static bool TryParseDouble(JsonElement value, out double result)
-    {
-        result = default;
-        if (value.ValueKind == JsonValueKind.Number)
-        {
-            return value.TryGetDouble(out result);
-        }
-
-        return value.ValueKind == JsonValueKind.String
-            && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
 
     /// <summary>
@@ -409,6 +457,10 @@ internal static partial class FFmpegOutputParser
      */
     [GeneratedRegex(@"\[Parsed_showinfo_\d+ @ [^\]]+\] n:\s*\d+ pts:\s*-?\d+ pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)[^\n]*? s:(?<width>\d+)x(?<height>\d+)")]
     private static partial Regex ShowInfoRegex();
+
+    // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
+    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+)")]
+    private static partial Regex MappedStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);

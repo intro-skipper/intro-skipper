@@ -8,7 +8,7 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
   - `Analyzers/` ChromaprintAnalyzer (cross-episode audio fingerprints), ChapterAnalyzer, BlackFrameAnalyzer (legacy, behind `UseLegacyBlackFrameAnalyzer`), Credits/KeyframeAnalyzer (black roll and card credits from one keyframe scan), AnimePreviewDeriver, SubtitleAnalyzer (recaps and previews from text subtitle cues)
   - `ScheduledTasks/` DetectSegmentsTask, BaseItemAnalyzerTask (runs analyzers per mode)
   - `Manager/` SeasonResolver (library items into seasons, one series at a time; the season key function) and QueueVerifier (analysis state per episode), MediaSegmentMirror
-  - `FFmpeg/` FFmpegService (composes FFmpegProcessRunner and FFmpegVersionGate), the only media probing path
+  - `FFmpeg/` FFmpegService (composes FFmpegProcessRunner, FFmpegVersionGate and EpisodeProbeMemo), the only media probing path
   - `Db/` database facades, entities, admission policy, legacy importer
   - `Migrations/` EF migrations for `introskipper-v2.db`
   - `SegmentChanges/` SegmentChange coordinator, intents
@@ -66,7 +66,7 @@ There is no `main`/`master`. Branches are named for Jellyfin releases, and origi
 </important>
 
 <important if="you are working on analyzers, the detection pipeline, or scheduled tasks">
-`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings.
+`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Analyzers read chapters only from `QueuedEpisode.Chapters`, which the season pass fills from the chapter source, and never fetch chapters themselves. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings.
 
 Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run; its README has the commands.
 </important>

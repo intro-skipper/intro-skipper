@@ -104,23 +104,7 @@ internal sealed partial class ChapterAnalyzer(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            IReadOnlyList<Segment> matches;
-            try
-            {
-                matches = enableChapterDetection
-                    ? await FindChapterCandidatesAsync(episode, mode, cancellationToken).ConfigureAwait(false)
-                    : [];
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingChapters(ex, episode.Name);
-                continue;
-            }
+            IReadOnlyList<Segment> matches = enableChapterDetection ? FindChapterCandidates(episode, mode) : [];
 
             var source = SegmentSource.Chapter;
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
@@ -217,19 +201,14 @@ internal sealed partial class ChapterAnalyzer(
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="cancellationToken">Token used to cancel the caller's wait for the optional embedded chapter probe.</param>
     /// <returns>The matching chapter ranges in file seconds; empty when chapter matching is off for the mode or nothing matched.</returns>
-    /// <exception cref="InvalidOperationException">The configured embedded chapter probe failed.</exception>
-    internal async Task<IReadOnlyList<Segment>> FindChapterCandidatesAsync(
-        QueuedEpisode episode,
-        AnalysisMode mode,
-        CancellationToken cancellationToken)
+    internal IReadOnlyList<Segment> FindChapterCandidates(QueuedEpisode episode, AnalysisMode mode)
     {
         var expression = GetExpression(mode);
         return !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
             ? FindMatchingChapters(
                 episode,
-                await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false),
+                episode.Chapters,
                 expression,
                 mode,
                 _config.EnableSponsorBlockChapterDetection)
@@ -424,7 +403,7 @@ internal sealed partial class ChapterAnalyzer(
         };
     }
 
-    private static bool ChapterMatches(
+    private bool ChapterMatches(
         string chapterName,
         string expression,
         AnalysisMode mode,
@@ -445,11 +424,24 @@ internal sealed partial class ChapterAnalyzer(
 
         // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
         // between function invocations.
-        return Regex.IsMatch(
-            chapterName,
-            expression,
-            RegexOptions.IgnoreCase,
-            TimeSpan.FromSeconds(1));
+        try
+        {
+            return Regex.IsMatch(
+                chapterName,
+                expression,
+                RegexOptions.IgnoreCase,
+                TimeSpan.FromSeconds(1));
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A pattern that backtracks for a second on a chapter name is the user's
+            // configuration, not a transient failure. The chapter counts as no match, as a
+            // subtitle pattern does (SubtitleAnalyzer), instead of stopping the season's
+            // remaining modes through the pass's TimeoutException handler, which this
+            // exception derives from.
+            LogChapterPatternTimedOut(mode, chapterName);
+            return false;
+        }
     }
 
     private static FrozenSet<string> Labels(string[] labels) => labels.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
@@ -486,9 +478,9 @@ internal sealed partial class ChapterAnalyzer(
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error reading chapters for {Episode}")]
-    private partial void LogErrorAnalyzingChapters(Exception ex, string episode);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid chapter pattern for {Mode}; skipping regex chapter matches: {Message}")]
     private partial void LogInvalidChapterPattern(AnalysisMode mode, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The {Mode} chapter pattern timed out on chapter \"{Name}\"; the chapter counts as no match. Simplify the pattern in the plugin settings.")]
+    private partial void LogChapterPatternTimedOut(AnalysisMode mode, string name);
 }

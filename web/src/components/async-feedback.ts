@@ -1,42 +1,38 @@
 import { el } from "./dom.ts";
 
+/** How a status line reads: plain progress text, or colored as a success, an error or a warning. */
+export type StatusState = "success" | "error" | "warning";
+
 type StatusMessageController = {
     element: HTMLElement;
-    show: (text: string, color?: string) => void;
+    show: (text: string, state?: StatusState) => void;
     clear: () => void;
 };
 
-export function bindStatusMessage(
-    element: HTMLElement,
-    opts?: { display?: "inline" | "block" },
-): StatusMessageController {
-    const display = opts?.display ?? "inline";
-
+/**
+ * Turns `element` into a live status line. The stylesheet colors it by its
+ * data-state and hides it while it is empty.
+ */
+export function bindStatusMessage(element: HTMLElement): StatusMessageController {
     element.setAttribute("aria-live", "polite");
     element.setAttribute("aria-atomic", "true");
-    element.style.display = "none";
 
     return {
         element,
-        show(text: string, color?: string) {
+        show(text, state) {
             element.textContent = text;
-            element.style.color = color ?? "";
-            element.style.display = text ? display : "none";
+            if (state) element.dataset.state = state;
+            else delete element.dataset.state;
         },
         clear() {
             element.textContent = "";
-            element.style.color = "";
-            element.style.display = "none";
+            delete element.dataset.state;
         },
     };
 }
 
-export function createStatusMessage(opts?: {
-    className?: string;
-    display?: "inline" | "block";
-}): StatusMessageController {
-    const element = el("div", { className: opts?.className ?? "status-message" });
-    return bindStatusMessage(element, { display: opts?.display ?? "inline" });
+export function createStatusMessage(className = "status-message"): StatusMessageController {
+    return bindStatusMessage(el("div", { className }));
 }
 
 export async function withDashboardLoading<T>(task: () => Promise<T>): Promise<T> {

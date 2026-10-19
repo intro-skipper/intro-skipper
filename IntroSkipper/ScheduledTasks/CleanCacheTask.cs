@@ -7,7 +7,6 @@
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
-using IntroSkipper.SegmentChanges;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -26,15 +25,13 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="cacheService">Detection cache service; owns the configuration-hash policy.</param>
-/// <param name="eraser">Erases the segments of items the server no longer knows and converges their mirrors.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     SeasonResolver seasonResolver,
     ILibraryManager libraryManager,
     IntroSkipperDatabase database,
     DetectionCacheDatabase cacheDatabase,
-    DetectionCacheService cacheService,
-    ISegmentEraser eraser) : IScheduledTask
+    DetectionCacheService cacheService) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
@@ -42,7 +39,6 @@ public partial class CleanCacheTask(
     private readonly IntroSkipperDatabase _database = database;
     private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly DetectionCacheService _cacheService = cacheService;
-    private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
     /// Gets the task name.
@@ -125,13 +121,11 @@ public partial class CleanCacheTask(
             .Where(IsGone)
             .ToList();
 
-        if (staleTimestampEpisodeIds.Count > 0)
-        {
-            // Cache rows of gone items are cleaned below by their own query.
-            await _eraser
-                .EraseItemsAsync(staleTimestampEpisodeIds, eraseCache: false, eraseTombstones: true, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        }
+        // Gone items lose their user segments too. Nothing can play them, and kept rows
+        // would come back as stale ids on every run. The facade journals the items'
+        // projections for the projection worker. Cache rows of gone items are cleaned
+        // below by their own query.
+        await _database.ForgetItemsAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs in the SQLite cache whose items are gone.
         var invalidEpisodeIds = (await _cacheDatabase

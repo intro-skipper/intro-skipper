@@ -53,22 +53,6 @@ namespace IntroSkipper.Migrations
                     b.ToTable("DisabledItems", (string)null);
                 });
 
-            modelBuilder.Entity("IntroSkipper.Db.DbEmbeddedChapterTransition", b =>
-                {
-                    b.Property<int>("Id")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("AppliedEmbeddedChapters")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool?>("PendingEmbeddedChapters")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("EmbeddedChapterTransitions", (string)null);
-                });
-
             modelBuilder.Entity("IntroSkipper.Db.DbImportRecord", b =>
                 {
                     b.Property<int>("Id")

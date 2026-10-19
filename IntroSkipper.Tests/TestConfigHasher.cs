@@ -144,6 +144,55 @@ public sealed class TestConfigHasher
         }
     }
 
+    /// <summary>
+    /// Every mode reads chapters, chapter snapping even under a credits BlackFrame action, so
+    /// every record names its chapter source. The detection cache holds media evidence with no
+    /// chapter input, so an episode the chapter source check reruns reads it again. The pinned
+    /// hashes above show that the setting's default leaves every hash as it was.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalysisMode.Introduction, AnalyzerAction.Default)]
+    [InlineData(AnalysisMode.Credits, AnalyzerAction.Default)]
+    [InlineData(AnalysisMode.Credits, AnalyzerAction.BlackFrame)]
+    [InlineData(AnalysisMode.Recap, AnalyzerAction.Default)]
+    [InlineData(AnalysisMode.Preview, AnalyzerAction.Default)]
+    [InlineData(AnalysisMode.Commercial, AnalyzerAction.Default)]
+    public void ChapterSource_InvalidatesAnalysisButNotTheDetectionCache(AnalysisMode mode, AnalyzerAction action)
+    {
+        var defaults = new PluginConfiguration();
+        var embedded = new PluginConfiguration { UseEmbeddedChaptersForAnalysis = true };
+
+        Assert.NotEqual(ConfigHasher.Analysis(defaults, mode, action, true), ConfigHasher.Analysis(embedded, mode, action, true));
+        foreach (var type in Enum.GetValues<CacheEntryType>())
+        {
+            Assert.Equal(ConfigHasher.DetectionCache(defaults, type, mode), ConfigHasher.DetectionCache(embedded, type, mode));
+        }
+    }
+
+    /// <summary>
+    /// The chapter source sits in the conventional part of a compound hash. A switch reruns the
+    /// chapter analyzer first, which a subtitle-only rerun would skip.
+    /// </summary>
+    [Theory]
+    [InlineData(AnalysisMode.Recap, false)]
+    [InlineData(AnalysisMode.Recap, true)]
+    [InlineData(AnalysisMode.Preview, false)]
+    [InlineData(AnalysisMode.Preview, true)]
+    public void ChapterSourceSwitch_IsNotASubtitleOnlyChange(AnalysisMode mode, bool embeddedBefore)
+    {
+        static PluginConfiguration Config(bool embedded) => new()
+        {
+            EnableSubtitleRecapDetection = true,
+            EnableSubtitlePreviewDetection = true,
+            UseEmbeddedChaptersForAnalysis = embedded,
+        };
+
+        var stored = ConfigHasher.Analysis(Config(embeddedBefore), mode, AnalyzerAction.Default, true);
+        var conventional = ConfigHasher.Analysis(Config(!embeddedBefore), mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
+
+        Assert.False(ConfigHasher.IsSubtitleOnlyHashChange(stored, conventional));
+    }
+
     [Fact]
     public void LegacyChromaprintCacheHash_MatchesPreStreamSelectionRows()
     {

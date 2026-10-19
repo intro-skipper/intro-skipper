@@ -94,12 +94,12 @@ export const informationTab: Tab = {
         const supportContainer = el("section", { className: "tab-readonly-section" });
         const supportTitle = el(
             "h3",
-            { className: "checkbox-list-label", id: "support-log-label" },
+            { className: "is-section-heading", id: "support-log-label" },
             "Intro Skipper Support Log",
         );
         const copyButtonEl = el(
             "button",
-            { className: "raised button-submit", type: "button" },
+            { className: "action-button", type: "button" },
             "Copy to Clipboard",
         );
         copyButtonEl.disabled = true;
@@ -107,7 +107,7 @@ export const informationTab: Tab = {
         supportHead.append(supportTitle, copyButtonEl);
 
         const supportStatusEl = el("div", { className: "status-message", id: "support-log-status" });
-        const supportStatus = bindStatusMessage(supportStatusEl, { display: "block" });
+        const supportStatus = bindStatusMessage(supportStatusEl);
         copyButtonEl.setAttribute("aria-describedby", supportStatusEl.id);
 
         const supportSections = el("div", {});
@@ -144,7 +144,7 @@ export const informationTab: Tab = {
                 markdown = "";
                 supportSections.replaceChildren();
                 copyButtonEl.disabled = true;
-                supportStatus.show("Failed to load support log.", "var(--is-error)");
+                supportStatus.show("Failed to load support log.", "error");
                 return;
             }
             const bundle = result.data;
@@ -162,7 +162,7 @@ export const informationTab: Tab = {
 
         // Storage usage — structured list with progress bars.
         const storageContainer = el("section", { className: "tab-readonly-section" });
-        const storageTitle = el("h3", { className: "checkbox-list-label" }, "Storage Usage");
+        const storageTitle = el("h3", { className: "is-section-heading" }, "Storage Usage");
         storageTitle.id = "storage-usage-label";
         const storageDesc = el(
             "div",
@@ -173,7 +173,7 @@ export const informationTab: Tab = {
             className: "status-message",
             id: "storage-usage-status",
         });
-        const storageStatus = bindStatusMessage(storageStatusEl, { display: "block" });
+        const storageStatus = bindStatusMessage(storageStatusEl);
         storageStatus.show("Loading storage usage…");
         const storageList = el("div", {});
         storageList.setAttribute("aria-labelledby", storageTitle.id);
@@ -186,10 +186,11 @@ export const informationTab: Tab = {
             return (bytes / Math.pow(1024, i)).toFixed(1) + " " + units[i];
         }
 
-        function barColor(pct: number): string {
-            if (pct >= 90) return "var(--is-error)";
-            if (pct >= 75) return "var(--is-warning)";
-            return "var(--is-success)";
+        // The stylesheet colors the bar by this level; below 75% it stays green.
+        function storageLevel(pct: number): "full" | "warn" | null {
+            if (pct >= 90) return "full";
+            if (pct >= 75) return "warn";
+            return null;
         }
 
         function buildListItem(
@@ -210,8 +211,10 @@ export const informationTab: Tab = {
             const track = el("div", { className: "storage-bar-track" });
             const fill = el("div", {
                 className: "storage-bar-fill",
-                style: `width:${pct.toFixed(1)}%;background:${barColor(pct)};`,
+                style: `inline-size:${pct.toFixed(1)}%`,
             });
+            const level = storageLevel(pct);
+            if (level) fill.dataset.level = level;
             track.append(fill);
             text.append(track);
 
@@ -232,7 +235,7 @@ export const informationTab: Tab = {
             const result = await api.getStorageUsage(signal);
             storageList.replaceChildren();
             if (!result.ok) {
-                storageStatus.show("Failed to load storage usage.", "var(--is-error)");
+                storageStatus.show("Failed to load storage usage.", "error");
                 return;
             }
             const libraries = result.data;

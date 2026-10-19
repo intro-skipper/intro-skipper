@@ -63,8 +63,16 @@ internal static class LegacyAnalysisCompatibility
             {
                 // The target is the hash the pass expects for this season. 10.11 derived previews
                 // for anime only, so a season that does not derive them got the same credits from
-                // 10.11 whatever the plugin-wide setting was.
-                var currentHash = ConfigHasher.Analysis(config, mode, action, available, previewFromCreditsEndOverride: previewFromCreditsEndOverride);
+                // 10.11 whatever the plugin-wide setting was. 10.11 read Jellyfin's chapter table,
+                // so the adopted record names that source; with embedded chapters on, the pass's
+                // chapter source check decides per episode whether the file holds the same chapters.
+                var currentHash = ConfigHasher.Analysis(
+                    config,
+                    mode,
+                    action,
+                    available,
+                    previewFromCreditsEndOverride: previewFromCreditsEndOverride,
+                    chapterSource: ChapterSource.JellyfinTable);
                 foreach (var release in new[] { 22, 23, 24 })
                 {
                     if (release < 24 && (config.IncludeIntroStartOffsetWhenSnapping || mode == AnalysisMode.Credits))

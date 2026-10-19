@@ -1,542 +1,369 @@
-.is-app-shell {
-    display: grid;
-    grid-template-columns: var(--sidebar-width) 1fr;
-    grid-template-rows: var(--header-height) 1fr;
-    min-height: 80vh;
-    padding-bottom: calc(52px + env(safe-area-inset-bottom));
-}
+/* Shell, navigation, footer and the Timestamps browser's layout. */
 
 :where(.is-app-shell, .is-confirm-dialog) {
-    /* One keyboard focus ring for every control. Plain checkboxes keep the browser
-   ring; the search and filter inputs use a box-shadow instead. Zero-specificity
-   wrappers let a plain class rule adjust the offset or radius. */
-    :where(button, select, summary, a, input):where(
-        :not(.ts-search-input, .ts-filter-input, [type="checkbox"]),
-        .ts-episode-disable-toggle
-    ):focus-visible {
-        outline: 2px solid var(--is-accent);
-        outline-offset: 2px;
-    }
-
-    /* Accent buttons: the footer Save and the per-section action buttons. */
-    .save-button,
-    .action-button {
-        background: var(--is-accent);
-        color: var(--is-on-accent);
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-
-    .save-button:hover,
-    .action-button:hover {
-        opacity: 0.9;
-    }
-
-    /* Ghost buttons: input-colored background with a thin border. */
-    .ts-manage-toggle,
-    .ts-action-btn.apply,
-    .exclusion-add-button,
-    .exclusion-remove-button,
-    .is-confirm-btn.cancel {
-        background: var(--is-input-bg);
-        border: 1px solid var(--is-input-border);
-        border-radius: 4px;
-        cursor: pointer;
-    }
-
-    /* Outline buttons inside episode cards. */
-    .ts-edit-btn,
-    .ts-segment-btn {
-        padding: 2px 10px;
-        border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
-        border-radius: 4px;
-        background: transparent;
-        color: inherit;
-        cursor: pointer;
-    }
-
-    /* Compact inputs in the timestamps browser (show search, episode filter). */
-    .ts-search-input,
-    .ts-filter-input {
-        background: var(--is-input-bg);
-        border: 1px solid var(--is-input-border);
-        border-radius: 4px;
-        color: var(--is-text);
-        font-size: 0.85em;
-        outline: none;
-        box-sizing: border-box;
-    }
-
-    .ts-search-input:focus-visible,
-    .ts-filter-input:focus-visible {
-        border-color: var(--is-input-focus);
-        box-shadow: 0 0 0 1px var(--is-input-focus);
-    }
-
-    .app-title {
-        margin: 0;
-        font-size: 1.4em;
-    }
-
-    /* Visually hidden until focused; clipping does not depend on viewport geometry. */
-    .skip-link {
-        position: absolute;
-        top: 8px;
-        left: 16px;
-        z-index: 20;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-        background: var(--is-accent);
-        color: var(--is-on-accent);
-        text-decoration: none;
-    }
-
-    .skip-link:focus {
-        width: auto;
-        height: auto;
-        padding: 8px 12px;
-        border-radius: 4px;
-        clip-path: none;
-        outline: 2px solid var(--is-on-accent);
-        outline-offset: 2px;
-    }
-
-    .app-header {
-        grid-column: 1 / -1;
+    /* Header, sidebar beside content, footer. Flex gaps only exist between
+       items on one line, so a shell without a sidebar gets no leading gap. */
+    &.is-app-shell {
+        position: relative;
         display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 24px 0 72px;
-        border-bottom: 1px solid var(--is-border);
+        flex-wrap: wrap;
+        align-items: start;
+        gap: var(--is-space-m) var(--is-space-l);
+
+        > .app-header { flex-basis: 100%; }
+
+        > .app-sidebar { flex: none; }
+
+        > .app-content {
+            flex: 1 1 0;
+            min-inline-size: 0;
+        }
     }
 
+    /* Inset ring: the host clips the page's top edge. */
+    .skip-link:focus {
+        position: absolute;
+        inset-block-start: 0;
+        inset-inline-start: 0;
+        z-index: 1;
+        outline-offset: -2px;
+        padding-block: var(--is-space-2xs);
+        padding-inline: var(--is-space-s);
+        background: var(--is-paper);
+        color: var(--is-fg);
+    }
+
+    /* Sidebar: text rows on a hairline rail. A 2px marker covers the rail and
+       slides to the active row. It is only drawn where anchor positioning
+       exists; other engines underline the active row instead. */
     .app-sidebar {
+        position: relative;
         display: flex;
         flex-direction: column;
-        overflow-y: auto;
-        padding: 8px;
-        border-right: 1px solid var(--is-border);
+        border-inline-start: 1px solid var(--is-line);
+        anchor-scope: --is-tab;
     }
 
-    .app-content {
-        overflow-y: auto;
-        padding: 24px 32px;
-        min-width: 0;
+    @supports (anchor-name: --is-tab) {
+        .app-sidebar::after {
+            content: "";
+            position: absolute;
+            position-anchor: --is-tab;
+            inset-inline-start: -1px;
+            inline-size: 2px;
+            inset-block-start: anchor(start);
+            block-size: anchor-size(block);
+            background: var(--is-link);
+        }
     }
 
-    .app-footer {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 24px calc(12px + env(safe-area-inset-bottom));
-        border-top: 1px solid var(--is-border);
-        background: var(--is-bg);
-        z-index: 10;
+    @supports not (anchor-name: --is-tab) {
+        .tab-button.tab-active {
+            text-decoration-line: underline;
+            text-decoration-color: var(--is-link);
+            text-decoration-thickness: 2px;
+        }
     }
 
-    .footer-status-message {
-        margin-right: auto;
-        font-size: 0.85em;
-        color: var(--is-text-muted);
-    }
-
-    .footer-status-message[data-state="success"] {
-        color: var(--is-success);
-    }
-
-    .footer-status-message[data-state="error"] {
-        color: var(--is-error);
+    :is(.tab-button, .ts-season-tab) {
+        color: var(--is-fg-2);
+        text-decoration-line: none;
+        white-space: nowrap;
     }
 
     .tab-button {
-        display: block;
-        width: 100%;
-        text-align: left;
-        padding: 10px 16px;
-        border: none;
-        background: transparent;
-        color: var(--is-text);
-        cursor: pointer;
-        border-radius: 4px;
-        font-size: 0.95em;
-        touch-action: manipulation;
+        padding-block: var(--is-space-2xs);
+        padding-inline: var(--is-space-s) var(--is-space-m);
+
+        /* Inset ring: the phone strip scrolls and would clip an outer one. */
+        &:focus-visible { outline-offset: -2px; }
+
+        &.tab-active {
+            color: var(--is-fg);
+            font-weight: 700;
+            anchor-name: --is-tab;
+        }
     }
 
-    .tab-button:hover {
-        background: var(--is-hover);
+    @media (forced-colors: active) {
+        .app-sidebar::after {
+            forced-color-adjust: none;
+            background: Highlight;
+        }
     }
 
-    .tab-active {
-        background: color-mix(in srgb, var(--is-accent) 15%, transparent);
-        color: var(--is-accent);
-        font-weight: 600;
+    :is(.app-content, .ts-view, .ts-episodes) {
+        display: flex;
+        flex-direction: column;
+        gap: var(--is-space-s);
     }
+
+    /* Settings tabs: Jellyfin's own form width, so descriptions keep a
+       readable measure, and a wider gap so each field reads as a group. The
+       Timestamps browser (the one tab with a top bar) keeps the full width and
+       the tight gap for its episode rows. */
+    .app-content:not(:has(> .ts-top-bar)) {
+        max-inline-size: 54em;
+        gap: var(--is-space-m);
+    }
+
+    .ts-episodes { gap: var(--is-space-2xs); }
+
+    /* Footer: fixed to the viewport (an ancestor clips overflow, so sticky
+       cannot work), shown only while there is something to say: unsaved
+       changes, a save status, or keyboard focus inside it. Jellyfin's
+       permanent drawer takes the first 240px from its md breakpoint on, the
+       width AppLayout.tsx uses; it stays on the physical left in RTL. */
+    .app-footer {
+        position: fixed;
+        inset-block-end: 0;
+        inset-inline: 0;
+        z-index: 10;
+        display: none;
+        align-items: baseline;
+        justify-content: end;
+        gap: var(--is-space-m);
+        padding-block: var(--is-space-s) calc(var(--is-space-s) + env(safe-area-inset-bottom, 0px));
+        padding-inline: max(1em, env(safe-area-inset-left, 0px)) max(1em, env(safe-area-inset-right, 0px));
+        border-block-start: 1px solid var(--is-line);
+        background: var(--is-bg);
+
+        @media (min-width: 900px) {
+            left: 240px;
+        }
+    }
+
+    &:has(.dirty-indicator[data-dirty], .footer-status-message:not(:empty), .app-footer :focus-visible) > .app-footer { display: flex; }
+
+    /* Jellyfin's now-playing bar is fixed over the same edge while audio
+       plays or a remote session is controlled. */
+    :where(body:has(.nowPlayingBar:not(.hide))) &.is-app-shell > .app-footer { inset-block-end: 4.2rem; }
+
+    /* Focus scrolls a control clear of the fixed footer. */
+    .app-content :is(input, select, textarea, button, a, summary) { scroll-margin-block-end: 5rem; }
+
+    /* Without :has() the footer would never show, so keep it always visible there. */
+    @supports not selector(:has(a)) {
+        .app-footer { display: flex; }
+    }
+
+    .footer-status-message { margin-inline-end: auto; }
 
     .dirty-indicator {
-        font-size: 0.85em;
-        color: var(--is-warning);
-        white-space: nowrap;
+        font-size: var(--is-step--1);
+
+        &:not([data-dirty]) { display: none; }
     }
 
-    .save-button {
-        padding: 8px 20px;
-        font-size: 0.95em;
-        touch-action: manipulation;
-    }
-
-    .save-button:disabled {
-        opacity: 0.7;
-        cursor: progress;
-    }
-
-    /* Timestamp tab breadcrumbs and search. */
-
+    /* Timestamps browser. */
     .ts-top-bar {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--is-border);
-        margin-bottom: 12px;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--is-space-s) var(--is-space-l);
     }
 
     .ts-breadcrumbs-nav {
-        min-width: 0;
+        flex: 999 1 0;
+        min-inline-size: 50%;
     }
 
-    .ts-breadcrumbs {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.9em;
-        flex-wrap: wrap;
-        min-width: 0;
-        list-style: none;
-        margin: 0;
-        padding: 0;
-    }
-
+    .ts-breadcrumbs,
     .ts-breadcrumb-item {
         display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--is-space-2xs);
     }
 
-    .ts-breadcrumb-link {
-        color: var(--is-accent);
-        cursor: pointer;
-        background: none;
-        border: none;
-        padding: 2px 4px;
-        margin: -2px -4px;
-        font: inherit;
-        text-decoration: underline;
-        text-decoration-color: transparent;
-        transition: text-decoration-color 0.15s;
-    }
+    .ts-breadcrumb-sep { color: var(--is-fg-2); }
 
-    .ts-breadcrumb-link:hover {
-        text-decoration-color: currentColor;
-    }
-
-    .ts-breadcrumb-link:focus-visible {
-        border-radius: 2px;
-    }
-
-    .ts-breadcrumb-sep {
-        color: var(--is-text-muted);
-        user-select: none;
-    }
-
-    .ts-breadcrumb-current {
-        color: var(--is-text);
-    }
+    .ts-breadcrumb-current { color: var(--is-fg); }
 
     .ts-search-wrapper {
         position: relative;
-        width: 220px;
-        flex-shrink: 0;
-    }
+        display: grid;
+        flex: 1 1 14rem;
 
-    .ts-search-input {
-        width: 100%;
-        padding: 6px 10px 6px 28px;
+        > :is(.ts-search-icon, .ts-search-input) { grid-area: 1 / 1; }
     }
 
     .ts-search-icon {
-        position: absolute;
-        left: 9px;
-        top: 50%;
-        transform: translateY(-50%);
-        color: var(--is-text-muted);
-        font-size: 0.85em;
+        place-self: center start;
+        color: var(--is-fg-2);
         pointer-events: none;
+    }
+
+    .ts-search-input {
+        inline-size: 100%;
+        padding-inline-start: 1.4em;
     }
 
     .ts-search-results {
         position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        max-height: 300px;
+        inset-block-start: 100%;
+        inset-inline: 0;
+        z-index: 2;
+        max-block-size: 20rem;
         overflow-y: auto;
-        background: var(--is-surface);
-        border: 1px solid var(--is-border);
-        border-radius: 0 0 4px 4px;
-        z-index: 20;
-        display: none;
-    }
+        overscroll-behavior: contain;
+        background: var(--is-paper);
 
-    .ts-search-results.open {
-        display: block;
+        &:not(.open) { display: none; }
     }
 
     .ts-search-group-label {
-        padding: 6px 10px 2px;
-        font-size: 0.75em;
-        color: var(--is-text-muted);
-        text-transform: uppercase;
+        padding-block: var(--is-space-2xs) 0;
+        padding-inline: var(--is-space-2xs);
+        color: var(--is-fg-2);
+        font-size: var(--is-step--1);
+        font-variant-caps: small-caps;
+        letter-spacing: 0.05em;
     }
 
     .ts-search-result {
-        padding: 6px 10px;
+        inline-size: 100%;
+        padding-block: var(--is-space-3xs);
+        padding-inline: var(--is-space-2xs);
+        color: var(--is-fg);
         cursor: pointer;
-        font-size: 0.85em;
-        color: var(--is-text);
-        border: none;
-        background: none;
-        width: 100%;
-        text-align: left;
-        font-family: inherit;
-    }
 
-    .ts-search-result:hover {
-        background: var(--is-hover);
-    }
-
-    .ts-search-result.active {
-        background: var(--is-hover-strong);
+        &.active { background: var(--is-tint); }
     }
 
     .ts-search-empty {
-        padding: 8px 10px;
-        color: var(--is-text-muted);
-        font-size: 0.85em;
+        padding-block: var(--is-space-2xs);
+        padding-inline: var(--is-space-2xs);
+        color: var(--is-fg-2);
+        font-size: var(--is-step--1);
     }
-
-    /* Timestamp tab season tabs. */
 
     .ts-season-bar {
         display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 8px 0;
-        border-bottom: 1px solid var(--is-border);
-        margin-bottom: 12px;
         flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--is-space-2xs) var(--is-space-m);
     }
 
     .ts-season-tab {
-        background: var(--is-input-bg);
-        color: var(--is-text-muted);
-        border: 1px solid transparent;
-        padding: 5px 14px;
-        border-radius: 4px 4px 0 0;
-        cursor: pointer;
-        font-size: 0.85em;
-        font-family: inherit;
-        touch-action: manipulation;
-        transition:
-            color 0.15s,
-            border-color 0.15s;
+        padding-block: var(--is-space-2xs);
+        border-block-end: 2px solid transparent;
+
+        &.active {
+            color: var(--is-fg);
+            font-weight: 700;
+            border-block-end-color: var(--is-link);
+        }
     }
 
-    .ts-season-tab:hover {
-        color: var(--is-text);
-    }
+    .ts-manage-toggle { margin-inline-start: auto; }
 
-    .ts-season-tab.active {
-        color: var(--is-accent);
-        border-bottom: 2px solid var(--is-accent);
-        font-weight: 600;
-    }
-
-    .ts-season-spacer {
-        flex: 1;
-    }
-
-    .ts-manage-toggle {
-        color: var(--is-text-muted);
-        padding: 6px 12px;
-        font-size: 0.8em;
-        font-family: inherit;
-        touch-action: manipulation;
-        border: 1px solid var(--is-border);
-        border-radius: 5px;
-        background: var(--is-input-bg);
-        cursor: pointer;
-    }
-
-    .ts-manage-toggle:hover {
-        color: var(--is-text);
-        background: var(--is-hover-strong);
-    }
-
-    .ts-manage-toggle[aria-expanded="true"] {
-        color: var(--is-accent);
-        border-color: var(--is-accent);
-    }
+    button[aria-expanded="true"] { color: var(--is-fg); }
 
     .ts-season-panel {
-        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--is-space-m);
     }
 
-    @media (max-width: 768px) {
-        &.is-app-shell {
-            grid-template-columns: 1fr;
-            grid-template-rows: auto auto 1fr;
-        }
+    /* Manage panel: ruled above and below, no surface. */
+    .ts-action-bar {
+        display: flex;
+        flex-direction: column;
+        gap: var(--is-space-m);
+        padding-block: var(--is-space-m);
+        border-block: 1px solid var(--is-line);
 
-        .app-header {
-            min-height: 56px;
-            padding: 0 16px;
-        }
+        &:not(.open) { display: none; }
+    }
 
-        .app-header h1 {
-            display: none;
-        }
+    .ts-action-top-row,
+    .ts-action-bottom-row,
+    .ts-action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: var(--is-space-s) var(--is-space-m);
+    }
+
+    /* The five selects own their row; the Segment Editor link wraps below. */
+    .ts-analyzer-group {
+        flex-basis: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 6.5rem), 1fr));
+        gap: var(--is-space-s) var(--is-space-m);
+    }
+
+    .ts-analyzer-item > select { inline-size: 100%; }
+
+    .ts-action-editor-link { margin-inline-start: auto; }
+
+    .ts-filter-bar {
+        display: flex;
+        align-items: baseline;
+        gap: var(--is-space-m);
+    }
+
+    .ts-filter-input {
+        flex: 1;
+        inline-size: auto;
+    }
+
+    /* Narrow host: the sidebar becomes a scrolling strip and the marker an underline. */
+    @container host (width < 48rem) {
+        &.is-app-shell > :is(.app-sidebar, .app-content) { flex-basis: 100%; }
 
         .app-sidebar {
             flex-direction: row;
             overflow-x: auto;
-            overflow-y: hidden;
-            border-right: none;
-            border-bottom: 1px solid var(--is-border);
-            white-space: nowrap;
+            overscroll-behavior-x: contain;
+            scrollbar-width: thin;
+            border-inline-start: 0;
+            border-block-end: 1px solid var(--is-line);
+
+            &::after {
+                inset-inline-start: anchor(start);
+                inline-size: anchor-size(inline);
+                inset-block: auto 0;
+                block-size: 2px;
+            }
         }
 
+        /* Only the strip scrolls; on the wide sidebar the nearest scroller is
+           the page, which would jump to the active row on load. */
         .tab-button {
-            width: auto;
+            flex: none;
+            padding-inline: var(--is-space-s);
+
+            &.tab-active { scroll-initial-target: nearest; }
         }
 
-        .app-content {
-            padding: 16px;
-        }
-
-        .app-footer {
-            padding-left: 16px;
-            padding-right: 16px;
-        }
-
-        .ts-top-bar {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .ts-search-wrapper {
-            width: 100%;
-        }
-
-        .ts-season-bar {
-            overflow-x: auto;
-            flex-wrap: nowrap;
-        }
-
-        .ts-action-top-row,
-        .ts-action-bottom-row {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .ts-action-editor-link {
-            align-self: flex-end;
-        }
-
-        .ts-action-bottom-row {
-            align-items: stretch;
-        }
-
-        .ts-action-buttons {
-            margin-left: 0;
-            align-self: flex-end;
-            justify-content: flex-end;
-        }
-
-        .ts-analysis-window-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .ts-subtitle-override-row {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .ts-analysis-window input,
-        .ts-analysis-window select {
-            max-width: none;
-        }
-
-        /* Keep library and show cards horizontal on mobile and truncate long titles. */
-
-        .ts-episode-card {
-            overflow: hidden;
-            max-width: 100%;
-        }
-
-        .ts-episode-info {
-            min-width: 0;
-            max-width: 100%;
-            overflow: hidden;
-        }
-
-        .ts-episode-header {
-            min-width: 0;
-            overflow: hidden;
-        }
-
-        .ts-episode-name {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            min-width: 0;
-        }
-
-        /* Shrink episode cards on mobile without stacking the metadata. */
-
-        .ts-episode-thumb {
-            width: 80px;
-            height: 46px;
-            align-self: flex-start;
-            flex-shrink: 0;
-        }
-
-        .ts-episode-timestamps {
-            gap: 4px 6px;
-        }
-
-        .ts-timestamp-pill,
-        .ts-timestamp-missing {
-            font-size: 0.75em;
-            padding: 1px 6px;
-        }
+        /* The name, runtime, switch and Edit then share one line. */
+        .ts-episode-thumb { display: none; }
     }
 
-    @media (prefers-reduced-motion: reduce) {
-        .ts-breadcrumb-link,
-        .ts-season-tab {
-            transition: none;
+    @media (prefers-reduced-motion: no-preference) {
+        .app-sidebar::after {
+            transition:
+                inset-block-start 0.25s var(--is-ease-out),
+                block-size 0.25s var(--is-ease-out),
+                inset-inline-start 0.25s var(--is-ease-out),
+                inline-size 0.25s var(--is-ease-out);
+        }
+
+        &.is-confirm-dialog[open] {
+            transition:
+                opacity 0.2s var(--is-ease-out),
+                translate 0.2s var(--is-ease-out);
+        }
+
+        &.is-confirm-dialog[open]::backdrop { transition: opacity 0.2s var(--is-ease-out); }
+
+        @starting-style {
+            &.is-confirm-dialog[open],
+            &.is-confirm-dialog[open]::backdrop { opacity: 0; }
+
+            &.is-confirm-dialog[open] { translate: 0 0.5rem; }
         }
     }
 }

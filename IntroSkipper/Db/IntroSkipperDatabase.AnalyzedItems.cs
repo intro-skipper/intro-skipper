@@ -13,14 +13,15 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <summary>
-    /// Atomically adopts completed analysis and its active automatic segments under a
-    /// compatible hash. Only records still carrying the previous hash are updated;
-    /// missing or reset records are never recreated. Segment payloads stay unchanged.
+    /// Re-stamps completed analysis and its active automatic segments from one hash to
+    /// another in one transaction, for the 10.11 adoption and the chapter source check. Only
+    /// records still carrying the previous hash are updated; missing or reset records are
+    /// never recreated. Segment payloads stay unchanged.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="itemIds">Previously completed item IDs.</param>
-    /// <param name="previousHash">Recognized legacy hash.</param>
-    /// <param name="currentHash">Compatible current hash.</param>
+    /// <param name="previousHash">The hash the records carry now.</param>
+    /// <param name="currentHash">The hash the pass would write for them.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of completion records updated.</returns>
     public async Task<int> UpgradeAnalysisHashAsync(

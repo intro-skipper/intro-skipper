@@ -76,6 +76,26 @@ internal static class AnimePreviewDeriver
             var preview = Compute(episode.EpisodeId, previewEnd, credits, previews, minimumDuration);
             if (preview is null)
             {
+                if (credits is { Valid: true } && previewEnd - credits.End >= minimumDuration)
+                {
+                    var matchingPreview = dbSegments.FirstOrDefault(segment =>
+                        segment.Type == AnalysisMode.Preview
+                        && segment.Source == SegmentSource.CreditsDerived
+                        && segment.State == SegmentState.Active
+                        && Math.Abs(TickConversions.ToSeconds(segment.StartTicks) - credits.End) <= StartTolerance
+                        && Math.Abs(TickConversions.ToSeconds(segment.EndTicks) - previewEnd) <= StartTolerance);
+                    if (matchingPreview is not null && matchingPreview.ConfigHash != episode.AnalysisConfigHash)
+                    {
+                        await database.ReplaceAutoSegmentsAsync(
+                            episode.EpisodeId,
+                            AnalysisMode.Preview,
+                            [matchingPreview.ToSegment()],
+                            SegmentSource.CreditsDerived,
+                            episode.AnalysisConfigHash,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
                 // Nothing derivable (no credits, or too little between the credits and the
                 // preview end) leaves a preview derived by an earlier run stale: clear it so it
                 // cannot overlap the credits that replaced its source.

@@ -53,7 +53,7 @@ export const toolsTab: Tab = {
 
         const globalEraseBtn = el(
             "button",
-            { className: "action-button raised block", type: "button" },
+            { className: "action-button danger", type: "button" },
             eraseTarget(globalSelect.value).button,
         );
 
@@ -65,7 +65,7 @@ export const toolsTab: Tab = {
             const target = eraseTarget(globalSelect.value);
             const result = await confirmDialog({
                 title: "Confirm Timestamp Erasure",
-                body: "Are you sure you want to erase all previously discovered " + target.timestamps + "?",
+                body: "Are you sure you want to erase all previously discovered " + target.timestamps + "? User segments are kept.",
                 confirmLabel: "Erase",
                 checkboxes: eraseCheckboxes,
             });
@@ -83,7 +83,7 @@ export const toolsTab: Tab = {
 
         const rebuildBtn = el(
             "button",
-            { className: "action-button raised block", type: "button" },
+            { className: "action-button danger", type: "button" },
             "Rebuild Local Database",
         );
         rebuildBtn.addEventListener("click", async () => {
@@ -116,7 +116,7 @@ export const toolsTab: Tab = {
 
         const resetBtn = el(
             "button",
-            { className: "action-button raised block", type: "button" },
+            { className: "action-button danger", type: "button" },
             "Reset Settings to Defaults",
         );
         resetBtn.addEventListener("click", async () => {

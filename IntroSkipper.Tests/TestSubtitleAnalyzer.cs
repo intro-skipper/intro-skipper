@@ -202,7 +202,7 @@ public sealed class TestSubtitleAnalyzer
         var episodeId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, EnableSubtitlePreviewDetection = true };
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(70) }]);
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var episode = new QueuedEpisode
         {
             EpisodeId = episodeId,
@@ -211,6 +211,7 @@ public sealed class TestSubtitleAnalyzer
             Duration = 300,
             IntroFingerprintEnd = 75,
             AnalysisConfigHash = "subtitle",
+            Chapters = [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(70) }],
         };
 
         await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), database, config)
@@ -455,12 +456,20 @@ public sealed class TestSubtitleAnalyzer
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(60) }]);
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var ffmpeg = new StubFFmpegService
         {
             Subtitles = _ => new([new SubtitleCue(10, 13, cueText)], Complete: true),
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, IntroFingerprintEnd = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 120,
+            IntroFingerprintEnd = 120,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+            Chapters = [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(60) }],
+        };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
@@ -491,14 +500,20 @@ public sealed class TestSubtitleAnalyzer
             MinimumRecapDuration = 5,
             MaximumRecapDuration = 120,
         };
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(
-            config,
-            [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(40) }]);
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var ffmpeg = new StubFFmpegService
         {
             Subtitles = _ => new([new SubtitleCue(30, 33, "Previously on the story")], Complete: true),
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 120, IntroFingerprintEnd = introFingerprintEnd, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 120,
+            IntroFingerprintEnd = introFingerprintEnd,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+            Chapters = [new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(40) }],
+        };
         var analyzer = new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config);
 
         await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);
@@ -531,13 +546,21 @@ public sealed class TestSubtitleAnalyzer
         }
 
         var config = new PluginConfiguration { EnableSubtitleRecapDetection = true, MaximumRecapDuration = maximumRecapDuration };
-        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config, [.. chapters.Select(start => new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(start) })]);
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
         var ffmpeg = new StubFFmpegService
         {
             Subtitles = _ => new([new SubtitleCue(10, 13, "Previously on the story")], Complete: true),
             RangeBlackFrames = (_, range, _, _, _) => ScanFrames(range.End, runs),
         };
-        var episode = new QueuedEpisode { EpisodeId = episodeId, Duration = 300, IntroFingerprintEnd = 120, Path = "episode.mkv", AnalysisConfigHash = "subtitle" };
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Duration = 300,
+            IntroFingerprintEnd = 120,
+            Path = "episode.mkv",
+            AnalysisConfigHash = "subtitle",
+            Chapters = [.. chapters.Select(start => new ChapterInfo { StartPositionTicks = DatabaseTestHelpers.Ticks(start) })],
+        };
 
         await new SubtitleAnalyzer(NullLogger<SubtitleAnalyzer>.Instance, ffmpeg, database, config)
             .AnalyzeMediaFiles([episode], AnalysisMode.Recap, CancellationToken.None);

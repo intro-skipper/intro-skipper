@@ -276,9 +276,9 @@ export function getScanStatus(seasonId: string, signal?: AbortSignal): Promise<A
 // Timestamp deletion.
 
 /**
- * What an erase removes besides the active segments, which every erase deletes,
- * user segments included. Each call states both, so the client keeps no
- * defaults of its own.
+ * What an erase removes besides the automatic segments, which every erase
+ * deletes. User segments are always kept. Each call states both options, so the
+ * client keeps no defaults of its own.
  */
 export type EraseOptions = {
     /** Also delete the detection cache rows (cached fingerprints). */

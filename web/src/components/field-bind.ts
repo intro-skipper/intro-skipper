@@ -45,9 +45,7 @@ export function bindField(opts: {
             container.style.display = opts.visible() ? "" : "none";
         }
         if (opts.disabled) {
-            const isDisabled = opts.disabled();
-            input.disabled = isDisabled;
-            container.classList.toggle("disabled-block", isDisabled);
+            input.disabled = opts.disabled();
         }
     };
 
@@ -82,7 +80,6 @@ export function bindField(opts: {
         errorDiv.setAttribute("aria-live", "polite");
         errorDiv.setAttribute("aria-atomic", "true");
         errorDiv.setAttribute("role", "status");
-        errorDiv.style.display = "none";
 
         setDescribedBy(input, [errorId]);
 
@@ -91,8 +88,6 @@ export function bindField(opts: {
             ({ field, error }) => {
                 if (field !== id) return;
                 errorDiv.textContent = error ?? "";
-                errorDiv.style.display = error ? "" : "none";
-                input.classList.toggle("field-error-active", Boolean(error));
                 if (error) {
                     input.setAttribute("aria-invalid", "true");
                 } else {

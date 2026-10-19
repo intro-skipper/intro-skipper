@@ -53,7 +53,7 @@ The runner builds these plugin pieces directly, through `InternalsVisibleTo`. A 
 - `FFmpegService.CheckFFmpegVersionAsync` and `GetCheckResult()`, run before each pass as the analysis pass runs them, since the check decides whether the scan reads keyframe visuals; the results take the ffmpeg version from its output named `version`
 - `DetectionCacheService`, `DetectionCacheDatabase`, `DetectionCacheDbContext` and `SqlitePragmas.Configure`
 - `AttributedSegment` and `SegmentSource`, the candidates' shape
-- `QueuedEpisode`, with the credits window set as `BaseItemAnalyzerTask.SetCreditsWindowsAsync` sets it when ProbeAudioDuration is off
+- `QueuedEpisode`, with the credits window set as `BaseItemAnalyzerTask.SetCreditsWindowsAsync` sets it when ProbeAudioDuration is off. The keyframe analyzer reads no chapters, so the runner leaves `QueuedEpisode.Chapters` empty where the season pass would fill it
 - `PluginConfiguration`
 
 `IFFmpegService` sits behind a `DispatchProxy` that times every method returning a task, so new or renamed service calls need no change here.

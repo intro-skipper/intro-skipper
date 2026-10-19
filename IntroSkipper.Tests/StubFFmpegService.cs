@@ -33,7 +33,8 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<string, double?>? AudioDuration { get; init; }
 
-    public Func<QueuedEpisode, ChapterInfo[]>? EmbeddedChapters { get; init; }
+    /// <summary>Gets the embedded chapter read; a hook that returns <see langword="null"/> stands for a probe that could not read the file.</summary>
+    public Func<QueuedEpisode, ChapterInfo[]?>? EmbeddedChapters { get; init; }
 
     public Func<QueuedEpisode, SubtitleScan>? Subtitles { get; init; }
 
@@ -127,22 +128,10 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(AudioDuration)(filePath));
     }
 
-    public virtual Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default)
-    {
-        Interlocked.Increment(ref _probeCalls);
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(AudioDuration)(filePath));
-    }
-
-    public virtual Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    public virtual Task<ChapterInfo[]?> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // Existing analyzer fixtures put their fake embedded chapters on the scoped chapter
-        // manager. Tests that need to distinguish Jellyfin's database rows from media chapters
-        // set EmbeddedChapters explicitly.
-        return Task.FromResult(EmbeddedChapters is not null
-            ? EmbeddedChapters(episode)
-            : [.. Plugin.Instance?.GetChapters(episode.EpisodeId) ?? []]);
+        return Task.FromResult(Hook(EmbeddedChapters)(episode));
     }
 
     public virtual Task<SubtitleScan> ExtractSubtitleCuesAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)

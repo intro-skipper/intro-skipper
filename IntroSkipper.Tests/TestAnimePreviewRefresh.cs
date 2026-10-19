@@ -95,6 +95,32 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
+    public async Task DeriveAsync_MatchingPreviewRestampsItsCreditsHash()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode { EpisodeId = EpisodeId, Duration = EpisodeDuration, AnalysisConfigHash = "credits-hash" };
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(EpisodeId, new TimeRange(1200, 1260))],
+            SegmentSource.BlackFrame,
+            "credits-hash");
+        await database.ReplaceAutoSegmentsAsync(
+            EpisodeId,
+            AnalysisMode.Preview,
+            [new Segment(EpisodeId, new TimeRange(1260, EpisodeDuration))],
+            SegmentSource.CreditsDerived,
+            "preview-hash");
+        var oldPreviewId = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview).Id;
+
+        await AnimePreviewDeriver.DeriveAsync(database, [episode], 15, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(EpisodeId), s => s.Type == AnalysisMode.Preview);
+        Assert.Equal(oldPreviewId, preview.Id);
+        Assert.Equal("credits-hash", preview.ConfigHash);
+    }
+
+    [Fact]
     public async Task DeriveAsync_LaterAutoBlockAfterUserRow_AnchorsThePreview()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();

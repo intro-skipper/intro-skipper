@@ -190,7 +190,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     bottomRow.append(scopeRow, buttonsDiv);
 
     const statusEl = el("div", { className: "ts-action-status" });
-    const statusMessage = bindStatusMessage(statusEl, { display: "block" });
+    const statusMessage = bindStatusMessage(statusEl);
 
     container.append(topRow, analysisWindow, bottomRow, statusEl);
 
@@ -259,7 +259,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
 
         const error = overrides.firstError();
         if (error) {
-            statusMessage.show(error, "var(--is-error)");
+            statusMessage.show(error, "error");
             return;
         }
 
@@ -271,7 +271,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         }
         const values = overrides.values();
 
-        statusMessage.show("Saving overrides…", "var(--is-text-muted)");
+        statusMessage.show("Saving overrides…");
 
         try {
             await withDashboardLoading(async () => {
@@ -290,10 +290,10 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                     }
                 }
             });
-            statusMessage.show("Overrides updated.", "var(--is-success)");
+            statusMessage.show("Overrides updated.", "success");
         } catch (err) {
             if (isAbortError(err)) return;
-            statusMessage.show("Failed to update overrides.", "var(--is-error)");
+            statusMessage.show("Failed to update overrides.", "error");
         }
     }
 
@@ -331,16 +331,13 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     async function finishScan(outcome: ScanOutcome): Promise<void> {
         resetScanButton();
         if (outcome === "unavailable") {
-            statusMessage.show(
-                "Scan status unavailable. Refresh to check results.",
-                "var(--is-warning)",
-            );
+            statusMessage.show("Scan status unavailable. Refresh to check results.", "warning");
             return;
         }
         if (outcome === "failed") {
-            statusMessage.show("Scan failed. See the server log.", "var(--is-error)");
+            statusMessage.show("Scan failed. See the server log.", "error");
         } else {
-            statusMessage.show("Scan finished.", "var(--is-success)");
+            statusMessage.show("Scan finished.", "success");
         }
         await Promise.resolve(onScanComplete());
     }
@@ -352,20 +349,20 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         const showId = currentShowId;
         const seasonIds = targetSeasonIds();
         const isSeriesScan = !currentIsMovie && fullSeriesCheckbox.checked;
-        statusMessage.show("Starting scan…", "var(--is-text-muted)");
+        statusMessage.show("Starting scan…");
         try {
             for (let index = 0; index < seasonIds.length; index++) {
                 const progress = isSeriesScan
                     ? " (" + String(index + 1) + "/" + String(seasonIds.length) + ")"
                     : "";
-                statusMessage.show("Starting scan" + progress + "…", "var(--is-text-muted)");
+                statusMessage.show("Starting scan" + progress + "…");
                 const response = await withDashboardLoading(() =>
                     api.scanSeason(showId, seasonIds[index], scan),
                 );
 
                 if (!response.ok) {
                     resetScanButton();
-                    statusMessage.show("Unable to start the scan.", "var(--is-error)");
+                    statusMessage.show("Unable to start the scan.", "error");
                     return;
                 }
 
@@ -373,7 +370,6 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 statusMessage.show(
                     (isSeriesScan ? "Scanning series" + progress : "Scan queued") +
                         "… This can take several minutes.",
-                    "var(--is-text-muted)",
                 );
 
                 const outcome = await awaitScan(seasonIds[index], scan);
@@ -387,7 +383,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         } catch (err) {
             if (isAbortError(err)) return;
             resetScanButton();
-            statusMessage.show("Unable to start the scan.", "var(--is-error)");
+            statusMessage.show("Unable to start the scan.", "error");
         }
     }
 
@@ -399,7 +395,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         const result = await abortable(
             confirmDialog({
                 title: "Confirm Timestamp Erasure",
-                body: "Are you sure you want to erase all timestamps for this " + label + "?",
+                body: "Are you sure you want to erase the detected timestamps for this " + label + "? User segments are kept.",
                 confirmLabel: "Erase",
                 checkboxes: eraseCheckboxes,
             }),
@@ -408,7 +404,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         if (!result) return;
         eraseBtn.disabled = true;
         fullSeriesCheckbox.disabled = true;
-        statusMessage.show("Erasing timestamps…", "var(--is-text-muted)");
+        statusMessage.show("Erasing timestamps…");
         try {
             for (const seasonId of seasonIds) {
                 const response = await api.eraseSeasonTimestamps(showId, seasonId, result, signal);
@@ -417,15 +413,15 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                     // season erase endpoint reports those as 404, which is a
                     // successful no-op for a full-series erase.
                     if (isSeriesErase && response.status === 404) continue;
-                    statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
+                    statusMessage.show("Failed to erase timestamps.", "error");
                     return;
                 }
             }
-            statusMessage.show("Timestamps erased.", "var(--is-success)");
+            statusMessage.show("Timestamps erased.", "success");
             await Promise.resolve(onScanComplete());
         } catch (err) {
             if (isAbortError(err)) return;
-            statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
+            statusMessage.show("Failed to erase timestamps.", "error");
         } finally {
             eraseBtn.disabled = false;
             fullSeriesCheckbox.disabled = false;
@@ -529,18 +525,12 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 scanBtn.disabled = true;
                 fullSeriesCheckbox.disabled = true;
                 scanBtn.textContent = "Scan in progress…";
-                statusMessage.show(
-                    "Scan in progress… This can take several minutes.",
-                    "var(--is-text-muted)",
-                );
+                statusMessage.show("Scan in progress… This can take several minutes.");
                 void awaitScan(seasonId, startScan()).then(finishScan).catch(ignoreAbort);
             } else if (status.data.isRunning) {
                 // Another pass is running. It does not block a scan of this season: the
                 // queue runs it once the pass ends, so the button stays enabled.
-                statusMessage.show(
-                    "Scan in progress… A new scan queues behind it.",
-                    "var(--is-text-muted)",
-                );
+                statusMessage.show("Scan in progress… A new scan queues behind it.");
             }
         },
     };

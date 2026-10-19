@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -15,7 +16,6 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using IntroSkipper.SegmentChanges;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
@@ -64,11 +64,9 @@ public sealed class TestCleanCacheTask : IDisposable
         await SeedAsync(database, cacheDatabase, liveEpisodeId);
 
         var progress = new RecordingProgress();
-        var store = new FakeJellyfinSegmentStore();
-        await CreateTask(CreateIncompleteLibrary(reason, liveEpisodeId), database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
+        await CreateTask(CreateIncompleteLibrary(reason, liveEpisodeId), database, cacheDatabase).ExecuteAsync(progress, CancellationToken.None);
 
         Assert.Equal(100, progress.Value);
-        Assert.Equal(0, store.WriteCallCount);
         await AssertSeededDataIntactAsync(database, cacheDatabase, liveEpisodeId);
     }
 
@@ -153,6 +151,12 @@ public sealed class TestCleanCacheTask : IDisposable
         cacheDatabase.Upsert(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, currentHash);
         cacheDatabase.Upsert(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, EntrypointTestHelpers.EmptyJsonArray, currentHash);
 
+        // Seeding journaled both items. Clear the journal so the cleanup's own markers show.
+        await using (var seeded = _db.Context())
+        {
+            await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ExecuteDeleteAsync(seeded.ProjectionQueue);
+        }
+
         // One enabled library with a live movie; a second library has the plugin's
         // provider disabled, so the resolver never lists its episode. The episode
         // still resolves on the server, so all its rows must survive the reversible
@@ -166,14 +170,9 @@ public sealed class TestCleanCacheTask : IDisposable
             getItemById: id => id == disabledLibraryEpisodeId ? JellyfinItems.Movie(id) : null);
 
         var progress = new RecordingProgress();
-        var store = new FakeJellyfinSegmentStore();
-        await CreateTask(libraryManager, database, cacheDatabase, store).ExecuteAsync(progress, CancellationToken.None);
+        await CreateTask(libraryManager, database, cacheDatabase).ExecuteAsync(progress, CancellationToken.None);
 
         Assert.Equal(100, progress.Value);
-
-        // Mirroring is off in this configuration: the erase committed and journaled
-        // the gone item's projection, which sits durably until mirroring turns on.
-        Assert.Equal(0, store.WriteCallCount);
         Assert.NotNull(cacheDatabase.FindEntry(disabledLibraryEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
         Assert.Null(cacheDatabase.FindEntry(goneEpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
 
@@ -194,8 +193,10 @@ public sealed class TestCleanCacheTask : IDisposable
             db.SeasonStates, s => s.SeasonId == goneEpisodeId));
         Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
             db.AnalyzedItems, a => a.ItemId == goneEpisodeId));
-        Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-            db.ProjectionQueue, q => q.ItemId == goneEpisodeId));
+
+        // Only the gone item's delete is journaled, for the projection worker.
+        Assert.Equal([goneEpisodeId], await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToArrayAsync(
+            db.ProjectionQueue.Select(q => q.ItemId)));
     }
 
     [Fact]
@@ -246,17 +247,17 @@ public sealed class TestCleanCacheTask : IDisposable
     private static CleanCacheTask CreateTask(
         ILibraryManager libraryManager,
         IntroSkipperDatabase database,
-        DetectionCacheDatabase cacheDatabase,
-        FakeJellyfinSegmentStore? store = null)
+        DetectionCacheDatabase cacheDatabase)
         => new(
             NullLogger<CleanCacheTask>.Instance,
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
             libraryManager,
             database,
             cacheDatabase,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase),
-            new SegmentEraser(database, cacheDatabase, DatabaseTestHelpers.CreateSegmentChange(store ?? new FakeJellyfinSegmentStore(), database)));
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase));
 
+    // Seeds a user segment beside the automatic one: erases keep user segments, but the
+    // cleanup must delete them with the rest of a gone item's rows.
     private static async Task SeedAsync(IntroSkipperDatabase database, DetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
         await database.ReplaceAutoSegmentsAsync(
@@ -264,6 +265,7 @@ public sealed class TestCleanCacheTask : IDisposable
             AnalysisMode.Introduction,
             [new Segment(episodeId, new TimeRange(5, 65))],
             SegmentSource.Chapter);
+        await database.SeedUserSegmentAsync(episodeId, AnalysisMode.Credits, DatabaseTestHelpers.Ticks(1200), DatabaseTestHelpers.Ticks(1260));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [episodeId], "hash");
         await database.SetAnalyzerActionAsync(episodeId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Default });
         cacheDatabase.Upsert(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");

@@ -114,7 +114,7 @@ internal static class EntrypointTestHelpers
     internal static PluginInstanceScope CreatePluginScope(PluginConfiguration configuration, IReadOnlyList<ChapterInfo> chapters)
     {
         var scope = CreatePluginScope(configuration);
-        SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Create(chapters, out _));
+        SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Create(chapters));
         return scope;
     }
 
@@ -444,6 +444,7 @@ internal static class EntrypointTestHelpers
             // the media-segment mirror gate) sees defaults instead of an uninitialized
             // lazy loader; tests overwrite it for specific flag values.
             SetPropertyOrField(plugin, "Configuration", new Configuration.PluginConfiguration());
+            SetPrivateField(plugin, "_localization", LocalizationManagerStub.Create());
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);

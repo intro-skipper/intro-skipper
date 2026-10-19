@@ -120,30 +120,24 @@ public interface IFFmpegService
     /// Probes the first audio stream's actual duration with ffprobe.
     /// </summary>
     /// <param name="filePath">Media path.</param>
-    /// <param name="cancellationToken">Token used to cancel the caller's wait for the cached ffprobe result.</param>
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
     /// <returns>A task that returns the audio duration in seconds, or null when unavailable.</returns>
     Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Probes the media container's duration with ffprobe.
-    /// </summary>
-    /// <param name="filePath">Media path.</param>
-    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
-    /// <returns>A task that returns the duration in seconds, or null when unavailable.</returns>
-    Task<double?> ProbeDurationAsync(string filePath, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Reads chapter markers embedded in the media container with ffprobe. The optional embedded
-    /// analysis mode uses this source instead of Jellyfin's chapter repository, which may contain
-    /// chapters injected by another plugin.
+    /// Reads the chapter markers embedded in the media container with ffprobe, shaped as
+    /// Jellyfin's own probe stores them in its chapter table (<c>FFmpegOutputParser.ParseChapters</c>),
+    /// so for a file no other plugin touched both chapter sources hold the same list. While
+    /// <c>UseEmbeddedChaptersForAnalysis</c> is on, the season pass reads each episode's chapters
+    /// here once per pass, instead of from Jellyfin's chapter table, which can hold chapters
+    /// another plugin added. Nothing is cached: every call runs ffprobe.
     /// </summary>
     /// <param name="episode">Media file to probe.</param>
-    /// <param name="cancellationToken">Token used to cancel this caller's wait. For a versioned file,
-    /// a shared probe continues for other callers and is bounded by the probe timeout; when Jellyfin
-    /// has no file version, the probe is not cached and this token also cancels its ffprobe process.</param>
-    /// <returns>The embedded chapters, or an empty array when the file has none.</returns>
-    /// <exception cref="InvalidOperationException">The embedded chapter probe failed.</exception>
-    Task<ChapterInfo[]> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
+    /// <param name="cancellationToken">Token used to cancel the ffprobe process.</param>
+    /// <returns>The chapters sorted by start, an empty array when the container has none, or
+    /// <see langword="null"/> when ffprobe could not read them: it failed to run, exited nonzero,
+    /// timed out, filled its output cap or printed JSON that does not parse.</returns>
+    Task<ChapterInfo[]?> GetEmbeddedChaptersAsync(QueuedEpisode episode, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Extracts timed text cues from the episode's embedded text subtitle streams and its text

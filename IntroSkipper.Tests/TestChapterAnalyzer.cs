@@ -176,6 +176,24 @@ public class TestChapterAnalyzer
         Assert.Null(commercialChapter);
     }
 
+    // A pattern that backtracks past the one-second match timeout on a chapter name is the
+    // user's configuration. The chapter counts as no match; the RegexMatchTimeoutException,
+    // a TimeoutException, must not reach the pass's handler and stop the season's other modes.
+    [Fact]
+    public void FindMatchingChapters_PatternThatTimesOut_CountsAsNoMatch()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = new Collection<ChapterInfo>(
+        [
+            CreateChapter("An input string that takes a long time or even makes this regex hang!", 0),
+            CreateChapter("Main Episode", 60)
+        ]);
+
+        var matches = analyzer.FindMatchingChapters(new() { Duration = 2000 }, chapters, @"^(\w+\s?)*$", AnalysisMode.Introduction);
+
+        Assert.Empty(matches);
+    }
+
     [Fact]
     public void TestCommercialKeepsEveryChapterOfConsecutiveMatchingRun()
     {
@@ -209,10 +227,13 @@ public class TestChapterAnalyzer
     public async Task InvalidChapterPattern_WarnsOnceAndMatchesNothing()
     {
         var config = new Configuration.PluginConfiguration { ChapterAnalyzerPreviewPattern = "(", EnableSponsorBlockChapterDetection = false };
-        using var scope = EntrypointTestHelpers.CreatePluginScope(config, CreateChapters("Preview", AnalysisMode.Preview));
         var logger = new CapturingLogger<ChapterAnalyzer>();
         var analyzer = new ChapterAnalyzer(logger, null!, DatabaseTestHelpers.CreateTempSegmentDatabase(), config);
-        QueuedEpisode[] episodes = [new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }, new() { EpisodeId = Guid.NewGuid(), Duration = 2000 }];
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+        ];
 
         await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Preview, CancellationToken.None);
 

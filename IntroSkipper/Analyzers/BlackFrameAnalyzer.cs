@@ -51,7 +51,7 @@ internal sealed partial class BlackFrameAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the caller, which marks the episode failed.</returns>
+    /// <returns>The credits segment, or <see langword="null"/> when none was found. Probe failures propagate to the credits pass, which drops this candidate.</returns>
     internal async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         var percentage = _config.BlackFrameMinimumPercentage;
@@ -105,7 +105,7 @@ internal sealed partial class BlackFrameAnalyzer(
     /// <param name="minimumBlackPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Credits segment if found; otherwise null. Probe failures propagate to the caller, which marks the episode failed.</returns>
+    /// <returns>Credits segment if found; otherwise null. Probe failures propagate to the caller.</returns>
     internal async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold, CancellationToken cancellationToken = default)
     {
         // Calculate search boundaries
@@ -187,7 +187,7 @@ internal sealed partial class BlackFrameAnalyzer(
     internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
         // Get chapters that fall within the valid credits duration range
-        var suitableChapters = (await AnalysisChapterProvider.GetAsync(_config, _ffmpegService, episode, cancellationToken).ConfigureAwait(false))
+        var suitableChapters = episode.Chapters
             .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
             .Where(s => s >= episode.CreditsFingerprintStart &&
                         s <= episode.Duration - _config.MinimumCreditsDuration)
