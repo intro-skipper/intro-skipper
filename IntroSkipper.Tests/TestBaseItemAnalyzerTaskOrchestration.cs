@@ -364,6 +364,55 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     }
 
     [Fact]
+    public async Task PreviewMode_DerivesFromFailedCreditsUnderTheRetainedCreditsHash()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            MinimumPreviewDuration = 5,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+            EnableSubtitlePreviewDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            SeriesId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            EpisodeNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Name = "Episode 1",
+            Path = "/media/episode-1.mkv",
+            Duration = 1320,
+        };
+        const string PreviousCreditsHash = "previous-credits-config";
+        const string CurrentCreditsHash = "current-credits-config";
+        episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.AnalysisFailed);
+        episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
+        await database.ReplaceAutoSegmentsAsync(
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            [new Segment(episode.EpisodeId, new TimeRange(900, 1000))],
+            SegmentSource.BlackFrame,
+            PreviousCreditsHash);
+
+        await CreateTask(new StubFFmpegService(), database).AnalyzeItemsAsync(
+            [episode],
+            AnalysisMode.Preview,
+            AnalyzerAction.Default,
+            ffmpegValid: false,
+            cancellationToken: CancellationToken.None,
+            creditsConfigHashes: new Dictionary<Guid, string> { [episode.EpisodeId] = CurrentCreditsHash });
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(PreviousCreditsHash, preview.ConfigHash);
+    }
+
+    [Fact]
     public async Task PreviewMode_SubtitlePreviewSupersedesBlackFrameDerivedPreview()
     {
         var config = new PluginConfiguration

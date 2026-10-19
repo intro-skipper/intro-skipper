@@ -910,6 +910,47 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         Assert.Equal(205, TickConversions.ToSeconds(preview.StartTicks), 1);
     }
 
+    [Fact]
+    public async Task AnalyzeItemsAsync_PreviewModeDerivesWithTheCreditsHash()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = true,
+            ScanCommercial = false,
+            ReanalyzeSettledSeasons = false,
+            UseEmbeddedChaptersForAnalysis = true,
+        };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, episodeCount: 2);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: true, null, null);
+        var creditsHash = ConfigHasher.Analysis(
+            config,
+            AnalysisMode.Credits,
+            AnalyzerAction.Default,
+            ffmpegValid: false,
+            previewFromCreditsEndOverride: true,
+            chapterSource: ChapterSource.Embedded);
+        await database.ReplaceAutoSegmentsAsync(
+            fixture.EpisodeIds[1],
+            AnalysisMode.Credits,
+            [new Segment(fixture.EpisodeIds[1], new TimeRange(150, 170))],
+            SegmentSource.Chapter,
+            creditsHash);
+
+        await fixture.AnalyzeAsync(new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = episode => episode.EpisodeId == fixture.EpisodeIds[0] ? null : [],
+        });
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeIds[1]), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal(creditsHash, preview.ConfigHash);
+    }
+
     // A settled season derives its previews from the credits end, and every episode's credits
     // were set by hand, so its Credits mode analyzes nothing. Even with ScanPreview off or a
     // Preview None action, a completed Credits reset must refresh derived previews from those
@@ -975,7 +1016,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     {
         var config = SettledCreditsConfig(scanPreview: false);
         config.UseEmbeddedChaptersForAnalysis = true;
-        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, episodeCount: SeasonReanalysisPlanner.MinimumEpisodes);
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2, episodeCount: SeasonReanalysisPlanner.MinimumEpisodes + 1);
         var database = fixture.CreateDatabase();
         await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: true, null, null);
         var creditsHash = ConfigHasher.Analysis(
@@ -988,6 +1029,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         var previousCreditsHash = creditsHash + "-previous";
         var unreadableEpisodeId = fixture.EpisodeIds[0];
         var failedEpisodeId = fixture.EpisodeIds[1];
+        var rehashedEpisodeId = fixture.EpisodeIds[2];
         var creditIds = new Dictionary<Guid, Guid>();
         var previewIds = new Dictionary<Guid, Guid>();
         foreach (var id in fixture.EpisodeIds)
@@ -997,7 +1039,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             if (id != unreadableEpisodeId)
             {
                 var previewRange = id == failedEpisodeId ? new TimeRange(160, 240) : new TimeRange(170, 240);
-                await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, previewRange)], SegmentSource.CreditsDerived, previousCreditsHash);
+                var previewHash = id == rehashedEpisodeId ? creditsHash : previousCreditsHash;
+                await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, previewRange)], SegmentSource.CreditsDerived, previewHash);
                 previewIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview).Id;
             }
         }
@@ -1007,13 +1050,15 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         {
             VersionCheck = () => false,
             EmbeddedChapters = episode => episode.EpisodeId == unreadableEpisodeId ? null : [],
-            KeyframeScan = (episode, _) => episode.EpisodeId == failedEpisodeId ? throw new IOException("keyframe scan failed") : [],
+            KeyframeScan = (episode, _) => episode.EpisodeId == failedEpisodeId || episode.EpisodeId == rehashedEpisodeId
+                ? throw new IOException("keyframe scan failed")
+                : [],
         };
 
         await fixture.AnalyzeAsync(ffmpeg);
 
         await AssertSettledCreditsRecordedAsync(database, fixture);
-        foreach (var id in new[] { unreadableEpisodeId, failedEpisodeId })
+        foreach (var id in new[] { unreadableEpisodeId, failedEpisodeId, rehashedEpisodeId })
         {
             var credits = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Credits);
             var preview = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview);
@@ -1021,6 +1066,10 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             if (id == failedEpisodeId)
             {
                 Assert.NotEqual(previewIds[id], preview.Id);
+            }
+            else if (id == rehashedEpisodeId)
+            {
+                Assert.Equal(previewIds[id], preview.Id);
             }
 
             Assert.Equal(previousCreditsHash, credits.ConfigHash);
