@@ -949,7 +949,9 @@ public partial class BaseItemAnalyzerTask(
         // the mode, such as the rows a subtitle-only pass kept under their old hash. With
         // subtitle detection active, the chain cleans up after itself instead.
         var cleanableItems = conventionalItems
-            .Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is null);
+            .Where(item => item.IsAnalysisTarget
+                && item.NeedsAnalysis(mode)
+                && Config.ActiveSubtitlePattern(item, mode) is null);
         QueuedEpisode[] cleanableItemsSnapshot = [.. cleanableItems];
         // Credits must inspect standing rows when a keyframe scan fails, even if those rows
         // were written under an older hash. Clean only after a result settles; failed episodes

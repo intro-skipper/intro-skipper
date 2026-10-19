@@ -62,7 +62,7 @@ public partial class ShortcutAnalysisTask(
                 shortcutsOnly: true,
                 shortcutBatchSize: batchSize).ConfigureAwait(false);
         }
-        catch (InvalidOperationException) when (!cancellationToken.IsCancellationRequested)
+        catch (LibraryRequestAlreadyQueuedException) when (!cancellationToken.IsCancellationRequested)
         {
             // The regular library task may already be waiting in the shared queue. The next
             // interval will retry this small batch after that pass has completed.

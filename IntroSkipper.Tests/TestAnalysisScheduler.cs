@@ -308,7 +308,7 @@ public sealed class TestAnalysisScheduler
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         using var cancellation = new CancellationTokenSource();
         var first = h.Queue.RunLibraryAsync(new RecordingProgress(), cancellation.Token);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None));
+        await Assert.ThrowsAsync<LibraryRequestAlreadyQueuedException>(() => h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None));
 
         await cancellation.CancelAsync();
 

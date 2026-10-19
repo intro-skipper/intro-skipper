@@ -112,6 +112,7 @@ internal sealed partial class CreditsPass(
         // season with nothing to compare against.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
+        HashSet<Guid> comparisonIncomplete = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
             try
@@ -120,6 +121,7 @@ internal sealed partial class CreditsPass(
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
                 chromaprintCandidates = chromaprintResult.Candidates;
                 fingerprintFailures = chromaprintResult.FingerprintFailures;
+                comparisonIncomplete = chromaprintResult.ComparisonIncomplete;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -211,6 +213,17 @@ internal sealed partial class CreditsPass(
 
                         analyzerFailed = true;
                     }
+                }
+
+                if (candidates.Count == 0
+                    && comparisonIncomplete.Contains(episode.EpisodeId)
+                    && !analyzerFailed)
+                {
+                    // A later shortcut batch may supply the missing comparison fingerprint.
+                    // Do not persist this temporary lack of context as a durable NoSegments result.
+                    episode.SetComparisonPending(Mode, true);
+                    episode.SetAnalyzed(Mode, EpisodeState.NotAnalyzed);
+                    continue;
                 }
 
                 var state = await StoreCandidatesAsync(

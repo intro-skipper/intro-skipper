@@ -332,6 +332,22 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
+    public async Task ShortcutTargetWithoutComparisonContext_RemainsPendingAfterFingerprinting()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(spans: []);
+        var target = episodes[0];
+        episodes[1].IsAnalysisTarget = false;
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Chromaprint, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(1, ffmpeg.FingerprintCalls);
+        Assert.True(target.IsComparisonPending(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.NotAnalyzed, target.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Empty(await database.GetSegmentsAsync(target.EpisodeId));
+    }
+
+    [Fact]
     public async Task ChromaprintWithinMinimumDurationOfTheEnd_IsExtendedToIt()
     {
         using var scope = Scope();

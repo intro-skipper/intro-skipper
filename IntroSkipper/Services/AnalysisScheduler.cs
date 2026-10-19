@@ -211,7 +211,7 @@ public sealed partial class AnalysisScheduler(
     /// <param name="shortcutBatchSize">Maximum number of shortcut media items in the pass.</param>
     /// <returns>A task that completes when the pass has run.</returns>
     /// <exception cref="OperationCanceledException">The request was cancelled, or the queue has stopped.</exception>
-    /// <exception cref="InvalidOperationException">A pass of the same library kind is already requested and has not started.</exception>
+    /// <exception cref="InvalidOperationException">A pass of the same library kind is already requested and has not started; this is thrown as <see cref="LibraryRequestAlreadyQueuedException"/>.</exception>
     public async Task RunLibraryAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
@@ -229,7 +229,7 @@ public sealed partial class AnalysisScheduler(
             var pending = shortcutsOnly ? _shortcutLibraryRequest : _regularLibraryRequest;
             if (pending is not null)
             {
-                throw new InvalidOperationException("A library pass of this kind is already requested.");
+                throw new LibraryRequestAlreadyQueuedException("A library pass of this kind is already requested.");
             }
 
             if (shortcutsOnly)

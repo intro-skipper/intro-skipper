@@ -194,11 +194,6 @@ internal sealed partial class ChromaprintAnalyzer(
                     && !episodeAnalysisQueue.Contains(episode)));
         }
 
-        if (episodeAnalysisQueue.Count < 2)
-        {
-            return new ChromaprintCandidates(seasonIntros, fingerprintFailures, targets.Select(e => e.EpisodeId).ToHashSet());
-        }
-
         _analysisMode = mode;
 
         // Cache of all fingerprints for this season.
