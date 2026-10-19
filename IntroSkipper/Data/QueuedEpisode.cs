@@ -16,6 +16,7 @@ public sealed class QueuedEpisode
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
+    private readonly HashSet<AnalysisMode> _comparisonPendingModes = [];
     private readonly Dictionary<AnalysisMode, ChapterSourceCheck> _chapterSourceChecks = [];
 
     /// <summary>

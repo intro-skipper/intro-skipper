@@ -65,11 +65,15 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
+    /// <param name="shortcutsOnly">Whether to analyze shortcut media only.</param>
+    /// <param name="shortcutBatchSize">Maximum number of shortcut media items selected in each pass.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? itemIds = null)
+        IReadOnlyCollection<Guid>? itemIds = null,
+        bool shortcutsOnly = false,
+        int shortcutBatchSize = 0)
     {
         if (itemIds?.Count == 0)
         {
@@ -299,7 +303,8 @@ public partial class BaseItemAnalyzerTask(
         // deletions' projections. Every mode of the episode then reopens in memory too,
         // or a mode whose record matched would keep its settled state after its segments
         // were deleted and be recorded again with nothing behind it.
-        var changedFiles = episodes.Where(e => e.FileChanged).Select(e => e.EpisodeId).ToArray();
+        var changedEpisodes = episodes.Where(episode => episode.FileChanged).ToArray();
+        var changedFiles = changedEpisodes.Select(episode => episode.EpisodeId).ToArray();
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
