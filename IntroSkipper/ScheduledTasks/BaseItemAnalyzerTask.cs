@@ -308,11 +308,7 @@ public partial class BaseItemAnalyzerTask(
         if (changedFiles.Length > 0)
         {
             await _cacheDatabase.DeleteForItemsAsync(changedFiles, cancellationToken).ConfigureAwait(false);
-            await _database.ResetItemsForReanalysisAsync(
-                changedFiles,
-                AllModes,
-                GetSubtitleModesToPreserve(modes, seasonStates, episodes),
-                cancellationToken).ConfigureAwait(false);
+            await _database.ResetItemsForReanalysisAsync(changedFiles, AllModes, cancellationToken: cancellationToken).ConfigureAwait(false);
             foreach (var episode in changedEpisodes)
             {
                 foreach (var mode in modes)
