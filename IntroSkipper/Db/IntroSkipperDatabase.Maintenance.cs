@@ -191,14 +191,38 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="preserveSubtitleModes">Modes whose subtitle rows stay, or <see langword="null"/> for none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task ResetItemsForReanalysisAsync(
+    public Task ResetItemsForReanalysisAsync(
         IEnumerable<Guid> itemIds,
         IReadOnlyCollection<AnalysisMode> modes,
         IReadOnlyCollection<AnalysisMode>? preserveSubtitleModes = null,
         CancellationToken cancellationToken = default)
+        => ResetItemsForReanalysisAsync(
+            itemIds,
+            modes,
+            preserveSubtitleModes,
+            preserveAutomaticModes: [],
+            cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Resets analysis records and automatic rows, optionally retaining selected automatic
+    /// rows as fallbacks while a mode is reanalyzed.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to reset.</param>
+    /// <param name="modes">Analysis modes to reset.</param>
+    /// <param name="preserveSubtitleModes">Modes whose subtitle rows stay until the subtitle pass completes.</param>
+    /// <param name="preserveAutomaticModes">Modes whose automatic rows stay as fallbacks until their analyzer succeeds.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task ResetItemsForReanalysisAsync(
+        IEnumerable<Guid> itemIds,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<AnalysisMode>? preserveSubtitleModes,
+        IReadOnlyCollection<AnalysisMode> preserveAutomaticModes,
+        CancellationToken cancellationToken = default)
     {
         var ids = itemIds.Distinct().ToArray();
         var modeArray = modes.ToArray();
+        var preserveAutoModes = preserveAutomaticModes.ToArray();
         if (ids.Length == 0 || modeArray.Length == 0)
         {
             return;
@@ -219,6 +243,11 @@ public sealed partial class IntroSkipperDatabase
                         && u.Type == s.Type
                         && u.Source == SegmentSource.User
                         && u.State == SegmentState.Active));
+
+            if (preserveAutoModes.Length > 0)
+            {
+                doomedRows = doomedRows.Where(s => !preserveAutoModes.Contains(s.Type));
+            }
 
             if (preserveSubtitleModes is { Count: > 0 })
             {

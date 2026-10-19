@@ -64,7 +64,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the caller, which marks the episode failed; a failed interval probe or lead-in decode is logged and falls back.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -274,7 +274,7 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         // Each probed scene gets the lead-in or boundary probe that applies to it, and a boundary
-        // probe that throws propagates, so it fails the episode whichever scene it belongs to. Every
+        // probe that throws propagates, so it fails the whole scan whichever scene it belongs to. Every
         // verified scene whose refined range meets the minimum is a candidate, and so is every scene
         // after the last verified one, none of which has a verdict. A scene without a verdict before
         // a verified one is not probed. With no verified scene, the scenes are walked latest first
