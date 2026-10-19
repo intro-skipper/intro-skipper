@@ -33,7 +33,7 @@ A mode serves one automatic result. For Recap and Preview, rows rank by source: 
 - An admitted write replaces rows of its own rank and retires lower-ranked and stale rows. A row whose range the write repeats keeps its id and takes the writer's source and hash.
 - A write whose candidates were all rejected leaves every standing row alone. An empty write clears only its own rank, so clearing a chapter preview does not erase a subtitle or credits-derived fallback.
 
-`ClearSubtitleSegmentsAsync` deletes a mode's subtitle rows after a complete subtitle scan finds no match, and the stale-row cleanup deletes them once their hash is stale. `ResetItemsForReanalysisAsync` keeps them for the modes its caller names. `docs/analysis.md` says when each of these runs.
+`ClearSubtitleSegmentsAsync` deletes a mode's subtitle rows after a complete subtitle scan finds no match, and the stale-row cleanup deletes them once their hash is stale. `ResetItemsForReanalysisAsync` keeps subtitle rows for the modes its caller names and can retain automatic rows as fallbacks while a mode is reanalyzed; the settled-season Credits reset uses this for Credits. `docs/analysis.md` says when each of these runs.
 
 ### Interactive writes
 

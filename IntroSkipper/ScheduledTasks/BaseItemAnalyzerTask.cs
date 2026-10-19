@@ -264,12 +264,18 @@ public partial class BaseItemAnalyzerTask(
 
                 // The reset journals its deletions' projections, so they propagate
                 // to Jellyfin even if the recompute finds nothing. A Credits reset never
-                // reopens Preview. The derive after the credits pass refreshes derived
-                // previews, and chapter and subtitle previews do not depend on credits.
+                // reopens Preview. Keep automatic Credits rows as fallbacks until the
+                // per-episode result decides whether to replace, clear, or retain them.
+                // A failed scan must not blank the user's view. The final derive refreshes
+                // previews for the full reset set, including episodes whose chapters could not be read.
+                IReadOnlyCollection<AnalysisMode> preserveAutomaticModes = settledResetModes.Contains(AnalysisMode.Credits)
+                    ? [AnalysisMode.Credits]
+                    : [];
                 await _database.ResetItemsForReanalysisAsync(
                     episodeIds,
                     settledResetModes,
                     GetSubtitleModesToPreserve(settledResetModes, seasonStates, episodes),
+                    preserveAutomaticModes,
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (var episode in episodes)
@@ -338,14 +344,14 @@ public partial class BaseItemAnalyzerTask(
                 first.SubtitleRecapDetectionOverride,
                 first.SubtitlePreviewDetectionOverride,
                 chapterSource: first.ChaptersSource);
-            foreach (var episode in readable)
+            foreach (var episode in episodes)
             {
                 episode.AnalysisConfigHash = creditsHash;
             }
 
             await AnimePreviewDeriver.DeriveAsync(
                 _database,
-                readable,
+                episodes,
                 Config.MinimumPreviewDuration,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -714,7 +720,7 @@ public partial class BaseItemAnalyzerTask(
         // subtitle detection active, the chain cleans up after itself instead.
         var cleanableItems = conventionalItems
             .Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is null);
-        var cleanableItemsSnapshot = cleanableItems.ToArray();
+        QueuedEpisode[] cleanableItemsSnapshot = [.. cleanableItems];
         // Credits must inspect standing rows when a keyframe scan fails, even if those rows
         // were written under an older hash. Clean only after a result settles; failed episodes
         // retain their prior credits for the next pass.
