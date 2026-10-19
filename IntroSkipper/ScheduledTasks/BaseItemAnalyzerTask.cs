@@ -770,10 +770,11 @@ public partial class BaseItemAnalyzerTask(
                 mode == AnalysisMode.Recap ? [.. subtitleOnlyItems.Where(item => item.NeedsSubtitleOnlyReanalysis(mode))] : null).ConfigureAwait(false);
         }
 
-        // Credits-derived previews are generated right after a credits result lands, and again
-        // in the Preview mode for episodes no preview analyzer settled, since a season whose
-        // credits are all user-provided never enters the credits pass but its derived previews
-        // still go stale when the preview settings change.
+        // Credits-derived previews are generated after settled credits results, and again in
+        // Preview mode for episodes no preview analyzer settled, since a season whose credits
+        // are all user-provided never enters the credits pass but its derived previews still
+        // go stale when preview settings change. Failed Credits episodes retain their prior
+        // rows as a pair until a later pass can settle a new result.
         var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
         if (previewFromCreditsEnd)
         {
@@ -782,9 +783,11 @@ public partial class BaseItemAnalyzerTask(
                 // Subtitle detection in the Preview mode later in this pass can still supersede
                 // the derived preview, so the derive leaves the Preview state to it.
                 var subtitlePreviewWillRun = Config.ScanPreview && Config.ActiveSubtitlePattern(first, AnalysisMode.Preview) is not null;
+                QueuedEpisode[] settledCreditsItems = [.. items
+                    .Where(item => item.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
-                    items,
+                    settledCreditsItems,
                     Config.MinimumPreviewDuration,
                     cancellationToken,
                     settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);

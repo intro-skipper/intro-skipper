@@ -986,19 +986,20 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             previewFromCreditsEndOverride: true,
             chapterSource: ChapterSource.Embedded);
         var previousCreditsHash = creditsHash + "-previous";
+        var unreadableEpisodeId = fixture.EpisodeIds[0];
+        var failedEpisodeId = fixture.EpisodeIds[1];
         var creditIds = new Dictionary<Guid, Guid>();
         var previewIds = new Dictionary<Guid, Guid>();
         foreach (var id in fixture.EpisodeIds)
         {
             await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Credits, [new Segment(id, new TimeRange(150, 170))], SegmentSource.Chapter, previousCreditsHash);
-            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, new TimeRange(170, 240))], SegmentSource.CreditsDerived, previousCreditsHash);
+            var previewRange = id == failedEpisodeId ? new TimeRange(160, 240) : new TimeRange(170, 240);
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, previewRange)], SegmentSource.CreditsDerived, previousCreditsHash);
             creditIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Credits).Id;
             previewIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview).Id;
         }
 
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [.. fixture.EpisodeIds.Select(id => (id, (long?)2))], creditsHash);
-        var unreadableEpisodeId = fixture.EpisodeIds[0];
-        var failedEpisodeId = fixture.EpisodeIds[1];
         var ffmpeg = new StubFFmpegService
         {
             VersionCheck = () => false,
@@ -1017,7 +1018,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             Assert.Equal(previewIds[id], preview.Id);
             Assert.Equal(previousCreditsHash, credits.ConfigHash);
             Assert.Equal(previousCreditsHash, preview.ConfigHash);
-            Assert.Equal((170.0, 240.0), (preview.ToSegment().Start, preview.ToSegment().End));
+            var expectedPreviewRange = id == failedEpisodeId ? (160.0, 240.0) : (170.0, 240.0);
+            Assert.Equal(expectedPreviewRange, (preview.ToSegment().Start, preview.ToSegment().End));
         }
 
         var completedSegments = await database.GetSegmentsAsync(fixture.EpisodeIds[2]);
