@@ -335,6 +335,9 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         var orderedEpisodes = episodes
+            .Where(episode =>
+                fingerprints.TryGetValue(episode.EpisodeId, out var fingerprint) &&
+                fingerprint.Length > 0)
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
@@ -343,20 +346,14 @@ internal sealed partial class ChromaprintAnalyzer(
         for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
         {
             var leftEpisode = orderedEpisodes[leftIndex];
-            if (!fingerprints.TryGetValue(leftEpisode.EpisodeId, out var leftFingerprint) || leftFingerprint.Length == 0)
-            {
-                continue;
-            }
+            var leftFingerprint = fingerprints[leftEpisode.EpisodeId];
 
             var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
             for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var rightEpisode = orderedEpisodes[rightIndex];
-                if (!fingerprints.TryGetValue(rightEpisode.EpisodeId, out var rightFingerprint) || rightFingerprint.Length == 0)
-                {
-                    continue;
-                }
+                var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
 
                 var (leftCandidate, rightCandidate) = CompareEpisodes(
                     leftEpisode.EpisodeId,
