@@ -675,6 +675,7 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="action">The season's analyzer action for the mode.</param>
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="creditsConfigHashes">Current per-episode Credits hashes, used when deriving Preview rows.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
@@ -948,7 +949,7 @@ public partial class BaseItemAnalyzerTask(
     /// season is not an opted-out Season 0.
     /// </summary>
     /// <remarks>
-    /// <see cref="AnalyzeItemsAsync(IReadOnlyList{QueuedEpisode}, AnalysisMode, AnalyzerAction, bool, CancellationToken)"/>
+    /// <c>AnalyzeItemsAsync</c>
     /// returns at once when this is false, and with a None action records the episodes without
     /// running an analyzer. <see cref="ReadChaptersAsync"/> reads chapters only when this holds
     /// for a mode whose action is not None. Both use this one check, so an analyzer never runs
