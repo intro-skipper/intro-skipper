@@ -267,7 +267,8 @@ public partial class BaseItemAnalyzerTask(
                 // reopens Preview. Keep automatic Credits rows as fallbacks until the
                 // per-episode result decides whether to replace, clear, or retain them.
                 // A failed scan must not blank the user's view. The final derive refreshes
-                // previews for the full reset set, including episodes whose chapters could not be read.
+                // previews only for episodes whose Credits result settled; unreadable or failed
+                // episodes keep both their previous Credits and the preview derived from them.
                 IReadOnlyCollection<AnalysisMode> preserveAutomaticModes = settledResetModes.Contains(AnalysisMode.Credits)
                     ? [AnalysisMode.Credits]
                     : [];
@@ -344,14 +345,16 @@ public partial class BaseItemAnalyzerTask(
                 first.SubtitleRecapDetectionOverride,
                 first.SubtitlePreviewDetectionOverride,
                 chapterSource: first.ChaptersSource);
-            foreach (var episode in episodes)
+            QueuedEpisode[] settledCreditsEpisodes = [.. episodes
+                .Where(episode => episode.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
+            foreach (var episode in settledCreditsEpisodes)
             {
                 episode.AnalysisConfigHash = creditsHash;
             }
 
             await AnimePreviewDeriver.DeriveAsync(
                 _database,
-                episodes,
+                settledCreditsEpisodes,
                 Config.MinimumPreviewDuration,
                 cancellationToken).ConfigureAwait(false);
         }

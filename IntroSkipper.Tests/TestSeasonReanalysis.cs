@@ -985,12 +985,13 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             ffmpegValid: false,
             previewFromCreditsEndOverride: true,
             chapterSource: ChapterSource.Embedded);
+        var previousCreditsHash = creditsHash + "-previous";
         var creditIds = new Dictionary<Guid, Guid>();
         var previewIds = new Dictionary<Guid, Guid>();
         foreach (var id in fixture.EpisodeIds)
         {
-            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Credits, [new Segment(id, new TimeRange(150, 170))], SegmentSource.Chapter, creditsHash);
-            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, new TimeRange(170, 240))], SegmentSource.CreditsDerived, creditsHash);
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Credits, [new Segment(id, new TimeRange(150, 170))], SegmentSource.Chapter, previousCreditsHash);
+            await database.ReplaceAutoSegmentsAsync(id, AnalysisMode.Preview, [new Segment(id, new TimeRange(170, 240))], SegmentSource.CreditsDerived, previousCreditsHash);
             creditIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Credits).Id;
             previewIds[id] = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview).Id;
         }
@@ -1014,6 +1015,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             var preview = Assert.Single(await database.GetSegmentsAsync(id), s => s.Type == AnalysisMode.Preview);
             Assert.Equal(creditIds[id], credits.Id);
             Assert.Equal(previewIds[id], preview.Id);
+            Assert.Equal(previousCreditsHash, credits.ConfigHash);
+            Assert.Equal(previousCreditsHash, preview.ConfigHash);
             Assert.Equal((170.0, 240.0), (preview.ToSegment().Start, preview.ToSegment().End));
         }
 
