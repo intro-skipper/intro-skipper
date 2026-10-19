@@ -33,6 +33,10 @@ internal sealed partial class ChromaprintAnalyzer(
     /// </summary>
     private const double RecapCardMinimumDuration = 3.0;
 
+    // Confirm candidates against the two episodes nearest them in season order. A local window
+    // lets anime openings and endings change mid-season without one theme dominating the season.
+    private const int ConsensusNeighborRadius = 2;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -300,7 +304,102 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        if (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits)
+        {
+            seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
+        }
+
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+    }
+
+    /// <summary>
+    /// Keeps Introduction and Credits candidates only when they also match a nearby episode.
+    /// Consensus is local to each episode's two nearest neighbors in season order, rather than
+    /// requiring one fingerprint region to dominate the whole season. Each neighboring pair is
+    /// checked once, and a match can confirm both episodes.
+    /// </summary>
+    /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
+    /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
+    /// <param name="candidates">Candidates selected by the existing season comparison.</param>
+    /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
+    /// <returns>Locally confirmed candidates.</returns>
+    private Dictionary<Guid, Segment> ConfirmLocalConsensus(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, uint[]> fingerprints,
+        IReadOnlyDictionary<Guid, Segment> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var orderedEpisodes = episodes
+            .OrderBy(episode => episode.EpisodeNumber)
+            .ThenBy(episode => episode.EpisodeId)
+            .ToList();
+        var confirmed = new Dictionary<Guid, Segment>();
+
+        for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
+        {
+            var leftEpisode = orderedEpisodes[leftIndex];
+            if (!fingerprints.TryGetValue(leftEpisode.EpisodeId, out var leftFingerprint) || leftFingerprint.Length == 0)
+            {
+                continue;
+            }
+
+            var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
+            for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var rightEpisode = orderedEpisodes[rightIndex];
+                if (!fingerprints.TryGetValue(rightEpisode.EpisodeId, out var rightFingerprint) || rightFingerprint.Length == 0)
+                {
+                    continue;
+                }
+
+                var (leftCandidate, rightCandidate) = CompareEpisodes(
+                    leftEpisode.EpisodeId,
+                    leftFingerprint,
+                    rightEpisode.EpisodeId,
+                    rightFingerprint);
+
+                if (!leftCandidate.Valid || !rightCandidate.Valid ||
+                    leftCandidate.Duration > GetMaximumSegmentDuration(leftEpisode) ||
+                    rightCandidate.Duration > GetMaximumSegmentDuration(rightEpisode))
+                {
+                    continue;
+                }
+
+                if (_analysisMode == AnalysisMode.Credits)
+                {
+                    leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
+                    leftCandidate.End += leftEpisode.CreditsFingerprintStart;
+                    rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
+                    rightCandidate.End += rightEpisode.CreditsFingerprintStart;
+                }
+
+                KeepBetterCandidate(confirmed, leftCandidate);
+                KeepBetterCandidate(confirmed, rightCandidate);
+            }
+        }
+
+        var removed = candidates.Keys.Count(id => !confirmed.ContainsKey(id));
+        if (removed > 0)
+        {
+            LogCandidatesWithoutLocalConsensus(_logger, _analysisMode, removed, confirmed.Count);
+        }
+
+        return confirmed;
+    }
+
+    private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
+    {
+        if (!candidates.TryGetValue(candidate.EpisodeId, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[candidate.EpisodeId] = candidate;
+        }
     }
 
     /// <summary>
@@ -638,6 +737,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
     private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without a match among nearby episodes; {ConfirmedCount} candidate(s) remain")]
+    private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int removedCount, int confirmedCount);
 }
 
 /// <summary>
