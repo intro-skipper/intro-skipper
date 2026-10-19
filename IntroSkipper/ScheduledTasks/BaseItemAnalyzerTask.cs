@@ -267,8 +267,8 @@ public partial class BaseItemAnalyzerTask(
                 // reopens Preview. Keep automatic Credits rows as fallbacks until the
                 // per-episode result decides whether to replace, clear, or retain them.
                 // A failed scan must not blank the user's view. The final derive refreshes
-                // previews only for episodes whose Credits result settled; unreadable or failed
-                // episodes keep both their previous Credits and the preview derived from them.
+                // previews from settled results and can derive a fallback from retained Credits
+                // rows for unreadable or failed episodes.
                 IReadOnlyCollection<AnalysisMode> preserveAutomaticModes = settledResetModes.Contains(AnalysisMode.Credits)
                     ? [AnalysisMode.Credits]
                     : [];
@@ -345,16 +345,36 @@ public partial class BaseItemAnalyzerTask(
                 first.SubtitleRecapDetectionOverride,
                 first.SubtitlePreviewDetectionOverride,
                 chapterSource: first.ChaptersSource);
-            QueuedEpisode[] settledCreditsEpisodes = [.. episodes
+            List<QueuedEpisode> creditsPreviewEpisodes = [.. episodes
                 .Where(episode => episode.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
-            foreach (var episode in settledCreditsEpisodes)
+            foreach (var episode in creditsPreviewEpisodes)
             {
                 episode.AnalysisConfigHash = creditsHash;
             }
 
+            // A failed or unreadable episode can still derive from its retained Credits rows.
+            // Use their hash so refreshing or creating that fallback Preview does not make it
+            // appear newer than the Credits result that feeds it.
+            foreach (var episode in episodes.Where(episode => episode.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.NotAnalyzed or EpisodeState.AnalysisFailed))
+            {
+                var retainedCredits = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+                var retainedCreditsHashes = retainedCredits
+                    .Where(segment => segment.Type == AnalysisMode.Credits && segment.State == SegmentState.Active && segment.Source != SegmentSource.User)
+                    .Select(segment => segment.ConfigHash)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (retainedCreditsHashes.Length != 1)
+                {
+                    continue;
+                }
+
+                episode.AnalysisConfigHash = retainedCreditsHashes[0];
+                creditsPreviewEpisodes.Add(episode);
+            }
+
             await AnimePreviewDeriver.DeriveAsync(
                 _database,
-                settledCreditsEpisodes,
+                creditsPreviewEpisodes,
                 Config.MinimumPreviewDuration,
                 cancellationToken).ConfigureAwait(false);
         }
