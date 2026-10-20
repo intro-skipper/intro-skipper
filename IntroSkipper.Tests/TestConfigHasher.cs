@@ -231,7 +231,7 @@ public sealed class TestConfigHasher
         };
 
         Assert.Equal(Hash(new PluginConfiguration()), Hash(disabled));
-        Assert.Equal(Hash(new PluginConfiguration()), Hash(reanalysisOff));
+        Assert.Equal(Hash(reanalysisOff), Hash(new PluginConfiguration { ReanalyzeSettledSeasons = false, UseSettledSeasonChromaprintConsensus = false }));
         Assert.NotEqual(Hash(disabled), Hash(enabled));
         Assert.NotEqual(Hash(enabled), Hash(changedMinimum));
     }
