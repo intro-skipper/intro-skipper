@@ -78,6 +78,14 @@ public sealed partial class IntroSkipperDatabase
                 return result;
             }
 
+            // A preview derived from the old credits end would otherwise stay: an edited
+            // Credits mode settles as user-provided and never reruns its derive. A
+            // visibility change lists every visible row but changes no credits.
+            if (intent is not SegmentVisibilityChangeIntent && result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
+            {
+                await ClearItemAnalysisCoreAsync(db, intent.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+            }
+
             // Accepted and Ignored both journal: an Ignored intent re-asserts state
             // the plugin database already holds, and re-projecting that state is how
             // a diverged mirror (a ghost or missing Jellyfin row) heals when the
