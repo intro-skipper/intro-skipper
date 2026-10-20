@@ -459,7 +459,7 @@ internal static partial class FFmpegOutputParser
     private static partial Regex ShowInfoRegex();
 
     // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
-    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+)")]
+    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+) ")]
     private static partial Regex MappedStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]

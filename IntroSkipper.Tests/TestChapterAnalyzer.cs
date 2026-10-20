@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -239,6 +240,33 @@ public class TestChapterAnalyzer
 
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview)));
         Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    /// <summary>
+    /// A file whose keyframe snap throws on every pass, here a codec probe cut before its stream
+    /// mapping, fails only its own episode; its sibling still gets its chapter result.
+    /// </summary>
+    [Fact]
+    public async Task FailedKeyframeSnap_FailsOnlyItsEpisode()
+    {
+        var config = new Configuration.PluginConfiguration { AdjustIntroBasedOnSilence = false, SnapToKeyframe = true, EnableSponsorBlockChapterDetection = false };
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Intro", AnalysisMode.Introduction) },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Intro", AnalysisMode.Introduction) },
+        ];
+        var ffmpeg = new StubFFmpegService
+        {
+            KeyFrames = (episode, _, _) => episode == episodes[0] ? throw new InvalidDataException("cut before the stream mapping") : [],
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, config, enableRecapBlackFrameFallback: false);
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId));
     }
 
     [Theory]
