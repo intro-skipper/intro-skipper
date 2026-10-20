@@ -88,13 +88,21 @@ public sealed partial class Entrypoint(
 
         Assembly? fileTransformationAssembly =
             AssemblyLoadContext.All.SelectMany(x => x.Assemblies).FirstOrDefault(x =>
-                x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                x.GetName().Name == "Jellyfin.Plugin.FileTransformation");
 
         if (fileTransformationAssembly is not null)
         {
             Type? pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
 
-            pluginInterfaceType?.GetMethod("RegisterTransformation")?.Invoke(null, [payload]);
+            // Untyped call into another plugin; a throw here would abort Jellyfin startup.
+            try
+            {
+                pluginInterfaceType?.GetMethod("RegisterTransformation")?.Invoke(null, [payload]);
+            }
+            catch (Exception ex) when (ex is TargetInvocationException or ArgumentException)
+            {
+                LogFileTransformationRegistrationFailed(ex);
+            }
         }
     }
 
@@ -167,4 +175,7 @@ public sealed partial class Entrypoint(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Media Library changed, analysis will start soon!")]
     private partial void LogMediaLibraryChanged();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not register the skip button transformation with File Transformation")]
+    private partial void LogFileTransformationRegistrationFailed(Exception ex);
 }
