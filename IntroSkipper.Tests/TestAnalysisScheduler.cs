@@ -78,11 +78,14 @@ public sealed class TestAnalysisScheduler
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
 
+        h.Time.Advance(AnalysisScheduler.QuietPeriod - TimeSpan.FromSeconds(1));
+        Assert.False(changed.IsCompleted);
+
         h.Ffmpeg.Gate.SetResult();
         await scan.WaitAsync(Timeout);
 
         Assert.False(changed.IsCompleted);
-        h.Time.Advance(AnalysisScheduler.QuietPeriod + TimeSpan.FromSeconds(1));
+        h.Time.Advance(TimeSpan.FromSeconds(2));
         await changed.WaitAsync(Timeout);
     }
 
