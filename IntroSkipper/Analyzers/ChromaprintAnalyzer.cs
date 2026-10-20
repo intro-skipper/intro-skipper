@@ -108,7 +108,20 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // Keyframe snapping can fail on every pass for one file, such as one whose tags push
+            // the codec probe's stream mapping past its capture; that fails only this episode.
+            Segment adjustedIntro;
+            try
+            {
+                adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                currentEpisode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                LogErrorAdjustingIntro(ex, mode, currentEpisode.Name);
+                continue;
+            }
+
             if (!adjustedIntro.Valid)
             {
                 await _database.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
@@ -641,6 +654,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint fingerprint scan for {Episode} (\"{Path}\") timed out. " + FFmpegProcessRunner.ScanTimeoutHint)]
     private partial void LogFingerprintTimeout(Exception exception, string episode, string path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error adjusting the {Mode} boundaries for {Episode}")]
+    private partial void LogErrorAdjustingIntro(Exception exception, AnalysisMode mode, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);

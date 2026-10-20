@@ -9,8 +9,12 @@
  */
 
 using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -123,6 +127,41 @@ public class TestAudioFingerprinting
     }
 
     private static FFmpegService CreateFFmpegService() => FfmpegTestHelpers.CreateFFmpegService();
+
+    /// <summary>
+    /// A file whose keyframe snap throws on every pass, here a codec probe cut before its stream
+    /// mapping, fails only its own episode; its sibling still gets the shared intro.
+    /// </summary>
+    [Fact]
+    public async Task FailedKeyframeSnap_FailsOnlyItsEpisode()
+    {
+        var seasonId = Guid.NewGuid();
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), SeasonId = seasonId, EpisodeNumber = 1, Duration = 1800 },
+            new() { EpisodeId = Guid.NewGuid(), SeasonId = seasonId, EpisodeNumber = 2, Duration = 1800 },
+        ];
+        var ffmpeg = new StubFFmpegService
+        {
+            // Points 200 to 450, about 31 s, are shared; every other point differs in eight bits.
+            Fingerprints = (episode, _) =>
+            [
+                .. Enumerable.Range(0, 3600).Select(i => i is >= 200 and <= 450
+                    ? 0x40000000u + ((uint)i * 7919u)
+                    : (uint)i ^ (0x11111111u * (uint)episode.EpisodeNumber)),
+            ],
+            KeyFrames = (episode, _, _) => episode == episodes[0] ? throw new InvalidDataException("cut before the stream mapping") : [],
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var config = new PluginConfiguration { AdjustIntroBasedOnSilence = false, SnapToKeyframe = true };
+        var analyzer = new ChromaprintAnalyzer(NullLogger<ChromaprintAnalyzer>.Instance, ffmpeg, null!, database, config);
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Introduction));
+        Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId));
+    }
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {
