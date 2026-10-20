@@ -90,19 +90,21 @@ public sealed partial class Entrypoint(
             AssemblyLoadContext.All.SelectMany(x => x.Assemblies).FirstOrDefault(x =>
                 x.GetName().Name == "Jellyfin.Plugin.FileTransformation");
 
-        if (fileTransformationAssembly is not null)
+        if (fileTransformationAssembly is null)
         {
-            Type? pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+            return;
+        }
 
-            // Untyped call into another plugin; a throw here would abort Jellyfin startup.
-            try
-            {
-                pluginInterfaceType?.GetMethod("RegisterTransformation")?.Invoke(null, [payload]);
-            }
-            catch (Exception ex) when (ex is TargetInvocationException or ArgumentException)
-            {
-                LogFileTransformationRegistrationFailed(ex);
-            }
+        // Untyped call into another plugin: any reflection or plugin failure here would abort Jellyfin startup.
+        try
+        {
+            fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface")
+                ?.GetMethod("RegisterTransformation")
+                ?.Invoke(null, [payload]);
+        }
+        catch (Exception ex)
+        {
+            LogFileTransformationRegistrationFailed(ex);
         }
     }
 
