@@ -17,6 +17,7 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -129,6 +130,7 @@ public class TestAudioFingerprinting
     }
 
     /// <summary>
+    /// A preferred language that matches both streams takes ffmpeg's pick, the default stereo stream.
     /// 12.0 labeled its own pick, most channels then lowest index, with the default variant. Where that is
     /// not ffmpeg's pick, a preferred language on ffmpeg's pick must not reuse such a row.
     /// </summary>
@@ -140,18 +142,7 @@ public class TestAudioFingerprinting
         var surroundOnly = directory.Join("surround.mkv");
         var stereoOnly = directory.Join("stereo.mkv");
         var runner = new FFmpegProcessRunner(NullLogger.Instance);
-        await runner.RunAsync(
-            "ffmpeg",
-            [
-                "-y", "-v", "error",
-                "-i", "../../../audio/big_buck_bunny_clip.mp3",
-                "-i", "../../../audio/big_buck_bunny_intro.mp3",
-                "-map", "0:a", "-map", "1:a",
-                "-c:a", "flac", "-ac:a:0", "6", "-ac:a:1", "2",
-                "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=jpn",
-                "-disposition:a:0", "0", "-disposition:a:1", "default",
-                dualTrack,
-            ]);
+        await WriteSurroundThenDefaultStereoAsync(dualTrack);
         await runner.RunAsync("ffmpeg", ["-y", "-v", "error", "-i", dualTrack, "-map", "0:a:0", "-c", "copy", surroundOnly]);
         await runner.RunAsync("ffmpeg", ["-y", "-v", "error", "-i", dualTrack, "-map", "0:a:1", "-c", "copy", stereoOnly]);
 
@@ -170,6 +161,34 @@ public class TestAudioFingerprinting
         Assert.Equal(stereo, preferred);
 
         static QueuedEpisode Queue(Guid id, string path) => new() { EpisodeId = id, Path = path, IntroFingerprintEnd = 60 };
+    }
+
+    /// <summary>
+    /// Releases before stream selection fingerprinted ffmpeg's pick unmapped. A preferred language that
+    /// selects ffmpeg's pick reuses their rows, also in a file whose default-variant rows are ambiguous.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task PreferredLanguage_ReusesPreStreamSelectionRowOfFfmpegPick()
+    {
+        using var directory = new TempDirectory();
+        var dualTrack = directory.Join("dual.mkv");
+        await WriteSurroundThenDefaultStereoAsync(dualTrack);
+
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { PreferredAudioLanguage = "jpn" });
+        var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath);
+        var ffmpegService = new FFmpegService(NullLogger<FFmpegService>.Instance, new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, cacheDatabase));
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = dualTrack, IntroFingerprintEnd = 60 };
+        uint[] legacy = [111u, 222u, 333u];
+        cacheDatabase.Upsert(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            60,
+            DetectionCacheService.CompressBrotli(legacy),
+            ConfigHasher.LegacyChromaprintCacheWithoutLanguage(Plugin.Instance!.Configuration, AnalysisMode.Introduction));
+
+        Assert.Equal(legacy, await ffmpegService.FingerprintAsync(episode, AnalysisMode.Introduction));
     }
 
     /// <summary>
@@ -246,6 +265,21 @@ public class TestAudioFingerprinting
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Introduction));
         Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId));
     }
+
+    // Two jpn streams: a non-default 5.1 stream, the most-channels pick, then the default stereo stream, ffmpeg's pick.
+    private static Task<byte[]> WriteSurroundThenDefaultStereoAsync(string path)
+        => new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-i", "../../../audio/big_buck_bunny_clip.mp3",
+                "-i", "../../../audio/big_buck_bunny_intro.mp3",
+                "-map", "0:a", "-map", "1:a",
+                "-c:a", "flac", "-ac:a:0", "6", "-ac:a:1", "2",
+                "-metadata:s:a", "language=jpn",
+                "-disposition:a:0", "0", "-disposition:a:1", "default",
+                path,
+            ]);
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {

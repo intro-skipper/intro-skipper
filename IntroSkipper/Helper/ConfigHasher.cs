@@ -59,6 +59,13 @@ internal static class ConfigHasher
     // change.
     private const string EmbeddedChapterSourceToken = "|chapterSource=embedded";
 
+    // With a preferred audio language under the most-channels policy, Chromaprint ranks the
+    // default-disposition stream first, as ffmpeg does, and maps the chosen stream. It used to rank
+    // by channels alone and leave the stream it ranked first unmapped, so ffmpeg could fingerprint
+    // another one. Present only in that configuration, so those seasons rerun once and no other
+    // season reopens.
+    private const string FfmpegStreamRankToken = "|audioRank=ffmpeg";
+
     /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
@@ -353,8 +360,11 @@ internal static class ConfigHasher
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
-        => FormattableString.Invariant(
-            $"|audioLanguage={NormalizeAudioLanguage(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+    {
+        var language = NormalizeAudioLanguage(config.PreferredAudioLanguage);
+        var rank = language.Length > 0 && config.PreferAudioStreamWithMostChannels ? FfmpegStreamRankToken : string.Empty;
+        return FormattableString.Invariant($"|audioLanguage={language}|audioMostChannels={config.PreferAudioStreamWithMostChannels}{rank}");
+    }
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated

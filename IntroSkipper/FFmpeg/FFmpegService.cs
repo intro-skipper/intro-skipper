@@ -1154,7 +1154,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         // ffmpeg's own pick (the most-channels policy, see SelectAudioStream) needs no probe or map.
         if (string.IsNullOrWhiteSpace(preferredLanguage) && preferMostChannels)
         {
-            return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant));
+            return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant, SelectsDefaultStream: true));
         }
 
         return _audioStreamSelections.GetAsync(
@@ -1238,11 +1238,12 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var selectedStream = SelectAudioStream(candidates, preferMostChannels);
-            var cacheVariant = selectedStream.Index == defaultStream.Index && defaultVariantIsUnambiguous
+            var selectsDefaultStream = selectedStream.Index == defaultStream.Index;
+            var cacheVariant = selectsDefaultStream && defaultVariantIsUnambiguous
                 ? AudioStreamSelection.DefaultStreamCacheVariant
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
-            return new AudioStreamSelection(selectedStream.Index, cacheVariant);
+            return new AudioStreamSelection(selectedStream.Index, cacheVariant, selectsDefaultStream);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -1384,13 +1385,12 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's own pick unmapped.</param>
     /// <param name="CacheVariant">Effective stream identity that keys the fingerprint cache row.</param>
-    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant)
+    /// <param name="SelectsDefaultStream">Whether the effective stream is FFmpeg's own pick, the stream rows from
+    /// releases before stream selection hold. Also true where <paramref name="CacheVariant"/> names its index.</param>
+    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool SelectsDefaultStream)
     {
         /// <summary>Cache variant of FFmpeg's own pick.</summary>
         public const string DefaultStreamCacheVariant = ConfigHasher.DefaultAudioStreamCacheVariant;
-
-        /// <summary>Gets a value indicating whether the effective stream is FFmpeg's default one.</summary>
-        public bool SelectsDefaultStream => CacheVariant == DefaultStreamCacheVariant;
     }
 
     /// <summary>
