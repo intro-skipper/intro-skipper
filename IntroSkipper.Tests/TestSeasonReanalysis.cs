@@ -1079,6 +1079,73 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
+    public async Task AnalyzeItemsAsync_ClearingDerivedPreview_ReopensSettledPreviewBeforeReadingChapters()
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = true,
+            ScanCommercial = false,
+            ReanalyzeSettledSeasons = false,
+            AnimePreviewFromCreditsEnd = false,
+            UseEmbeddedChaptersForAnalysis = true,
+            EnableSubtitlePreviewDetection = false,
+            ChapterAnalyzerPreviewPattern = "^Preview$",
+        };
+        using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
+        var database = fixture.CreateDatabase();
+        await database.SetAnalysisOverridesAsync(fixture.SeasonId, null, null, previewFromCreditsEnd: false, null, null);
+
+        var currentPreviewHash = ConfigHasher.Analysis(
+            config,
+            AnalysisMode.Preview,
+            AnalyzerAction.Default,
+            ffmpegValid: false,
+            previewFromCreditsEndOverride: false,
+            chapterSource: ChapterSource.Embedded);
+        using (var db = DatabaseTestHelpers.CreateSegmentContext(fixture.DbPath))
+        {
+            await db.Database.MigrateAsync();
+            db.Segments.Add(new DbSegment(
+                fixture.EpisodeId,
+                AnalysisMode.Preview,
+                DatabaseTestHelpers.Ticks(100),
+                DatabaseTestHelpers.Ticks(200),
+                SegmentSource.Chapter,
+                "stale-chapter-hash"));
+            db.Segments.Add(new DbSegment(
+                fixture.EpisodeId,
+                AnalysisMode.Preview,
+                DatabaseTestHelpers.Ticks(200),
+                DatabaseTestHelpers.Ticks(240),
+                SegmentSource.CreditsDerived,
+                "old-credits-hash"));
+            await db.SaveChangesAsync();
+        }
+
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(fixture.EpisodeId, (long?)2)], currentPreviewHash);
+
+        var chapterReads = 0;
+        var ffmpeg = new StubFFmpegService
+        {
+            VersionCheck = () => false,
+            EmbeddedChapters = _ =>
+            {
+                chapterReads++;
+                return [Chapter("Episode", 0), Chapter("Preview", 120)];
+            },
+        };
+        await fixture.AnalyzeAsync(ffmpeg);
+
+        Assert.Equal(1, chapterReads);
+        var preview = Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.Chapter, preview.Source);
+        Assert.Equal((120.0, 240.0), (preview.ToSegment().Start, preview.ToSegment().End));
+    }
+
+    [Fact]
     public async Task AnalyzeItemsAsync_PreviewScanningReenabledDuringPass_RecreatesClearedDerivedPreview()
     {
         var config = new PluginConfiguration

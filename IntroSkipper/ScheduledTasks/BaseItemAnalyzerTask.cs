@@ -235,6 +235,13 @@ public partial class BaseItemAnalyzerTask(
                 episodes.Select(episode => episode.EpisodeId),
                 cancellationToken).ConfigureAwait(false);
             clearedCreditsDerivedPreviewIds.UnionWith(clearedPreviewEpisodeIds);
+
+            // Queue verification ran before cleanup and may have marked Preview settled.
+            // Reopen it before the chapter-read gate when this pass will scan previews.
+            if (Config.ScanPreview && modes.Contains(AnalysisMode.Preview))
+            {
+                ReopenClearedCreditsDerivedPreviews(episodes, clearedCreditsDerivedPreviewIds);
+            }
         }
 
         if (episodes.Count == 0)
@@ -352,15 +359,9 @@ public partial class BaseItemAnalyzerTask(
                 cancellationToken.ThrowIfCancellationRequested();
                 if (mode == AnalysisMode.Preview && Config.ScanPreview)
                 {
-                    // Queue verification ran before cleanup and may have marked Preview settled.
-                    // Reopen only when this pass reaches an enabled Preview phase, so a setting
-                    // that remains off does not start Preview analysis from the stale mode list.
-                    foreach (var episode in readable.Where(episode =>
-                        clearedCreditsDerivedPreviewIds.Contains(episode.EpisodeId)
-                        && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.UserProvided))
-                    {
-                        episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
-                    }
+                    // Keep the late check for a ScanPreview setting enabled during this pass,
+                    // after the initial chapter-read decision.
+                    ReopenClearedCreditsDerivedPreviews(readable, clearedCreditsDerivedPreviewIds);
                 }
 
                 var hasPendingSettledReanalysis = settledResetModes.Contains(mode) ||
@@ -1005,6 +1006,18 @@ public partial class BaseItemAnalyzerTask(
     /// <returns><see langword="true"/> if the mode has work in the season; otherwise, <see langword="false"/>.</returns>
     private static bool IsModeOpen(IReadOnlyList<QueuedEpisode> episodes, AnalysisMode mode)
         => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
+
+    private static void ReopenClearedCreditsDerivedPreviews(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlySet<Guid> clearedPreviewEpisodeIds)
+    {
+        foreach (var episode in episodes.Where(episode =>
+            clearedPreviewEpisodeIds.Contains(episode.EpisodeId)
+            && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.UserProvided))
+        {
+            episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
+        }
+    }
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
