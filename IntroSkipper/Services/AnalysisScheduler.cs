@@ -155,7 +155,8 @@ public sealed partial class AnalysisScheduler(
     /// <summary>
     /// Queues a manual scan: its own pass that resolves the season the dashboard shows
     /// under the key, erases it, then analyzes it, ahead of any pending library pass. An
-    /// erase failure faults the scan. A scan for a key that is already pending joins it.
+    /// erase failure faults the scan, and so does a season or series that fails to analyze,
+    /// once the other seasons have run. A scan for a key that is already pending joins it.
     /// One requested while the key's scan runs queues a follow-up pass: the running pass
     /// may already have taken its inventory, so it cannot cover work requested after
     /// that. A key that no longer resolves to a season when the pass starts completes

@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
@@ -59,13 +60,15 @@ public partial class BaseItemAnalyzerTask(
 
     /// <summary>
     /// Analyzes every season of every enabled library, or only the seasons that are, or
-    /// contain, the given items.
+    /// contain, the given items. A season or series that fails is logged and skipped. A
+    /// scoped pass throws those failures once its other seasons have run.
     /// </summary>
     /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
     /// <param name="manualScan">Whether a manual scan requested the pass, which analyzes Season 0 even while <see cref="PluginConfiguration.AnalyzeSeasonZero"/> is off.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
+    /// <exception cref="AggregateException">A scoped pass could not analyze a season or resolve a series.</exception>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
@@ -101,21 +104,30 @@ public partial class BaseItemAnalyzerTask(
             CancellationToken = cancellationToken
         };
 
+        // A scoped pass collects the seasons and series it could not analyze and throws
+        // once the rest have run, so a manual scan of a broken season reports as failed.
+        var failures = scope is null ? null : new ConcurrentQueue<Exception>();
+
         // The seasons stream out of the owners one series at a time as the parallel slots
         // free up. A series' episodes are in memory only while its seasons run, and the
         // slots share the seasons of one large series.
         await Parallel.ForEachAsync(
-            SeasonsInScope(owners, scope, progress),
+            SeasonsInScope(owners, scope, failures, progress),
             options,
-            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, failures, ct))).ConfigureAwait(false);
         progress.Report(100);
+        if (failures is { IsEmpty: false })
+        {
+            throw new AggregateException(failures);
+        }
     }
 
     // A season that throws is logged and skipped so the pass goes on to the others: a
     // changed-items pass at the end of a library scan covers every item Jellyfin saved,
-    // and one broken season must not cost the rest their analysis. Cancellation still
-    // stops the pass.
-    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
+    // and one broken season must not cost the rest their analysis. The failure joins
+    // failures, when given, for the pass to throw at its end. Cancellation still stops
+    // the pass.
+    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, ConcurrentQueue<Exception>? failures, CancellationToken cancellationToken)
     {
         try
         {
@@ -129,12 +141,14 @@ public partial class BaseItemAnalyzerTask(
         {
             var first = season.Episodes.Count > 0 ? season.Episodes[0] : null;
             LogSeasonFailed(_logger, ex, first?.SeriesName ?? string.Empty, first?.SeasonNumber ?? 0, season.Key);
+            failures?.Enqueue(ex);
         }
     }
 
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
-    // keyed by or holding a requested item. Progress counts the owners reached.
-    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, IProgress<double> progress)
+    // keyed by or holding a requested item. An owner that fails to resolve is skipped and,
+    // when failures is given, recorded there. Progress counts the owners reached.
+    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, ConcurrentQueue<Exception>? failures, IProgress<double> progress)
     {
         var yielded = 0;
         for (var i = 0; i < owners.Count; i++)
@@ -142,6 +156,7 @@ public partial class BaseItemAnalyzerTask(
             progress.Report(100.0 * i / owners.Count);
             if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
             {
+                failures?.Enqueue(new InvalidOperationException($"Could not resolve {owners[i].Name} ({owners[i].Id})"));
                 continue;
             }
 
