@@ -953,7 +953,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
     // A settled season derives its previews from the credits end, and every episode's credits
     // were set by hand, so its Credits mode analyzes nothing. Preview scanning off clears those
-    // rows; a Preview None action still allows the Credits pass to refresh them.
+    // rows; a Preview None action still lets the settled Credits reset's final derive refresh them.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1079,7 +1079,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
-    public async Task AnalyzeItemsAsync_PreviewScanningOff_PreservesDerivedPreviewForExcludedEpisode()
+    public async Task AnalyzeItemsAsync_PreviewScanningOff_PreservesDerivedPreviewForUnverifiedEpisode()
     {
         var config = new PluginConfiguration
         {
@@ -1090,7 +1090,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             ScanCommercial = false,
         };
         using var fixture = new VerifyQueueFixture(config, fileVersion: 2);
-        config.PathExclusions.Add(Path.GetDirectoryName(fixture.MediaPath));
+        File.Delete(fixture.MediaPath);
         var database = fixture.CreateDatabase();
         await database.ReplaceAutoSegmentsAsync(
             fixture.EpisodeId,
