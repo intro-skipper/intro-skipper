@@ -90,7 +90,7 @@ public sealed partial class SegmentChange : BackgroundService
         MutationResult result;
         using (await _mutationLocks.AcquireAsync(intent.ItemId, cancellationToken).ConfigureAwait(false))
         {
-            Func<Task<MediaSegmentDto?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
+            Func<Task<(MediaSegmentDto Segment, bool IsOwn)?>>? resolveExternalTarget = intent is EditorDeleteSegmentIntent editorDelete
                 ? () => _mirror.FindSegmentAsync(editorDelete.SegmentId, cancellationToken)
                 : null;
             result = await _database.ApplyChangeAsync(intent, resolveExternalTarget, cancellationToken).ConfigureAwait(false);

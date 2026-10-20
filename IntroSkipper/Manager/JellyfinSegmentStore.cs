@@ -81,7 +81,7 @@ internal sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    public async Task<(MediaSegmentDto Segment, bool IsOwn)?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
@@ -91,7 +91,7 @@ internal sealed partial class JellyfinSegmentStore(
                 .FirstOrDefaultAsync(segment => segment.Id == segmentId, cancellationToken)
                 .ConfigureAwait(false);
 
-            return entity is null ? null : Map(entity);
+            return entity is null ? null : (Map(entity), entity.SegmentProviderId == ProviderId);
         }
     }
 
