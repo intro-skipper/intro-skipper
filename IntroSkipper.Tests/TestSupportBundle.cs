@@ -4,9 +4,13 @@
 
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -91,7 +95,7 @@ public class TestSupportBundle
         Assert.Equal(3, changed.Count);
         Assert.Equal(("true", "false"), (changed["UseLegacyBlackFrameAnalyzer"].Value, changed["UseLegacyBlackFrameAnalyzer"].Default));
         Assert.Equal(("4.25", "3.5"), (changed["MaximumTimeSkip"].Value, changed["MaximumTimeSkip"].Default));
-        Assert.Equal(("[Some Show]", "[]"), (changed["SeriesExclusions"].Value, changed["SeriesExclusions"].Default));
+        Assert.Equal(("1", "0"), (changed["SeriesExclusions"].Value, changed["SeriesExclusions"].Default));
     }
 
     [Fact]
@@ -104,15 +108,50 @@ public class TestSupportBundle
     }
 
     [Fact]
+    public async Task FingerprintFailuresAndSettingsReport_LeaveOutMediaNamesAndPaths()
+    {
+        const string Marker = "PrivateShowMarker";
+        var config = new PluginConfiguration();
+        config.SeriesExclusions.Add(Marker);
+        config.MovieExclusions.Add(Marker);
+        config.PathExclusions.Add("/media/" + Marker);
+        var episodes = Enumerable.Range(1, 2).Select(number => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = Marker,
+            Path = $"/does/not/exist/{Marker} - {number}.mkv",
+            EpisodeNumber = number,
+            IntroFingerprintEnd = 60,
+        }).ToList();
+        using var db = new TempSegmentDb();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            FfmpegTestHelpers.CreateFFmpegService(),
+            DatabaseTestHelpers.CreateTempCacheService(),
+            db.Database,
+            new PluginConfiguration());
+        WarningManager.ResetFingerprintFailures();
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        var failures = WarningManager.GetFingerprintFailures().Failures;
+        WarningManager.ResetFingerprintFailures();
+        Assert.Equal(episodes.Count, failures.Count);
+        Assert.All(failures, f => Assert.DoesNotContain(Marker, f, StringComparison.Ordinal));
+        Assert.All(episodes, episode => Assert.Contains(failures, f => f.Contains(episode.EpisodeId.ToString("N"), StringComparison.Ordinal)));
+        Assert.All(ConfigurationReport.Enumerate(config), s => Assert.DoesNotContain(Marker, s.Value, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WarningManager_KeepsFingerprintFailuresUntilFullScanReset()
     {
         WarningManager.ResetFingerprintFailures();
 
-        WarningManager.RecordFingerprintFailure("chromaprint output for \"a.mkv\" was malformed");
-        WarningManager.RecordFingerprintFailure("chromaprint fingerprinting of \"b.mkv\" timed out");
+        WarningManager.RecordFingerprintFailure("0a1b: chromaprint output was malformed");
+        WarningManager.RecordFingerprintFailure("2c3d: chromaprint fingerprinting timed out");
 
         var (failures, dropped) = WarningManager.GetFingerprintFailures();
-        Assert.Equal(["chromaprint output for \"a.mkv\" was malformed", "chromaprint fingerprinting of \"b.mkv\" timed out"], failures);
+        Assert.Equal(["0a1b: chromaprint output was malformed", "2c3d: chromaprint fingerprinting timed out"], failures);
         Assert.Equal(0, dropped);
         Assert.Contains(nameof(PluginWarning.InvalidChromaprintFingerprint), WarningManager.GetWarnings(), StringComparison.Ordinal);
 
