@@ -28,12 +28,14 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
+/// <param name="useLocalConsensus">Whether this run is a settled-season re-analysis.</param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
-    PluginConfiguration config)
+    PluginConfiguration config,
+    bool useLocalConsensus)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -43,6 +45,7 @@ internal sealed partial class CreditsPass(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
+    private readonly bool _useLocalConsensus = useLocalConsensus;
 
     /// <summary>
     /// Analyzes the season's credits.
@@ -116,7 +119,7 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

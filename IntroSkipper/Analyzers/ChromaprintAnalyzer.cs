@@ -21,12 +21,14 @@ namespace IntroSkipper.Analyzers;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null,
+    bool applyLocalConsensus = false) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
@@ -36,12 +38,15 @@ internal sealed partial class ChromaprintAnalyzer(
     // Compare at most two successfully fingerprinted episodes away on either side. A local window
     // lets anime openings and endings change mid-season without one theme dominating the season.
     private const int ConsensusNeighborRadius = 2;
+    // A six-episode group supports a theme change after one cour-sized run without trusting a pair.
+    private const int ConsensusMinimumGroupSize = 6;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
+    private readonly bool _applyLocalConsensus = applyLocalConsensus;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -304,7 +309,7 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
-        if (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits)
+        if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
         {
             seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
         }
@@ -313,10 +318,9 @@ internal sealed partial class ChromaprintAnalyzer(
     }
 
     /// <summary>
-    /// Keeps Introduction and Credits candidates only when they also match a nearby episode.
-    /// Consensus is local to episodes within two successfully fingerprinted positions in season
-    /// order, rather than requiring one fingerprint region to dominate the whole season. Each
-    /// neighboring pair is checked once, and a match can confirm both episodes.
+    /// Keeps Introduction and Credits candidates only when they form a local connected group of
+    /// at least six episodes. This is used during settled-season re-analysis, when the full
+    /// season is available; each pair is limited to two successfully fingerprinted positions.
     /// </summary>
     /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
     /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
@@ -341,7 +345,8 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
-        var confirmed = new Dictionary<Guid, Segment>();
+        var localCandidates = new Dictionary<Guid, Segment>();
+        var matchingNeighbors = new Dictionary<Guid, HashSet<Guid>>();
 
         for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
         {
@@ -375,12 +380,56 @@ internal sealed partial class ChromaprintAnalyzer(
 
                 if (leftCandidateValid)
                 {
-                    KeepBetterCandidate(confirmed, leftCandidate);
+                    KeepBetterCandidate(localCandidates, leftCandidate);
                 }
 
                 if (rightCandidateValid)
                 {
-                    KeepBetterCandidate(confirmed, rightCandidate);
+                    KeepBetterCandidate(localCandidates, rightCandidate);
+                }
+
+                if (leftCandidateValid && rightCandidateValid)
+                {
+                    AddNeighbor(matchingNeighbors, leftEpisode.EpisodeId, rightEpisode.EpisodeId);
+                    AddNeighbor(matchingNeighbors, rightEpisode.EpisodeId, leftEpisode.EpisodeId);
+                }
+            }
+        }
+
+        var confirmed = new Dictionary<Guid, Segment>();
+        var visited = new HashSet<Guid>();
+        foreach (var episodeId in matchingNeighbors.Keys)
+        {
+            if (!visited.Add(episodeId))
+            {
+                continue;
+            }
+
+            var group = new List<Guid>();
+            var pending = new Stack<Guid>();
+            pending.Push(episodeId);
+            while (pending.TryPop(out var currentEpisodeId))
+            {
+                group.Add(currentEpisodeId);
+                foreach (var neighborId in matchingNeighbors[currentEpisodeId])
+                {
+                    if (visited.Add(neighborId))
+                    {
+                        pending.Push(neighborId);
+                    }
+                }
+            }
+
+            if (group.Count < ConsensusMinimumGroupSize)
+            {
+                continue;
+            }
+
+            foreach (var memberId in group)
+            {
+                if (localCandidates.TryGetValue(memberId, out var candidate))
+                {
+                    confirmed[memberId] = candidate;
                 }
             }
         }
@@ -392,6 +441,17 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         return confirmed;
+    }
+
+    private static void AddNeighbor(Dictionary<Guid, HashSet<Guid>> matchingNeighbors, Guid episodeId, Guid neighborId)
+    {
+        if (!matchingNeighbors.TryGetValue(episodeId, out var neighbors))
+        {
+            neighbors = [];
+            matchingNeighbors.Add(episodeId, neighbors);
+        }
+
+        neighbors.Add(neighborId);
     }
 
     private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
