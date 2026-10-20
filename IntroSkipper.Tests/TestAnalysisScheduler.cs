@@ -163,6 +163,18 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task ManualScan_AnalyzesOptedOutSpecials_ThatALibraryPassSkips()
+    {
+        await using var h = await QueueHarness.StartAsync(seasonNumber: 0);
+
+        await h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None).WaitAsync(Timeout);
+        Assert.False(await h.IsAnalyzedAsync(h.EpisodeId));
+
+        await h.Scan().WaitAsync(Timeout);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
     public async Task ManualScan_OfASeasonThatNoLongerResolves_CompletesWithoutRunning()
     {
         await using var h = await QueueHarness.StartAsync();
@@ -454,7 +466,7 @@ public sealed class TestAnalysisScheduler
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
         private readonly List<string> _events = [];
 
-        private QueueHarness(bool gated, Func<bool>? versionCheck)
+        private QueueHarness(bool gated, Func<bool>? versionCheck, int seasonNumber)
         {
             var config = new PluginConfiguration
             {
@@ -467,7 +479,7 @@ public sealed class TestAnalysisScheduler
             _scope = EntrypointTestHelpers.CreatePluginScope(config, []);
             MediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
             File.WriteAllText(MediaPath, string.Empty);
-            Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath))];
+            Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath, seasonNumber: seasonNumber))];
             var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], Items);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
 
@@ -528,11 +540,11 @@ public sealed class TestAnalysisScheduler
             }
         }
 
-        public static QueueHarness Create(bool gated = false, Func<bool>? versionCheck = null) => new(gated, versionCheck);
+        public static QueueHarness Create(bool gated = false, Func<bool>? versionCheck = null, int seasonNumber = 1) => new(gated, versionCheck, seasonNumber);
 
-        public static async Task<QueueHarness> StartAsync(bool gated = false, Func<bool>? versionCheck = null)
+        public static async Task<QueueHarness> StartAsync(bool gated = false, Func<bool>? versionCheck = null, int seasonNumber = 1)
         {
-            var harness = Create(gated, versionCheck);
+            var harness = Create(gated, versionCheck, seasonNumber);
             await harness.Queue.StartAsync(CancellationToken.None);
             return harness;
         }

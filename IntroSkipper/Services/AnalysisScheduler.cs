@@ -479,7 +479,7 @@ public sealed partial class AnalysisScheduler(
 
         var itemIds = season.Episodes.Select(episode => episode.EpisodeId).ToHashSet();
         await _eraser.EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken: cancellationToken).ConfigureAwait(false);
-        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds).ConfigureAwait(false);
+        await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds, manualScan: true).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Starting analysis pass: {Kind}")]
