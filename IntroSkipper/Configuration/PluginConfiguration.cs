@@ -78,6 +78,7 @@ public class PluginConfiguration : BasePluginConfiguration
     internal const string FirstEpisodeIntroModeIgnoreAnime = "IgnoreAnime";
 
     private string? _firstEpisodeIntroMode;
+    private int _settledSeasonChromaprintConsensusEpisodes = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -131,16 +132,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int SettledSeasonChromaprintConsensusEpisodes
     {
-        get;
-        set
-        {
-            field = Math.Clamp(
-                value,
-                MinimumSettledSeasonChromaprintConsensusEpisodes,
-                MaximumSettledSeasonChromaprintConsensusEpisodes);
-        }
-
-    } = DefaultSettledSeasonChromaprintConsensusEpisodes;
+        get => _settledSeasonChromaprintConsensusEpisodes;
+        set => _settledSeasonChromaprintConsensusEpisodes = Math.Clamp(
+            value,
+            MinimumSettledSeasonChromaprintConsensusEpisodes,
+            MaximumSettledSeasonChromaprintConsensusEpisodes);
+    }
 
     /// <summary>
     /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
