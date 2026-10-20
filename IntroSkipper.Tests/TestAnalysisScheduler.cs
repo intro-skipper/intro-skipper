@@ -14,6 +14,7 @@ using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -238,6 +239,36 @@ public sealed class TestAnalysisScheduler
         h.Ffmpeg.Gate.SetResult();
         await followUp.WaitAsync(Timeout);
         Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
+    }
+
+    [Fact]
+    public async Task ManualScan_WhoseSeasonFails_Faults()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Throwing(new InvalidOperationException("chapter table unreadable")));
+
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => h.Scan().WaitAsync(Timeout));
+
+        Assert.Equal("chapter table unreadable", Assert.Single(exception.InnerExceptions).Message);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
+    }
+
+    [Fact]
+    public async Task ManualScan_WhoseSeriesFailsToResolveForItsAnalysis_Faults()
+    {
+        await using var h = await QueueHarness.StartAsync();
+
+        // The erase runs after the scan resolved its season and before the analysis
+        // resolves the series.
+        h.Eraser.OnErase = _ =>
+        {
+            h.SeriesQueryFails = true;
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAsync<AggregateException>(() => h.Scan().WaitAsync(Timeout));
+
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
     }
 
     [Fact]
@@ -480,7 +511,14 @@ public sealed class TestAnalysisScheduler
             MediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
             File.WriteAllText(MediaPath, string.Empty);
             Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath, seasonNumber: seasonNumber))];
-            var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], Items);
+            List<VirtualFolderInfo> folders = [JellyfinItems.Folder("Shows")];
+            var items = EntrypointTestHelpers.FakeLibraryManager.Create(folders, Items);
+            var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+                folders,
+                query => SeriesQueryFails && query?.AncestorIds is { Length: > 0 }
+                    ? throw new InvalidOperationException("series query failed")
+                    : [.. items.GetItemList(query!, false)],
+                id => items.GetItemById(id));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
 
             Ffmpeg = new GatedFfmpeg(gated)
@@ -516,6 +554,9 @@ public sealed class TestAnalysisScheduler
         public List<BaseItem> Items { get; }
 
         public FakeTimeProvider Time { get; } = new();
+
+        /// <summary>Gets or sets a value indicating whether the library fails every query for a series' episodes.</summary>
+        public bool SeriesQueryFails { get; set; }
 
         public GatedFfmpeg Ffmpeg { get; }
 
