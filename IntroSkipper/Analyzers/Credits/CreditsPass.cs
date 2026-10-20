@@ -35,7 +35,7 @@ internal sealed partial class CreditsPass(
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration config,
-    bool useLocalConsensus)
+    bool useLocalConsensus = false)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
