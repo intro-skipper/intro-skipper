@@ -21,7 +21,8 @@ internal static class ConfigHasher
     public const string StreamScopedDetectionCacheHashPrefix = "audio-stream-v1|";
 
     /// <summary>
-    /// Cache identity used when FFmpeg's default audio stream is the effective stream.
+    /// Cache identity used when FFmpeg's own audio pick is the effective stream: the default-disposition
+    /// stream, then most channels, then lowest index. Frozen: rows carrying it are already on disk.
     /// </summary>
     public const string DefaultAudioStreamCacheVariant = "policy=most-channels";
 
@@ -60,6 +61,13 @@ internal static class ConfigHasher
 
     // Settled consensus is an opt-in analysis path, so it is hashed only when settled-season
     // re-analysis can use it. Existing hashes stay stable for users who do not enable that path.
+
+    // With a preferred audio language under the most-channels policy, Chromaprint ranks the
+    // default-disposition stream first, as ffmpeg does, and maps the chosen stream. It used to rank
+    // by channels alone and leave the stream it ranked first unmapped, so ffmpeg could fingerprint
+    // another one. Present only in that configuration, so those seasons rerun once and no other
+    // season reopens.
+    private const string FfmpegStreamRankToken = "|audioRank=ffmpeg";
 
     /// <summary>
     /// Computes a hash for a stored analysis result.
@@ -368,8 +376,11 @@ internal static class ConfigHasher
     }
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
-        => FormattableString.Invariant(
-            $"|audioLanguage={NormalizeAudioLanguage(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+    {
+        var language = NormalizeAudioLanguage(config.PreferredAudioLanguage);
+        var rank = language.Length > 0 && config.PreferAudioStreamWithMostChannels ? FfmpegStreamRankToken : string.Empty;
+        return FormattableString.Invariant($"|audioLanguage={language}|audioMostChannels={config.PreferAudioStreamWithMostChannels}{rank}");
+    }
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated
