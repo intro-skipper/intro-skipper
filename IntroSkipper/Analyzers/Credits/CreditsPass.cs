@@ -105,7 +105,10 @@ internal sealed partial class CreditsPass(
                 {
                     chapterHandled.Add(episode.EpisodeId);
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    if (_logger.IsEnabled(LogLevel.Error))
+                    {
+                        LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    }
                 }
             }
         }
@@ -127,7 +130,10 @@ internal sealed partial class CreditsPass(
                 // The season-wide comparison failed as a whole; the other analyzers still
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
-                LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                }
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
@@ -194,7 +200,10 @@ internal sealed partial class CreditsPass(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                        if (_logger.IsEnabled(LogLevel.Warning))
+                        {
+                            LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                        }
 
                         // Without the keyframe result, the other candidates alone could lose the
                         // roll the standing credits hold, so a failed keyframe scan never replaces
@@ -225,7 +234,10 @@ internal sealed partial class CreditsPass(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                if (_logger.IsEnabled(LogLevel.Error))
+                {
+                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                }
             }
         }
     }

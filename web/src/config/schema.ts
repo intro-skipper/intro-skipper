@@ -35,7 +35,7 @@ export const configSchema = {
         max: 1000,
         step: 1,
         description:
-            "Target number of distinct episodes required to confirm a shared pattern. If fewer episodes have usable fingerprints, all usable episodes are required. Comparable pattern groups can lower the target so mid-season theme changes can still qualify.",
+            "Target number of distinct episodes required to confirm a shared pattern. Comparable pattern groups can lower the target so mid-season theme changes can still qualify; one group covering at least three quarters of usable fingerprints can also qualify below the target.",
     },
     SettledSeasonDelayHours: {
         kind: "number",

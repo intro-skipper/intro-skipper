@@ -39,6 +39,8 @@ internal sealed partial class ChromaprintAnalyzer(
     // lets anime openings and endings change mid-season without one theme dominating the season.
     private const int ConsensusNeighborRadius = 2;
     private const double ConsensusMinimumRangeOverlap = 0.8;
+    private const int ConsensusSupermajorityNumerator = 3;
+    private const int ConsensusSupermajorityDenominator = 4;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
@@ -475,6 +477,13 @@ internal sealed partial class ChromaprintAnalyzer(
         var minimumGroupSize = comparableGroupSizes.Length > 1
             ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
             : maximumGroupSize;
+        var supermajoritySize =
+            (orderedEpisodes.Count * ConsensusSupermajorityNumerator + ConsensusSupermajorityDenominator - 1) /
+            ConsensusSupermajorityDenominator;
+        if (largestGroupSize >= supermajoritySize)
+        {
+            minimumGroupSize = Math.Min(minimumGroupSize, largestGroupSize);
+        }
 
         var supportedRanges = new HashSet<ConsensusRangeKey>();
         foreach (var group in groups)

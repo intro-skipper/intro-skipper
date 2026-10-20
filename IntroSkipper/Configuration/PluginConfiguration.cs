@@ -125,16 +125,21 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the target number of distinct episodes required in a settled-season Chromaprint
-    /// consensus group. If fewer episodes have usable fingerprints, all usable episodes are required.
-    /// Comparable pattern groups may lower the target to their smallest group size.
+    /// consensus group. Comparable pattern groups may lower the target to their smallest group size,
+    /// and a single group covering at least three quarters of the usable fingerprints may qualify
+    /// below the target.
     /// </summary>
     public int SettledSeasonChromaprintConsensusEpisodes
     {
         get;
-        set => field = Math.Clamp(
-            value,
-            MinimumSettledSeasonChromaprintConsensusEpisodes,
-            MaximumSettledSeasonChromaprintConsensusEpisodes);
+        set
+        {
+            field = Math.Clamp(
+                value,
+                MinimumSettledSeasonChromaprintConsensusEpisodes,
+                MaximumSettledSeasonChromaprintConsensusEpisodes);
+        }
+
     } = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
     /// <summary>
