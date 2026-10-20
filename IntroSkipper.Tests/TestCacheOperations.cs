@@ -363,6 +363,68 @@ public sealed class TestCacheOperations
         }
     }
 
+    /// <summary>
+    /// A new episode reopens the season's comparison, which pulls in the settled siblings
+    /// through their cached fingerprints. The chapter-settled sibling keeps its chapter intro;
+    /// only the Chromaprint-settled one is re-derived.
+    /// </summary>
+    [Fact]
+    public async Task AnalyzeMediaFiles_KeepsChapterIntroOfSettledSibling()
+    {
+        using var scope = new CachingPluginScope();
+        var hash = ConfigHasher.DetectionCache(Plugin.Instance!.Configuration, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        var episodes = new List<QueuedEpisode>();
+        foreach (var (number, unique, settledBy) in new (int, uint, SegmentSource?)[] { (1, 0x2000u, SegmentSource.Chapter), (2, 0x3000u, SegmentSource.Chromaprint), (3, 0x4000u, null) })
+        {
+            var episode = new QueuedEpisode
+            {
+                EpisodeId = Guid.NewGuid(),
+                EpisodeNumber = number,
+                Path = "/does/not/exist.mkv",
+                IntroFingerprintEnd = 600,
+                Duration = 1800,
+            };
+            if (settledBy is { } source)
+            {
+                episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+                await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Introduction, [new Segment(episode.EpisodeId, new TimeRange(30, 60))], source);
+            }
+
+            // Twenty shared intro points (about 2.5 s) followed by twenty points unique to the episode.
+            uint[] points = [.. Enumerable.Range(0, 20).Select(i => 0x1000u + (uint)i), .. Enumerable.Range(0, 20).Select(i => unique + (uint)i)];
+            scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(points), 0, 600, hash);
+            episodes.Add(episode);
+        }
+
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            scope.CreateFFmpegService(),
+            scope.CacheService,
+            database,
+            new PluginConfiguration
+            {
+                MinimumIntroDuration = 1,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        var chapterRow = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((SegmentSource.Chapter, TickConversions.FromSeconds(30)), (chapterRow.Source, chapterRow.StartTicks));
+        foreach (var episode in episodes.Skip(1))
+        {
+            var row = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+            Assert.Equal((SegmentSource.Chromaprint, 0L), (row.Source, row.StartTicks));
+        }
+    }
+
     [Fact]
     public async Task DeleteUnreadableEntriesAsync_DeletesOnlyRowsNoReadPathAccepts()
     {
