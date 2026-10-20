@@ -348,13 +348,7 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
-        if (orderedEpisodes.Count < ConsensusMinimumGroupSize)
-        {
-            // A local group cannot reach the configured floor. Preserve the season-wide
-            // selection instead of turning an otherwise valid short or partially fingerprinted
-            // season into a no-result analysis.
-            return new Dictionary<Guid, Segment>(candidates);
-        }
+        var minimumGroupSize = Math.Min(ConsensusMinimumGroupSize, orderedEpisodes.Count);
 
         var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
         var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
@@ -466,7 +460,7 @@ internal sealed partial class ChromaprintAnalyzer(
                 }
             }
 
-            if (group.Select(key => key.EpisodeId).Distinct().Count() < ConsensusMinimumGroupSize)
+            if (group.Select(key => key.EpisodeId).Distinct().Count() < minimumGroupSize)
             {
                 continue;
             }
