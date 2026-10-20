@@ -26,7 +26,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Require Chromaprint consensus",
         description:
-            "During settled-season re-analysis, require at least six locally connected episodes to share an intro or credits pattern for the pattern to be accepted as a segment.",
+            "During settled-season re-analysis, require at least six locally connected episodes to share an intro or credits pattern. If fewer than six episodes have usable fingerprints, keep the existing season comparison results.",
     },
     SettledSeasonDelayHours: {
         kind: "number",

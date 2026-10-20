@@ -319,10 +319,11 @@ internal sealed partial class ChromaprintAnalyzer(
     }
 
     /// <summary>
-    /// Keeps Introduction and Credits candidate ranges only when each selected range forms a
-    /// local connected group across at least six distinct episodes. This is used during settled-
-    /// season re-analysis, when the full season is available; each pair is limited to two
-    /// successfully fingerprinted positions.
+    /// Keeps season-selected Introduction and Credits ranges only when each forms a local
+    /// connected group across at least six distinct episodes. When fewer than six usable
+    /// fingerprints are available, it returns the season selection unchanged. This is used
+    /// during settled-season re-analysis; each pair is limited to two successfully fingerprinted
+    /// positions.
     /// </summary>
     /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
     /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
@@ -347,6 +348,14 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
+        if (orderedEpisodes.Count < ConsensusMinimumGroupSize)
+        {
+            // A local group cannot reach the configured floor. Preserve the season-wide
+            // selection instead of turning an otherwise valid short or partially fingerprinted
+            // season into a no-result analysis.
+            return new Dictionary<Guid, Segment>(candidates);
+        }
+
         var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
         var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
 
@@ -400,6 +409,13 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        // Consensus confirms the season-selected ranges; it must not introduce a new endpoint
+        // from a local pair that the season comparison itself did not select.
+        foreach (var candidate in candidates.Values)
+        {
+            KeepBetterCandidate(localCandidates, candidate);
+        }
+
         // Pairwise comparisons can find slightly different endpoints for the same opening in
         // different episode pairs. Join those compatible ranges within each episode so that
         // their neighboring pair matches contribute to one local group. Requiring the ranges
@@ -426,6 +442,7 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         var confirmed = new Dictionary<Guid, Segment>();
+        var supportedRanges = new HashSet<ConsensusRangeKey>();
         var visited = new HashSet<ConsensusRangeKey>();
         foreach (var rangeKey in matchingNeighbors.Keys)
         {
@@ -456,10 +473,15 @@ internal sealed partial class ChromaprintAnalyzer(
 
             foreach (var memberRange in group)
             {
-                if (localCandidates.TryGetValue(memberRange, out var candidate))
-                {
-                    KeepBetterCandidate(confirmed, candidate);
-                }
+                supportedRanges.Add(memberRange);
+            }
+        }
+
+        foreach (var candidate in candidates.Values)
+        {
+            if (supportedRanges.Contains(GetConsensusRangeKey(candidate)))
+            {
+                KeepBetterCandidate(confirmed, candidate);
             }
         }
 

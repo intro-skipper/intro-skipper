@@ -58,6 +58,10 @@ internal static class ConfigHasher
     // change.
     private const string EmbeddedChapterSourceToken = "|chapterSource=embedded";
 
+    // Settled consensus is an opt-in analysis path, so it is hashed only when settled-season
+    // re-analysis can use it. Existing hashes stay stable for users who do not enable that path.
+    private const string SettledConsensusEnabledToken = "|settledChromaprintConsensus=local6";
+
     /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
@@ -103,7 +107,7 @@ internal static class ConfigHasher
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             // Frozen at v3 on purpose: the credits pass replaced the first-wins chain
@@ -117,7 +121,7 @@ internal static class ConfigHasher
                 $"|minRegion={config.MinimumIntroDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
                 $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
@@ -349,6 +353,19 @@ internal static class ConfigHasher
 
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
+
+    private static string SettledConsensusToken(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    {
+        if (!ffmpegValid ||
+            !config.ReanalyzeSettledSeasons ||
+            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame) ||
+            !config.UseSettledSeasonChromaprintConsensus)
+        {
+            return string.Empty;
+        }
+
+        return SettledConsensusEnabledToken;
+    }
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
