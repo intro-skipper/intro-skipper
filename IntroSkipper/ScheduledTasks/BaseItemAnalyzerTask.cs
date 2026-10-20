@@ -226,6 +226,15 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        if (season.Episodes.Count > 0 && !ShouldDerivePreview(season.Episodes[0], Config))
+        {
+            // The global Preview switch also disables credits-derived previews. Clear them
+            // even when queue verification finds no analyzer work for this season.
+            await _database.ClearCreditsDerivedPreviewsAsync(
+                season.Episodes.Select(episode => episode.EpisodeId),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (episodes.Count == 0)
         {
             return;
@@ -266,11 +275,6 @@ public partial class BaseItemAnalyzerTask(
         // lead-in probe decodes its window again.
         var utcNow = DateTime.UtcNow;
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
-
-        if (!previewFromCreditsEnd)
-        {
-            await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-        }
 
         if (!manualScan && AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
         {
@@ -978,8 +982,9 @@ public partial class BaseItemAnalyzerTask(
         => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
-        => episode.PreviewFromCreditsEndOverride
-            ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
+        => config.ScanPreview
+            && (episode.PreviewFromCreditsEndOverride
+                ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd));
 
     private static AnalysisMode[] GetSubtitleModesToPreserve(
         IReadOnlyCollection<AnalysisMode> modes,
