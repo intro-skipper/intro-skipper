@@ -362,12 +362,13 @@ internal static class ConfigHasher
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
 
-    // The settled-season setting gates whether re-analysis is scheduled; the consensus settings
-    // describe output changes. Exclude the master switch so toggling it does not invalidate every
-    // Introduction/Credits record, and omit default consensus values to preserve existing 12.0 hashes.
+    // Settled consensus only changes stored output during settled-season re-analysis. Keep its
+    // token out of ordinary analysis hashes so changes made while that path is disabled are applied
+    // when the setting is later enabled.
     private static string SettledConsensusToken(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
     {
         if (!ffmpegValid ||
+            !config.ReanalyzeSettledSeasons ||
             (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame))
         {
             return string.Empty;
@@ -378,9 +379,8 @@ internal static class ConfigHasher
             return "|settledChromaprintConsensus=disabled";
         }
 
-        return config.SettledSeasonChromaprintConsensusEpisodes == PluginConfiguration.DefaultSettledSeasonChromaprintConsensusEpisodes
-            ? string.Empty
-            : FormattableString.Invariant($"|settledChromaprintConsensus=local:{config.SettledSeasonChromaprintConsensusEpisodes}");
+        return FormattableString.Invariant(
+            $"|settledChromaprintConsensus=local-v2:{config.SettledSeasonChromaprintConsensusEpisodes}");
     }
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
