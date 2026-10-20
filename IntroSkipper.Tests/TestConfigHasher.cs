@@ -67,6 +67,9 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with preferred language", Analysis(defaults, AnalysisMode.Credits), Analysis(english, AnalysisMode.Credits), false);
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
 
+        // Pin the analysis identity for a preferred language under the configured stream-selection policy.
+        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "BC177183ECC85CBA", true);
+
         // Toggling card credits changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
         // BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not invalidate
@@ -197,6 +200,40 @@ public sealed class TestConfigHasher
         var conventional = ConfigHasher.Analysis(Config(!embeddedBefore), mode, AnalyzerAction.Default, true, includeSubtitleSettings: false);
 
         Assert.False(ConfigHasher.IsSubtitleOnlyHashChange(stored, conventional));
+    }
+
+    [Fact]
+    public void SettledConsensusHash_PreservesDisabledHashAndTracksEnabledAlgorithm()
+    {
+        static string Hash(PluginConfiguration configuration)
+            => ConfigHasher.Analysis(configuration, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        var disabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = false,
+        };
+        var enabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+        var changedMinimum = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+            SettledSeasonChromaprintConsensusEpisodes = PluginConfiguration.DefaultSettledSeasonChromaprintConsensusEpisodes + 1,
+        };
+        var reanalysisOff = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = false,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+
+        Assert.Equal(Hash(new PluginConfiguration()), Hash(disabled));
+        Assert.Equal(Hash(reanalysisOff), Hash(new PluginConfiguration { ReanalyzeSettledSeasons = false, UseSettledSeasonChromaprintConsensus = false }));
+        Assert.NotEqual(Hash(disabled), Hash(enabled));
+        Assert.NotEqual(Hash(enabled), Hash(changedMinimum));
     }
 
     [Fact]
