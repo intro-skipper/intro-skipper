@@ -255,7 +255,8 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // The season-state snapshot serves the settle decision and every mode's analyzer action.
-        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        var isSettledForReanalysis = SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow);
+        if (isSettledForReanalysis)
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
@@ -320,6 +321,11 @@ public partial class BaseItemAnalyzerTask(
             foreach (var mode in modes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var hasPendingSettledReanalysis = settledResetModes.Contains(mode) ||
+                    (isSettledForReanalysis &&
+                        seasonStates.TryGetValue(mode, out var recordedState) &&
+                        recordedState.SettledReanalysisEpisodeIds.SetEquals(episodeIds) &&
+                        readable.Any(episode => episode.NeedsAnalysis(mode)));
                 await AnalyzeItemsAsync(
                     readable,
                     mode,
@@ -327,7 +333,7 @@ public partial class BaseItemAnalyzerTask(
                     ffmpegValid,
                     cancellationToken,
                     creditsHashes,
-                    useLocalConsensus: Config.UseSettledSeasonChromaprintConsensus && settledResetModes.Contains(mode)).ConfigureAwait(false);
+                    useLocalConsensus: Config.UseSettledSeasonChromaprintConsensus && hasPendingSettledReanalysis).ConfigureAwait(false);
 
                 if (settledResetModes.Contains(mode))
                 {

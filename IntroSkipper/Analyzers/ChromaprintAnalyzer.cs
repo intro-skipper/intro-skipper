@@ -318,9 +318,10 @@ internal sealed partial class ChromaprintAnalyzer(
     }
 
     /// <summary>
-    /// Keeps Introduction and Credits candidates only when they form a local connected group of
-    /// at least six episodes. This is used during settled-season re-analysis, when the full
-    /// season is available; each pair is limited to two successfully fingerprinted positions.
+    /// Keeps Introduction and Credits candidate ranges only when each selected range forms a
+    /// local connected group across at least six distinct episodes. This is used during settled-
+    /// season re-analysis, when the full season is available; each pair is limited to two
+    /// successfully fingerprinted positions.
     /// </summary>
     /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
     /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
@@ -345,8 +346,8 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
-        var localCandidates = new Dictionary<Guid, Segment>();
-        var matchingNeighbors = new Dictionary<Guid, HashSet<Guid>>();
+        var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
+        var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
 
         for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
         {
@@ -390,46 +391,48 @@ internal sealed partial class ChromaprintAnalyzer(
 
                 if (leftCandidateValid && rightCandidateValid)
                 {
-                    AddNeighbor(matchingNeighbors, leftEpisode.EpisodeId, rightEpisode.EpisodeId);
-                    AddNeighbor(matchingNeighbors, rightEpisode.EpisodeId, leftEpisode.EpisodeId);
+                    var leftRange = GetConsensusRangeKey(leftCandidate);
+                    var rightRange = GetConsensusRangeKey(rightCandidate);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
                 }
             }
         }
 
         var confirmed = new Dictionary<Guid, Segment>();
-        var visited = new HashSet<Guid>();
-        foreach (var episodeId in matchingNeighbors.Keys)
+        var visited = new HashSet<ConsensusRangeKey>();
+        foreach (var rangeKey in matchingNeighbors.Keys)
         {
-            if (!visited.Add(episodeId))
+            if (!visited.Add(rangeKey))
             {
                 continue;
             }
 
-            var group = new List<Guid>();
-            var pending = new Stack<Guid>();
-            pending.Push(episodeId);
-            while (pending.TryPop(out var currentEpisodeId))
+            var group = new List<ConsensusRangeKey>();
+            var pending = new Stack<ConsensusRangeKey>();
+            pending.Push(rangeKey);
+            while (pending.TryPop(out var currentRangeKey))
             {
-                group.Add(currentEpisodeId);
-                foreach (var neighborId in matchingNeighbors[currentEpisodeId])
+                group.Add(currentRangeKey);
+                foreach (var neighborKey in matchingNeighbors[currentRangeKey])
                 {
-                    if (visited.Add(neighborId))
+                    if (visited.Add(neighborKey))
                     {
-                        pending.Push(neighborId);
+                        pending.Push(neighborKey);
                     }
                 }
             }
 
-            if (group.Count < ConsensusMinimumGroupSize)
+            if (group.Select(key => key.EpisodeId).Distinct().Count() < ConsensusMinimumGroupSize)
             {
                 continue;
             }
 
-            foreach (var memberId in group)
+            foreach (var memberRange in group)
             {
-                if (localCandidates.TryGetValue(memberId, out var candidate))
+                if (localCandidates.TryGetValue(memberRange, out var candidate))
                 {
-                    confirmed[memberId] = candidate;
+                    KeepBetterCandidate(confirmed, candidate);
                 }
             }
         }
@@ -443,16 +446,37 @@ internal sealed partial class ChromaprintAnalyzer(
         return confirmed;
     }
 
-    private static void AddNeighbor(Dictionary<Guid, HashSet<Guid>> matchingNeighbors, Guid episodeId, Guid neighborId)
+    private static ConsensusRangeKey GetConsensusRangeKey(Segment candidate)
+        => new(
+            candidate.EpisodeId,
+            (long)Math.Round(candidate.Start, MidpointRounding.AwayFromZero),
+            (long)Math.Round(candidate.End, MidpointRounding.AwayFromZero));
+
+    private static void AddNeighbor(
+        Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>> matchingNeighbors,
+        ConsensusRangeKey rangeKey,
+        ConsensusRangeKey neighborKey)
     {
-        if (!matchingNeighbors.TryGetValue(episodeId, out var neighbors))
+        if (!matchingNeighbors.TryGetValue(rangeKey, out var neighbors))
         {
             neighbors = [];
-            matchingNeighbors.Add(episodeId, neighbors);
+            matchingNeighbors.Add(rangeKey, neighbors);
         }
 
-        neighbors.Add(neighborId);
+        neighbors.Add(neighborKey);
     }
+
+    private void KeepBetterCandidate(Dictionary<ConsensusRangeKey, Segment> candidates, Segment candidate)
+    {
+        var rangeKey = GetConsensusRangeKey(candidate);
+        if (!candidates.TryGetValue(rangeKey, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[rangeKey] = candidate;
+        }
+    }
+
+    private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 
     private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
     {
@@ -799,7 +823,7 @@ internal sealed partial class ChromaprintAnalyzer(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
     private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without a match among nearby episodes; {ConfirmedCount} candidate(s) remain")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a six-episode local group; {ConfirmedCount} candidate(s) remain")]
     private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int removedCount, int confirmedCount);
 }
 
