@@ -64,11 +64,13 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter, advanced as each series or movie is reached.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="itemIds">Ids of the seasons, movies or episodes to analyze, or <see langword="null"/> for the whole library.</param>
+    /// <param name="manualScan">Whether a manual scan requested the pass, which analyzes Season 0 even while <see cref="PluginConfiguration.AnalyzeSeasonZero"/> is off.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? itemIds = null)
+        IReadOnlyCollection<Guid>? itemIds = null,
+        bool manualScan = false)
     {
         if (itemIds?.Count == 0)
         {
@@ -105,7 +107,7 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(
             SeasonsInScope(owners, scope, progress),
             options,
-            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, ct))).ConfigureAwait(false);
         progress.Report(100);
     }
 
@@ -113,11 +115,11 @@ public partial class BaseItemAnalyzerTask(
     // changed-items pass at the end of a library scan covers every item Jellyfin saved,
     // and one broken season must not cost the rest their analysis. Cancellation still
     // stops the pass.
-    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
     {
         try
         {
-            await AnalyzeSeasonAsync(season, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+            await AnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -183,9 +185,10 @@ public partial class BaseItemAnalyzerTask(
     /// <summary>
     /// Verifies one season against the stored analysis state, reopens what a replaced file
     /// or a settled-season reanalysis invalidates, reads each episode's chapters, and runs
-    /// every mode over the episodes whose chapters could be read.
+    /// every mode over the episodes whose chapters could be read. An opted-out Season 0 runs
+    /// no mode unless a manual scan requested it.
     /// </summary>
-    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken)
+    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
 
@@ -252,6 +255,11 @@ public partial class BaseItemAnalyzerTask(
         if (!previewFromCreditsEnd)
         {
             await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!manualScan && AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
+        {
+            return;
         }
 
         // The season-state snapshot serves the settle decision and every mode's analyzer action.
@@ -403,12 +411,11 @@ public partial class BaseItemAnalyzerTask(
     /// its hash names another source than the one this pass read, in which case the record
     /// already names the source read; a check whose sources differ, or whose other source cannot
     /// be read, reopens the mode. Beyond the checks, nothing is read unless <see cref="IsModeOpen"/>
-    /// holds for a mode whose action is not None, and an opted-out Season 0 reads nothing. An
-    /// episode whose embedded chapters ffprobe cannot read is logged, left out of the result when
-    /// a mode runs, and keeps its rows; without a record it is retried on the next pass. A failed
-    /// read of Jellyfin's chapter table throws and fails the season. Each episode records the
-    /// source it was read from in <see cref="QueuedEpisode.ChaptersSource"/>, which the modes
-    /// hash instead of the live setting.
+    /// holds for a mode whose action is not None. An episode whose embedded chapters ffprobe
+    /// cannot read is logged, left out of the result when a mode runs, and keeps its rows; without
+    /// a record it is retried on the next pass. A failed read of Jellyfin's chapter table throws
+    /// and fails the season. Each episode records the source it was read from in
+    /// <see cref="QueuedEpisode.ChaptersSource"/>, which the modes hash instead of the live setting.
     /// </remarks>
     /// <param name="episodes">The season's verified episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
@@ -423,11 +430,6 @@ public partial class BaseItemAnalyzerTask(
     {
         var config = Config;
         var first = episodes[0];
-        if (AnalysisEligibility.IsSeasonZeroOptedOut(first, config))
-        {
-            return episodes;
-        }
-
         var source = config.ChapterSource;
         var unreadable = new HashSet<Guid>();
 
@@ -517,7 +519,7 @@ public partial class BaseItemAnalyzerTask(
 
         var analyzerRuns = modes.Any(mode =>
             (!seasonStates.TryGetValue(mode, out var state) || state.Action != AnalyzerAction.None)
-            && IsModeOpen(episodes, mode, config));
+            && IsModeOpen(episodes, mode));
         if (!analyzerRuns)
         {
             return episodes;
@@ -689,7 +691,7 @@ public partial class BaseItemAnalyzerTask(
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
         // settled-season reanalysis) reopens the season, and then NeedsAnalysis() gives the
         // settled episodes another chance too.
-        if (!IsModeOpen(items, mode, Config))
+        if (!IsModeOpen(items, mode))
         {
             return;
         }
@@ -945,8 +947,7 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Determines whether a mode has work in a season: some episode is open in the mode and the
-    /// season is not an opted-out Season 0.
+    /// Determines whether a mode has work in a season.
     /// </summary>
     /// <remarks>
     /// <c>AnalyzeItemsAsync</c>
@@ -957,11 +958,9 @@ public partial class BaseItemAnalyzerTask(
     /// </remarks>
     /// <param name="episodes">The season's episodes, possibly none.</param>
     /// <param name="mode">The analysis mode.</param>
-    /// <param name="config">The plugin configuration.</param>
     /// <returns><see langword="true"/> if the mode has work in the season; otherwise, <see langword="false"/>.</returns>
-    private static bool IsModeOpen(IReadOnlyList<QueuedEpisode> episodes, AnalysisMode mode, PluginConfiguration config)
-        => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)
-            && !AnalysisEligibility.IsSeasonZeroOptedOut(episodes[0], config);
+    private static bool IsModeOpen(IReadOnlyList<QueuedEpisode> episodes, AnalysisMode mode)
+        => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
