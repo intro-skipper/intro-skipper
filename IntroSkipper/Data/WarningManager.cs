@@ -51,7 +51,7 @@ internal static class WarningManager
     /// Records a file that could not be fingerprinted and raises
     /// <see cref="PluginWarning.InvalidChromaprintFingerprint"/>.
     /// </summary>
-    /// <param name="description">What failed, naming the file, e.g. the <see cref="FingerprintException"/> message.</param>
+    /// <param name="description">What failed, naming the item by id and never by path, since the support bundle that lists it gets pasted into public issues.</param>
     public static void RecordFingerprintFailure(string description)
     {
         lock (_lock)

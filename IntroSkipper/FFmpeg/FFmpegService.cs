@@ -1317,13 +1317,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (TimeoutException ex)
         {
-            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+            throw new FingerprintException("chromaprint fingerprinting timed out", ex);
         }
 
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
+            throw new FingerprintException("chromaprint output was malformed");
         }
 
         var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
