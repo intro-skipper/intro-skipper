@@ -28,12 +28,14 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
+/// <param name="useLocalConsensus">Whether this run is a settled-season re-analysis.</param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
-    PluginConfiguration config)
+    PluginConfiguration config,
+    bool useLocalConsensus = false)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -43,6 +45,7 @@ internal sealed partial class CreditsPass(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
+    private readonly bool _useLocalConsensus = useLocalConsensus;
 
     /// <summary>
     /// Analyzes the season's credits.
@@ -102,7 +105,10 @@ internal sealed partial class CreditsPass(
                 {
                     chapterHandled.Add(episode.EpisodeId);
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    if (_logger.IsEnabled(LogLevel.Error))
+                    {
+                        LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    }
                 }
             }
         }
@@ -116,7 +122,7 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -124,7 +130,11 @@ internal sealed partial class CreditsPass(
                 // The season-wide comparison failed as a whole; the other analyzers still
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
-                LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                }
+
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
@@ -191,7 +201,10 @@ internal sealed partial class CreditsPass(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                        if (_logger.IsEnabled(LogLevel.Warning))
+                        {
+                            LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                        }
 
                         // Without the keyframe result, the other candidates alone could lose the
                         // roll the standing credits hold, so a failed keyframe scan never replaces
@@ -222,7 +235,10 @@ internal sealed partial class CreditsPass(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                if (_logger.IsEnabled(LogLevel.Error))
+                {
+                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                }
             }
         }
     }

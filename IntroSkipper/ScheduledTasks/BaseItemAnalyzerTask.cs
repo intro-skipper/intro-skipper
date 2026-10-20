@@ -278,7 +278,8 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // The season-state snapshot serves the settle decision and every mode's analyzer action.
-        if (SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow))
+        var isSettledForReanalysis = SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, Config, utcNow);
+        if (isSettledForReanalysis)
         {
             settledResetModes = SeasonReanalysisPlanner.GetSettleReanalysisModes(seasonStates, episodeIds, modes, ffmpegValid);
             if (settledResetModes.Count > 0)
@@ -343,13 +344,19 @@ public partial class BaseItemAnalyzerTask(
             foreach (var mode in modes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var hasPendingSettledReanalysis = settledResetModes.Contains(mode) ||
+                    (isSettledForReanalysis &&
+                        seasonStates.TryGetValue(mode, out var recordedState) &&
+                        recordedState.SettledReanalysisEpisodeIds.SetEquals(episodeIds) &&
+                        readable.Any(episode => episode.NeedsAnalysis(mode)));
                 await AnalyzeItemsAsync(
                     readable,
                     mode,
                     seasonStates.TryGetValue(mode, out var seasonState) ? seasonState.Action : AnalyzerAction.Default,
                     ffmpegValid,
                     cancellationToken,
-                    creditsHashes).ConfigureAwait(false);
+                    creditsHashes,
+                    useLocalConsensus: Config.UseSettledSeasonChromaprintConsensus && hasPendingSettledReanalysis).ConfigureAwait(false);
 
                 if (settledResetModes.Contains(mode))
                 {
@@ -693,6 +700,7 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="creditsConfigHashes">Current per-episode Credits hashes, used when deriving Preview rows.</param>
+    /// <param name="useLocalConsensus">Whether the current mode is being settled-season re-analyzed.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
@@ -700,7 +708,8 @@ public partial class BaseItemAnalyzerTask(
         AnalyzerAction action,
         bool ffmpegValid,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<Guid, string>? creditsConfigHashes = null)
+        IReadOnlyDictionary<Guid, string>? creditsConfigHashes = null,
+        bool useLocalConsensus = false)
     {
         // NoSegments is a negative-cache result for the current configuration; only an episode
         // reset to NotAnalyzed (new episode, configuration or Chromaprint-availability change,
@@ -789,7 +798,7 @@ public partial class BaseItemAnalyzerTask(
 
             // Credits settle chapter matches first by default; enhancement combines them
             // with other candidates. A single item cannot use chromaprint comparison.
-            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config);
+            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, useLocalConsensus);
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
 
             await _database.CleanStaleAutomaticSegmentsAsync(
@@ -809,7 +818,8 @@ public partial class BaseItemAnalyzerTask(
                 ffmpegValid,
                 isMovie,
                 cancellationToken,
-                mode == AnalysisMode.Recap ? [.. subtitleOnlyItems.Where(item => item.NeedsSubtitleOnlyReanalysis(mode))] : null).ConfigureAwait(false);
+                mode == AnalysisMode.Recap ? [.. subtitleOnlyItems.Where(item => item.NeedsSubtitleOnlyReanalysis(mode))] : null,
+                useLocalConsensus).ConfigureAwait(false);
         }
 
         // Credits-derived previews are generated after settled credits results, and again in
@@ -1000,7 +1010,8 @@ public partial class BaseItemAnalyzerTask(
         bool ffmpegValid,
         bool isMovie,
         CancellationToken cancellationToken,
-        IReadOnlyList<QueuedEpisode>? chromaprintReferences = null)
+        IReadOnlyList<QueuedEpisode>? chromaprintReferences = null,
+        bool useLocalConsensus = false)
     {
         // Subtitle matching is an opt-in, mode-specific fallback. It runs after the chapter
         // analyzer so chapter matches take precedence, and before the remaining default chain.
@@ -1027,7 +1038,7 @@ public partial class BaseItemAnalyzerTask(
                 enableChapterDetection: false)
             : null;
         ChromaprintAnalyzer? chromaprint = ffmpegValid && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Recap
-            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config)
+            ? new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, Config, useLocalConsensus)
             : null;
 
         List<IMediaFileAnalyzer?> conventional = [chapter, chromaprint];

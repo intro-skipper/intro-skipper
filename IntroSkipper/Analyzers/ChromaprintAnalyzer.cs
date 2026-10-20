@@ -21,23 +21,33 @@ namespace IntroSkipper.Analyzers;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
-    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
+    PluginConfiguration? configuration = null,
+    bool applyLocalConsensus = false) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
     /// </summary>
     private const double RecapCardMinimumDuration = 3.0;
 
+    // Compare at most two successfully fingerprinted episodes away on either side. A local window
+    // lets anime openings and endings change mid-season without one theme dominating the season.
+    private const int ConsensusNeighborRadius = 2;
+    private const double ConsensusMinimumRangeOverlap = 0.8;
+    private const int ConsensusSupermajorityNumerator = 3;
+    private const int ConsensusSupermajorityDenominator = 4;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
+    private readonly bool _applyLocalConsensus = applyLocalConsensus;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -322,7 +332,258 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
+        {
+            seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
+        }
+
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+    }
+
+    /// <summary>
+    /// Keeps season-selected Introduction and Credits ranges only when each forms a local
+    /// connected group across the configured number of distinct episodes, capped at the number
+    /// of usable fingerprints. Comparable pattern groups may lower that target to their smallest
+    /// group size so a mid-season theme change does not invalidate both patterns. This is used
+    /// during settled-season re-analysis; each pair is limited to two successfully fingerprinted
+    /// positions.
+    /// </summary>
+    /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
+    /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
+    /// <param name="candidates">Candidates selected by the existing season comparison.</param>
+    /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
+    /// <returns>Locally confirmed candidates.</returns>
+    private Dictionary<Guid, Segment> ConfirmLocalConsensus(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, uint[]> fingerprints,
+        IReadOnlyDictionary<Guid, Segment> candidates,
+        CancellationToken cancellationToken)
+    {
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var orderedEpisodes = episodes
+            .Where(episode =>
+                fingerprints.TryGetValue(episode.EpisodeId, out var fingerprint) &&
+                fingerprint.Length > 0)
+            .OrderBy(episode => episode.EpisodeNumber)
+            .ThenBy(episode => episode.EpisodeId)
+            .ToList();
+        var maximumGroupSize = Math.Min(_config.SettledSeasonChromaprintConsensusEpisodes, orderedEpisodes.Count);
+
+        var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
+        var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
+
+        for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
+        {
+            var leftEpisode = orderedEpisodes[leftIndex];
+            var leftFingerprint = fingerprints[leftEpisode.EpisodeId];
+            var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
+            for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var rightEpisode = orderedEpisodes[rightIndex];
+                var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
+
+                var (leftCandidate, rightCandidate) = CompareEpisodes(
+                    leftEpisode.EpisodeId,
+                    leftFingerprint,
+                    rightEpisode.EpisodeId,
+                    rightFingerprint);
+
+                var leftCandidateValid = leftCandidate.Valid &&
+                    leftCandidate.Duration <= GetMaximumSegmentDuration(leftEpisode);
+                var rightCandidateValid = rightCandidate.Valid &&
+                    rightCandidate.Duration <= GetMaximumSegmentDuration(rightEpisode);
+
+                if (_analysisMode == AnalysisMode.Credits)
+                {
+                    leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
+                    leftCandidate.End += leftEpisode.CreditsFingerprintStart;
+                    rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
+                    rightCandidate.End += rightEpisode.CreditsFingerprintStart;
+                }
+
+                if (leftCandidateValid)
+                {
+                    KeepBetterCandidate(localCandidates, leftCandidate);
+                }
+
+                if (rightCandidateValid)
+                {
+                    KeepBetterCandidate(localCandidates, rightCandidate);
+                }
+
+                if (leftCandidateValid && rightCandidateValid)
+                {
+                    var leftRange = GetConsensusRangeKey(leftCandidate);
+                    var rightRange = GetConsensusRangeKey(rightCandidate);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
+                }
+            }
+        }
+
+        // Consensus confirms the season-selected ranges; it must not introduce a new endpoint
+        // from a local pair that the season comparison itself did not select.
+        foreach (var candidate in candidates.Values)
+        {
+            KeepBetterCandidate(localCandidates, candidate);
+        }
+
+        // Pairwise comparisons can find slightly different endpoints for the same opening in
+        // different episode pairs. Join those compatible ranges within each episode so that
+        // their neighboring pair matches contribute to one local group. Requiring the ranges
+        // to overlap by most of the longer range keeps a longer cold open from borrowing the
+        // consensus of a shorter intro that merely starts at the same time.
+        foreach (var episodeRanges in localCandidates.Values.GroupBy(candidate => candidate.EpisodeId))
+        {
+            var ranges = episodeRanges.ToArray();
+            for (var leftIndex = 0; leftIndex < ranges.Length; leftIndex++)
+            {
+                for (var rightIndex = leftIndex + 1; rightIndex < ranges.Length; rightIndex++)
+                {
+                    if (!AreConsensusRangesCompatible(ranges[leftIndex], ranges[rightIndex]))
+                    {
+                        continue;
+                    }
+
+                    var leftRange = GetConsensusRangeKey(ranges[leftIndex]);
+                    var rightRange = GetConsensusRangeKey(ranges[rightIndex]);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
+                }
+            }
+        }
+
+        var groups = new List<List<ConsensusRangeKey>>();
+        var visited = new HashSet<ConsensusRangeKey>();
+        foreach (var rangeKey in matchingNeighbors.Keys)
+        {
+            if (!visited.Add(rangeKey))
+            {
+                continue;
+            }
+
+            var group = new List<ConsensusRangeKey>();
+            var pending = new Stack<ConsensusRangeKey>();
+            pending.Push(rangeKey);
+            while (pending.TryPop(out var currentRangeKey))
+            {
+                group.Add(currentRangeKey);
+                foreach (var neighborKey in matchingNeighbors[currentRangeKey])
+                {
+                    if (visited.Add(neighborKey))
+                    {
+                        pending.Push(neighborKey);
+                    }
+                }
+            }
+
+            groups.Add(group);
+        }
+
+        // A season may contain multiple themes. When there are multiple comparably supported
+        // patterns, lower the configured target to the smallest such group so each pattern can
+        // qualify. A small, isolated pattern cannot lower the target for a larger group.
+        var groupEpisodeCounts = groups
+            .Select(group => group.Select(key => key.EpisodeId).Distinct().Count())
+            .Where(count => count > 0)
+            .ToArray();
+        var largestGroupSize = groupEpisodeCounts.DefaultIfEmpty(0).Max();
+        var comparableGroupSizes = groupEpisodeCounts
+            .Where(count => count * 2 >= largestGroupSize)
+            .ToArray();
+        var minimumGroupSize = comparableGroupSizes.Length > 1
+            ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
+            : maximumGroupSize;
+        var supermajoritySize =
+            ((orderedEpisodes.Count * ConsensusSupermajorityNumerator) + (ConsensusSupermajorityDenominator - 1)) /
+            ConsensusSupermajorityDenominator;
+        if (largestGroupSize >= supermajoritySize)
+        {
+            minimumGroupSize = Math.Min(minimumGroupSize, largestGroupSize);
+        }
+
+        var supportedRanges = new HashSet<ConsensusRangeKey>();
+        foreach (var group in groups)
+        {
+            if (group.Select(key => key.EpisodeId).Distinct().Count() < minimumGroupSize)
+            {
+                continue;
+            }
+
+            foreach (var memberRange in group)
+            {
+                supportedRanges.Add(memberRange);
+            }
+        }
+
+        var confirmed = new Dictionary<Guid, Segment>();
+
+        foreach (var candidate in candidates.Values)
+        {
+            if (supportedRanges.Contains(GetConsensusRangeKey(candidate)))
+            {
+                KeepBetterCandidate(confirmed, candidate);
+            }
+        }
+
+        var removed = candidates.Keys.Count(id => !confirmed.ContainsKey(id));
+        if (removed > 0)
+        {
+            LogCandidatesWithoutLocalConsensus(_logger, _analysisMode, minimumGroupSize, removed, confirmed.Count);
+        }
+
+        return confirmed;
+    }
+
+    private static ConsensusRangeKey GetConsensusRangeKey(Segment candidate)
+        => new(
+            candidate.EpisodeId,
+            (long)Math.Round(candidate.Start, MidpointRounding.AwayFromZero),
+            (long)Math.Round(candidate.End, MidpointRounding.AwayFromZero));
+
+    private static bool AreConsensusRangesCompatible(Segment left, Segment right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.End, right.End) - Math.Max(left.Start, right.Start));
+        var longerDuration = Math.Max(left.Duration, right.Duration);
+        return longerDuration > 0 && overlap / longerDuration >= ConsensusMinimumRangeOverlap;
+    }
+
+    private static void AddNeighbor(
+        Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>> matchingNeighbors,
+        ConsensusRangeKey rangeKey,
+        ConsensusRangeKey neighborKey)
+    {
+        if (!matchingNeighbors.TryGetValue(rangeKey, out var neighbors))
+        {
+            neighbors = [];
+            matchingNeighbors.Add(rangeKey, neighbors);
+        }
+
+        neighbors.Add(neighborKey);
+    }
+
+    private void KeepBetterCandidate(Dictionary<ConsensusRangeKey, Segment> candidates, Segment candidate)
+    {
+        var rangeKey = GetConsensusRangeKey(candidate);
+        if (!candidates.TryGetValue(rangeKey, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[rangeKey] = candidate;
+        }
+    }
+
+    private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
+    {
+        if (!candidates.TryGetValue(candidate.EpisodeId, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[candidate.EpisodeId] = candidate;
+        }
     }
 
     /// <summary>
@@ -663,6 +924,11 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
     private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a {MinimumGroupSize}-episode local group; {ConfirmedCount} candidate(s) remain")]
+    private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int minimumGroupSize, int removedCount, int confirmedCount);
+
+    private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 }
 
 /// <summary>
