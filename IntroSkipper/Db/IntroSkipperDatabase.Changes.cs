@@ -520,7 +520,7 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Finds the plugin counterpart of an Intro Skipper Jellyfin row that shares no
-    /// plugin id (a row predating the shared-id scheme) by mode and boundaries.
+    /// plugin id (typically a row predating the shared-id scheme) by mode and boundaries.
     /// Several rows can sit inside the tolerance (1-tick-shifted copies of the same
     /// boundaries), so the closest one wins (an exact match beats a shifted copy)
     /// with the id as a deterministic tie-break instead of enumeration order. A
