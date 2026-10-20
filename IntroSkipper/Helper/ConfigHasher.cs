@@ -21,7 +21,8 @@ internal static class ConfigHasher
     public const string StreamScopedDetectionCacheHashPrefix = "audio-stream-v1|";
 
     /// <summary>
-    /// Cache identity used when FFmpeg's default audio stream is the effective stream.
+    /// Cache identity used when FFmpeg's own audio pick is the effective stream: the default-disposition
+    /// stream, then most channels, then lowest index. Frozen: rows carrying it are already on disk.
     /// </summary>
     public const string DefaultAudioStreamCacheVariant = "policy=most-channels";
 

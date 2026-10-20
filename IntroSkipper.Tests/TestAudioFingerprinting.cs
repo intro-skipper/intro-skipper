@@ -89,6 +89,46 @@ public class TestAudioFingerprinting
     }
 
     /// <summary>
+    /// ffmpeg's own audio pick ranks the default-disposition stream above one with more channels,
+    /// so a preferred language on the 5.1 stream must map it and must not reuse the cached row of ffmpeg's pick.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task PreferredLanguage_FingerprintsNonDefaultStreamWithMoreChannels()
+    {
+        using var directory = new TempDirectory();
+        var dualTrack = directory.Join("dual.mkv");
+        var surroundOnly = directory.Join("surround.mkv");
+        var runner = new FFmpegProcessRunner(NullLogger.Instance);
+        await runner.RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-i", "../../../audio/big_buck_bunny_intro.mp3",
+                "-i", "../../../audio/big_buck_bunny_clip.mp3",
+                "-map", "0:a", "-map", "1:a",
+                "-c:a", "flac", "-ac:a:0", "2", "-ac:a:1", "6",
+                "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=jpn",
+                "-disposition:a:0", "default", "-disposition:a:1", "0",
+                dualTrack,
+            ]);
+        await runner.RunAsync("ffmpeg", ["-y", "-v", "error", "-i", dualTrack, "-map", "0:a:1", "-c", "copy", surroundOnly]);
+
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var ffmpegService = CreateFFmpegService();
+        var surround = await ffmpegService.FingerprintAsync(QueueAbsolute(surroundOnly), AnalysisMode.Introduction);
+        var episode = QueueAbsolute(dualTrack);
+        var ffmpegPick = await ffmpegService.FingerprintAsync(episode, AnalysisMode.Introduction);
+
+        Plugin.Instance!.Configuration.PreferredAudioLanguage = "jpn";
+        var preferred = await ffmpegService.FingerprintAsync(episode, AnalysisMode.Introduction);
+
+        Assert.NotEqual(surround, ffmpegPick);
+        Assert.Equal(surround, preferred);
+
+        static QueuedEpisode QueueAbsolute(string path) => new() { EpisodeId = Guid.NewGuid(), Path = path, IntroFingerprintEnd = 60 };
+    }
+
+    /// <summary>
     /// Test that the silencedetect wrapper is working.
     /// </summary>
     [FactSkipFFmpegTests]

@@ -460,7 +460,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Prefer highest audio channel count",
         description:
-            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
+            "When enabled, Chromaprint uses the stream FFmpeg would pick, ranking the default stream first, then channel count, then stream order. When disabled, the first stream is selected.",
     },
     ProbeAudioDuration: {
         kind: "checkbox",

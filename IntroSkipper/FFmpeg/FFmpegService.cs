@@ -1151,7 +1151,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         bool preferMostChannels,
         CancellationToken cancellationToken)
     {
-        // No probe or explicit map is needed to keep ffmpeg's default selection: most channels, then lowest index.
+        // ffmpeg's own pick (the most-channels policy, see SelectAudioStream) needs no probe or map.
         if (string.IsNullOrWhiteSpace(preferredLanguage) && preferMostChannels)
         {
             return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant));
@@ -1177,7 +1177,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             [
                 "-v", "error",
                 "-select_streams", "a",
-                "-show_entries", "stream=index,channels:stream_tags=language",
+                "-show_entries", "stream=index,channels:stream_tags=language:stream_disposition=default",
                 "-of", "json",
                 filePath,
             ];
@@ -1195,7 +1195,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return null;
             }
 
-            var audioStreams = new List<(int Index, int Channels, string? Language)>();
+            var audioStreams = new List<(int Index, int Channels, string? Language, bool Default)>();
             foreach (var stream in streams.EnumerateArray())
             {
                 if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
@@ -1208,8 +1208,12 @@ internal sealed partial class FFmpegService : IFFmpegService
                         tags.TryGetProperty("language", out var languageElement)
                         ? languageElement.GetString()?.Trim()
                         : null;
+                    var isDefault = stream.TryGetProperty("disposition", out var disposition) &&
+                        disposition.TryGetProperty("default", out var defaultElement) &&
+                        defaultElement.TryGetInt32(out var defaultFlag) &&
+                        defaultFlag == 1;
 
-                    audioStreams.Add((streamIndex, channels, language));
+                    audioStreams.Add((streamIndex, channels, language, isDefault));
                 }
             }
 
@@ -1230,14 +1234,11 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var selectedStream = SelectAudioStream(candidates, preferMostChannels);
-            var selectsDefaultMostStream = selectedStream.Index == defaultStream.Index;
-            var cacheVariant = selectsDefaultMostStream
+            var cacheVariant = selectedStream.Index == defaultStream.Index
                 ? AudioStreamSelection.DefaultStreamCacheVariant
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
-            return new AudioStreamSelection(
-                preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
-                cacheVariant);
+            return new AudioStreamSelection(selectedStream.Index, cacheVariant);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -1336,11 +1337,12 @@ internal sealed partial class FFmpegService : IFFmpegService
         return results;
     }
 
-    private static (int Index, int Channels, string? Language) SelectAudioStream(
-        IReadOnlyList<(int Index, int Channels, string? Language)> streams,
+    // The most-channels policy is ffmpeg's own pick: the default-disposition stream, then most channels, then lowest index.
+    private static (int Index, int Channels, string? Language, bool Default) SelectAudioStream(
+        IReadOnlyList<(int Index, int Channels, string? Language, bool Default)> streams,
         bool preferMostChannels)
         => preferMostChannels
-            ? streams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
+            ? streams.OrderByDescending(stream => stream.Default).ThenByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
             : streams.OrderBy(stream => stream.Index).First();
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
@@ -1376,11 +1378,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <summary>
     /// The audio stream a fingerprint is taken from.
     /// </summary>
-    /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's default selection unmapped.</param>
+    /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's own pick unmapped.</param>
     /// <param name="CacheVariant">Effective stream identity that keys the fingerprint cache row.</param>
     private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant)
     {
-        /// <summary>Cache variant of FFmpeg's default selection: most channels, then lowest index.</summary>
+        /// <summary>Cache variant of FFmpeg's own pick.</summary>
         public const string DefaultStreamCacheVariant = ConfigHasher.DefaultAudioStreamCacheVariant;
 
         /// <summary>Gets a value indicating whether the effective stream is FFmpeg's default one.</summary>
