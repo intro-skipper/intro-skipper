@@ -129,6 +129,50 @@ public class TestAudioFingerprinting
     }
 
     /// <summary>
+    /// 12.0 labeled its own pick, most channels then lowest index, with the default variant. Where that is
+    /// not ffmpeg's pick, a preferred language on ffmpeg's pick must not reuse such a row.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task PreferredLanguage_IgnoresDefaultVariantRowWhenFfmpegPicksTheDefaultStream()
+    {
+        using var directory = new TempDirectory();
+        var dualTrack = directory.Join("dual.mkv");
+        var surroundOnly = directory.Join("surround.mkv");
+        var stereoOnly = directory.Join("stereo.mkv");
+        var runner = new FFmpegProcessRunner(NullLogger.Instance);
+        await runner.RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-i", "../../../audio/big_buck_bunny_clip.mp3",
+                "-i", "../../../audio/big_buck_bunny_intro.mp3",
+                "-map", "0:a", "-map", "1:a",
+                "-c:a", "flac", "-ac:a:0", "6", "-ac:a:1", "2",
+                "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=jpn",
+                "-disposition:a:0", "0", "-disposition:a:1", "default",
+                dualTrack,
+            ]);
+        await runner.RunAsync("ffmpeg", ["-y", "-v", "error", "-i", dualTrack, "-map", "0:a:0", "-c", "copy", surroundOnly]);
+        await runner.RunAsync("ffmpeg", ["-y", "-v", "error", "-i", dualTrack, "-map", "0:a:1", "-c", "copy", stereoOnly]);
+
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+        var ffmpegService = CreateFFmpegService();
+        var episodeId = Guid.NewGuid();
+        var stereo = await ffmpegService.FingerprintAsync(Queue(Guid.NewGuid(), stereoOnly), AnalysisMode.Introduction);
+
+        // The row 12.0 wrote for the dual-track episode with PreferAudioStreamWithMostChannels off: the 5.1 stream under the default variant.
+        var surround = await ffmpegService.FingerprintAsync(Queue(episodeId, surroundOnly), AnalysisMode.Introduction);
+
+        Plugin.Instance!.Configuration.PreferredAudioLanguage = "jpn";
+        var preferred = await ffmpegService.FingerprintAsync(Queue(episodeId, dualTrack), AnalysisMode.Introduction);
+
+        Assert.NotEqual(surround, stereo);
+        Assert.Equal(stereo, preferred);
+
+        static QueuedEpisode Queue(Guid id, string path) => new() { EpisodeId = id, Path = path, IntroFingerprintEnd = 60 };
+    }
+
+    /// <summary>
     /// Test that the silencedetect wrapper is working.
     /// </summary>
     [FactSkipFFmpegTests]

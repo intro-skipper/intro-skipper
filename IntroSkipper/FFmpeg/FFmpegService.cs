@@ -1223,6 +1223,10 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var defaultStream = SelectAudioStream(audioStreams, preferMostChannels: true);
+
+            // 12.0 wrote rows under the default variant for its own pick, most channels then lowest index,
+            // mapping that stream explicitly. Where that is not ffmpeg's pick, those rows hold either stream.
+            var defaultVariantIsUnambiguous = defaultStream.Index == audioStreams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First().Index;
             var candidates = hasLanguagePreference
                 ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
                 : audioStreams;
@@ -1234,7 +1238,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var selectedStream = SelectAudioStream(candidates, preferMostChannels);
-            var cacheVariant = selectedStream.Index == defaultStream.Index
+            var cacheVariant = selectedStream.Index == defaultStream.Index && defaultVariantIsUnambiguous
                 ? AudioStreamSelection.DefaultStreamCacheVariant
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
