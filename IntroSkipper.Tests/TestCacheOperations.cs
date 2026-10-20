@@ -364,9 +364,10 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// A new episode reopens the season's comparison, which pulls in the settled siblings
-    /// through their cached fingerprints. The chapter-settled sibling keeps its chapter intro;
-    /// only the Chromaprint-settled one is re-derived.
+    /// New episodes reopen the season's comparison, which pulls in the settled siblings
+    /// through their cached fingerprints. Episode 3 shares its intro only with the
+    /// chapter-settled episode 1, which keeps its chapter intro but still supplies the match.
+    /// Episode 4 shares its intro only with the Chromaprint-settled episode 2, which is re-derived.
     /// </summary>
     [Fact]
     public async Task AnalyzeMediaFiles_KeepsChapterIntroOfSettledSibling()
@@ -376,7 +377,7 @@ public sealed class TestCacheOperations
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
 
         var episodes = new List<QueuedEpisode>();
-        foreach (var (number, unique, settledBy) in new (int, uint, SegmentSource?)[] { (1, 0x2000u, SegmentSource.Chapter), (2, 0x3000u, SegmentSource.Chromaprint), (3, 0x4000u, null) })
+        foreach (var (number, intro, unique, settledBy) in new (int, uint, uint, SegmentSource?)[] { (1, 0x1000u, 0x2000u, SegmentSource.Chapter), (2, 0x5000u, 0x3000u, SegmentSource.Chromaprint), (3, 0x1000u, 0x4000u, null), (4, 0x5000u, 0x6000u, null) })
         {
             var episode = new QueuedEpisode
             {
@@ -393,7 +394,7 @@ public sealed class TestCacheOperations
             }
 
             // Twenty shared intro points (about 2.5 s) followed by twenty points unique to the episode.
-            uint[] points = [.. Enumerable.Range(0, 20).Select(i => 0x1000u + (uint)i), .. Enumerable.Range(0, 20).Select(i => unique + (uint)i)];
+            uint[] points = [.. Enumerable.Range(0, 20).Select(i => intro + (uint)i), .. Enumerable.Range(0, 20).Select(i => unique + (uint)i)];
             scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(points), 0, 600, hash);
             episodes.Add(episode);
         }
