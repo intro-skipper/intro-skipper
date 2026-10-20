@@ -476,8 +476,6 @@ internal sealed partial class ChromaprintAnalyzer(
         }
     }
 
-    private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
-
     private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
     {
         if (!candidates.TryGetValue(candidate.EpisodeId, out var saved) ||
@@ -825,6 +823,8 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a six-episode local group; {ConfirmedCount} candidate(s) remain")]
     private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int removedCount, int confirmedCount);
+
+    private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 }
 
 /// <summary>
