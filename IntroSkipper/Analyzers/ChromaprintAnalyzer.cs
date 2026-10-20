@@ -99,6 +99,15 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
+            // A settled sibling is re-derived only from a Chromaprint result; one another
+            // analyzer settled keeps its rows and was compared only for its fingerprint.
+            if (!currentEpisode.NeedsAnalysis(mode)
+                && (await _database.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
+                    .Any(row => row.Type == mode && row.Source != SegmentSource.Chromaprint))
+            {
+                continue;
+            }
+
             var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!adjustedIntro.Valid)
             {
