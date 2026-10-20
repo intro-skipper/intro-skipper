@@ -69,7 +69,7 @@ public sealed class TestConfigHasher
 
         // Seasons analyzed while a preferred language's streams were ranked by channels alone carry
         // D65B0D42940A9D60. The ffmpeg ranking token reruns them once.
-        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "BC177183ECC85CBA", true);
+        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "E12B7BDC44532FE6", true);
 
         // Toggling card credits changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
