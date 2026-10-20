@@ -22,6 +22,12 @@ export const configSchema = {
         description:
             "When a season has no new episodes for the configured delay, re-analyze the season (using cached fingerprints) so segments are recomputed against the full season. Media is not re-decoded.",
     },
+    UseSettledSeasonChromaprintConsensus: {
+        kind: "checkbox",
+        label: "Require Chromaprint consensus",
+        description:
+            "During settled-season re-analysis, require at least six locally connected episodes to share an intro or credits pattern for the pattern to be accepted as a segment.",
+    },
     SettledSeasonDelayHours: {
         kind: "number",
         label: "Settled season delay (hours)",

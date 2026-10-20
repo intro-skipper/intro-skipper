@@ -327,7 +327,7 @@ public partial class BaseItemAnalyzerTask(
                     ffmpegValid,
                     cancellationToken,
                     creditsHashes,
-                    useLocalConsensus: settledResetModes.Contains(mode)).ConfigureAwait(false);
+                    useLocalConsensus: Config.UseSettledSeasonChromaprintConsensus && settledResetModes.Contains(mode)).ConfigureAwait(false);
 
                 if (settledResetModes.Contains(mode))
                 {

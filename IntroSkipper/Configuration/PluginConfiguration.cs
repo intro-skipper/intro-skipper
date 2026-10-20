@@ -103,6 +103,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ReanalyzeSettledSeasons { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether settled-season Introduction and Credits re-analysis
+    /// requires local Chromaprint groups of at least six episodes.
+    /// </summary>
+    public bool UseSettledSeasonChromaprintConsensus { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
     /// A value of 0 means no additional quiet-time wait once the season is queued.
     /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
