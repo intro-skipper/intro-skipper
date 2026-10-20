@@ -164,11 +164,16 @@ export const generalTab: Tab = {
             ]),
             form.field("AutoDetectIntros"),
             form.field("ReanalyzeSettledSeasons"),
+            form.field("SettledSeasonDelayHours", {
+                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
+            }),
             form.field("UseSettledSeasonChromaprintConsensus", {
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
-            form.field("SettledSeasonDelayHours", {
-                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
+            form.field("SettledSeasonChromaprintConsensusEpisodes", {
+                visible: () =>
+                    configStore.get("ReanalyzeSettledSeasons") === true &&
+                    configStore.get("UseSettledSeasonChromaprintConsensus") === true,
             }),
             form.field("UpdateMediaSegments"),
             form.field("AnalyzeSeasonZero"),

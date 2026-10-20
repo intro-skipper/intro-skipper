@@ -44,6 +44,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int DefaultSettledSeasonDelayHours = 24;
 
     /// <summary>
+    /// Default number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int DefaultSettledSeasonChromaprintConsensusEpisodes = 10;
+
+    /// <summary>
+    /// Minimum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MinimumSettledSeasonChromaprintConsensusEpisodes = 2;
+
+    /// <summary>
+    /// Maximum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MaximumSettledSeasonChromaprintConsensusEpisodes = 1000;
+
+    /// <summary>
     /// Maximum number of hours after the newest queued episode before a season is treated as settled.
     /// </summary>
     public const int MaximumSettledSeasonDelayHours = 87600;
@@ -104,9 +119,23 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether settled-season Introduction and Credits re-analysis
-    /// requires local Chromaprint groups of at least six episodes.
+    /// requires local Chromaprint consensus groups.
     /// </summary>
     public bool UseSettledSeasonChromaprintConsensus { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the target number of distinct episodes required in a settled-season Chromaprint
+    /// consensus group. If fewer episodes have usable fingerprints, all usable episodes are required.
+    /// Comparable pattern groups may lower the target to their smallest group size.
+    /// </summary>
+    public int SettledSeasonChromaprintConsensusEpisodes
+    {
+        get;
+        set => field = Math.Clamp(
+            value,
+            MinimumSettledSeasonChromaprintConsensusEpisodes,
+            MaximumSettledSeasonChromaprintConsensusEpisodes);
+    } = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
     /// <summary>
     /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.

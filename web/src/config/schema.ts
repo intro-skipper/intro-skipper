@@ -26,7 +26,16 @@ export const configSchema = {
         kind: "checkbox",
         label: "Require Chromaprint consensus",
         description:
-            "During settled-season re-analysis, require a locally connected group of six episodes. If fewer than six episodes have usable fingerprints, the group must include all usable episodes.",
+            "During settled-season re-analysis, require locally connected groups of episodes to share an intro or credits pattern for the pattern to be accepted as a segment.",
+    },
+    SettledSeasonChromaprintConsensusEpisodes: {
+        kind: "number",
+        label: "Consensus episode threshold",
+        min: 2,
+        max: 1000,
+        step: 1,
+        description:
+            "Target number of distinct episodes required to confirm a shared pattern. If fewer episodes have usable fingerprints, all usable episodes are required. Comparable pattern groups can lower the target so mid-season theme changes can still qualify.",
     },
     SettledSeasonDelayHours: {
         kind: "number",

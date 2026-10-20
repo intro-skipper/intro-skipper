@@ -38,8 +38,6 @@ internal sealed partial class ChromaprintAnalyzer(
     // Compare at most two successfully fingerprinted episodes away on either side. A local window
     // lets anime openings and endings change mid-season without one theme dominating the season.
     private const int ConsensusNeighborRadius = 2;
-    // A six-episode group supports a theme change after one cour-sized run without trusting a pair.
-    private const int ConsensusMinimumGroupSize = 6;
     private const double ConsensusMinimumRangeOverlap = 0.8;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -320,8 +318,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     /// <summary>
     /// Keeps season-selected Introduction and Credits ranges only when each forms a local
-    /// connected group across at least six distinct episodes. When fewer than six usable
-    /// fingerprints are available, it returns the season selection unchanged. This is used
+    /// connected group across the configured number of distinct episodes, capped at the number
+    /// of usable fingerprints. Comparable pattern groups may lower that target to their smallest
+    /// group size so a mid-season theme change does not invalidate both patterns. This is used
     /// during settled-season re-analysis; each pair is limited to two successfully fingerprinted
     /// positions.
     /// </summary>
@@ -348,7 +347,7 @@ internal sealed partial class ChromaprintAnalyzer(
             .OrderBy(episode => episode.EpisodeNumber)
             .ThenBy(episode => episode.EpisodeId)
             .ToList();
-        var minimumGroupSize = Math.Min(ConsensusMinimumGroupSize, orderedEpisodes.Count);
+        var maximumGroupSize = Math.Min(_config.SettledSeasonChromaprintConsensusEpisodes, orderedEpisodes.Count);
 
         var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
         var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
@@ -435,8 +434,7 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
-        var confirmed = new Dictionary<Guid, Segment>();
-        var supportedRanges = new HashSet<ConsensusRangeKey>();
+        var groups = new List<List<ConsensusRangeKey>>();
         var visited = new HashSet<ConsensusRangeKey>();
         foreach (var rangeKey in matchingNeighbors.Keys)
         {
@@ -460,6 +458,27 @@ internal sealed partial class ChromaprintAnalyzer(
                 }
             }
 
+            groups.Add(group);
+        }
+
+        // A season may contain multiple themes. When there are multiple comparably supported
+        // patterns, lower the configured target to the smallest such group so each pattern can
+        // qualify. A small, isolated pattern cannot lower the target for a larger group.
+        var groupEpisodeCounts = groups
+            .Select(group => group.Select(key => key.EpisodeId).Distinct().Count())
+            .Where(count => count > 0)
+            .ToArray();
+        var largestGroupSize = groupEpisodeCounts.DefaultIfEmpty(0).Max();
+        var comparableGroupSizes = groupEpisodeCounts
+            .Where(count => count * 2 >= largestGroupSize)
+            .ToArray();
+        var minimumGroupSize = comparableGroupSizes.Length > 1
+            ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
+            : maximumGroupSize;
+
+        var supportedRanges = new HashSet<ConsensusRangeKey>();
+        foreach (var group in groups)
+        {
             if (group.Select(key => key.EpisodeId).Distinct().Count() < minimumGroupSize)
             {
                 continue;
@@ -470,6 +489,8 @@ internal sealed partial class ChromaprintAnalyzer(
                 supportedRanges.Add(memberRange);
             }
         }
+
+        var confirmed = new Dictionary<Guid, Segment>();
 
         foreach (var candidate in candidates.Values)
         {

@@ -60,7 +60,6 @@ internal static class ConfigHasher
 
     // Settled consensus is an opt-in analysis path, so it is hashed only when settled-season
     // re-analysis can use it. Existing hashes stay stable for users who do not enable that path.
-    private const string SettledConsensusEnabledToken = "|settledChromaprintConsensus=local6";
 
     /// <summary>
     /// Computes a hash for a stored analysis result.
@@ -364,7 +363,7 @@ internal static class ConfigHasher
             return string.Empty;
         }
 
-        return SettledConsensusEnabledToken;
+        return FormattableString.Invariant($"|settledChromaprintConsensus=local:{config.SettledSeasonChromaprintConsensusEpisodes}");
     }
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
