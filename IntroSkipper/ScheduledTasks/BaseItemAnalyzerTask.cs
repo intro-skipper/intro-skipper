@@ -206,6 +206,7 @@ public partial class BaseItemAnalyzerTask(
     private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
+        HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
 
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
         foreach (var episode in season.Episodes)
@@ -230,9 +231,10 @@ public partial class BaseItemAnalyzerTask(
         {
             // The global Preview switch also disables credits-derived previews. Clear them
             // for verified episodes even when queue verification finds no analyzer work.
-            await _database.ClearCreditsDerivedPreviewsAsync(
+            var clearedPreviewEpisodeIds = await _database.ClearCreditsDerivedPreviewsAsync(
                 episodes.Select(episode => episode.EpisodeId),
                 cancellationToken).ConfigureAwait(false);
+            clearedCreditsDerivedPreviewIds.UnionWith(clearedPreviewEpisodeIds);
         }
 
         if (episodes.Count == 0)
@@ -348,6 +350,19 @@ public partial class BaseItemAnalyzerTask(
             foreach (var mode in modes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (mode == AnalysisMode.Preview && Config.ScanPreview)
+                {
+                    // Queue verification ran before cleanup and may have marked Preview settled.
+                    // Reopen only when this pass reaches an enabled Preview phase, so a setting
+                    // that remains off does not start Preview analysis from the stale mode list.
+                    foreach (var episode in readable.Where(episode =>
+                        clearedCreditsDerivedPreviewIds.Contains(episode.EpisodeId)
+                        && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.UserProvided))
+                    {
+                        episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
+                    }
+                }
+
                 var hasPendingSettledReanalysis = settledResetModes.Contains(mode) ||
                     (isSettledForReanalysis &&
                         seasonStates.TryGetValue(mode, out var recordedState) &&

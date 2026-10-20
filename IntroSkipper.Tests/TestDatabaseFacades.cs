@@ -445,7 +445,7 @@ public sealed class TestDatabaseFacades : IDisposable
             configHash: "credits-hash");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [itemId], "preview-hash");
 
-        Assert.Equal(1, await database.ClearCreditsDerivedPreviewsAsync([itemId]));
+        Assert.Equal(itemId, Assert.Single(await database.ClearCreditsDerivedPreviewsAsync([itemId])));
 
         await using var db = _db.Context();
         Assert.False(await db.AnalyzedItems.AnyAsync(item => item.ItemId == itemId && item.Type == AnalysisMode.Preview));

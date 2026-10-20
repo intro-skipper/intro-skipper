@@ -818,13 +818,13 @@ public sealed partial class IntroSkipperDatabase
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of credits-derived preview rows removed.</returns>
-    public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    /// <returns>Item IDs whose credits-derived preview rows were removed.</returns>
+    public async Task<IReadOnlyCollection<Guid>> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         Guid[] ids = [.. itemIds.Distinct()];
         if (ids.Length == 0)
         {
-            return 0;
+            return [];
         }
 
         await InitializeAsync().ConfigureAwait(false);
@@ -837,7 +837,7 @@ public sealed partial class IntroSkipperDatabase
                 && s.Type == AnalysisMode.Preview
                 && s.Source == SegmentSource.CreditsDerived
                 && s.State == SegmentState.Active);
-            var (removed, deletedItemIds) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            var (_, deletedItemIds) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
             foreach (var itemId in deletedItemIds)
             {
                 await ClearItemAnalysisCoreAsync(db, itemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
@@ -845,7 +845,7 @@ public sealed partial class IntroSkipperDatabase
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return removed;
+            return deletedItemIds;
         }
     }
 
