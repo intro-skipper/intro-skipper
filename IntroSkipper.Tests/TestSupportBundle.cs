@@ -107,7 +107,7 @@ public class TestSupportBundle
         Assert.Equal("BelowNormal", settings.Single(s => s.Name == nameof(PluginConfiguration.ProcessPriority)).Value);
     }
 
-    [Fact]
+    [FactSkipFFmpegTests]
     public async Task FingerprintFailuresAndSettingsReport_LeaveOutMediaNamesAndPaths()
     {
         const string Marker = "PrivateShowMarker";
