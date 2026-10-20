@@ -134,6 +134,7 @@ internal sealed partial class CreditsPass(
                 {
                     LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
                 }
+
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }

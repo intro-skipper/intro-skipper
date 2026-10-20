@@ -500,7 +500,7 @@ internal sealed partial class ChromaprintAnalyzer(
             ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
             : maximumGroupSize;
         var supermajoritySize =
-            (orderedEpisodes.Count * ConsensusSupermajorityNumerator + ConsensusSupermajorityDenominator - 1) /
+            ((orderedEpisodes.Count * ConsensusSupermajorityNumerator) + (ConsensusSupermajorityDenominator - 1)) /
             ConsensusSupermajorityDenominator;
         if (largestGroupSize >= supermajoritySize)
         {
@@ -534,7 +534,7 @@ internal sealed partial class ChromaprintAnalyzer(
         var removed = candidates.Keys.Count(id => !confirmed.ContainsKey(id));
         if (removed > 0)
         {
-            LogCandidatesWithoutLocalConsensus(_logger, _analysisMode, removed, confirmed.Count);
+            LogCandidatesWithoutLocalConsensus(_logger, _analysisMode, minimumGroupSize, removed, confirmed.Count);
         }
 
         return confirmed;
@@ -925,8 +925,8 @@ internal sealed partial class ChromaprintAnalyzer(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
     private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a six-episode local group; {ConfirmedCount} candidate(s) remain")]
-    private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int removedCount, int confirmedCount);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a {MinimumGroupSize}-episode local group; {ConfirmedCount} candidate(s) remain")]
+    private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int minimumGroupSize, int removedCount, int confirmedCount);
 
     private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 }
