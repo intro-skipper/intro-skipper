@@ -362,19 +362,25 @@ internal static class ConfigHasher
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
 
-    // The settled-season setting gates whether re-analysis is scheduled; the consensus setting
-    // describes output changes. Exclude the master switch so toggling it does not invalidate
-    // every Introduction/Credits record.
+    // The settled-season setting gates whether re-analysis is scheduled; the consensus settings
+    // describe output changes. Exclude the master switch so toggling it does not invalidate every
+    // Introduction/Credits record, and omit default consensus values to preserve existing 12.0 hashes.
     private static string SettledConsensusToken(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
     {
         if (!ffmpegValid ||
-            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame) ||
-            !config.UseSettledSeasonChromaprintConsensus)
+            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame))
         {
             return string.Empty;
         }
 
-        return FormattableString.Invariant($"|settledChromaprintConsensus=local:{config.SettledSeasonChromaprintConsensusEpisodes}");
+        if (!config.UseSettledSeasonChromaprintConsensus)
+        {
+            return "|settledChromaprintConsensus=disabled";
+        }
+
+        return config.SettledSeasonChromaprintConsensusEpisodes == PluginConfiguration.DefaultSettledSeasonChromaprintConsensusEpisodes
+            ? string.Empty
+            : FormattableString.Invariant($"|settledChromaprintConsensus=local:{config.SettledSeasonChromaprintConsensusEpisodes}");
     }
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
