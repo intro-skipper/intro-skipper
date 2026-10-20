@@ -67,9 +67,8 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with preferred language", Analysis(defaults, AnalysisMode.Credits), Analysis(english, AnalysisMode.Credits), false);
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
 
-        // Seasons analyzed while a preferred language's streams were ranked by channels alone carry
-        // D65B0D42940A9D60. The ffmpeg ranking token reruns them once.
-        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "E12B7BDC44532FE6", true);
+        // Pin the analysis identity for a preferred language under the configured stream-selection policy.
+        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "BC177183ECC85CBA", true);
 
         // Toggling card credits changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
