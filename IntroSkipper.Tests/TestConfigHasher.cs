@@ -86,6 +86,12 @@ public sealed class TestConfigHasher
         // The string is frozen to what releases before the credits pass wrote, so seasons the
         // first-wins chain settled stay settled after the upgrade instead of re-scanning.
         Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "353008E48A5F559E", true);
+        // The credits pass reads none of these, so changing one must not rerun Credits.
+        Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the analysis percentage", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnalysisPercent = 40 }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the intro minimum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumIntroDuration = 30 }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores black-frame chapter markers outside the legacy analyzer", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { UseChapterMarkersBlackFrame = false }, AnalysisMode.Credits), true);
+        Case("Credits analysis changes with black-frame chapter markers under the legacy analyzer", Analysis(new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false }, AnalysisMode.Credits), false);
         Case("Credits analysis ignores the preview minimum; the Preview hash carries it", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
         Case("Preview analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Preview), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);

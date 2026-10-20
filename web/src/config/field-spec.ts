@@ -33,7 +33,7 @@ export type FieldSpec =
           readonly placeholder?: string | (() => string);
       })
     | (FieldBase & { readonly kind: "text"; readonly placeholder?: string })
-    /** A regular expression with a reset-to-default; the default is also the placeholder. */
+    /** A regular expression with a reset-to-default; blank turns it off. */
     | (FieldBase & { readonly kind: "regex"; readonly default: string })
     | (FieldBase & {
           readonly kind: "select";

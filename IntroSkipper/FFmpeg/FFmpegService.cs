@@ -1065,28 +1065,29 @@ internal sealed partial class FFmpegService : IFFmpegService
     // mapping of an ffmpeg run that decodes no frame. ffmpeg ranks the video streams by frame
     // size, the default disposition and whether the stream delivered packets while ffmpeg
     // probed the file. ffprobe cannot report the last, so no ffprobe rule can copy the choice.
-    // Null when the run fails or the file has no video stream.
+    // Null when the file has no video stream. A run that fails to start, times out or is cut at
+    // the cap before its stream mapping throws instead, since the scan would cache a VP9 file's
+    // every frame as a keyframe.
     private async Task<string?> ProbeVideoCodecAsync(string filePath, CancellationToken cancellationToken)
     {
         string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
-        try
+
+        // The mapping block follows the input dump, which prints every metadata tag, so the
+        // capture is capped rather than buffered whole.
+        var capture = await _processRunner.RunCapturedAsync(
+            FFmpegPath,
+            ProcessArgs(args, "info"),
+            VideoCodecProbeMaximumBytes,
+            expectedStdoutBytes: 0,
+            ScanTimeout(),
+            cancellationToken).ConfigureAwait(false);
+        var codec = FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
+        if (codec is null && capture.Truncated)
         {
-            // The mapping block follows the input dump, which prints every metadata tag, so the
-            // capture is capped rather than buffered whole; a run cut at the cap maps nothing.
-            var capture = await _processRunner.RunCapturedAsync(
-                FFmpegPath,
-                ProcessArgs(args, "info"),
-                VideoCodecProbeMaximumBytes,
-                expectedStdoutBytes: 0,
-                timeout: 10 * 1000,
-                cancellationToken).ConfigureAwait(false);
-            return FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
+            throw new InvalidDataException($"The ffmpeg log of \"{filePath}\" passed {VideoCodecProbeMaximumBytes} bytes before its stream mapping");
         }
-        catch (Exception ex) when (IsProcessFailure(ex))
-        {
-            LogVideoCodecProbeFailed(_logger, ex, filePath);
-            return null;
-        }
+
+        return codec;
     }
 
     /// <summary>
@@ -1317,13 +1318,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (TimeoutException ex)
         {
-            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+            throw new FingerprintException("chromaprint fingerprinting timed out", ex);
         }
 
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
+            throw new FingerprintException("chromaprint output was malformed");
         }
 
         var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
@@ -1362,9 +1363,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not determine the video codec for \"{Path}\"; using standard frame handling")]
-    private static partial void LogVideoCodecProbeFailed(ILogger logger, Exception ex, string path);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);

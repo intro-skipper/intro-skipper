@@ -19,10 +19,12 @@ namespace IntroSkipper.Providers
     /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
+    /// <param name="cacheDatabase">Detection cache facade.</param>
     /// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
-    public class SegmentProvider(IntroSkipperDatabase database, SegmentDtoFactory segmentDtoFactory) : IMediaSegmentProvider
+    public class SegmentProvider(IntroSkipperDatabase database, DetectionCacheDatabase cacheDatabase, SegmentDtoFactory segmentDtoFactory) : IMediaSegmentProvider
     {
         private readonly IntroSkipperDatabase _database = database;
+        private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
         private readonly SegmentDtoFactory _segmentDtoFactory = segmentDtoFactory;
 
         /// <inheritdoc/>
@@ -37,23 +39,26 @@ namespace IntroSkipper.Providers
         }
 
         /// <summary>
-        /// Erases the item's automatic segments and analysis records after its media file
-        /// changed. Jellyfin calls this from its metadata refresh, then deletes the item's
-        /// rows from its MediaSegments table.
+        /// Erases the item's detection cache, automatic segments and analysis records after
+        /// its media file changed. Jellyfin calls this from its metadata refresh, then deletes
+        /// the item's rows from its MediaSegments table.
         /// </summary>
         /// <remarks>
-        /// The item still exists, so its user segments and tombstones stay, as in the
-        /// plugin's own replaced-file reset. The erase journals the item, so the projection
-        /// worker pushes the kept user segments back after Jellyfin's delete. A worker poll
-        /// that lands between this call and that delete pushes too early, and Jellyfin then
-        /// lacks the user segments until the item's next projection or Jellyfin's next
-        /// media segment scan.
+        /// The plugin's own replaced-file reset finds a replaced file only through the
+        /// records this call erases, so it never runs for this item. Cache keys hold no file
+        /// version, so the cache goes here instead. The item still exists, so its
+        /// user segments and tombstones stay, as in that reset. The erase journals the item,
+        /// so the projection worker pushes the kept user segments back after Jellyfin's
+        /// delete. A worker poll that lands between this call and that delete pushes too
+        /// early, and Jellyfin then lacks the user segments until the item's next projection
+        /// or Jellyfin's next media segment scan.
         /// </remarks>
         /// <param name="itemId">The item whose media file changed.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>A task that completes when the erase is committed.</returns>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
+            await _cacheDatabase.DeleteForItemsAsync([itemId], cancellationToken).ConfigureAwait(false);
             await _database.EraseItemsAsync([itemId], eraseTombstones: false, cancellationToken).ConfigureAwait(false);
         }
 

@@ -139,7 +139,17 @@ internal sealed partial class ChapterAnalyzer(
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, source, cancellationToken).ConfigureAwait(false));
+            // Keyframe snapping can fail on every pass for one file, such as one whose tags push
+            // the codec probe's stream mapping past its capture; that fails only this episode.
+            try
+            {
+                episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, source, cancellationToken).ConfigureAwait(false));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                LogErrorStoringMatches(ex, mode, episode.Name);
+            }
         }
 
         return analysisQueue;
@@ -477,6 +487,9 @@ internal sealed partial class ChapterAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error detecting recap black frames for {Episode}")]
     private partial void LogErrorDetectingRecapBlackFrames(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error adjusting or storing the {Mode} chapter result for {Episode}")]
+    private partial void LogErrorStoringMatches(Exception ex, AnalysisMode mode, string episode);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Invalid chapter pattern for {Mode}; skipping regex chapter matches: {Message}")]
     private partial void LogInvalidChapterPattern(AnalysisMode mode, string message);

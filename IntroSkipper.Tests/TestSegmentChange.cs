@@ -563,6 +563,28 @@ public sealed class TestSegmentChange : IDisposable
     }
 
     [Fact]
+    public async Task CreditsEdit_ReopensPreview_ButHidingOrShowingTheItemDoesNot()
+    {
+        var itemId = Guid.NewGuid();
+        var credits = new DbSegment(itemId, AnalysisMode.Credits, 1200, 1260, SegmentSource.BlackFrame, "credits-hash");
+        var preview = new DbSegment(itemId, AnalysisMode.Preview, 1260, 1320, SegmentSource.CreditsDerived, "credits-hash");
+        await SeedAsync(credits, preview);
+        await SeedAnalyzedItemAsync(
+            new DbAnalyzedItem(itemId, AnalysisMode.Credits, "credits-hash"),
+            new DbAnalyzedItem(itemId, AnalysisMode.Preview, "preview-hash"));
+        var service = CreateService(new FakeJellyfinSegmentStore());
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: false)));
+        Assert.IsType<Accepted>(await service.ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: true)));
+        await AssertAnalyzedItemAsync(itemId, AnalysisMode.Preview, "preview-hash");
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(new UpdateSegmentIntent(itemId, credits.Id, 1200, 1290)));
+
+        await using var db = CreateContext();
+        Assert.False(await db.AnalyzedItems.AnyAsync(item => item.ItemId == itemId && item.Type == AnalysisMode.Preview));
+    }
+
+    [Fact]
     public async Task ReplaceUserSegmentsForItem_ReplacesAllTypesAtomically_AndPreservesIds()
     {
         var itemId = Guid.NewGuid();
