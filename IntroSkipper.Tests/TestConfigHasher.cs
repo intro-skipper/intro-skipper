@@ -203,6 +203,40 @@ public sealed class TestConfigHasher
     }
 
     [Fact]
+    public void SettledConsensusHash_PreservesDisabledHashAndTracksEnabledAlgorithm()
+    {
+        static string Hash(PluginConfiguration configuration)
+            => ConfigHasher.Analysis(configuration, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        var disabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = false,
+        };
+        var enabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+        var changedMinimum = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+            SettledSeasonChromaprintConsensusEpisodes = PluginConfiguration.DefaultSettledSeasonChromaprintConsensusEpisodes + 1,
+        };
+        var reanalysisOff = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = false,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+
+        Assert.Equal(Hash(new PluginConfiguration()), Hash(disabled));
+        Assert.Equal(Hash(new PluginConfiguration()), Hash(reanalysisOff));
+        Assert.NotEqual(Hash(disabled), Hash(enabled));
+        Assert.NotEqual(Hash(enabled), Hash(changedMinimum));
+    }
+
+    [Fact]
     public void LegacyChromaprintCacheHash_MatchesPreStreamSelectionRows()
     {
         // Pinned output for a default configuration; rows written by releases without audio

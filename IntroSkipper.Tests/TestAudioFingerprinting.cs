@@ -266,6 +266,45 @@ public class TestAudioFingerprinting
         Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId));
     }
 
+    [Fact]
+    public void LocalConsensus_RejectsGroupsSupportedByOnlyOneEpisode()
+    {
+        var episodes = new[]
+        {
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), EpisodeNumber = 1, Duration = 1800 },
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), EpisodeNumber = 2, Duration = 15 },
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), EpisodeNumber = 3, Duration = 15 },
+            new QueuedEpisode { EpisodeId = Guid.NewGuid(), EpisodeNumber = 4, Duration = 1800 },
+        };
+        var firstPattern = Enumerable.Range(200, 251).Select(index => 0x40000000u + ((uint)index * 7919u)).ToArray();
+        var secondPattern = Enumerable.Range(200, 251).Select(index => 0x60000000u + ((uint)index * 6151u)).ToArray();
+        var fingerprints = episodes.ToDictionary(
+            episode => episode.EpisodeId,
+            episode => Enumerable.Range(0, 1200)
+                .Select(index => 0x80000000u + ((uint)index * 3571u) + ((uint)episode.EpisodeNumber * 104729u))
+                .ToArray());
+        Array.Copy(firstPattern, 0, fingerprints[episodes[0].EpisodeId], 200, firstPattern.Length);
+        Array.Copy(firstPattern, 0, fingerprints[episodes[1].EpisodeId], 200, firstPattern.Length);
+        Array.Copy(secondPattern, 0, fingerprints[episodes[2].EpisodeId], 200, secondPattern.Length);
+        Array.Copy(secondPattern, 0, fingerprints[episodes[3].EpisodeId], 200, secondPattern.Length);
+
+        var analyzer = CreateChromaprintAnalyzer();
+        var candidates = new Dictionary<Guid, Segment>
+        {
+            [episodes[0].EpisodeId] = new Segment(episodes[0].EpisodeId, new TimeRange(0, 32)),
+            [episodes[3].EpisodeId] = new Segment(episodes[3].EpisodeId, new TimeRange(0, 32)),
+        };
+
+        var confirmed = analyzer.ConfirmLocalConsensus(
+            episodes,
+            fingerprints,
+            candidates,
+            AnalysisMode.Credits,
+            CancellationToken.None);
+
+        Assert.Empty(confirmed);
+    }
+
     // Two jpn streams: a non-default 5.1 stream, the most-channels pick, then the default stereo stream, ffmpeg's pick.
     private static Task<byte[]> WriteSurroundThenDefaultStereoAsync(string path)
         => new FFmpegProcessRunner(NullLogger.Instance).RunAsync(

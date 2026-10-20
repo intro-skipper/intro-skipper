@@ -369,14 +369,10 @@ internal static class ConfigHasher
     {
         if (!ffmpegValid ||
             !config.ReanalyzeSettledSeasons ||
-            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame))
+            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame) ||
+            !config.UseSettledSeasonChromaprintConsensus)
         {
             return string.Empty;
-        }
-
-        if (!config.UseSettledSeasonChromaprintConsensus)
-        {
-            return "|settledChromaprintConsensus=disabled";
         }
 
         return FormattableString.Invariant(

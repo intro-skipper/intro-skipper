@@ -334,7 +334,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
         {
-            seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
+            seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, mode, cancellationToken);
         }
 
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
@@ -351,14 +351,17 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
     /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
     /// <param name="candidates">Candidates selected by the existing season comparison.</param>
+    /// <param name="mode">Analysis mode whose duration limits and time offsets apply.</param>
     /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
     /// <returns>Locally confirmed candidates.</returns>
-    private Dictionary<Guid, Segment> ConfirmLocalConsensus(
+    internal Dictionary<Guid, Segment> ConfirmLocalConsensus(
         IReadOnlyList<QueuedEpisode> episodes,
         IReadOnlyDictionary<Guid, uint[]> fingerprints,
         IReadOnlyDictionary<Guid, Segment> candidates,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
+        _analysisMode = mode;
         if (candidates.Count == 0)
         {
             return [];
@@ -398,7 +401,7 @@ internal sealed partial class ChromaprintAnalyzer(
                 var rightCandidateValid = rightCandidate.Valid &&
                     rightCandidate.Duration <= GetMaximumSegmentDuration(rightEpisode);
 
-                if (_analysisMode == AnalysisMode.Credits)
+                if (mode == AnalysisMode.Credits)
                 {
                     leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
                     leftCandidate.End += leftEpisode.CreditsFingerprintStart;
@@ -538,7 +541,7 @@ internal sealed partial class ChromaprintAnalyzer(
         var removed = candidates.Keys.Count(id => !confirmed.ContainsKey(id));
         if (removed > 0)
         {
-            LogCandidatesWithoutLocalConsensus(_logger, _analysisMode, minimumGroupSize, removed, confirmed.Count);
+            LogCandidatesWithoutLocalConsensus(_logger, mode, minimumGroupSize, removed, confirmed.Count);
         }
 
         return confirmed;
