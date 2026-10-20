@@ -328,8 +328,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string PreferredAudioLanguage { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether Chromaprint should prefer the audio stream with the most channels.
-    /// Streams with equal channel counts are ordered by their stream index.
+    /// Gets or sets a value indicating whether Chromaprint should take the audio stream FFmpeg would pick:
+    /// the default-disposition stream, then the most channels, then the lowest stream index.
+    /// When disabled, the lowest stream index wins.
     /// </summary>
     public bool PreferAudioStreamWithMostChannels { get; set; } = true;
 
