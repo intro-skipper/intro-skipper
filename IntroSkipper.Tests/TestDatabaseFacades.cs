@@ -433,6 +433,25 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task ClearCreditsDerivedPreviewsAsync_ReopensPreviewForDeletedRows()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Preview,
+            [new Segment(itemId, new TimeRange(10, 20))],
+            SegmentSource.CreditsDerived,
+            configHash: "credits-hash");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [itemId], "preview-hash");
+
+        Assert.Equal(1, await database.ClearCreditsDerivedPreviewsAsync([itemId]));
+
+        await using var db = _db.Context();
+        Assert.False(await db.AnalyzedItems.AnyAsync(item => item.ItemId == itemId && item.Type == AnalysisMode.Preview));
+    }
+
+    [Fact]
     public async Task CleanStaleAutomaticSegmentsAsync_CreditsDerivedPreview_IsJudgedByTheCreditsPass()
     {
         var itemId = Guid.NewGuid();

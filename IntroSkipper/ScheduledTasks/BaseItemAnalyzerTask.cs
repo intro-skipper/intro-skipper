@@ -226,12 +226,12 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
-        if (season.Episodes.Count > 0 && !ShouldDerivePreview(season.Episodes[0], Config))
+        if (season.Episodes.Count > 0 && !ShouldCreateCreditsDerivedPreview(season.Episodes[0], Config))
         {
             // The global Preview switch also disables credits-derived previews. Clear them
-            // even when queue verification finds no analyzer work for this season.
+            // for verified episodes even when queue verification finds no analyzer work.
             await _database.ClearCreditsDerivedPreviewsAsync(
-                season.Episodes.Select(episode => episode.EpisodeId),
+                episodes.Select(episode => episode.EpisodeId),
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -241,7 +241,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var first = episodes[0];
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, Config);
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
@@ -822,7 +822,7 @@ public partial class BaseItemAnalyzerTask(
         // go stale when preview settings change. Failed Credits episodes retain their prior
         // rows here; a settled-season reset may later refresh their Preview from retained
         // Credits under the stored hash.
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, Config);
         if (previewFromCreditsEnd)
         {
             if (mode == AnalysisMode.Credits)
@@ -982,9 +982,11 @@ public partial class BaseItemAnalyzerTask(
         => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
 
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
-        => config.ScanPreview
-            && (episode.PreviewFromCreditsEndOverride
-                ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd));
+        => episode.PreviewFromCreditsEndOverride
+            ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
+
+    private static bool ShouldCreateCreditsDerivedPreview(QueuedEpisode episode, PluginConfiguration config)
+        => config.ScanPreview && ShouldDerivePreview(episode, config);
 
     private static AnalysisMode[] GetSubtitleModesToPreserve(
         IReadOnlyCollection<AnalysisMode> modes,

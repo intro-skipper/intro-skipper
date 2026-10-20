@@ -812,7 +812,9 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Removes active Preview segments derived from Credits for the supplied items, preserving
-    /// user segments and previews produced by the regular Preview pass.
+    /// user segments and previews produced by the regular Preview pass. Items with a deleted
+    /// row have their Preview analysis record cleared in the same transaction so a later Preview
+    /// pass can regenerate the result.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -835,7 +837,12 @@ public sealed partial class IntroSkipperDatabase
                 && s.Type == AnalysisMode.Preview
                 && s.Source == SegmentSource.CreditsDerived
                 && s.State == SegmentState.Active);
-            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            var (removed, deletedItemIds) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            foreach (var itemId in deletedItemIds)
+            {
+                await ClearItemAnalysisCoreAsync(db, itemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+            }
+
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removed;
