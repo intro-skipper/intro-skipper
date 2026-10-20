@@ -40,6 +40,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private const int ConsensusNeighborRadius = 2;
     // A six-episode group supports a theme change after one cour-sized run without trusting a pair.
     private const int ConsensusMinimumGroupSize = 6;
+    private const double ConsensusMinimumRangeOverlap = 0.8;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
@@ -399,6 +400,31 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        // Pairwise comparisons can find slightly different endpoints for the same opening in
+        // different episode pairs. Join those compatible ranges within each episode so that
+        // their neighboring pair matches contribute to one local group. Requiring the ranges
+        // to overlap by most of the longer range keeps a longer cold open from borrowing the
+        // consensus of a shorter intro that merely starts at the same time.
+        foreach (var episodeRanges in localCandidates.Values.GroupBy(candidate => candidate.EpisodeId))
+        {
+            var ranges = episodeRanges.ToArray();
+            for (var leftIndex = 0; leftIndex < ranges.Length; leftIndex++)
+            {
+                for (var rightIndex = leftIndex + 1; rightIndex < ranges.Length; rightIndex++)
+                {
+                    if (!AreConsensusRangesCompatible(ranges[leftIndex], ranges[rightIndex]))
+                    {
+                        continue;
+                    }
+
+                    var leftRange = GetConsensusRangeKey(ranges[leftIndex]);
+                    var rightRange = GetConsensusRangeKey(ranges[rightIndex]);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
+                }
+            }
+        }
+
         var confirmed = new Dictionary<Guid, Segment>();
         var visited = new HashSet<ConsensusRangeKey>();
         foreach (var rangeKey in matchingNeighbors.Keys)
@@ -451,6 +477,13 @@ internal sealed partial class ChromaprintAnalyzer(
             candidate.EpisodeId,
             (long)Math.Round(candidate.Start, MidpointRounding.AwayFromZero),
             (long)Math.Round(candidate.End, MidpointRounding.AwayFromZero));
+
+    private static bool AreConsensusRangesCompatible(Segment left, Segment right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.End, right.End) - Math.Max(left.Start, right.Start));
+        var longerDuration = Math.Max(left.Duration, right.Duration);
+        return longerDuration > 0 && overlap / longerDuration >= ConsensusMinimumRangeOverlap;
+    }
 
     private static void AddNeighbor(
         Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>> matchingNeighbors,
