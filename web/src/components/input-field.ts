@@ -182,8 +182,8 @@ function textInput(
         if (step !== undefined) inputAttrs.step = String(step);
         if (spec.placeholder !== undefined) inputAttrs.placeholder = labelText(spec.placeholder);
     } else if (spec.kind === "regex") {
-        inputAttrs.placeholder = spec.default;
-        description = (description ?? "") + " <br/>Default: <code>" + spec.default + "</code>";
+        description =
+            (description ?? "") + " <br/>Leave blank to turn off. Default: <code>" + spec.default + "</code>";
     } else if (spec.placeholder) {
         inputAttrs.placeholder = spec.placeholder;
     }
