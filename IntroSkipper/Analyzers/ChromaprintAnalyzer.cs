@@ -507,6 +507,10 @@ internal sealed partial class ChromaprintAnalyzer(
             minimumGroupSize = Math.Min(minimumGroupSize, largestGroupSize);
         }
 
+        minimumGroupSize = Math.Max(
+            PluginConfiguration.MinimumSettledSeasonChromaprintConsensusEpisodes,
+            minimumGroupSize);
+
         var supportedRanges = new HashSet<ConsensusRangeKey>();
         foreach (var group in groups)
         {
