@@ -292,10 +292,11 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <remarks>
     /// Story follows when at least the minimum credits duration runs from the end of the matches
-    /// to the first preview chapter after them or the end of the file, whichever comes first.
+    /// to the first preview chapter after them or the credits window end, whichever comes first.
     /// That room can hold closing cards after an epilogue, which a mid-episode ending chapter
-    /// leaves out. The end of the file, not the credits window end: the keyframe scan reads black
-    /// frames to the end of the file, so a black roll past an early window end is a candidate.
+    /// leaves out. The window ends before the file only under ProbeAudioDuration, which is for
+    /// runtimes padded past the audio, so room past it is not counted as story, though the
+    /// keyframe scan would still read black frames there.
     /// </remarks>
     private IReadOnlyList<Segment> AuthoritativeChapterMatches(ChapterAnalyzer chapter, QueuedEpisode episode)
     {
@@ -306,7 +307,8 @@ internal sealed partial class CreditsPass(
         }
 
         var end = matches.Max(m => m.End);
-        var storyEnd = chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? episode.Duration;
+        var windowEnd = episode.GetFingerprintRange(Mode).End;
+        var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
         return storyEnd - end < _config.MinimumCreditsDuration ? matches : [];
     }
 

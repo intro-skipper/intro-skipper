@@ -316,30 +316,14 @@ public sealed class TestCreditsPass
         Assert.Equal([RollProbe, RollProbe], ffmpeg.Calls);
     }
 
-    // The room runs to the end of the file, not the credits window end: the keyframe scan reads
-    // black frames to the end of the file, so the roll past an early window end is a candidate.
-    [Fact]
-    public async Task StoryPastAnEarlyWindowEnd_CombinesTheChapterWithTheRollThere()
-    {
-        using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 950)]);
-        episodes.ForEach(episode => episode.CreditsFingerprintEnd = 960);
-
-        await CreatePass(ffmpeg, database, config: new PluginConfiguration())
-            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
-
-        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
-        Assert.Equal(
-            [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
-            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
-    }
-
     // No story fits after the chapter: a tail under the credits minimum, the first of two preview
-    // chapters right after it, and a preview chapter within the minimum of it with a chapter between.
+    // chapters right after it, and padding past the end of the audio, where the window ends,
+    // with or without a preview chapter in the silent tail.
     [Theory]
     [InlineData(0, 900, 990)]
     [InlineData(1, 700, 760)]
     [InlineData(2, 900, 960)]
+    [InlineData(3, 900, 960)]
     public async Task NoStoryAfterTheCreditsChapter_KeepsItAuthoritative(int layout, double start, double end)
     {
         using var scope = Scope();
@@ -347,9 +331,14 @@ public sealed class TestCreditsPass
         {
             0 => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Logo", 990)],
             1 => [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", 760), Chapter("Omake", 780), Chapter("Extra", 960)],
-            _ => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 960), Chapter("Preview", 970)],
+            2 => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 960)],
+            _ => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 960), Chapter("Preview", 980)],
         };
         var (episodes, ffmpeg, database) = CreateSeason(chapters: chapters);
+        if (layout >= 2)
+        {
+            episodes.ForEach(episode => episode.CreditsFingerprintEnd = 970);
+        }
 
         await CreatePass(ffmpeg, database, config: new PluginConfiguration())
             .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
