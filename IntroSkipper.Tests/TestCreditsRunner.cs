@@ -121,8 +121,8 @@ public class TestCreditsRunner
     [Fact]
     public void Options_BareFlag_IsReadAndUnknownFlagRejected()
     {
-        // The flag sits between two pairs, so a parser that read it as a pair would take
-        // --out as its value and fail on out.json.
+        // The flag sits between two pairs, so a parser that read it as a pair would find
+        // --out where its value should be and refuse it.
         var options = Options.Parse(["--manifest", "m.json", "--no-chapters", "--out", "out.json"], ["manifest", "out"], ["no-chapters"]);
 
         Assert.True(options.Flag("no-chapters"));
