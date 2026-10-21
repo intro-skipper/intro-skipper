@@ -1,0 +1,12 @@
+[
+  {
+    "guid": "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b",
+    "name": "Intro Skipper (jpokorny312 Fork)",
+    "overview": "Detects intro, recap, credits and preview segments and exposes them as Jellyfin media segments.",
+    "description": "Fork of intro-skipper with stricter recap detection: a Chromaprint recap sting must be shared by several episodes, studio logos and opening themes shared by the whole season no longer count as recaps, and the default recap chapter pattern is narrower.",
+    "owner": "jpokorny312",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/jpokorny312/intro-skipper/12.0/images/logo.png",
+    "versions": []
+  }
+]

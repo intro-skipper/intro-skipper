@@ -1,0 +1,71 @@
+name: "Release Fork Plugin"
+
+# Builds the plugin, publishes IntroSkipper.dll as a GitHub release zip and adds the version
+# to manifest.json on the same branch. Jellyfin reads that manifest as a plugin repository:
+# https://raw.githubusercontent.com/<owner>/<repo>/<branch>/manifest.json
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        env:
+          RestorePackagesWithLockFile: 'true'
+
+      - name: Compute version
+        run: |
+          BASE=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          IFS='.' read -r MAJOR MINOR PATCH _BUILD <<< "$BASE"
+          echo "VERSION=${MAJOR}.${MINOR}.${PATCH}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          # The plugin cannot load on a server older than the Jellyfin packages it compiles against.
+          JELLYFIN=$(sed -n 's|.*Include="Jellyfin.Controller" Version="\([0-9.]*\)".*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          echo "TARGET_ABI=${JELLYFIN}.0" >> "$GITHUB_ENV"
+
+      - name: Embed version info
+        run: sed -i "s/string\.Empty/\"${{ github.sha }}\"/g" IntroSkipper/Helper/Commit.cs
+
+      - name: Build
+        run: >-
+          dotnet build --configuration Release --no-restore
+          -p:AssemblyVersion=${{ env.VERSION }} -p:FileVersion=${{ env.VERSION }}
+
+      - name: Create archive
+        run: zip -j "intro-skipper-v${{ env.VERSION }}.zip" IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+
+      - name: Create release
+        run: |
+          gh release create "v${{ env.VERSION }}" "intro-skipper-v${{ env.VERSION }}.zip" \
+            --title "v${{ env.VERSION }}" --generate-notes --target "${{ github.sha }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add version to manifest.json
+        run: |
+          ZIP="intro-skipper-v${{ env.VERSION }}.zip"
+          CHECKSUM=$(md5sum "$ZIP" | cut -d' ' -f1)
+          URL="https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${ZIP}"
+          jq --arg version "${{ env.VERSION }}" --arg abi "${{ env.TARGET_ABI }}" \
+             --arg url "$URL" --arg checksum "$CHECKSUM" \
+             --arg changelog "Build ${{ github.sha }}" \
+             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             '.[0].versions = [{version: $version, changelog: $changelog, targetAbi: $abi, sourceUrl: $url, checksum: $checksum, timestamp: $timestamp}] + .[0].versions' \
+             manifest.json > manifest.tmp
+          mv manifest.tmp manifest.json
+
+      - name: Commit manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "release v${{ env.VERSION }}"
+          git push origin "HEAD:${{ github.ref_name }}"

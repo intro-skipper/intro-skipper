@@ -18,6 +18,20 @@
 </p>
 </div>
 
+## Installation dieses Forks (Deutsch)
+
+Dieser Fork enthält eine strengere Recap-Erkennung (siehe `docs/analysis.md`). So wird er in Jellyfin installiert:
+
+1. **Einmalig Release bauen:** Fork auf GitHub öffnen, die Änderungen in den Branch `12.0` mergen und unter *Actions → Release Fork Plugin → Run workflow* (Branch `12.0`) starten. Der Workflow baut `IntroSkipper.dll`, legt ein GitHub-Release mit ZIP an und trägt die Version in `manifest.json` ein. Das Repo muss dafür öffentlich sein, oder Jellyfin muss das Release herunterladen können.
+2. **Repository in Jellyfin eintragen:** *Dashboard → Plugins → Repositories → Hinzufügen*, URL:
+   ```
+   https://raw.githubusercontent.com/jpokorny312/intro-skipper/12.0/manifest.json
+   ```
+3. **Installieren:** *Dashboard → Plugins → Katalog* → „Intro Skipper (jpokorny312 Fork)" → Installieren, danach Jellyfin neu starten. Ein bereits installiertes Original-Plugin vorher deinstallieren, es hat dieselbe Plugin-ID.
+4. **Neu analysieren:** Die geänderte Recap-Erkennung führt Recap beim nächsten Scan einmal neu aus (*Dashboard → Geplante Aufgaben → Detect and Analyze Media Segments*).
+
+Manuell geht es auch: `IntroSkipper.dll` aus dem Release-ZIP in den Plugin-Ordner `<Jellyfin-Datenordner>/plugins/IntroSkipper/` kopieren und Jellyfin neu starten.
+
 ## Manifest URL (All Jellyfin Versions)
 > [!NOTE]
 > If the plugin does not appear after adding the repository:
