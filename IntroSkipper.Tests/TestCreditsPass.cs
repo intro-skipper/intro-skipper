@@ -317,7 +317,7 @@ public sealed class TestCreditsPass
     }
 
     // Story runs from the credits chapter to the end of the file, or through an epilogue to a
-    // preview chapter.
+    // preview chapter. The chapter row keeps its mark: the keyframe just before it is not taken.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -327,7 +327,7 @@ public sealed class TestCreditsPass
         ChapterInfo[] chapters = previewAfterTheEpilogue
             ? [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760), Chapter("Preview", 960)]
             : [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760)];
-        var (episodes, ffmpeg, database) = CreateSeason(chapters: chapters);
+        var (episodes, ffmpeg, database) = CreateSeason(keyFrames: KeyframeAt(759.4), chapters: chapters);
 
         await CreatePass(ffmpeg, database, config: new PluginConfiguration())
             .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
@@ -341,6 +341,26 @@ public sealed class TestCreditsPass
         }
 
         Assert.Equal([RollProbe, RollProbe], ffmpeg.Calls);
+    }
+
+    // A black roll inside a chapter with story after it merges the chapter into a Combined row
+    // that ends on the mark. The mark rule keys on the source, so the row is snapped like any
+    // detected range.
+    [Fact]
+    public async Task RollInsideTheCreditsChapter_MergesItIntoACombinedRowThatIsSnapped()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(
+            [(620, 660, 95, KeyframeVisuals.Black), (BlackStart, Duration, 95, KeyframeVisuals.Black)],
+            keyFrames: KeyframeAt(659.4),
+            chapters: [Chapter("Main", 0), Chapter("Ending", 600), Chapter("Epilogue", 660)]);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(600, 659.4, SegmentSource.Combined), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
     }
 
     // No story fits after the chapter: a tail under the credits minimum, the first of two preview
