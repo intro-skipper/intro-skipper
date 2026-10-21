@@ -1012,10 +1012,10 @@ public sealed class TestCreditsPass
 
     /// <summary>
     /// A usable chapter whose write fails marks its episode failed, but its audio still serves
-    /// as the reference for the unchaptered sibling.
+    /// as the reference for the unchaptered sibling, and the episode is not analyzed again.
     /// </summary>
     [Fact]
-    public async Task FailedChapterWrite_StillSuppliesComparison()
+    public async Task FailedChapterWrite_StillSuppliesComparisonWithoutBeingReplaced()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, _) = CreateSeason();
@@ -1027,6 +1027,8 @@ public sealed class TestCreditsPass
         Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
+        Assert.Equal(1, ffmpeg.KeyframeScanCalls);
+        Assert.Equal([RollProbe], ffmpeg.Calls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
