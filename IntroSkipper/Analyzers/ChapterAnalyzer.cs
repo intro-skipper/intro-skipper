@@ -163,9 +163,9 @@ internal sealed partial class ChapterAnalyzer(
     /// <remarks>
     /// A chapter range sits on authored marks: it is not snapped to another chapter, silence or
     /// keyframe, but the configured offsets apply. A black-frame recap is adjusted like any
-    /// detected range. A rejected non-empty
-    /// candidate leaves the episode open for the next analyzer; when adjustments consume every
-    /// match, the episode's stale automatic rows are still cleared.
+    /// detected range. A rejected non-empty candidate leaves the episode open for the next
+    /// analyzer; when adjustments consume every match, the episode's stale automatic rows are
+    /// still cleared.
     /// </remarks>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>

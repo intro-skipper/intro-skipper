@@ -255,9 +255,11 @@ public class TestChapterAnalyzer
             new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
             new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
         ];
+        // Bright frames (0-3% black) every 0.5 s up to 19.5 s, then a 95% black frame at 40 s, where the recap ends.
+        BlackFrame[] recapScan = [.. Enumerable.Range(0, 40).Select(i => new BlackFrame(i % 4, i * 0.5, i)).Append(new BlackFrame(95, 40, 1000))];
         var ffmpeg = new StubFFmpegService
         {
-            RangeBlackFrames = (_, _, _, _, _) => [.. Enumerable.Range(0, 40).Select(i => new BlackFrame(i % 4, i * 0.5, i)).Append(new BlackFrame(95, 40, 1000))],
+            RangeBlackFrames = (_, _, _, _, _) => recapScan,
             KeyFrames = (episode, _, _) => episode == episodes[0] ? throw new InvalidDataException("cut before the stream mapping") : [],
         };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();

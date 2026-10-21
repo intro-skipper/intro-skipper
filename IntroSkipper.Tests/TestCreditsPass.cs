@@ -967,33 +967,46 @@ public sealed class TestCreditsPass
     }
 
     /// <summary>
-    /// A two-episode season where the chaptered episode's result is unusable, because the
-    /// offsets consume its chapter or because its chapter write fails: its audio must still
-    /// serve as the reference, or the unchaptered sibling has nothing to compare against and
-    /// would be recorded as having no credits.
+    /// A two-episode season where the offsets consume the chaptered episode's chapter: its audio
+    /// must still serve as the reference, or the unchaptered sibling has nothing to compare
+    /// against and would be recorded as having no credits.
     /// </summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task UnusableChapterResult_StillSuppliesComparisonWithoutBeingReplaced(bool chapterWriteFails)
+    [Fact]
+    public async Task UnusableChapterResult_StillSuppliesComparisonWithoutBeingReplaced()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
         episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 920)];
-        if (chapterWriteFails)
-        {
-            database = FailingSegmentWrites(episodes[0].EpisodeId);
-        }
-
-        var config = new PluginConfiguration { IntroEndOffset = chapterWriteFails ? 0 : 30 };
+        var config = new PluginConfiguration { IntroEndOffset = 30 };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
-        Assert.Equal(chapterWriteFails ? EpisodeState.AnalysisFailed : EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.NoSegments, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
         Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+    }
+
+    /// <summary>
+    /// A usable chapter whose write fails marks its episode failed, but its audio still serves
+    /// as the reference for the unchaptered sibling.
+    /// </summary>
+    [Fact]
+    public async Task FailedChapterWrite_StillSuppliesComparison()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, _) = CreateSeason();
+        episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 920)];
+        var database = FailingSegmentWrites(episodes[0].EpisodeId);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
+        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
