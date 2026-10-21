@@ -137,10 +137,10 @@ internal sealed partial class ChapterAnalyzer(
                 continue;
             }
 
-            // The helper is initialized with the current mode, so recap fallback segments
-            // still receive the same mode-specific boundary adjustments as chapter matches.
-            // Keyframe snapping can fail on every pass for one file, such as one whose tags push
-            // the codec probe's stream mapping past its capture; that fails only this episode.
+            // The black-frame recap fallback's end is snapped to a keyframe, which can fail on
+            // every pass for one file, such as one whose tags push the codec probe's stream
+            // mapping past its capture. A chapter end makes no keyframe call, so only the
+            // fallback and the write can fail here, and either fails only this episode.
             try
             {
                 episode.SetAnalyzed(mode, await StoreMatchesAsync(episode, mode, matches, timeAdjustmentHelper, source, cancellationToken).ConfigureAwait(false));
@@ -161,8 +161,9 @@ internal sealed partial class ChapterAnalyzer(
     /// stored the same way whichever path found it.
     /// </summary>
     /// <remarks>
-    /// A chapter range already sits on authored boundaries, so it is not snapped to another
-    /// chapter but does receive the configured playback adjustments. A rejected non-empty
+    /// A chapter range sits on authored marks: it is not snapped to another chapter, silence or
+    /// keyframe, but the configured offsets apply. A black-frame recap is adjusted like any
+    /// detected range. A rejected non-empty
     /// candidate leaves the episode open for the next analyzer; when adjustments consume every
     /// match, the episode's stale automatic rows are still cleared.
     /// </remarks>
@@ -184,7 +185,7 @@ internal sealed partial class ChapterAnalyzer(
         var adjusted = new List<Segment>(matches.Count);
         foreach (var match in matches)
         {
-            var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, false, cancellationToken).ConfigureAwait(false);
+            var adjustedSegment = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, match, source == SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
             if (adjustedSegment.Valid)
             {
                 adjusted.Add(adjustedSegment);

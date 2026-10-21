@@ -17,6 +17,8 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Model.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using static IntroSkipper.Tests.BlackFrameFixtures;
@@ -62,6 +64,31 @@ public sealed class TestCreditsPass
             Assert.Equal((900, 950), (row.ToSegment().Start, row.ToSegment().End));
             Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits));
         }
+    }
+
+    [Fact]
+    public async Task AuthoritativeChapter_EndsOnTheMarkWithoutAKeyframeSnap()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyFrames: KeyframeAt(919.4), chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 920)]);
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var row = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((900, 920, SegmentSource.Chapter), (row.ToSegment().Start, row.ToSegment().End, row.Source));
+    }
+
+    [Fact]
+    public async Task EnhancedChapter_EndsOnTheMarkWithoutAKeyframeSnap()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(keyFrames: KeyframeAt(659.4), chapters: [Chapter("Main", 0), Chapter("Ending", 600), Chapter("Epilogue", 660)]);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId), s => s.Source == SegmentSource.Chapter).ToSegment();
+        Assert.Equal((600, 660), (chapter.Start, chapter.End));
     }
 
     [Theory]
@@ -951,11 +978,14 @@ public sealed class TestCreditsPass
     public async Task UnusableChapterResult_StillSuppliesComparisonWithoutBeingReplaced(bool chapterWriteFails)
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(keyFrames: (episode, _, _) => chapterWriteFails && episode.EpisodeNumber == 1
-            ? throw new InvalidOperationException("Keyframe probe failed")
-            : []);
+        var (episodes, ffmpeg, database) = CreateSeason();
         episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 920)];
-        var config = new PluginConfiguration { IntroEndOffset = 30 };
+        if (chapterWriteFails)
+        {
+            database = FailingSegmentWrites(episodes[0].EpisodeId);
+        }
+
+        var config = new PluginConfiguration { IntroEndOffset = chapterWriteFails ? 0 : 30 };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
@@ -1042,6 +1072,19 @@ public sealed class TestCreditsPass
 
     private static ChapterInfo Chapter(string name, double start)
         => new() { Name = name, StartPositionTicks = TimeSpan.FromSeconds(start).Ticks };
+
+    // A keyframe lookup that finds one keyframe, when the queried range holds it.
+    private static Func<QueuedEpisode, TimeRange, AnalysisMode, double[]> KeyframeAt(double time)
+        => (_, range, _) => range.Start <= time && time <= range.End ? [time] : [];
+
+    // A segment database whose writes of the item's segments fail.
+    private static IntroSkipperDatabase FailingSegmentWrites(Guid itemId)
+    {
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>(DatabaseTestHelpers.CreateContextOptions<IntroSkipperDbContext>(DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".db")))
+            .AddInterceptors(new FailSegmentWrites(itemId))
+            .Options;
+        return new IntroSkipperDatabase(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(options)), NullLogger<IntroSkipperDatabase>.Instance);
+    }
 
     private static CreditsPass CreatePass(StubFFmpegService ffmpeg, IntroSkipperDatabase database, DetectionCacheService? cache = null, PluginConfiguration? config = null)
         => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration());
@@ -1139,5 +1182,13 @@ public sealed class TestCreditsPass
             var points = await ffmpeg.FingerprintAsync(episode, AnalysisMode.Credits);
             cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, WindowStart, Duration, points);
         }
+    }
+
+    private sealed class FailSegmentWrites(Guid itemId) : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+            => eventData.Context?.ChangeTracker.Entries<DbSegment>().Any(entry => entry.Entity.ItemId == itemId) == true
+                ? throw new InvalidOperationException("Segment write failed")
+                : base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }

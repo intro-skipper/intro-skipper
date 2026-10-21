@@ -251,10 +251,10 @@ internal sealed partial class CreditsPass(
         var adjusted = new List<AttributedSegment>();
         foreach (var (segment, source) in candidates)
         {
-            // A chapter-only range already sits on authored boundaries; do not snap it
-            // to another chapter, but retain the configured playback adjustments.
+            // A chapter range sits on authored marks: it is not snapped to another chapter,
+            // silence or keyframe, but the configured offsets apply.
             var adjustedSegment = await timeAdjustmentHelper
-                .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter ? false : null, cancellationToken)
+                .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter, cancellationToken)
                 .ConfigureAwait(false);
             if (adjustedSegment.Valid)
             {
