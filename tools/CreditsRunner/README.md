@@ -16,9 +16,9 @@ dotnet run --project tools/CreditsRunner -- diff --baseline before.json --candid
 
 For the timing box, publish self-contained with `dotnet publish tools/CreditsRunner -c Release -r linux-x64 --self-contained -p:SkipWebBuild=true`.
 
-`diff` exits with 1 when it finds a regression. Per file, a regression is a new failure, a new false part, or more than 0.5 s of story the baseline did not skip. Per labeled part, it is a new miss, or a start or end error that grew by more than 0.5 s. `diff` also lists every file whose candidates changed, so each change can be accepted by hand, and warns when the two runs differ in configuration, ffmpeg build, CPU or repeats.
+`diff` exits with 1 when it finds a regression. Per file, a regression is a new failure, a new false part, or more than 0.5 s of story the baseline did not skip. Per labeled part, it is a new miss, or a start or end error that grew by more than 0.5 s. `diff` also lists every file whose candidates changed, so each change can be accepted by hand, and warns when the two runs differ in configuration, ffmpeg build, CPU or repeats. A regression on a held-out file is tagged `(holdout)` and counted apart from tuning regressions.
 
-`run` refuses a manifest entry whose file is missing, whose duration is not positive or whose id repeats, and an `--out` that names the manifest or a corpus file, and every command rejects an option it does not take, so a typo cannot quietly change what is measured.
+`run` refuses a manifest entry whose file is missing, whose duration is not positive or whose id repeats, and an `--out` that names the manifest or a corpus file, and every command rejects an option it does not take, or one given twice, so a typo cannot quietly change what is measured.
 
 ## Files
 

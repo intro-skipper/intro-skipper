@@ -97,8 +97,8 @@ internal static class Commands
     }
 
     /// <summary>
-    /// Lists every file whose candidates changed, flags every regression, and prints both runs'
-    /// totals. Returns 1 when it finds a regression.
+    /// Lists every file whose candidates changed, flags every regression, tagging and counting
+    /// held-out files apart, and prints both runs' totals. Returns 1 when it finds a regression.
     /// </summary>
     public static int Diff(IReadOnlyList<string> args, TextWriter output)
     {
@@ -125,7 +125,7 @@ internal static class Commands
         var current = candidate.Episodes.ToDictionary(episode => episode.Id);
         List<EpisodeScore> baselineScores = [];
         List<EpisodeScore> candidateScores = [];
-        var regressions = 0;
+        var (tuning, holdout) = (0, 0);
         foreach (var id in old.Keys.Union(current.Keys))
         {
             if (!old.TryGetValue(id, out var before) || !current.TryGetValue(id, out var after))
@@ -154,8 +154,16 @@ internal static class Commands
             candidateScores.Add(afterScore);
             foreach (var regression in Differ.Regressions(beforeScore, afterScore))
             {
-                regressions++;
-                output.WriteLine($"  REGRESSION {id}: {regression}");
+                if (label.Holdout)
+                {
+                    holdout++;
+                    output.WriteLine($"  REGRESSION {id} (holdout): {regression}");
+                }
+                else
+                {
+                    tuning++;
+                    output.WriteLine($"  REGRESSION {id}: {regression}");
+                }
             }
         }
 
@@ -166,8 +174,8 @@ internal static class Commands
         output.WriteLine($"candidate {candidate.Commit}");
         WriteSummaries(output, candidateScores);
         output.WriteLine();
-        output.WriteLine(Invariant($"{regressions} regressions, wall {baseline.Episodes.Sum(e => e.WallSeconds):F1} -> {candidate.Episodes.Sum(e => e.WallSeconds):F1} s, ffmpeg CPU {Seconds(baseline.Episodes.Select(e => e.CpuSeconds))} -> {Seconds(candidate.Episodes.Select(e => e.CpuSeconds))}"));
-        return regressions > 0 ? 1 : 0;
+        output.WriteLine(Invariant($"{tuning} tuning and {holdout} holdout regressions, wall {baseline.Episodes.Sum(e => e.WallSeconds):F1} -> {candidate.Episodes.Sum(e => e.WallSeconds):F1} s, ffmpeg CPU {Seconds(baseline.Episodes.Select(e => e.CpuSeconds))} -> {Seconds(candidate.Episodes.Select(e => e.CpuSeconds))}"));
+        return tuning + holdout > 0 ? 1 : 0;
     }
 
     public static int Usage(TextWriter output)
@@ -221,7 +229,8 @@ internal static class Commands
 }
 
 /// <summary>
-/// A command's options as <c>--name value</c> pairs. Any name the command does not take is an error.
+/// A command's options as <c>--name value</c> pairs. A name the command does not take, or one given
+/// twice, is an error.
 /// </summary>
 internal sealed class Options
 {
@@ -245,7 +254,10 @@ internal sealed class Options
                 throw new ArgumentException($"unknown option --{name}; this command takes --{string.Join(", --", allowed)}");
             }
 
-            values[name] = args[i + 1];
+            if (!values.TryAdd(name, args[i + 1]))
+            {
+                throw new ArgumentException($"--{name} is given twice");
+            }
         }
 
         return new Options(values);
