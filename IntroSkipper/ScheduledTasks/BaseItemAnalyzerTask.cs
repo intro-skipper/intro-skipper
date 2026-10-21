@@ -206,6 +206,7 @@ public partial class BaseItemAnalyzerTask(
     private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
+        HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
 
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
         foreach (var episode in season.Episodes)
@@ -226,13 +227,30 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        if (season.Episodes.Count > 0 && !ShouldCreateCreditsDerivedPreview(season.Episodes[0], Config))
+        {
+            // The global Preview switch also disables credits-derived previews. Clear them
+            // for verified episodes even when queue verification finds no analyzer work.
+            var clearedPreviewEpisodeIds = await _database.ClearCreditsDerivedPreviewsAsync(
+                episodes.Select(episode => episode.EpisodeId),
+                cancellationToken).ConfigureAwait(false);
+            clearedCreditsDerivedPreviewIds.UnionWith(clearedPreviewEpisodeIds);
+
+            // Queue verification ran before cleanup and may have marked Preview settled.
+            // Reopen it before the chapter-read gate when this pass will scan previews.
+            if (Config.ScanPreview && modes.Contains(AnalysisMode.Preview))
+            {
+                ReopenClearedCreditsDerivedPreviews(episodes, clearedCreditsDerivedPreviewIds);
+            }
+        }
+
         if (episodes.Count == 0)
         {
             return;
         }
 
         var first = episodes[0];
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, Config);
         var seasonStates = await _database.GetSettleReanalysisStatesAsync(first.SeasonId, cancellationToken).ConfigureAwait(false);
 
         // A replaced file makes the old automatic segments and fingerprints wrong for every
@@ -266,11 +284,6 @@ public partial class BaseItemAnalyzerTask(
         // lead-in probe decodes its window again.
         var utcNow = DateTime.UtcNow;
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
-
-        if (!previewFromCreditsEnd)
-        {
-            await _database.ClearCreditsDerivedPreviewsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-        }
 
         if (!manualScan && AnalysisEligibility.IsSeasonZeroOptedOut(first, Config))
         {
@@ -344,6 +357,13 @@ public partial class BaseItemAnalyzerTask(
             foreach (var mode in modes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (mode == AnalysisMode.Preview && Config.ScanPreview)
+                {
+                    // Keep the late check for a ScanPreview setting enabled during this pass,
+                    // after the initial chapter-read decision.
+                    ReopenClearedCreditsDerivedPreviews(readable, clearedCreditsDerivedPreviewIds);
+                }
+
                 var hasPendingSettledReanalysis = settledResetModes.Contains(mode) ||
                     (isSettledForReanalysis &&
                         seasonStates.TryGetValue(mode, out var recordedState) &&
@@ -828,7 +848,7 @@ public partial class BaseItemAnalyzerTask(
         // go stale when preview settings change. Failed Credits episodes retain their prior
         // rows here; a settled-season reset may later refresh their Preview from retained
         // Credits under the stored hash.
-        var previewFromCreditsEnd = ShouldDerivePreview(first, Config);
+        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, Config);
         if (previewFromCreditsEnd)
         {
             if (mode == AnalysisMode.Credits)
@@ -987,9 +1007,24 @@ public partial class BaseItemAnalyzerTask(
     private static bool IsModeOpen(IReadOnlyList<QueuedEpisode> episodes, AnalysisMode mode)
         => episodes.Any(episode => episode.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
 
+    private static void ReopenClearedCreditsDerivedPreviews(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlySet<Guid> clearedPreviewEpisodeIds)
+    {
+        foreach (var episode in episodes.Where(episode =>
+            clearedPreviewEpisodeIds.Contains(episode.EpisodeId)
+            && episode.GetAnalyzed(AnalysisMode.Preview) != EpisodeState.UserProvided))
+        {
+            episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.NotAnalyzed);
+        }
+    }
+
     private static bool ShouldDerivePreview(QueuedEpisode episode, PluginConfiguration config)
         => episode.PreviewFromCreditsEndOverride
             ?? (episode.Category == QueuedMediaCategory.AnimeEpisode && config.AnimePreviewFromCreditsEnd);
+
+    private static bool ShouldCreateCreditsDerivedPreview(QueuedEpisode episode, PluginConfiguration config)
+        => config.ScanPreview && ShouldDerivePreview(episode, config);
 
     private static AnalysisMode[] GetSubtitleModesToPreserve(
         IReadOnlyCollection<AnalysisMode> modes,

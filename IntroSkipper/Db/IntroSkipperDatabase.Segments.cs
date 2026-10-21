@@ -812,17 +812,19 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Removes active Preview segments derived from Credits for the supplied items, preserving
-    /// user segments and previews produced by the regular Preview pass.
+    /// user segments and previews produced by the regular Preview pass. Items with a deleted
+    /// row have their Preview analysis record cleared in the same transaction so a later Preview
+    /// pass can regenerate the result.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of credits-derived preview rows removed.</returns>
-    public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    /// <returns>Item IDs whose credits-derived preview rows were removed.</returns>
+    public async Task<IReadOnlyCollection<Guid>> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         Guid[] ids = [.. itemIds.Distinct()];
         if (ids.Length == 0)
         {
-            return 0;
+            return [];
         }
 
         await InitializeAsync().ConfigureAwait(false);
@@ -835,10 +837,15 @@ public sealed partial class IntroSkipperDatabase
                 && s.Type == AnalysisMode.Preview
                 && s.Source == SegmentSource.CreditsDerived
                 && s.State == SegmentState.Active);
-            var (removed, _) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            var (_, deletedItemIds) = await DeleteSegmentsAndJournalAsync(db, doomedRows, cancellationToken).ConfigureAwait(false);
+            foreach (var itemId in deletedItemIds)
+            {
+                await ClearItemAnalysisCoreAsync(db, itemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+            }
+
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return removed;
+            return deletedItemIds;
         }
     }
 
