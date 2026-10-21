@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -14,7 +15,8 @@ namespace CreditsRunner;
 /// Records the analyzer's calls into the ffmpeg service and the ffmpeg processes each one starts.
 /// Pass it as the <see cref="FFmpegService"/> logger, which its process runner shares, and hand
 /// the analyzer <see cref="Wrap"/> of that service. One recorder serves one pass, with calls
-/// made one at a time.
+/// made one at a time. Each call belongs to the episode its first <see cref="QueuedEpisode"/>
+/// argument names, so a season pass can split its calls by episode.
 /// </summary>
 /// <remarks>
 /// The process runner logs <c>Starting ffmpeg with the following arguments</c> at debug before
@@ -24,10 +26,12 @@ namespace CreditsRunner;
 /// </remarks>
 internal sealed class CallRecorder : ILogger<FFmpegService>
 {
-    private readonly List<CallTiming> _calls = [];
+    private readonly List<(Guid? Episode, CallTiming Call)> _calls = [];
     private int _processes;
 
-    public IReadOnlyList<CallTiming> Calls => _calls;
+    public IReadOnlyList<CallTiming> Calls => [.. _calls.Select(call => call.Call)];
+
+    public IReadOnlyList<CallTiming> CallsOf(Guid episode) => [.. _calls.Where(call => call.Episode == episode).Select(call => call.Call)];
 
     public IFFmpegService Wrap(IFFmpegService service) => RecordingProxy.Create(service, this);
 
@@ -58,7 +62,7 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
         }
     }
 
-    private void Record(string trigger, Mark mark) => _calls.Add(Measure(trigger, mark));
+    private void Record(Guid? episode, string trigger, Mark mark) => _calls.Add((episode, Measure(trigger, mark)));
 
     internal readonly record struct Mark(long Timestamp, int Processes, double? Cpu);
 
@@ -93,11 +97,12 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
                 return Forward(targetMethod, args);
             }
 
+            var episode = args?.OfType<QueuedEpisode>().FirstOrDefault()?.EpisodeId;
             var mark = _recorder.Begin();
             var task = (Task)Forward(targetMethod, args)!;
             return targetMethod.ReturnType.IsGenericType
-                ? _recordOfT.MakeGenericMethod(targetMethod.ReturnType.GetGenericArguments()[0]).Invoke(this, [task, targetMethod.Name, mark])
-                : RecordAsync(task, targetMethod.Name, mark);
+                ? _recordOfT.MakeGenericMethod(targetMethod.ReturnType.GetGenericArguments()[0]).Invoke(this, [task, episode, targetMethod.Name, mark])
+                : RecordAsync(task, episode, targetMethod.Name, mark);
         }
 
         private object? Forward(MethodInfo method, object?[]? args)
@@ -113,7 +118,7 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
             }
         }
 
-        private async Task RecordAsync(Task task, string trigger, Mark mark)
+        private async Task RecordAsync(Task task, Guid? episode, string trigger, Mark mark)
         {
             try
             {
@@ -121,11 +126,11 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
             }
             finally
             {
-                _recorder.Record(trigger, mark);
+                _recorder.Record(episode, trigger, mark);
             }
         }
 
-        private async Task<T> RecordAsync<T>(Task<T> task, string trigger, Mark mark)
+        private async Task<T> RecordAsync<T>(Task<T> task, Guid? episode, string trigger, Mark mark)
         {
             try
             {
@@ -133,7 +138,7 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
             }
             finally
             {
-                _recorder.Record(trigger, mark);
+                _recorder.Record(episode, trigger, mark);
             }
         }
     }

@@ -19,7 +19,7 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
   - `Configuration/`, `Helper/`, `Filters/`
 - `IntroSkipper.Tests/` xUnit tests
 - `web/` frontend (pnpm)
-- `tools/CreditsRunner/` runs the keyframe credits analyzer over real files outside Jellyfin and scores it against labels
+- `tools/CreditsRunner/` runs the keyframe credits analyzer, or the Introduction chain one season at a time (intro mode), over real files outside Jellyfin and scores it against labels
 - `CONTEXT.md` domain glossary. Use its terms in code, tests and prose.
 - `docs/` `segments.md` (storage, writes, projection to Jellyfin), `analysis.md` (queue, seasons, analysis records, detection cache), `credits.md` (credits pass, keyframe analyzer)
 
@@ -68,7 +68,7 @@ There is no `main`/`master`. Branches are named for Jellyfin releases, and origi
 <important if="you are working on analyzers, the detection pipeline, or scheduled tasks">
 `DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Analyzers read chapters only from `QueuedEpisode.Chapters`, which the season pass fills from the chapter source, and never fetch chapters themselves. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings. A test fails until every new setting is hashed or listed as not affecting detection (`TestConfigHasher`).
 
-Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run; its README has the commands.
+Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run, and every Chapter, Chromaprint or time adjustment change to Introduction with the runner's intro mode; its README has the commands.
 </important>
 
 <important if="you are touching databases, EF Core, migrations, or anything in Db/">

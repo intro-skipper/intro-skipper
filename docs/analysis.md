@@ -38,6 +38,7 @@ How library changes become analysis passes, how a pass decides what to analyze, 
    - Preview uses chapters, and can derive a preview from the credits end (`AnimePreviewDeriver`, `docs/credits.md`). A season's `PreviewFromCreditsEnd` override decides that; without one, previews derive for anime when `AnimePreviewFromCreditsEnd` is on. If Credits failed and its automatic rows remain as fallbacks, a Preview-mode derive uses their stored Credits hash, provided those rows share one hash.
    - Recap and Preview run the chapter analyzer before subtitle matching, so chapter matches take precedence. Subtitle matching is an opt-in fallback before the remaining default analyzers (see Subtitle analysis below).
    - `AnalyzerAction.None` skips the mode for the season and records its episodes as analyzed under a hash that includes the action, so the season is not queued again on every pass.
+   - `tools/CreditsRunner` in intro mode runs the default Introduction chain over labeled real files, one season at a time, and judges every Chapter, Chromaprint or time adjustment change to Introduction; its README has the commands.
 
 A season key can override `AnalysisPercent`, `AnalysisLengthLimit`, `PreviewFromCreditsEnd`, `SubtitleRecapDetection` and `SubtitlePreviewDetection` (`DbSeasonAnalysisOverride`); a null value inherits the plugin-wide setting. The dashboard's Full Series option writes the same overrides to every season the series has at that moment, so a season added later inherits the plugin-wide settings.
 
