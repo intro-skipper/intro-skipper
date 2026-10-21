@@ -369,14 +369,24 @@ internal static class ConfigHasher
     // next preview chapter, so the preview chapter settings can change Credits. Present only when
     // they differ from the defaults, the pre-10.11.22 pattern included, so default installs keep
     // their hash. The two default patterns differ only on colon-delimited end labels such as
-    // "Preview: End".
+    // "Preview: End". Full-length chapters replace the duration limits for every mode, so under
+    // them the limits count as their defaults.
     private static string PreviewChapterToken(PluginConfiguration config, AnalyzerAction action)
-        => !config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame
-            && ((config.ChapterAnalyzerPreviewPattern != _defaults.ChapterAnalyzerPreviewPattern && config.ChapterAnalyzerPreviewPattern != LegacyDefaultPreviewPattern)
-                || config.MinimumPreviewDuration != _defaults.MinimumPreviewDuration
-                || config.MaximumPreviewDuration != _defaults.MaximumPreviewDuration)
-            ? FormattableString.Invariant($"|previewChap={config.ChapterAnalyzerPreviewPattern}|previewMin={config.MinimumPreviewDuration}|previewMax={config.MaximumPreviewDuration}")
+    {
+        if (config.EnhanceChapterCredits || action is AnalyzerAction.BlackFrame)
+        {
+            return string.Empty;
+        }
+
+        var (minimum, maximum) = config.FullLengthChapters
+            ? (_defaults.MinimumPreviewDuration, _defaults.MaximumPreviewDuration)
+            : (config.MinimumPreviewDuration, config.MaximumPreviewDuration);
+        var customPattern = config.ChapterAnalyzerPreviewPattern != _defaults.ChapterAnalyzerPreviewPattern
+            && config.ChapterAnalyzerPreviewPattern != LegacyDefaultPreviewPattern;
+        return customPattern || minimum != _defaults.MinimumPreviewDuration || maximum != _defaults.MaximumPreviewDuration
+            ? FormattableString.Invariant($"|previewChap={config.ChapterAnalyzerPreviewPattern}|previewMin={minimum}|previewMax={maximum}")
             : string.Empty;
+    }
 
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
