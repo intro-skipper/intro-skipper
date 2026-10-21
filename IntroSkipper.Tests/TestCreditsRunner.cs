@@ -132,6 +132,23 @@ public class TestCreditsRunner
     }
 
     [Fact]
+    public void Options_RejectAPairWhoseValueIsTheNextOption()
+    {
+        // A parser that took --no-chapters as the value of --out would write the results to a
+        // file of that name and keep the chapters.
+        Assert.Throws<ArgumentException>(() => Options.Parse(["--out", "--no-chapters"], ["out"], ["no-chapters"]));
+        Assert.Throws<ArgumentException>(() => Options.Parse(["--out"], ["out"]));
+    }
+
+    [Fact]
+    public async Task Run_IntroMode_RefusesRepeat_EvenAtOne()
+    {
+        // The refusal comes before the manifest is read, so none is needed.
+        var refusal = await Assert.ThrowsAsync<ArgumentException>(() => Commands.RunAsync(["--manifest", "m.json", "--out", "out.json", "--mode", "intro", "--repeat", "1"], TextWriter.Null, CancellationToken.None));
+        Assert.Contains("--repeat", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Results_WrittenBeforeModeAndNoChapters_ReadAsCreditsWithChapters()
     {
         using var directory = new TempDirectory();

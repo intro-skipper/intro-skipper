@@ -288,8 +288,10 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                // An exception out of the chain fails the whole season in the analysis pass too.
-                foreach (var episode in readable)
+                // The analysis pass logs an exception out of the chain, keeps the rows each
+                // analyzer call committed before it and retries the season on its next pass.
+                // Here the run is the only pass, so the episodes still open fail with it.
+                foreach (var episode in readable.Where(episode => episode.NeedsAnalysis(AnalysisMode.Introduction)))
                 {
                     failures[episode.EpisodeId] = $"{e.GetType().Name}: {e.Message}";
                 }
@@ -300,7 +302,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             {
                 var failure = failures.GetValueOrDefault(episode.EpisodeId)
                     ?? (episode.GetAnalyzed(AnalysisMode.Introduction) == EpisodeState.AnalysisFailed ? "analysis failed" : null);
-                Candidate[] rows = failures.ContainsKey(episode.EpisodeId)
+                Candidate[] rows = failure is not null
                     ? []
                     : [.. (await database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
                         .Where(row => row.Type == AnalysisMode.Introduction)

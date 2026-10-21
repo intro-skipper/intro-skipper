@@ -40,9 +40,9 @@ internal static class Commands
             throw new ArgumentException("--no-chapters needs --mode intro");
         }
 
-        if (mode == AnalysisMode.Introduction && (options.Optional("minimum-credits-duration") is not null || repeats > 1))
+        if (mode == AnalysisMode.Introduction && (options.Optional("minimum-credits-duration") is not null || options.Optional("repeat") is not null))
         {
-            throw new ArgumentException("--mode intro takes neither --minimum-credits-duration nor --repeat above 1");
+            throw new ArgumentException("--mode intro takes neither --minimum-credits-duration nor --repeat");
         }
 
         var config = new PluginConfiguration();
@@ -265,7 +265,7 @@ internal static class Commands
 
 /// <summary>
 /// A command's options as <c>--name value</c> pairs and bare <c>--flag</c>s. A name the command
-/// does not take, or one given twice, is an error.
+/// does not take, one given twice, or a pair whose value is missing, is an error.
 /// </summary>
 internal sealed class Options
 {
@@ -302,7 +302,9 @@ internal sealed class Options
                 throw new ArgumentException($"unknown option --{name}; this command takes --{string.Join(", --", allowed.Concat(flags))}");
             }
 
-            if (i + 1 >= args.Count)
+            // No value starts with --, so the next option is not one: --out --no-chapters would
+            // otherwise write to a file named --no-chapters and keep the chapters.
+            if (i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal))
             {
                 throw new ArgumentException($"--{name} needs a value");
             }
