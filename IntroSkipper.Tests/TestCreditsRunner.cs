@@ -5,6 +5,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,7 +32,7 @@ public class TestCreditsRunner
             [new LabeledPart(new Boundary(100, 102), new Boundary(120, 120)), new LabeledPart(new Boundary(200, 200), new Boundary(250, 250))],
             Ignore: [new Interval(240, 250), new Interval(300, 320)]);
 
-        var score = Scorer.Score(label, Result(new(98, 121, "Combined"), new(150, 160, "BlackFrame"), new(305, 315, "KeyframeVisuals")));
+        var score = Scorer.Score(label, Result("episode", new(98, 121, "Combined"), new(150, 160, "BlackFrame"), new(305, 315, "KeyframeVisuals")));
 
         Assert.Equal([new PartScore(-2, 1), new PartScore(null, null)], score.Parts);
         Assert.Equal([new Candidate(150, 160, "BlackFrame")], score.FalseParts);
@@ -46,7 +47,7 @@ public class TestCreditsRunner
         // the second part counts as missed, although its credits are covered.
         var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(210, 210), new Boundary(300, 300))]);
 
-        var score = Scorer.Score(label, Result(new Candidate(100, 300, "Combined")));
+        var score = Scorer.Score(label, Result("episode", new Candidate(100, 300, "Combined")));
 
         Assert.Equal([new PartScore(0, 100), new PartScore(null, null)], score.Parts);
         Assert.Equal(10, score.StorySkipped, 6);
@@ -60,7 +61,7 @@ public class TestCreditsRunner
         // other covers credits too and skips no story.
         var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200))]);
 
-        var score = Scorer.Score(label, Result(new(100, 140, "BlackFrame"), new(160, 200, "BlackFrame")));
+        var score = Scorer.Score(label, Result("episode", new(100, 140, "BlackFrame"), new(160, 200, "BlackFrame")));
 
         Assert.Equal([new PartScore(0, -60)], score.Parts);
         Assert.Empty(score.FalseParts);
@@ -72,16 +73,49 @@ public class TestCreditsRunner
     public void Regressions_FlagMissesNewFalsePartsNewStoryAndErrorGrowthBeyondHalfASecond()
     {
         var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(300, 300), new Boundary(400, 400))]);
-        var baseline = Scorer.Score(label, Result(new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"), new(450, 460, "BlackFrame")));
+        var baseline = Scorer.Score(label, Result("episode", new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"), new(450, 460, "BlackFrame")));
 
         // The start moves 0.4 s, which is noise; the end moves 0.6 s, which is not. The false
         // part at 450 moves a second, so it is not new, but the second it now skips is.
-        var candidate = Scorer.Score(label, Result(new(100.4, 199.4, "BlackFrame"), new(451, 461, "BlackFrame"), new(500, 520, "KeyframeVisuals")));
+        var candidate = Scorer.Score(label, Result("episode", new(100.4, 199.4, "BlackFrame"), new(451, 461, "BlackFrame"), new(500, 520, "KeyframeVisuals")));
 
         Assert.Equal(
             ["part 1 end error +0.00 -> -0.60 s", "part 2 is now missed", "new false part 500.00-520.00 KeyframeVisuals", "21.00 s of new story skipped"],
             Differ.Regressions(baseline, candidate));
     }
+
+    [Fact]
+    public void Diff_TagsAndCountsHoldoutRegressionsApart()
+    {
+        using var directory = new TempDirectory();
+        var configuration = JsonSerializer.SerializeToElement(new PluginConfiguration(), Json.Options);
+        RunResults Run(params EpisodeResult[] episodes) => new("commit", "ffmpeg", "cpu", "os", 1, configuration, episodes);
+        Json.Write(directory.Join("baseline.json"), Run(Result("tune", new Candidate(100, 200, "BlackFrame")), Result("held", new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"))));
+        Json.Write(directory.Join("candidate.json"), Run(Result("tune"), Result("held")));
+        Json.Write(directory.Join("tuning-unchanged.json"), Run(Result("tune"), Result("held", new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"))));
+        File.WriteAllText(directory.Join("labels.json"), """
+            { "files": [
+              { "id": "tune", "parts": [{ "start": 100, "end": 200 }] },
+              { "id": "held", "holdout": true, "parts": [{ "start": 100, "end": 200 }, { "start": 300, "end": 400 }] }
+            ] }
+            """);
+        using var output = new StringWriter();
+
+        var exitCode = Commands.Diff(["--baseline", directory.Join("baseline.json"), "--candidate", directory.Join("candidate.json"), "--labels", directory.Join("labels.json")], output);
+
+        var lines = output.ToString().Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(1, exitCode);
+        Assert.Equal(["REGRESSION held (holdout): part 1 is now missed", "REGRESSION held (holdout): part 2 is now missed"], lines.Where(line => line.Contains("REGRESSION held", StringComparison.Ordinal)));
+        Assert.Equal("REGRESSION tune: part 1 is now missed", Assert.Single(lines, line => line.Contains("REGRESSION tune", StringComparison.Ordinal)));
+        Assert.StartsWith("1 tuning and 2 holdout regressions", lines[^1], StringComparison.Ordinal);
+
+        // A holdout regression alone still fails the diff.
+        Assert.Equal(1, Commands.Diff(["--baseline", directory.Join("tuning-unchanged.json"), "--candidate", directory.Join("candidate.json"), "--labels", directory.Join("labels.json")], TextWriter.Null));
+    }
+
+    [Fact]
+    public void Options_RejectARepeatedOption()
+        => Assert.Throws<ArgumentException>(() => Options.Parse(["--labels", "a.json", "--labels", "b.json"], "labels"));
 
     [Fact]
     public void Labels_ReadABoundaryAsATimeOrABand_AndRejectAMissingPartsList()
@@ -135,6 +169,6 @@ public class TestCreditsRunner
         }
     }
 
-    private static EpisodeResult Result(params Candidate[] combined)
-        => new("episode", 0, 450, combined, combined, null, false, 0, null, 0, []);
+    private static EpisodeResult Result(string id, params Candidate[] combined)
+        => new(id, 0, 450, combined, combined, null, false, 0, null, 0, []);
 }
