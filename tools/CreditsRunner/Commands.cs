@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Text.Json;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 
 namespace CreditsRunner;
 
@@ -15,13 +16,33 @@ internal static class Commands
 {
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter output, CancellationToken cancellationToken)
     {
-        var options = Options.Parse(args, "manifest", "out", "repeat", "minimum-credits-duration", "ffmpeg");
+        var options = Options.Parse(args, ["manifest", "out", "repeat", "minimum-credits-duration", "ffmpeg", "mode"], ["no-chapters"]);
         var manifestPath = Path.GetFullPath(options.Required("manifest"));
         var outPath = Path.GetFullPath(options.Required("out"));
         var repeats = options.Int("repeat") ?? 1;
         if (repeats < 1)
         {
             throw new ArgumentException("--repeat must be at least 1");
+        }
+
+        var mode = options.Optional("mode") switch
+        {
+            null or "credits" => AnalysisMode.Credits,
+            "intro" => AnalysisMode.Introduction,
+            var other => throw new ArgumentException($"--mode must be intro or credits, got '{other}'"),
+        };
+        var noChapters = options.Flag("no-chapters");
+
+        // The credits path reads no chapters. Intro mode has no credits minimum, and its season
+        // pass is not repeated: repeats over a season are a separate design.
+        if (mode == AnalysisMode.Credits && noChapters)
+        {
+            throw new ArgumentException("--no-chapters needs --mode intro");
+        }
+
+        if (mode == AnalysisMode.Introduction && (options.Optional("minimum-credits-duration") is not null || repeats > 1))
+        {
+            throw new ArgumentException("--mode intro takes neither --minimum-credits-duration nor --repeat above 1");
         }
 
         var config = new PluginConfiguration();
@@ -36,6 +57,13 @@ internal static class Commands
         var files = Json.Read<Manifest>(manifestPath).Files
             .Select(file => file with { Path = Path.GetFullPath(file.Path, directory) })
             .ToList();
+
+        // Intro mode queues every file as an episode, and the analysis pass never fingerprints a movie.
+        if (mode == AnalysisMode.Introduction && files.Where(file => file.Movie).Select(file => file.Id).ToList() is { Count: > 0 } movies)
+        {
+            throw new ArgumentException($"--mode intro takes no movies: {string.Join(", ", movies)}");
+        }
+
         var bad = files
             .Where(file => !File.Exists(file.Path) || file.Duration <= 0 || files.Count(other => other.Id == file.Id) > 1)
             .Select(file => file.Id)
@@ -58,14 +86,14 @@ internal static class Commands
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-        var results = await new Runner(config, repeats, output).RunAsync(files, cancellationToken).ConfigureAwait(false);
+        var results = await new Runner(config, repeats, output, mode, noChapters).RunAsync(files, cancellationToken).ConfigureAwait(false);
         Json.Write(outPath, results);
         return 0;
     }
 
     public static int Score(IReadOnlyList<string> args, TextWriter output)
     {
-        var options = Options.Parse(args, "results", "labels");
+        var options = Options.Parse(args, ["results", "labels"]);
         var results = Json.Read<RunResults>(options.Required("results"));
         var labels = Labels(options);
         output.WriteLine($"{results.Commit} | {results.Ffmpeg} | {results.Cpu}");
@@ -81,11 +109,11 @@ internal static class Commands
 
             var score = Scorer.Score(label, episode);
             scores.Add(score);
-            output.WriteLine($"{episode.Id}: {Describe(score)}{(episode.Nondeterministic ? " (nondeterministic)" : string.Empty)}");
+            output.WriteLine($"{episode.Id}: {Describe(score, results.Mode)}{(episode.Nondeterministic ? " (nondeterministic)" : string.Empty)}");
         }
 
         output.WriteLine();
-        WriteSummaries(output, scores);
+        WriteSummaries(output, scores, results.Mode);
         output.WriteLine();
         foreach (var trigger in results.Episodes.SelectMany(episode => episode.Calls).GroupBy(call => call.Trigger))
         {
@@ -102,10 +130,14 @@ internal static class Commands
     /// </summary>
     public static int Diff(IReadOnlyList<string> args, TextWriter output)
     {
-        var options = Options.Parse(args, "baseline", "candidate", "labels");
+        var options = Options.Parse(args, ["baseline", "candidate", "labels"]);
         var baseline = Json.Read<RunResults>(options.Required("baseline"));
         var candidate = Json.Read<RunResults>(options.Required("candidate"));
         var labels = Labels(options);
+        if (baseline.Mode != candidate.Mode)
+        {
+            throw new ArgumentException($"the runs detected different segments: {baseline.Mode} and {candidate.Mode}");
+        }
 
         // Anything else that differs between the runs can change candidates or times too.
         if (!JsonElement.DeepEquals(baseline.Configuration, candidate.Configuration))
@@ -113,7 +145,7 @@ internal static class Commands
             output.WriteLine("warning: the runs used different configurations");
         }
 
-        foreach (var (what, before, after) in new[] { ("ffmpeg", baseline.Ffmpeg, candidate.Ffmpeg), ("CPU", baseline.Cpu, candidate.Cpu), ("repeats", $"{baseline.Repeats}", $"{candidate.Repeats}") })
+        foreach (var (what, before, after) in new[] { ("ffmpeg", baseline.Ffmpeg, candidate.Ffmpeg), ("CPU", baseline.Cpu, candidate.Cpu), ("repeats", $"{baseline.Repeats}", $"{candidate.Repeats}"), ("no-chapters", $"{baseline.NoChapters}", $"{candidate.NoChapters}") })
         {
             if (before != after)
             {
@@ -169,10 +201,10 @@ internal static class Commands
 
         output.WriteLine();
         output.WriteLine($"baseline {baseline.Commit}");
-        WriteSummaries(output, baselineScores);
+        WriteSummaries(output, baselineScores, baseline.Mode);
         output.WriteLine();
         output.WriteLine($"candidate {candidate.Commit}");
-        WriteSummaries(output, candidateScores);
+        WriteSummaries(output, candidateScores, candidate.Mode);
         output.WriteLine();
         output.WriteLine(Invariant($"{tuning} tuning and {holdout} holdout regressions, wall {baseline.Episodes.Sum(e => e.WallSeconds):F1} -> {candidate.Episodes.Sum(e => e.WallSeconds):F1} s, ffmpeg CPU {Seconds(baseline.Episodes.Select(e => e.CpuSeconds))} -> {Seconds(candidate.Episodes.Select(e => e.CpuSeconds))}"));
         return tuning + holdout > 0 ? 1 : 0;
@@ -182,6 +214,7 @@ internal static class Commands
     {
         output.WriteLine("""
             CreditsRunner run --manifest <manifest.json> --out <results.json> [--repeat <n>] [--minimum-credits-duration <s>] [--ffmpeg <dir>]
+            CreditsRunner run --mode intro --manifest <manifest.json> --out <results.json> [--no-chapters] [--ffmpeg <dir>]
             CreditsRunner score --results <results.json> --labels <labels.json>
             CreditsRunner diff --baseline <results.json> --candidate <results.json> --labels <labels.json>
             """);
@@ -191,7 +224,7 @@ internal static class Commands
     private static Dictionary<string, Label> Labels(Options options)
         => Json.Read<LabelSet>(options.Required("labels")).Files.ToDictionary(label => label.Id);
 
-    private static void WriteSummaries(TextWriter output, IReadOnlyList<EpisodeScore> scores)
+    private static void WriteSummaries(TextWriter output, IReadOnlyList<EpisodeScore> scores, AnalysisMode mode)
     {
         (string Name, IReadOnlyList<EpisodeScore> Group)[] groups = [("all", scores), ("tuning", [.. scores.Where(s => !s.Holdout)]), ("holdout", [.. scores.Where(s => s.Holdout)])];
         foreach (var (name, group) in groups)
@@ -202,19 +235,21 @@ internal static class Commands
             }
 
             var summary = Scorer.Summarize(group);
-            output.WriteLine(Invariant($"{name}: {summary.Files} files, {summary.Failures} failed, {summary.Parts} parts, {summary.Missed} missed, {summary.FalseParts} false, start {summary.MeanStartError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteStartError:F2}|) s, end {summary.MeanEndError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteEndError:F2}|) s, story skipped {summary.StorySkipped:F1} s, credits missed {summary.CreditsMissed:F1} s"));
+            output.WriteLine(Invariant($"{name}: {summary.Files} files, {summary.Failures} failed, {summary.Parts} parts, {summary.Missed} missed, {summary.FalseParts} false, start {summary.MeanStartError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteStartError:F2}|) s, end {summary.MeanEndError:+0.00;-0.00;+0.00} (|{summary.MeanAbsoluteEndError:F2}|) s, story skipped {summary.StorySkipped:F1} s, {Part(mode)} missed {summary.CreditsMissed:F1} s"));
             output.WriteLine("  hit rate " + string.Join(", ", summary.HitRates.Select(rate => Invariant($"{rate.Tolerance} s {rate.Start:P0}/{rate.End:P0}"))));
         }
     }
 
-    private static string Describe(EpisodeScore score)
+    private static string Describe(EpisodeScore score, AnalysisMode mode)
     {
         var parts = score.Parts.Select(part => part.Missed ? "missed" : Invariant($"{part.StartError:+0.00;-0.00;+0.00}/{part.EndError:+0.00;-0.00;+0.00}"));
         return (score.Failed ? "FAILED, " : string.Empty)
             + $"parts [{string.Join(", ", parts)}]"
             + (score.FalseParts.Count > 0 ? $", false {string.Join(", ", score.FalseParts)}" : string.Empty)
-            + Invariant($", story {score.StorySkipped:F2} s, credits missed {score.CreditsMissed:F2} s");
+            + Invariant($", story {score.StorySkipped:F2} s, {Part(mode)} missed {score.CreditsMissed:F2} s");
     }
+
+    private static string Part(AnalysisMode mode) => mode == AnalysisMode.Introduction ? "intro" : "credits";
 
     private static string Candidates(EpisodeResult episode)
         => episode.Failure ?? (episode.Combined.Count == 0 ? "none" : string.Join(", ", episode.Combined));
@@ -229,39 +264,59 @@ internal static class Commands
 }
 
 /// <summary>
-/// A command's options as <c>--name value</c> pairs. A name the command does not take, or one given
-/// twice, is an error.
+/// A command's options as <c>--name value</c> pairs and bare <c>--flag</c>s. A name the command
+/// does not take, or one given twice, is an error.
 /// </summary>
 internal sealed class Options
 {
     private readonly Dictionary<string, string> _values;
+    private readonly HashSet<string> _flags;
 
-    private Options(Dictionary<string, string> values) => _values = values;
+    private Options(Dictionary<string, string> values, HashSet<string> flags) => (_values, _flags) = (values, flags);
 
-    public static Options Parse(IReadOnlyList<string> args, params string[] allowed)
+    public static Options Parse(IReadOnlyList<string> args, string[] allowed, string[]? flags = null)
     {
+        flags ??= [];
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
-        for (var i = 0; i < args.Count; i += 2)
+        var given = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < args.Count; i++)
         {
-            if (!args[i].StartsWith("--", StringComparison.Ordinal) || i + 1 >= args.Count)
+            if (!args[i].StartsWith("--", StringComparison.Ordinal))
             {
-                throw new ArgumentException($"expected --name value, got '{args[i]}'");
+                throw new ArgumentException($"expected --name, got '{args[i]}'");
             }
 
             var name = args[i][2..];
-            if (!allowed.Contains(name))
+            if (flags.Contains(name))
             {
-                throw new ArgumentException($"unknown option --{name}; this command takes --{string.Join(", --", allowed)}");
+                if (!given.Add(name))
+                {
+                    throw new ArgumentException($"--{name} is given twice");
+                }
+
+                continue;
             }
 
-            if (!values.TryAdd(name, args[i + 1]))
+            if (!allowed.Contains(name))
+            {
+                throw new ArgumentException($"unknown option --{name}; this command takes --{string.Join(", --", allowed.Concat(flags))}");
+            }
+
+            if (i + 1 >= args.Count)
+            {
+                throw new ArgumentException($"--{name} needs a value");
+            }
+
+            if (!values.TryAdd(name, args[++i]))
             {
                 throw new ArgumentException($"--{name} is given twice");
             }
         }
 
-        return new Options(values);
+        return new Options(values, given);
     }
+
+    public bool Flag(string name) => _flags.Contains(name);
 
     public string Required(string name)
         => _values.TryGetValue(name, out var value) ? value : throw new ArgumentException($"--{name} is required");

@@ -4,6 +4,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IntroSkipper.Data;
 
 namespace CreditsRunner;
 
@@ -56,6 +57,8 @@ internal sealed record EpisodeResult(
 /// <param name="Ffmpeg">The first line of <c>ffmpeg -version</c>.</param>
 /// <param name="Repeats">Timed passes per file. Above one, an untimed pass warms the page cache first.</param>
 /// <param name="Configuration">The plugin configuration the analyzer ran with.</param>
+/// <param name="Mode">The segment type the run detected. Results written before intro mode existed read as credits.</param>
+/// <param name="NoChapters">Whether the intro run dropped every chapter after reading it.</param>
 internal sealed record RunResults(
     string Commit,
     string Ffmpeg,
@@ -63,4 +66,6 @@ internal sealed record RunResults(
     string Os,
     int Repeats,
     JsonElement Configuration,
-    IReadOnlyList<EpisodeResult> Episodes);
+    IReadOnlyList<EpisodeResult> Episodes,
+    AnalysisMode Mode = AnalysisMode.Credits,
+    bool NoChapters = false);

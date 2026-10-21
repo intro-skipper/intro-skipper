@@ -11,13 +11,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using CreditsRunner;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Xunit;
 
 /// <summary>
 /// The offline credits runner in tools/CreditsRunner: how it scores predictions against labeled
-/// credits parts, which changes between two runs it calls regressions, and one real run over a
-/// fixture clip.
+/// credits parts, which changes between two runs it calls regressions, one real run over a
+/// fixture clip, and intro-mode runs over a pair of fixture clips.
 /// </summary>
 public class TestCreditsRunner
 {
@@ -115,7 +116,81 @@ public class TestCreditsRunner
 
     [Fact]
     public void Options_RejectARepeatedOption()
-        => Assert.Throws<ArgumentException>(() => Options.Parse(["--labels", "a.json", "--labels", "b.json"], "labels"));
+        => Assert.Throws<ArgumentException>(() => Options.Parse(["--labels", "a.json", "--labels", "b.json"], ["labels"]));
+
+    [Fact]
+    public void Options_BareFlag_IsReadAndUnknownFlagRejected()
+    {
+        // The flag sits between two pairs, so a parser that read it as a pair would take
+        // --out as its value and fail on out.json.
+        var options = Options.Parse(["--manifest", "m.json", "--no-chapters", "--out", "out.json"], ["manifest", "out"], ["no-chapters"]);
+
+        Assert.True(options.Flag("no-chapters"));
+        Assert.Equal("out.json", options.Required("out"));
+        Assert.False(Options.Parse(["--manifest", "m.json"], ["manifest"], ["no-chapters"]).Flag("no-chapters"));
+        Assert.Throws<ArgumentException>(() => Options.Parse(["--bogus"], ["manifest"], ["no-chapters"]));
+    }
+
+    [Fact]
+    public void Results_WrittenBeforeModeAndNoChapters_ReadAsCreditsWithChapters()
+    {
+        using var directory = new TempDirectory();
+        var path = directory.Join("old.json");
+        var configuration = JsonSerializer.SerializeToElement(new PluginConfiguration(), Json.Options);
+        var json = JsonSerializer.SerializeToNode(new RunResults("commit", "ffmpeg", "cpu", "os", 1, configuration, [Result("e")], AnalysisMode.Introduction, NoChapters: true), Json.Options)!.AsObject();
+        Assert.True(json.Remove("mode") && json.Remove("noChapters"));
+        File.WriteAllText(path, json.ToJsonString());
+
+        var results = Json.Read<RunResults>(path);
+
+        Assert.Equal((AnalysisMode.Credits, false), (results.Mode, results.NoChapters));
+    }
+
+    [Fact]
+    public void Diff_RefusesRunsOfDifferentModes()
+    {
+        using var directory = new TempDirectory();
+        var configuration = JsonSerializer.SerializeToElement(new PluginConfiguration(), Json.Options);
+        Json.Write(directory.Join("credits.json"), new RunResults("commit", "ffmpeg", "cpu", "os", 1, configuration, [Result("e")]));
+        Json.Write(directory.Join("intro.json"), new RunResults("commit", "ffmpeg", "cpu", "os", 1, configuration, [Result("e")], AnalysisMode.Introduction));
+        File.WriteAllText(directory.Join("labels.json"), """{ "files": [{ "id": "e", "parts": [] }] }""");
+
+        Assert.Throws<ArgumentException>(() => Commands.Diff(["--baseline", directory.Join("credits.json"), "--candidate", directory.Join("intro.json"), "--labels", directory.Join("labels.json")], TextWriter.Null));
+    }
+
+    [Fact]
+    public async Task Run_IntroMode_RefusesAMovie()
+    {
+        using var directory = new TempDirectory();
+        await File.WriteAllTextAsync(directory.Join("manifest.json"), """{ "files": [{ "id": "m", "path": "m.mkv", "duration": 6000, "movie": true }] }""", CancellationToken.None);
+
+        var refusal = await Assert.ThrowsAsync<ArgumentException>(() => Commands.RunAsync(["--manifest", directory.Join("manifest.json"), "--out", directory.Join("out.json"), "--mode", "intro"], TextWriter.Null, CancellationToken.None));
+        Assert.Contains("movies: m", refusal.Message, StringComparison.Ordinal);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task Run_IntroMode_ComparesTheFilesOfOneSeason()
+    {
+        // The two clips share their first 17 s of audio; only a season pass compares them.
+        var results = await RunIntroAsync("s1", "s1");
+        var apart = await RunIntroAsync(null, null);
+
+        Assert.All(results.Episodes, episode =>
+        {
+            Assert.Null(episode.Failure);
+            var intro = Assert.Single(episode.Combined);
+            Assert.Equal(("Chromaprint", 0.0), (intro.Source, intro.Start));
+        });
+        Assert.All(apart.Episodes, episode => Assert.Empty(episode.Combined));
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task Run_IntroMode_AttributesEachCallToItsEpisode()
+    {
+        var results = await RunIntroAsync("s1", "s1");
+
+        Assert.All(results.Episodes, episode => Assert.Single(episode.Calls, call => call.Trigger == nameof(IFFmpegService.FingerprintAsync)));
+    }
 
     [Fact]
     public void Labels_ReadABoundaryAsATimeOrABand_AndRejectAMissingPartsList()
@@ -168,6 +243,11 @@ public class TestCreditsRunner
             File.Delete(path);
         }
     }
+
+    private static Task<RunResults> RunIntroAsync(string? introSeason, string? clipSeason)
+        => new Runner(new PluginConfiguration(), repeats: 1, TextWriter.Null, AnalysisMode.Introduction).RunAsync(
+            [new CorpusFile("intro", "../../../audio/big_buck_bunny_intro.mp3", 25, Season: introSeason), new CorpusFile("clip", "../../../audio/big_buck_bunny_clip.mp3", 60, Season: clipSeason)],
+            CancellationToken.None);
 
     private static EpisodeResult Result(string id, params Candidate[] combined)
         => new(id, 0, 450, combined, combined, null, false, 0, null, 0, []);

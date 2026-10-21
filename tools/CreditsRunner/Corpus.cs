@@ -13,8 +13,9 @@ namespace CreditsRunner;
 /// <param name="Id">Show and episode name, the key shared with the labels.</param>
 /// <param name="Path">The file, absolute or relative to the manifest.</param>
 /// <param name="Duration">Jellyfin's Duration in seconds, not ffprobe's: the credits window and its cache keys derive from it.</param>
-/// <param name="Movie">Whether the file is a movie, which widens the credits window.</param>
-internal sealed record CorpusFile(string Id, string Path, double Duration, bool Movie = false);
+/// <param name="Movie">Whether the file is a movie, which widens the credits window. Intro mode refuses movies.</param>
+/// <param name="Season">The season the intro mode compares the file with: files with the same value form one season, in manifest order. A file without one is a season of its own.</param>
+internal sealed record CorpusFile(string Id, string Path, double Duration, bool Movie = false, string? Season = null);
 
 internal sealed record Manifest(IReadOnlyList<CorpusFile> Files);
 
