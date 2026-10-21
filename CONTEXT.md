@@ -82,7 +82,7 @@ _Avoid_: Producer, trigger, source
 
 **Chapter source**:
 Where analysis reads an item's chapters: Jellyfin's chapter table by default, or, with `UseEmbeddedChaptersForAnalysis`, the chapters embedded in the media file, which leaves out chapters another plugin added to the table. The embedded read is shaped as Jellyfin's own probe stores chapters, so for a file no other plugin touched both sources hold the same list. A pass reads each episode's chapters from it once, before any mode runs, and every analyzer reads those.
-_Avoid_: chapter authority (the credits rule that a recognized credits chapter settles the episode), chapter provider
+_Avoid_: chapter authority (the credits rule that a recognized credits chapter no story follows settles the episode), chapter provider
 
 ### Segments
 

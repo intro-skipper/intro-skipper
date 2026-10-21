@@ -1320,7 +1320,7 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         [
             new() { Name = "Episode", StartPositionTicks = 0 },
             new() { Name = "Ending", StartPositionTicks = DatabaseTestHelpers.Ticks(180) },
-            new() { Name = "Epilogue", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
+            new() { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
         ];
         using var fixture = new VerifyQueueFixture(config, fileVersion: 2, chapters, SeasonReanalysisPlanner.MinimumEpisodes);
         var database = fixture.CreateDatabase();

@@ -207,7 +207,8 @@ internal sealed partial class ChapterAnalyzer(
 
     /// <summary>
     /// Finds the episode's chapter matches for the mode without adjusting times or writing.
-    /// The credits pass trusts these ranges unless chapter enhancement is enabled.
+    /// The credits pass trusts credits matches that no story follows unless chapter enhancement
+    /// is enabled (see <c>CreditsPass.AuthoritativeChapterMatches</c>).
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -223,6 +224,39 @@ internal sealed partial class ChapterAnalyzer(
                 mode,
                 _config.EnableSponsorBlockChapterDetection)
             : [];
+    }
+
+    /// <summary>
+    /// Finds where the first chapter matching the mode starts at or after a time, by the mode's
+    /// pattern and duration limits but without the single-match rules of
+    /// <see cref="FindMatchingChapters"/>. The credits pass reads it for the preview chapter
+    /// that ends the story after a credits chapter.
+    /// </summary>
+    /// <param name="episode">Episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="from">The earliest chapter start to consider, in file seconds.</param>
+    /// <returns>The chapter start in file seconds, or <see langword="null"/> when no chapter from there on matches.</returns>
+    internal double? FindFirstMatchStart(QueuedEpisode episode, AnalysisMode mode, double from)
+    {
+        var expression = GetExpression(mode);
+        var (minDuration, maxDuration) = GetBounds(mode, episode);
+        var chapters = episode.Chapters;
+        for (var i = 0; i < chapters.Count; i++)
+        {
+            var name = chapters[i].Name;
+            var start = TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds;
+            var end = i + 1 < chapters.Count ? TimeSpan.FromTicks(chapters[i + 1].StartPositionTicks).TotalSeconds : episode.Duration;
+            if (start >= from
+                && !string.IsNullOrWhiteSpace(name)
+                && end - start >= minDuration
+                && end - start <= maxDuration
+                && ChapterMatches(name, expression, mode, _config.EnableSponsorBlockChapterDetection))
+            {
+                return start;
+            }
+        }
+
+        return null;
     }
 
     // The mode's chapter pattern, or empty when .NET cannot parse it. The dashboard checks the

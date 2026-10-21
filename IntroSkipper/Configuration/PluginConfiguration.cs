@@ -163,8 +163,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to combine recognized credits chapters with
-    /// black-frame and chromaprint candidates. When disabled, valid credits chapters settle
-    /// the episode before combined detection, even when playback adjustments consume the range.
+    /// black-frame and chromaprint candidates. When disabled, valid credits chapters that no story
+    /// follows settle the episode before combined detection, even when playback adjustments
+    /// consume the range.
     /// Explicit per-season analyzer restrictions still apply.
     /// </summary>
     public bool EnhanceChapterCredits { get; set; }

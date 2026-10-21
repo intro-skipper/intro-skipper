@@ -69,6 +69,12 @@ internal static class ConfigHasher
     // season reopens.
     private const string FfmpegStreamRankToken = "|audioRank=ffmpeg";
 
+    // The default preview chapter pattern before 10.11.22. Jellyfin saved the defaults of the
+    // first load, so installs from that time still carry it untouched. Frozen.
+    private const string LegacyDefaultPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
+
+    private static readonly PluginConfiguration _defaults = new();
+
     /// <summary>
     /// Computes a hash for a stored analysis result.
     /// </summary>
@@ -130,7 +136,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
-                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -358,6 +364,19 @@ internal static class ConfigHasher
     // cannot observe the option, so toggling it must not re-scan those seasons.
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
         => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
+
+    // Without enhancement a credits chapter settles its episode only when no story runs to the
+    // next preview chapter, so the preview chapter settings can change Credits. Present only when
+    // they differ from the defaults, the pre-10.11.22 pattern included, so default installs keep
+    // their hash. The two default patterns differ only on colon-delimited end labels such as
+    // "Preview: End".
+    private static string PreviewChapterToken(PluginConfiguration config, AnalyzerAction action)
+        => !config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame
+            && ((config.ChapterAnalyzerPreviewPattern != _defaults.ChapterAnalyzerPreviewPattern && config.ChapterAnalyzerPreviewPattern != LegacyDefaultPreviewPattern)
+                || config.MinimumPreviewDuration != _defaults.MinimumPreviewDuration
+                || config.MaximumPreviewDuration != _defaults.MaximumPreviewDuration)
+            ? FormattableString.Invariant($"|previewChap={config.ChapterAnalyzerPreviewPattern}|previewMin={config.MinimumPreviewDuration}|previewMax={config.MaximumPreviewDuration}")
+            : string.Empty;
 
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
