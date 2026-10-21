@@ -4,6 +4,10 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -17,6 +21,35 @@ using Xunit;
 public sealed class TestConfigHasher
 {
     private const string MostChannelsStreamCacheVariant = "policy=most-channels";
+
+    // Settings that change no analysis hash: scheduling, scope, storage, serving, playback UI
+    // and process limits.
+    private static readonly HashSet<string> NotDetection =
+    [
+        nameof(PluginConfiguration.AutoDetectIntros),
+        nameof(PluginConfiguration.SettledSeasonDelayHours),
+        nameof(PluginConfiguration.AnalyzeSeasonZero),
+        nameof(PluginConfiguration.CacheCompressionLevel),
+        nameof(PluginConfiguration.UpdateMediaSegments),
+        nameof(PluginConfiguration.ScanIntroduction),
+        nameof(PluginConfiguration.ScanCredits),
+        nameof(PluginConfiguration.ScanRecap),
+        nameof(PluginConfiguration.ScanPreview),
+        nameof(PluginConfiguration.ScanCommercial),
+        nameof(PluginConfiguration.FirstEpisodeIntroMode),
+        nameof(PluginConfiguration.SkipFirstEpisode),
+        nameof(PluginConfiguration.SkipFirstEpisodeAnime),
+        nameof(PluginConfiguration.MaxParallelism),
+        nameof(PluginConfiguration.ProcessThreads),
+        nameof(PluginConfiguration.ScanTimeoutSeconds),
+        nameof(PluginConfiguration.ProcessPriority),
+        nameof(PluginConfiguration.UseFileTransformationPlugin),
+        nameof(PluginConfiguration.SkipbuttonHideDelay),
+        nameof(PluginConfiguration.AutoSkipIntro),
+        nameof(PluginConfiguration.AutoSkipCredits),
+        nameof(PluginConfiguration.SkipButtonVisibleSeconds),
+        nameof(PluginConfiguration.EnableMainMenu),
+    ];
 
     public static TheoryData<string, string, string, bool> Cases()
     {
@@ -249,6 +282,87 @@ public sealed class TestConfigHasher
         // The legacy hash predates audio stream selection, so those settings must not affect it.
         var changedSelection = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = false };
         Assert.Equal(hash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(changedSelection, AnalysisMode.Introduction));
+    }
+
+    /// <summary>
+    /// Every scalar persisted setting (bool, number, string or enum) either reaches some
+    /// analysis hash or is listed in <see cref="NotDetection"/>, so a new setting cannot change
+    /// detection output while seasons keep results computed under its old value.
+    /// </summary>
+    [Fact]
+    public void EverySetting_ChangesSomeAnalysisHash_ExactlyWhenItIsDetection()
+    {
+        Func<PluginConfiguration>[] bases =
+        [
+            () => new PluginConfiguration(),
+            // Subtitle patterns and languages count only while subtitle detection is on.
+            () => new PluginConfiguration { EnableSubtitleRecapDetection = true, EnableSubtitlePreviewDetection = true },
+            // The chapter-marker toggle counts only for the legacy analyzer.
+            () => new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true },
+            // The consensus settings count only while settled seasons are re-analyzed.
+            () => new PluginConfiguration { ReanalyzeSettledSeasons = true },
+        ];
+
+        var settings = typeof(PluginConfiguration)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0 && !p.IsDefined(typeof(XmlIgnoreAttribute)))
+            .Where(p => p.PropertyType.IsValueType || p.PropertyType == typeof(string));
+
+        var hashedButListed = new List<string>();
+        var unhashedAndUnlisted = new List<string>();
+        foreach (var setting in settings)
+        {
+            var hashed = bases.Any(create => ChangesSomeHash(create, setting));
+            var listed = NotDetection.Contains(setting.Name);
+            if (hashed && listed)
+            {
+                hashedButListed.Add(setting.Name);
+            }
+            else if (!hashed && !listed)
+            {
+                unhashedAndUnlisted.Add(setting.Name);
+            }
+        }
+
+        Assert.True(
+            hashedButListed.Count == 0 && unhashedAndUnlisted.Count == 0,
+            $"Hashed but listed as not detection: [{string.Join(", ", hashedButListed)}]. Not hashed and not listed: [{string.Join(", ", unhashedAndUnlisted)}].");
+
+        static bool ChangesSomeHash(Func<PluginConfiguration> create, PropertyInfo setting)
+        {
+            var config = create();
+            var before = Hashes(config);
+            var original = setting.GetValue(config);
+            setting.SetValue(config, Perturb(setting, original));
+            Assert.False(Equals(original, setting.GetValue(config)), $"{setting.Name} reads back unchanged after perturbing it.");
+            return !before.SequenceEqual(Hashes(config));
+        }
+
+        static string[] Hashes(PluginConfiguration config)
+            => [.. from mode in Enum.GetValues<AnalysisMode>()
+                   from action in Enum.GetValues<AnalyzerAction>()
+                   select ConfigHasher.Analysis(config, mode, action, ffmpegValid: true)];
+
+        // The getter maps an unknown first-episode mode back to Analyze, so it needs a real value.
+        static object Perturb(PropertyInfo setting, object? value)
+            => setting.Name == nameof(PluginConfiguration.FirstEpisodeIntroMode)
+                ? PluginConfiguration.FirstEpisodeIntroModeIgnore
+                : value switch
+                {
+                    bool flag => !flag,
+                    int number => number + 1,
+                    double number => number + 0.5,
+                    string text => text + "x",
+                    Enum member => NextMember(member),
+                    _ => throw new InvalidOperationException($"No perturbation for {setting.Name} ({setting.PropertyType})."),
+                };
+
+        // The next declared value, not value + 1: ProcessPriorityClass values are sparse.
+        static object NextMember(Enum member)
+        {
+            var members = Enum.GetValues(member.GetType());
+            return members.GetValue((Array.IndexOf(members, member) + 1) % members.Length)!;
+        }
     }
 
     [Theory]
