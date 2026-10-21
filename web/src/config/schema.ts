@@ -423,7 +423,7 @@ export const configSchema = {
         label: "Recaps",
         description: "Enter a regular expression to detect recap chapters.",
         default:
-            "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)" +
+            "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?(?=$|:|\\s+on\\b)|(Last|Earlier)(?=$|:|\\s+(time|week|episode|on)\\b)|Catch[ -]up)" +
             PATTERN_TAIL,
     },
     ChapterAnalyzerCommercialPattern: {

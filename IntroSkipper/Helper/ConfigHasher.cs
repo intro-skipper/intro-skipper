@@ -44,8 +44,10 @@ internal static class ConfigHasher
     // the latest black frame before the boundary (RecapDetectionHelper.BuildRecapFromSting). It
     // sits in the conventional part of every Recap hash, so each season reruns Recap once; the
     // fingerprints and the black-frame scan come from the detection cache. Bump it when that rule
-    // changes.
-    private const string RecapStingEndToken = "|stingEnd=black2";
+    // changes. The token also covers which stings count at all: one must reach the minimum length
+    // and be shared by enough episodes without being shared by the whole season
+    // (ChromaprintAnalyzer.FilterRecapBySeasonSupport).
+    private const string RecapStingEndToken = "|stingEnd=black2|stingSupport=2|stingMin=4";
 
     // With UseEmbeddedChaptersForAnalysis on, analysis reads the chapters embedded in the media
     // file instead of Jellyfin's chapter table. Present only while the setting is on, so the

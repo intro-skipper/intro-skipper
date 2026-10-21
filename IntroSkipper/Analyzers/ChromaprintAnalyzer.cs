@@ -31,9 +31,16 @@ internal sealed partial class ChromaprintAnalyzer(
     bool applyLocalConsensus = false) : IMediaFileAnalyzer
 {
     /// <summary>
-    /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
+    /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate. Shorter
+    /// regions are mostly studio logos and network jingles shared by every episode.
     /// </summary>
-    private const double RecapCardMinimumDuration = 3.0;
+    private const double RecapCardMinimumDuration = 4.0;
+
+    // A recap sting must be shared with at least this many other episodes, and a sting every
+    // episode of a season of at least RecapUbiquityMinimumEpisodes shares is a logo or an
+    // opening theme, not a recap: the first episode almost never has one.
+    private const int RecapMinimumSupport = 2;
+    private const int RecapUbiquityMinimumEpisodes = 5;
 
     // Compare at most two successfully fingerprinted episodes away on either side. A local window
     // lets anime openings and endings change mid-season without one theme dominating the season.
@@ -189,6 +196,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
         _analysisMode = mode;
 
+        // Per episode, the partners a valid recap candidate was found with (Recap only).
+        var recapSupport = new Dictionary<Guid, HashSet<Guid>>();
+
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
@@ -288,6 +298,9 @@ internal sealed partial class ChromaprintAnalyzer(
                     {
                         continue;
                     }
+
+                    GetOrAdd(recapSupport, currentEpisode.EpisodeId).Add(remainingEpisode.EpisodeId);
+                    GetOrAdd(recapSupport, remainingEpisode.EpisodeId).Add(currentEpisode.EpisodeId);
                 }
 
                 /* Since the FingerprintAsync() function returns an array of Chromaprint points without time
@@ -322,14 +335,19 @@ internal sealed partial class ChromaprintAnalyzer(
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
 
-                // One shared region settles most modes. An anchored recap keeps comparing: the
-                // first pair may have matched an opening logo at 0:00 while a later pair holds
-                // the sting after the cold open, which IsBetterCandidate prefers.
-                if (_analysisMode != AnalysisMode.Recap || !_config.AnchorRecapToColdOpen)
+                // One shared region settles most modes. A recap keeps comparing: it counts how many
+                // episodes share the sting, and an anchored one may find the sting after the cold
+                // open in a later pair, which IsBetterCandidate prefers.
+                if (_analysisMode != AnalysisMode.Recap)
                 {
                     break;
                 }
             }
+        }
+
+        if (_analysisMode == AnalysisMode.Recap)
+        {
+            seasonIntros = FilterRecapBySeasonSupport(seasonIntros, recapSupport, episodeAnalysisQueue.Count);
         }
 
         if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
@@ -338,6 +356,45 @@ internal sealed partial class ChromaprintAnalyzer(
         }
 
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+    }
+
+    /// <summary>
+    /// Drops recap candidates that are not a recap sting. A sting shared with fewer than
+    /// <see cref="RecapMinimumSupport"/> other episodes is a chance match, and one shared by every
+    /// episode of a season of at least <see cref="RecapUbiquityMinimumEpisodes"/> is a studio logo
+    /// or an opening theme. A season too small for the support rule asks for one partner per
+    /// other episode at most. Changing the rule needs a new recap sting token in <c>ConfigHasher</c>.
+    /// </summary>
+    /// <param name="candidates">Recap candidates per episode.</param>
+    /// <param name="support">Per episode, the partners a valid recap was found with.</param>
+    /// <param name="comparedEpisodes">Number of episodes that took part in the comparison.</param>
+    /// <returns>The candidates that survive.</returns>
+    internal static Dictionary<Guid, Segment> FilterRecapBySeasonSupport(
+        IReadOnlyDictionary<Guid, Segment> candidates,
+        IReadOnlyDictionary<Guid, HashSet<Guid>> support,
+        int comparedEpisodes)
+    {
+        var required = Math.Min(RecapMinimumSupport, Math.Max(1, comparedEpisodes - 1));
+        var supported = candidates
+            .Where(pair => support.TryGetValue(pair.Key, out var partners) && partners.Count >= required)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        if (comparedEpisodes >= RecapUbiquityMinimumEpisodes && supported.Count >= comparedEpisodes)
+        {
+            return [];
+        }
+
+        return supported;
+    }
+
+    // The partner set of a key, created on first use.
+    internal static HashSet<Guid> GetOrAdd(Dictionary<Guid, HashSet<Guid>> map, Guid key)
+    {
+        if (!map.TryGetValue(key, out var set))
+        {
+            map[key] = set = [];
+        }
+
+        return set;
     }
 
     /// <summary>

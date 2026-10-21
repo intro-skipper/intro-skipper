@@ -285,6 +285,47 @@ public class TestRecapDetection
         static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
     }
 
+    // A sting needs two partners, and one every episode of a season of five or more shares is a
+    // logo or an opening theme.
+    [Theory]
+    [InlineData(3, new[] { 2, 2, 1 }, 2)]
+    [InlineData(2, new[] { 1, 1 }, 2)]
+    [InlineData(6, new[] { 3, 3, 3, 0, 0, 0 }, 3)]
+    [InlineData(5, new[] { 4, 4, 4, 4, 4 }, 0)]
+    [InlineData(4, new[] { 3, 3, 3, 3 }, 4)]
+    public void FilterRecapBySeasonSupport_KeepsSharedStingsAndDropsSeasonWideOnes(int episodes, int[] partnerCounts, int expectedKept)
+    {
+        var ids = Enumerable.Range(0, partnerCounts.Length).Select(_ => Guid.NewGuid()).ToArray();
+        var candidates = ids.ToDictionary(id => id, id => new Segment(id, new TimeRange(0, 60)));
+        var support = ids
+            .Select((id, index) => (id, partners: Enumerable.Range(0, partnerCounts[index]).Select(_ => Guid.NewGuid()).ToHashSet()))
+            .Where(entry => entry.partners.Count > 0)
+            .ToDictionary(entry => entry.id, entry => entry.partners);
+
+        var kept = ChromaprintAnalyzer.FilterRecapBySeasonSupport(candidates, support, episodes);
+
+        Assert.Equal(expectedKept, kept.Count);
+    }
+
+    [Theory]
+    [InlineData("Recap", true)]
+    [InlineData("Previously on Show", true)]
+    [InlineData("Previously", true)]
+    [InlineData("Last Time", true)]
+    [InlineData("Last Week on Show", true)]
+    [InlineData("Earlier", true)]
+    [InlineData("Last Stand", false)]
+    [InlineData("Last Chance", false)]
+    [InlineData("Previous Owner", false)]
+    [InlineData("Earlier Today", false)]
+    public void DefaultChapterRecapPattern_MatchesOnlyRecapChapters(string chapter, bool matches)
+    {
+        Assert.Equal(matches, System.Text.RegularExpressions.Regex.IsMatch(
+            chapter,
+            new PluginConfiguration().ChapterAnalyzerRecapPattern,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+    }
+
     [Fact]
     public void RecapFingerprintRange_UsesIntroFingerprintWindow()
     {
