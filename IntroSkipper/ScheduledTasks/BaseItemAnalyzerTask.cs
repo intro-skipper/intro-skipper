@@ -816,8 +816,9 @@ public partial class BaseItemAnalyzerTask(
         {
             await SetCreditsWindowsAsync(conventionalItems, isMovie, cancellationToken).ConfigureAwait(false);
 
-            // Credits settle chapter matches first by default; enhancement combines them
-            // with other candidates. A single item cannot use chromaprint comparison.
+            // Credits settle chapter matches that no story follows first by default; the
+            // others, and every match under enhancement, combine with the other candidates.
+            // A single item cannot use chromaprint comparison.
             var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, useLocalConsensus);
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
 

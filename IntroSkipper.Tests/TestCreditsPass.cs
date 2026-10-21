@@ -48,7 +48,7 @@ public sealed class TestCreditsPass
     public async Task RecognizedCreditsChapter_IsAuthoritativeByDefault(AnalyzerAction action, bool ffmpegValid)
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]);
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         var config = new PluginConfiguration { PreferChromaprint = true };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, action, ffmpegValid, CancellationToken.None);
@@ -120,7 +120,7 @@ public sealed class TestCreditsPass
     public async Task RejectedChapterCandidate_PreservesStandingCreditsWhenCombinedPassFindsNothing()
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(spans: [], sharedAudioLastPoint: SharedAudioFirstPoint - 1, chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]);
+        var (episodes, ffmpeg, database) = CreateSeason(spans: [], sharedAudioLastPoint: SharedAudioFirstPoint - 1, chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         var episode = episodes[0];
         Assert.Equal(1, await database.ReplaceAutoSegmentsAsync(
             episode.EpisodeId,
@@ -153,7 +153,7 @@ public sealed class TestCreditsPass
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
         var cache = DatabaseTestHelpers.CreateTempCacheService();
-        episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)];
+        episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)];
         Guid? storedId = null;
         if (alreadyAnalyzed)
         {
@@ -202,7 +202,7 @@ public sealed class TestCreditsPass
     public async Task AuthoritativeChapters_DoNotReplaceUserProvidedCredits()
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]);
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         await database.SeedUserSegmentAsync(episodes[0].EpisodeId, AnalysisMode.Credits, TimeSpan.FromSeconds(700).Ticks, TimeSpan.FromSeconds(720).Ticks);
         episodes[0].SetAnalyzed(AnalysisMode.Credits, EpisodeState.UserProvided);
 
@@ -287,6 +287,129 @@ public sealed class TestCreditsPass
         Assert.Equal(
             [new RangeScan(898, 900, 95, 28, AnalysisMode.Credits), new RangeScan(898, 900, 95, 28, AnalysisMode.Credits)],
             ffmpeg.Calls);
+    }
+
+    // Story runs from the credits chapter to the end of the file, or through an epilogue to a
+    // preview chapter.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StoryAfterTheCreditsChapter_CombinesItWithTheClosingRoll(bool previewAfterTheEpilogue)
+    {
+        using var scope = Scope();
+        ChapterInfo[] chapters = previewAfterTheEpilogue
+            ? [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760), Chapter("Preview", 960)]
+            : [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760)];
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: chapters);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration())
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = (await database.GetSegmentsAsync(episode.EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+            Assert.Equal(
+                [(700, 760, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
+                segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+        }
+
+        Assert.Equal([RollProbe, RollProbe], ffmpeg.Calls);
+    }
+
+    // No story fits after the chapter: a tail under the credits minimum, the first of two preview
+    // chapters right after it, and padding past the end of the audio, where the window ends,
+    // with or without a preview chapter in the silent tail.
+    [Theory]
+    [InlineData(0, 900, 990)]
+    [InlineData(1, 700, 760)]
+    [InlineData(2, 900, 960)]
+    [InlineData(3, 900, 960)]
+    public async Task NoStoryAfterTheCreditsChapter_KeepsItAuthoritative(int layout, double start, double end)
+    {
+        using var scope = Scope();
+        ChapterInfo[] chapters = layout switch
+        {
+            0 => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Logo", 990)],
+            1 => [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", 760), Chapter("Omake", 780), Chapter("Extra", 960)],
+            2 => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 960)],
+            _ => [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Padding", 960), Chapter("Preview", 980)],
+        };
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: chapters);
+        if (layout >= 2)
+        {
+            episodes.ForEach(episode => episode.CreditsFingerprintEnd = 970);
+        }
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration())
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var row = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((start, end, SegmentSource.Chapter), (row.ToSegment().Start, row.ToSegment().End, row.Source));
+        Assert.Equal(0, ffmpeg.KeyframeScanCalls);
+    }
+
+    // The 50 s preview chapter is shorter than the preview minimum or longer than the maximum.
+    [Theory]
+    [InlineData(60, 120)]
+    [InlineData(15, 30)]
+    public async Task PreviewChapterOutsideItsDurationLimits_DoesNotEndTheStory(int minimumPreviewDuration, int maximumPreviewDuration)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
+        var config = new PluginConfiguration { MinimumPreviewDuration = minimumPreviewDuration, MaximumPreviewDuration = maximumPreviewDuration };
+
+        await CreatePass(ffmpeg, database, config: config)
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    // Exactly the credits minimum between the chapter end and the preview chapter is story.
+    [Fact]
+    public async Task MinimumCreditsDurationBeforeThePreviewChapter_IsStory()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950), Chapter("Preview", 965)]);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration())
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(900, 950, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
+    }
+
+    // A season a chapter settled before the story rule: the comparison rerun for a new episode
+    // gives a sibling a Chromaprint candidate past its stored chapter, and the sibling is
+    // recombined like a pending episode.
+    [Fact]
+    public async Task SettledSibling_WithStoryAfterItsChapter_IsRecombined()
+    {
+        using var scope = Scope();
+        ChapterInfo[] chapters = [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Epilogue", 760)];
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: chapters);
+        var cache = DatabaseTestHelpers.CreateTempCacheService();
+        foreach (var episode in episodes)
+        {
+            await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Credits, [new Segment(episode.EpisodeId, new TimeRange(700, 760))], SegmentSource.Chapter);
+            episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
+        }
+
+        await CacheFingerprintsAsync(cache, ffmpeg, episodes);
+        var added = Episode(episodes[0].SeasonId, 3);
+        added.Chapters = chapters;
+        episodes.Add(added);
+
+        await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var segments = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(s => s.StartTicks).ToList();
+        Assert.Equal(
+            [(700, 760, SegmentSource.Chapter), (BlackStart, Duration, SegmentSource.BlackFrame)],
+            segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
     }
 
     [Theory]
@@ -854,7 +977,7 @@ public sealed class TestCreditsPass
         var (episodes, ffmpeg, database) = CreateSeason(rangeScan: (episode, range, _, _, _) => episode.EpisodeNumber == chapteredIndex + 1
             ? throw new InvalidOperationException("Authoritative chapter should not be scanned")
             : range.Start is >= BlackStart and < Duration ? [new BlackFrame(95, 0, 0)] : []);
-        episodes[chapteredIndex].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)];
+        episodes[chapteredIndex].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)];
         var config = new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
@@ -886,7 +1009,7 @@ public sealed class TestCreditsPass
     public async Task Upgrade_PreservesExistingCombinedCreditsUntilReanalysis()
     {
         using var scope = Scope();
-        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Epilogue", 950)]);
+        var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         var config = new PluginConfiguration();
         const string oldHash = "353008E48A5F559E";
         Assert.Equal(oldHash, ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, true));

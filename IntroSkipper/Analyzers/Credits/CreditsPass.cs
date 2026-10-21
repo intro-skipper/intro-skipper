@@ -10,17 +10,17 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Runs credits analysis for a season, trusting recognized credits chapters by default
-/// and combining analyzer candidates for episodes without a chapter result.
+/// Runs credits analysis for a season, trusting recognized credits chapters that no story
+/// follows by default and combining analyzer candidates for the other episodes.
 /// </summary>
 /// <remarks>
-/// With chapter enhancement enabled, chapter matches, the keyframe analyzer (black rolls from
-/// black-frame evidence and card credits from keyframe visuals, over one keyframe scan) and the
-/// season-wide chromaprint comparison each contribute candidates;
-/// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
-/// keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
+/// With chapter enhancement enabled, or when story follows the credits chapter, chapter matches,
+/// the keyframe analyzer (black rolls from black-frame evidence and card credits from keyframe
+/// visuals, over one keyframe scan) and the season-wide chromaprint comparison each contribute
+/// candidates; <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly
+/// touch and keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
 /// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
-/// references for siblings without credits chapters, but their results are not replaced.
+/// references for siblings without an authoritative chapter, but their results are not replaced.
 /// Times are adjusted once per stored segment and every episode is written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
@@ -84,14 +84,14 @@ internal sealed partial class CreditsPass(
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
         // consumed, rejected, and failed episodes remain unsettled according to their state.
         HashSet<Guid> chapterHandled = [];
-        if (chapter is not null && !_config.EnhanceChapterCredits)
+        if (chapter is not null)
         {
             foreach (var episode in pendingItems)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var matches = chapter.FindChapterCandidates(episode, Mode);
+                    var matches = AuthoritativeChapterMatches(chapter, episode);
                     if (matches.Count == 0)
                     {
                         continue;
@@ -169,17 +169,15 @@ internal sealed partial class CreditsPass(
                 var candidates = new List<AttributedSegment>();
                 if (chapter is not null)
                 {
-                    if (_config.EnhanceChapterCredits)
+                    if (!episode.NeedsAnalysis(Mode) && AuthoritativeChapterMatches(chapter, episode).Count > 0)
                     {
-                        candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
-                    }
-                    else if (!episode.NeedsAnalysis(Mode) && chapter.FindChapterCandidates(episode, Mode).Count > 0)
-                    {
-                        // A settled sibling's recognized chapter stays authoritative over the
-                        // re-derived candidate. Pending episodes reached here only because the
-                        // pre-pass found no chapter for them.
+                        // A settled sibling's authoritative chapter stays over the re-derived
+                        // candidate. Pending episodes reached here only because the pre-pass found
+                        // no authoritative chapter for them.
                         continue;
                     }
+
+                    candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
                 }
 
                 if (hasChromaprintCandidate)
@@ -285,6 +283,33 @@ internal sealed partial class CreditsPass(
         // from a tombstone, a user row or the intro overlap rule, and every retry would meet it again.
         await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
         return EpisodeState.Analyzed;
+    }
+
+    /// <summary>
+    /// The episode's credits chapter matches when they settle it without combined detection:
+    /// enhancement is off and no story follows them. Empty otherwise, and then any matches are
+    /// combined with the other candidates.
+    /// </summary>
+    /// <remarks>
+    /// Story follows when at least the minimum credits duration runs from the end of the matches
+    /// to the first preview chapter after them or the credits window end, whichever comes first.
+    /// That room can hold closing cards after an epilogue, which a mid-episode ending chapter
+    /// leaves out. The window ends before the file only under ProbeAudioDuration, which is for
+    /// runtimes padded past the audio, so room past it is not counted as story, though the
+    /// keyframe scan would still read black frames there.
+    /// </remarks>
+    private IReadOnlyList<Segment> AuthoritativeChapterMatches(ChapterAnalyzer chapter, QueuedEpisode episode)
+    {
+        var matches = chapter.FindChapterCandidates(episode, Mode);
+        if (_config.EnhanceChapterCredits || matches.Count == 0)
+        {
+            return [];
+        }
+
+        var end = matches.Max(m => m.End);
+        var windowEnd = episode.GetFingerprintRange(Mode).End;
+        var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
+        return storyEnd - end < _config.MinimumCreditsDuration ? matches : [];
     }
 
     /// <summary>
