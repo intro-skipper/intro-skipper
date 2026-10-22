@@ -27,13 +27,17 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     /// </summary>
     /// <param name="episode">The episode to adjust.</param>
     /// <param name="originalIntro">The original intro segment.</param>
-    /// <param name="adjustIntroBasedOnChapters">Whether to adjust based on chapters (overrides _config if true).</param>
+    /// <param name="chapterSourced">
+    /// Whether the range comes from chapter marks. Its boundaries then take the configured offsets
+    /// and the snaps to the episode start and end, but no chapter, silence or keyframe snap.
+    /// Otherwise chapter snapping follows <see cref="PluginConfiguration.AdjustIntroBasedOnChapters"/>.
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg-based adjustment probes.</param>
     /// <returns>A task that returns a new Segment with adjusted intro times.</returns>
     public async Task<Segment> AdjustIntroTimesAsync(
         QueuedEpisode episode,
         Segment originalIntro,
-        bool? adjustIntroBasedOnChapters = null,
+        bool chapterSourced = false,
         CancellationToken cancellationToken = default)
     {
         // Config checks
@@ -43,7 +47,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
             return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
-        bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
+        bool useChapters = !chapterSourced && _config.AdjustIntroBasedOnChapters;
         var duration = episode.Duration;
         var chapters = useChapters ? episode.Chapters : [];
 
@@ -110,12 +114,12 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
             adjustedEnd = Math.Clamp(adjustedEnd, 0, duration);
 
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
-            if (_config.AdjustIntroBasedOnSilence)
+            if (_config.AdjustIntroBasedOnSilence && !chapterSourced)
             {
                 adjustedEnd = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
             }
 
-            if (_config.SnapToKeyframe)
+            if (_config.SnapToKeyframe && !chapterSourced)
             {
                 adjustedEnd = await SnapToNearestKeyframeAsync(episode, adjustedEnd, silenceRange, cancellationToken).ConfigureAwait(false);
             }

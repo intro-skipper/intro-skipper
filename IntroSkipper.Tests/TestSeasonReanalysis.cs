@@ -688,7 +688,8 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     // Jellyfin's table holds the file's own chapters, as it does for a file no other plugin
     // touched. A switch probes the file once, finds the same chapters, re-stamps the record and
     // its segment, and runs no analyzer. The next pass reads nothing. The switch back probes
-    // once more for the comparison and keeps the result again.
+    // once more for the comparison and keeps the result again. The stored range differs from
+    // what the chapter analyzer writes (20-60), so a rerun would show as a changed range.
     [Fact]
     public async Task ChapterSourceSwitch_WithTheSameChaptersInBothSources_KeepsTheResult()
     {
@@ -696,7 +697,6 @@ public sealed class TestSeasonReanalysisReset : IDisposable
         using var fixture = new VerifyQueueFixture(config, chapters: IntroChapters(20, 60));
         var database = fixture.CreateDatabase();
         var probes = 0;
-        var silenceScans = 0;
         var ffmpeg = new StubFFmpegService
         {
             VersionCheck = () => false,
@@ -705,12 +705,6 @@ public sealed class TestSeasonReanalysisReset : IDisposable
                 probes++;
                 return IntroChapters(20, 60);
             },
-            Silence = (_, _, _) =>
-            {
-                silenceScans++;
-                return [];
-            },
-            KeyFrames = (_, _, _) => [],
         };
         string Hash(ChapterSource source) => ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: false, chapterSource: source);
         async Task<DbSegment> IntroAsync() => Assert.Single(await database.GetSegmentsAsync(fixture.EpisodeId));
@@ -718,14 +712,16 @@ public sealed class TestSeasonReanalysisReset : IDisposable
             => Assert.Single((await database.GetSeasonQueueSnapshotAsync(fixture.SeasonId, [fixture.EpisodeId])).AnalysisRecords).Value.ConfigHash;
 
         await fixture.AnalyzeAsync(ffmpeg);
-        var intro = await IntroAsync();
-        var scans = silenceScans;
+        Assert.Equal((20d, 60d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
         Assert.Equal((0, Hash(ChapterSource.JellyfinTable)), (probes, await RecordHashAsync()));
+        await database.ReplaceAutoSegmentsAsync(fixture.EpisodeId, AnalysisMode.Introduction, [new Segment(fixture.EpisodeId, new TimeRange(20, 59))], SegmentSource.Chapter, Hash(ChapterSource.JellyfinTable));
+        var intro = await IntroAsync();
 
         config.UseEmbeddedChaptersForAnalysis = true;
         await fixture.AnalyzeAsync(ffmpeg);
-        Assert.Equal((1, scans), (probes, silenceScans));
+        Assert.Equal(1, probes);
         Assert.Equal((intro.Id, Hash(ChapterSource.Embedded)), ((await IntroAsync()).Id, (await IntroAsync()).ConfigHash));
+        Assert.Equal((20d, 59d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
         Assert.Equal(Hash(ChapterSource.Embedded), await RecordHashAsync());
 
         await fixture.AnalyzeAsync(ffmpeg);
@@ -733,8 +729,9 @@ public sealed class TestSeasonReanalysisReset : IDisposable
 
         config.UseEmbeddedChaptersForAnalysis = false;
         await fixture.AnalyzeAsync(ffmpeg);
-        Assert.Equal((2, scans), (probes, silenceScans));
+        Assert.Equal(2, probes);
         Assert.Equal((intro.Id, Hash(ChapterSource.JellyfinTable)), ((await IntroAsync()).Id, (await IntroAsync()).ConfigHash));
+        Assert.Equal((20d, 59d), await ActiveRangeAsync(database, fixture.EpisodeId, AnalysisMode.Introduction));
         Assert.Equal(Hash(ChapterSource.JellyfinTable), await RecordHashAsync());
     }
 
