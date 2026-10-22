@@ -21,7 +21,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// refinement. Two rules use the visuals on black keyframes: a black scene starts after leading
 /// keyframes that show dim content rather than black, such as a dim last shot before the cut to the
 /// roll, and a scene dim on every black keyframe is dark story; and a black scene lettered on no more
-/// than half its pages is a gap between acts, not credits. With boundary refinement on, the frames
+/// than half its pages is a gap between acts, not credits. A scene those rules accept ends at its
+/// roll end: the last of the pages after it that are black or dark, colourless and lettered, since
+/// dense lettering keeps roll pages under the black minimum and would split the roll. A scene's
+/// refined range runs from its refined start to that end. With boundary refinement on, the frames
 /// between the keyframes move the start after a lead-in back from the first keyframe at the level
 /// over the frames that look like it (see <see cref="LeadInProbe"/>);
 /// the probe decodes for every trimmed scene the analyzer probes, and its start is cached under the two keyframes. Every
@@ -52,6 +55,9 @@ internal sealed partial class KeyframeAnalyzer(
     private const double LimitedRangeBlack = 16;
     private const double BlackLevelTolerance = 2;
 
+    // Mean saturation (SATAVG, 0 to 255) under which a dark lettered page is a roll page.
+    private const double RollSaturationMaximum = 0.25;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -63,7 +69,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or lead-in decode is logged and falls back.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its refined start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan and of boundary refinement propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or lead-in decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -76,7 +82,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose refined range meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its refined start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
@@ -194,7 +200,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>The black-frame candidates in file time, one for each probed scene whose refined range meets the minimum duration; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
+    /// <returns>The black-frame candidates in file time, one for each probed scene whose range from its refined start to its roll end meets the minimum duration; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start and roll end, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
     private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframePage> pages, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
@@ -292,13 +298,15 @@ internal sealed partial class KeyframeAnalyzer(
                     ? await ProbeLeadInAsync(episode, lastLighterKeyframe, scene.StartTime, cancellationToken).ConfigureAwait(false)
                     : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, cancellationToken).ConfigureAwait(false);
 
-            // Every accepted scene carries its refined start, so the frames a probe moved the start
-            // back over count as part of the roll for the card run.
-            accepted.Add(new TimeRange(refinedStartTime, scene.EndTime));
+            // Every accepted scene carries its refined start and its roll end, so the frames a probe
+            // moved the start back over and the roll pages after the scene count as part of the
+            // roll for the card run. The minimum applies to the extended range.
+            var endTime = RollEnd(scene, blackFrames, minimum, pages);
+            accepted.Add(new TimeRange(refinedStartTime, endTime));
 
             var segment = new Segment(
                 episode.EpisodeId,
-                new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
+                new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, endTime + episode.CreditsFingerprintStart));
 
             if (segment.Duration >= minimumDuration)
             {
@@ -412,13 +420,42 @@ internal sealed partial class KeyframeAnalyzer(
     // sits at the level on both, or lifts its 90th percentile onto the text when the lettering is
     // large. Pages dense with small lettering can land in between: inside a roll the rule never
     // reaches them, since it reads leading keyframes only, a roll that opens on them starts after
-    // them, and a roll of nothing else is rejected whole. That is the accepted trade: nothing the scan
-    // keeps tells such a page from a dark scene.
+    // them, and a roll of nothing else is rejected whole. At the head of a scene nothing the scan
+    // keeps tells such a page from a dark scene. After an accepted scene they are roll pages, and
+    // the scene's roll end takes them back (see RollEnd).
     private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
     {
         var dimFloor = blackLevel + BlackLevelTolerance;
         return visual.LumaLow > dimFloor
             || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + KeyframeVisualTraits.TextContrastMinimum);
+    }
+
+    // A roll page: black at the darkest tenth, colourless and lettered. Dense lettering takes roll
+    // pages to 70 to 87 percent black, under the minimum, so black pages can lie more than 20 s
+    // apart and split the roll into scenes. On the measured rolls these pages sit at a mean
+    // saturation of 0 and the inset story footage beside them at 0.39 or more. Lettered is the
+    // contrast test, so a colourless dark shot with one bright highlight passes too.
+    private static bool IsRollPage(KeyframeVisual visual)
+        => visual.LumaLow <= LimitedRangeBlack + BlackLevelTolerance
+            && visual.Saturation < RollSaturationMaximum
+            && visual.IsLettered();
+
+    // Where an accepted scene ends: at the last of the pages after its last black keyframe that are
+    // black or roll pages, walked page by page from that keyframe. The walk starts at the end frame,
+    // not the end time, which for an interval-supported scene can lie past its last black
+    // keyframe. A page without a visual stops it, so it never leaves the credits window and is
+    // inert on an ffmpeg without signalstats.
+    private static double RollEnd(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
+    {
+        var last = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(blackFrames, scene.EndFrame);
+        while (last + 1 < pages.Count
+            && pages[last + 1].Visual is { } visual
+            && (blackFrames[last + 1].Percentage >= minimum || IsRollPage(visual)))
+        {
+            last++;
+        }
+
+        return Math.Max(scene.EndTime, blackFrames[last].Time);
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are

@@ -621,6 +621,49 @@ public class TestBlackFrames
         Assert.Empty(candidates);
     }
 
+    [Fact]
+    public async Task DetectCreditsAsync_RollPagesUnderTheMinimum_ExtendTheScene()
+    {
+        // Dense small lettering takes roll pages under the black minimum, 80 against 85 here (the
+        // 0 % content pages set the floor at 0). The pages after the black scene are dark, lettered
+        // and colourless, so the scene ends at the last of them, not at its last black keyframe.
+        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, KeyframeVisuals.DenseText), (82, 90, 0, KeyframeVisuals.Content)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await KeyframeCandidates(analyzer, episode);
+
+        Assert.Equal([(SegmentSource.BlackFrame, 120.0, 180.0)], candidates);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_ColouredPagesAfterTheScene_DoNotExtendIt()
+    {
+        // The same dense lettering at a mean saturation of 0.5 is not a roll page, so the scene ends
+        // at its last black keyframe. The pages' darkest-tenth saturation is still 0.
+        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, t => new KeyframeVisual(t, 16, 16, 74, 244, 0, 0.5)), (82, 90, 0, KeyframeVisuals.Content)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await KeyframeCandidates(analyzer, episode);
+
+        Assert.Equal([(SegmentSource.BlackFrame, 120.0, 140.0)], candidates);
+    }
+
+    [Fact]
+    public async Task DetectCreditsAsync_RollEnd_CountsTowardTheMinimum()
+    {
+        // The dark grey lead-in trims the scene to 30 to 40, 10 s of black cards, under the 15 s
+        // minimum. The roll pages after it take the scene to 60, so it meets the minimum.
+        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 40, 95, KeyframeVisuals.Black), (42, 60, 80, KeyframeVisuals.DenseText), (62, 90, 0, KeyframeVisuals.Content)));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await KeyframeCandidates(analyzer, episode);
+
+        Assert.Equal([(SegmentSource.BlackFrame, 130.0, 160.0)], candidates);
+    }
+
     [Theory]
     [InlineData("level", 40.0, true, false)]
     [InlineData("no visual", 40.0, false, false)]
