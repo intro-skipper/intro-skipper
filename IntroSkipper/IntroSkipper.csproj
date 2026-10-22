@@ -32,7 +32,9 @@
     <None Remove="Configuration\introskipper.css" />
     <EmbeddedResource Include="Configuration\introskipper.css" />
   </ItemGroup>
-  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
+  <!-- SkipWebBuild skips this only when the embedded outputs exist, so a fresh checkout still builds. -->
+  <Target Name="WebBuild" BeforeTargets="CoreCompile"
+          Condition="'$(SkipWebBuild)' != 'true' Or !Exists('Configuration\introskipper.js') Or !Exists('Configuration\introskipper.css')">
     <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
           Command="pnpm install --frozen-lockfile &amp;&amp; pnpm build" />
   </Target>

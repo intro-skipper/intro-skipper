@@ -30,12 +30,12 @@ Run .NET commands from the repo root. Ignore `IntroSkipper/IntroSkipper.sln`; it
 | Command | What it does |
 |---|---|
 | `dotnet build IntroSkipper.sln` | plugin, tests and `tools/CreditsRunner` |
-| `dotnet build IntroSkipper.sln -p:SkipWebBuild=true` | skip the pnpm frontend build |
+| `dotnet build IntroSkipper.sln -p:SkipWebBuild=true` | skip the pnpm frontend build once its outputs exist |
 | `dotnet test` | all tests (xUnit) |
 | `dotnet test --filter "FullyQualifiedName~TestSegmentTombstones"` | one class; append `.MethodName` for one test |
 | `pnpm build` (in `web/`) | frontend build (there is no dev server; the dashboard only runs inside Jellyfin) |
 
-- The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#.
+- The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#; it still builds the frontend when `IntroSkipper/Configuration/introskipper.js` or `.css` is missing, as in a fresh worktree.
 - `TreatWarningsAsErrors` with StyleCop and all analyzers enabled (`AnalysisMode=AllEnabledByDefault`). Any new warning fails the build.
 - Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build each time the test host starts and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg8` package.
 - Tests and CI pin jellyfin-ffmpeg 8.1.3, matching Jellyfin 12 servers, but the README still accepts 7.1.3 or newer. Check a change to ffmpeg arguments or output parsing on both.
