@@ -37,4 +37,9 @@ public sealed record UpdateAnalysisOverridesRequest
     /// Gets the optional setting that enables subtitle-based preview detection.
     /// </summary>
     public bool? SubtitlePreviewDetection { get; init; }
+
+    /// <summary>
+    /// Gets the optional setting that enables subtitle-based credits detection.
+    /// </summary>
+    public bool? SubtitleCreditsDetection { get; init; }
 }

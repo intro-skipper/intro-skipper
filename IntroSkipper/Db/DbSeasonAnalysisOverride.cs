@@ -38,4 +38,7 @@ public sealed class DbSeasonAnalysisOverride
     /// Gets or sets the optional setting that enables subtitle-based preview detection.
     /// </summary>
     public bool? SubtitlePreviewDetection { get; set; }
+
+    /// <summary>Gets or sets the optional season-level subtitle credits detection setting.</summary>
+    public bool? SubtitleCreditsDetection { get; set; }
 }

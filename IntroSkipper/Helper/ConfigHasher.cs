@@ -27,6 +27,7 @@ internal static class ConfigHasher
     public const string DefaultAudioStreamCacheVariant = "policy=most-channels";
 
     private const string ChapterBeforeSubtitlePrecedenceToken = "|chapterBeforeSubtitle=v1";
+    private const string SubtitleCreditsEndToken = "|subtitleCreditsEnd=v1";
     private const string SubtitleHashPrefix = "subtitle-v1:";
 
     // Credits-derived previews run from the end of the last credits run to the episode end;
@@ -89,9 +90,10 @@ internal static class ConfigHasher
     /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
     /// <param name="subtitleRecapDetectionOverride">Optional season-level setting for subtitle recap detection.</param>
     /// <param name="subtitlePreviewDetectionOverride">Optional season-level setting for subtitle preview detection.</param>
+    /// <param name="subtitleCreditsDetectionOverride">Optional season-level setting for subtitle credits detection.</param>
     /// <param name="includeSubtitleSettings">Whether to include subtitle settings in the mode hash. Disabling this returns the conventional-settings hash used to recognize subtitle-only changes.</param>
     /// <param name="chapterSource">The chapter source the analyzed chapters came from, when the season pass read them. <see langword="null"/> takes the setting.</param>
-    /// <returns>A compact hash; enabled subtitle detection adds a separate subtitle component to Recap or Preview.</returns>
+    /// <returns>A compact hash; enabled subtitle detection adds a separate subtitle component to its mode.</returns>
     public static string Analysis(
         PluginConfiguration config,
         AnalysisMode mode,
@@ -102,6 +104,7 @@ internal static class ConfigHasher
         bool? previewFromCreditsEndOverride = null,
         bool? subtitleRecapDetectionOverride = null,
         bool? subtitlePreviewDetectionOverride = null,
+        bool? subtitleCreditsDetectionOverride = null,
         bool includeSubtitleSettings = true,
         ChapterSource? chapterSource = null)
     {
@@ -111,10 +114,15 @@ internal static class ConfigHasher
         var analysisPercent = analysisPercentOverride ?? config.AnalysisPercent;
         var analysisLengthLimit = analysisLengthLimitOverride ?? config.AnalysisLengthLimit;
         var previewFromCreditsEnd = previewFromCreditsEndOverride ?? config.AnimePreviewFromCreditsEnd;
-        // Only Recap and Preview have subtitle detection, and a blank pattern detects nothing,
-        // so it hashes as detection off.
+        // A blank pattern detects nothing, so it hashes as detection off.
         var includeSubtitleSettingsForMode = includeSubtitleSettings
-            && config.ActiveSubtitlePattern(mode, mode == AnalysisMode.Recap ? subtitleRecapDetectionOverride : subtitlePreviewDetectionOverride) is not null;
+            && config.ActiveSubtitlePattern(mode, mode switch
+            {
+                AnalysisMode.Recap => subtitleRecapDetectionOverride,
+                AnalysisMode.Preview => subtitlePreviewDetectionOverride,
+                AnalysisMode.Credits => subtitleCreditsDetectionOverride,
+                _ => null,
+            }) is not null;
         var input = mode switch
         {
             AnalysisMode.Introduction => Invariant(
@@ -136,7 +144,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
-                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}{(includeSubtitleSettingsForMode ? $"|subtitle=True|subtitlePattern={config.SubtitleCreditsPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}{SubtitleCreditsEndToken}" : string.Empty)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -175,13 +183,14 @@ internal static class ConfigHasher
             previewFromCreditsEndOverride,
             subtitleRecapDetectionOverride,
             subtitlePreviewDetectionOverride,
+            subtitleCreditsDetectionOverride,
             includeSubtitleSettings: false,
             chapterSource: source);
         return $"{SubtitleHashPrefix}{conventionalHash}:{hash}";
     }
 
     /// <summary>
-    /// Determines whether a stored compound Recap or Preview hash has the same conventional
+    /// Determines whether a stored compound subtitle-detecting mode hash has the same conventional
     /// analyzer inputs as the current configuration, ignoring only subtitle settings.
     /// </summary>
     /// <param name="storedHash">Previously stored analysis hash.</param>

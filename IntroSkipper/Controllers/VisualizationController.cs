@@ -211,7 +211,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             request.PreviewFromCreditsEnd,
             request.SubtitleRecapDetection,
             request.SubtitlePreviewDetection,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            request.SubtitleCreditsDetection).ConfigureAwait(false);
         return NoContent();
     }
 

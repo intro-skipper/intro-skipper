@@ -53,7 +53,7 @@ public enum SegmentSource
     KeyframeVisuals = 7,
 
     /// <summary>
-    /// Detected from a matching text subtitle cue.
+    /// Detected from a matching text subtitle cue in Recap, Credits or Preview.
     /// </summary>
     Subtitle = 8
 }

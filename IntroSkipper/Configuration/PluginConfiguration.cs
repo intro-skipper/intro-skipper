@@ -329,6 +329,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableSubtitlePreviewDetection { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets whether credits are detected from text subtitle cues matching
+    /// <see cref="SubtitleCreditsPattern"/>. Seasons can override this setting.
+    /// </summary>
+    public bool EnableSubtitleCreditsDetection { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = DefaultMinimumIntroDuration;
@@ -536,8 +542,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SubtitlePreviewPattern { get; set; } = @"\b(?:here(?:'|’)?s|now)\s+the\s+preview\b|^\W*(?:\[[^\]]*\]|\([^)]*\)|[^\s:]+:)?\s*next\s+time\b";
 
     /// <summary>
-    /// Gets or sets the comma-separated language codes of the subtitles that recap and preview
-    /// subtitle detection read, such as <c>ger, eng</c>. ISO 639-1, 639-2/B and 639-2/T codes
+    /// Gets or sets the regular expression used to detect credits subtitle cues.
+    /// </summary>
+    /// <value>The default matches the caption phrase "closing theme music", ignoring case.</value>
+    public string SubtitleCreditsPattern { get; set; } = @"\bclosing\s+theme\s+music\b";
+
+    /// <summary>
+    /// Gets or sets the comma-separated language codes of the subtitles that recap, credits and
+    /// preview detection read, such as <c>ger, eng</c>. ISO 639-1, 639-2/B and 639-2/T codes
     /// of a language are interchangeable. Untagged embedded streams and sidecars without a
     /// language in their file name are always read.
     /// </summary>
@@ -665,8 +677,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <param name="mode">The analysis mode.</param>
     /// <param name="detectionOverride">The season's subtitle detection override for the mode, or <see langword="null"/> to inherit the global setting.</param>
     /// <returns>
-    /// The pattern, or <see langword="null"/> when <paramref name="mode"/> is not Recap or
-    /// Preview, its subtitle detection is off, or its pattern is blank.
+    /// The pattern, or <see langword="null"/> when subtitle detection is off or its pattern is blank.
     /// </returns>
     public string? ActiveSubtitlePattern(AnalysisMode mode, bool? detectionOverride)
     {
@@ -674,6 +685,7 @@ public class PluginConfiguration : BasePluginConfiguration
         {
             AnalysisMode.Recap => (detectionOverride ?? EnableSubtitleRecapDetection, SubtitleRecapPattern),
             AnalysisMode.Preview => (detectionOverride ?? EnableSubtitlePreviewDetection, SubtitlePreviewPattern),
+            AnalysisMode.Credits => (detectionOverride ?? EnableSubtitleCreditsDetection, SubtitleCreditsPattern),
             _ => (false, string.Empty),
         };
         return enabled && !string.IsNullOrWhiteSpace(pattern) ? pattern : null;
@@ -690,12 +702,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public string? ActiveSubtitlePattern(QueuedEpisode episode, AnalysisMode mode)
         => ActiveSubtitlePattern(
             mode,
-            mode == AnalysisMode.Recap ? episode.SubtitleRecapDetectionOverride : episode.SubtitlePreviewDetectionOverride);
+            mode switch
+            {
+                AnalysisMode.Recap => episode.SubtitleRecapDetectionOverride,
+                AnalysisMode.Preview => episode.SubtitlePreviewDetectionOverride,
+                AnalysisMode.Credits => episode.SubtitleCreditsDetectionOverride,
+                _ => null,
+            });
 
     /// <summary>
     /// Gets the file version an analysis record of <paramref name="mode"/> carries for
     /// <paramref name="episode"/>. The pass stamps it on the record, and
-    /// <c>QueueVerifier</c> reopens a Recap or Preview record that no longer carries it.
+    /// <c>QueueVerifier</c> reopens a subtitle-detecting record that no longer carries it.
     /// </summary>
     /// <param name="episode">A verified episode.</param>
     /// <param name="mode">The analysis mode.</param>

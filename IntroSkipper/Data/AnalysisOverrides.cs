@@ -11,9 +11,11 @@ namespace IntroSkipper.Data;
 /// <param name="PreviewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit the global setting.</param>
 /// <param name="SubtitleRecapDetection">Whether to enable subtitle recap detection, or null to inherit the global setting.</param>
 /// <param name="SubtitlePreviewDetection">Whether to enable subtitle preview detection, or null to inherit the global setting.</param>
+/// <param name="SubtitleCreditsDetection">Whether to enable subtitle credits detection, or null to inherit the global setting.</param>
 public sealed record AnalysisOverrides(
     int? AnalysisPercent,
     int? AnalysisLengthLimit,
     bool? PreviewFromCreditsEnd,
     bool? SubtitleRecapDetection,
-    bool? SubtitlePreviewDetection);
+    bool? SubtitlePreviewDetection,
+    bool? SubtitleCreditsDetection);

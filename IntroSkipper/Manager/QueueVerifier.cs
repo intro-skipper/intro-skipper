@@ -64,6 +64,7 @@ internal sealed partial class QueueVerifier
     /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
     /// <param name="subtitleRecapDetectionOverride">Optional season-level setting for subtitle recap detection.</param>
     /// <param name="subtitlePreviewDetectionOverride">Optional season-level setting for subtitle preview detection.</param>
+    /// <param name="subtitleCreditsDetectionOverride">Optional season-level setting for subtitle credits detection.</param>
     public QueueVerifier(
         PluginConfiguration config,
         IReadOnlyCollection<AnalysisMode> modes,
@@ -73,7 +74,8 @@ internal sealed partial class QueueVerifier
         int? analysisLengthLimitOverride = null,
         bool? previewFromCreditsEndOverride = null,
         bool? subtitleRecapDetectionOverride = null,
-        bool? subtitlePreviewDetectionOverride = null)
+        bool? subtitlePreviewDetectionOverride = null,
+        bool? subtitleCreditsDetectionOverride = null)
     {
         _config = config;
         _modes = modes;
@@ -91,7 +93,7 @@ internal sealed partial class QueueVerifier
             _actionByMode[mode] = action;
             _expectedHashByMode[mode] = Hash(mode, action, ffmpegValid);
             _availableHashByMode?.Add(mode, Hash(mode, action, available: true));
-            if (mode is AnalysisMode.Recap or AnalysisMode.Preview)
+            if (mode is AnalysisMode.Recap or AnalysisMode.Preview or AnalysisMode.Credits)
             {
                 _subtitleIndependentHashByMode[mode] = Hash(mode, action, ffmpegValid, includeSubtitleSettings: false);
                 _availableSubtitleIndependentHashByMode?.Add(mode, Hash(mode, action, available: true, includeSubtitleSettings: false));
@@ -116,6 +118,7 @@ internal sealed partial class QueueVerifier
                 previewFromCreditsEndOverride,
                 subtitleRecapDetectionOverride,
                 subtitlePreviewDetectionOverride,
+                subtitleCreditsDetectionOverride,
                 includeSubtitleSettings,
                 chapterSource);
     }
@@ -210,12 +213,12 @@ internal sealed partial class QueueVerifier
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item><description>A record of a mode that records the media version (every mode but a
-    /// Recap or Preview with active subtitle detection) flags
+    /// <item><description>A record of a mode that records the media version (every mode without
+    /// active subtitle detection) flags
     /// <see cref="QueuedEpisode.FileChanged"/> when it carries another media version, except a
-    /// Recap or Preview record whose hash is not current: it may still carry the sidecar version
+    /// subtitle-detecting record whose hash is not current: it may still carry the sidecar version
     /// a subtitle-detecting pass recorded.</description></item>
-    /// <item><description>A Recap or Preview record whose subtitle detection is active must carry
+    /// <item><description>A record whose subtitle detection is active must carry
     /// <see cref="QueuedEpisode.SubtitleFileVersion"/>. A record that does not (a sidecar was
     /// added, rewritten or removed, or detection was off when it was written) reopens its mode.
     /// The mode reruns subtitle detection alone when another record confirms the media version
@@ -230,8 +233,8 @@ internal sealed partial class QueueVerifier
     /// file: a media-versioned record keeps its verdict, nothing is stamped, and a sidecar
     /// mismatch only reopens its mode.
     /// </remarks>
-    /// <returns>Whether a record shows the media file was replaced, and the Recap and Preview
-    /// modes reopened for their full chain by a sidecar version mismatch.</returns>
+    /// <returns>Whether a record shows the media file was replaced, and subtitle-detecting
+    /// modes reopened by a sidecar version mismatch.</returns>
     private (bool FileChanged, IReadOnlySet<AnalysisMode> Reopened) ClassifyFileVersion(QueuedEpisode candidate)
     {
         var fileVersion = candidate.FileVersion;
@@ -277,7 +280,7 @@ internal sealed partial class QueueVerifier
                 {
                     mediaConfirmed = true;
                 }
-                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview) || IsCurrentHash(record.ConfigHash, mode))
+                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview or AnalysisMode.Credits) || IsCurrentHash(record.ConfigHash, mode))
                 {
                     candidate.FileChanged = true;
                     return (true, new HashSet<AnalysisMode>());
@@ -355,7 +358,7 @@ internal sealed partial class QueueVerifier
     }
 
     /// <summary>
-    /// Whether a Recap or Preview hash still matches the current configuration in everything
+    /// Whether a subtitle-detecting mode's hash still matches the current configuration in everything
     /// but the subtitle settings, so only subtitle detection needs to run again.
     /// </summary>
     private bool IsConventionalHashCurrent(string hash, AnalysisMode mode)

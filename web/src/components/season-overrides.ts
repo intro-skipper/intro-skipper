@@ -6,7 +6,7 @@ import { configStore } from "../store/config-store.ts";
 import type { AnalysisOverrides } from "../types.ts";
 
 // The plugin-wide value a season without its own subtitle override inherits.
-function inheritedSubtitleDetection(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
+function inheritedSubtitleDetection(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection" | "EnableSubtitleCreditsDetection"): boolean {
     return configStore.isLoaded() && configStore.get(key);
 }
 
@@ -79,11 +79,21 @@ export const overrideSchema = {
             { value: false, label: "Disabled" },
         ],
     },
+    SubtitleCreditsDetection: {
+        kind: "select",
+        label: "Subtitle-based credits detection",
+        description: "Enable subtitle-based credits detection for this season or show.",
+        nullDisplayValue: () => inheritedSubtitleDetection("EnableSubtitleCreditsDetection"),
+        options: [
+            { value: true, label: "Enabled" },
+            { value: false, label: "Disabled" },
+        ],
+    },
 } as const satisfies FieldSchema;
 
 type SchemaValues = ValuesOf<typeof overrideSchema>;
-export type SeasonOverrides = Omit<SchemaValues, "SubtitleRecapDetection" | "SubtitlePreviewDetection">
-    & Pick<AnalysisOverrides, "SubtitleRecapDetection" | "SubtitlePreviewDetection">;
+export type SeasonOverrides = Omit<SchemaValues, "SubtitleRecapDetection" | "SubtitlePreviewDetection" | "SubtitleCreditsDetection">
+    & Pick<AnalysisOverrides, "SubtitleRecapDetection" | "SubtitlePreviewDetection" | "SubtitleCreditsDetection">;
 type OverrideKey = keyof SeasonOverrides;
 
 export const overrideKeys = Object.keys(overrideSchema) as OverrideKey[];
@@ -94,6 +104,7 @@ const EMPTY: SeasonOverrides = {
     PreviewFromCreditsEnd: null,
     SubtitleRecapDetection: false,
     SubtitlePreviewDetection: false,
+    SubtitleCreditsDetection: false,
 };
 
 export type OverrideStore = FieldStore<SeasonOverrides> & {

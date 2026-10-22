@@ -17,6 +17,7 @@ export const tracksTab: Tab = {
             el("h3", { className: "tracks-section-divider" }, "Subtitle"),
             form.field("SubtitleLanguages"),
             patternField(form, "SubtitleRecapPattern"),
+            patternField(form, "SubtitleCreditsPattern"),
             patternField(form, "SubtitlePreviewPattern"),
         );
     },

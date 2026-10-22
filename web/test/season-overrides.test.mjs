@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createOverrideStore, overrideSchema } from "../src/components/season-overrides.ts";
 
-const subtitleModes = ["SubtitleRecapDetection", "SubtitlePreviewDetection"];
+const subtitleModes = ["SubtitleRecapDetection", "SubtitleCreditsDetection", "SubtitlePreviewDetection"];
 
 test("subtitle override selects contain only enabled and disabled", () => {
     for (const field of subtitleModes) {
@@ -21,12 +21,14 @@ test("unset subtitle overrides retain null for global inheritance", () => {
         PreviewFromCreditsEnd: null,
         SubtitleRecapDetection: null,
         SubtitlePreviewDetection: null,
+        SubtitleCreditsDetection: null,
     });
 
     assert.equal(store.get("SubtitleRecapDetection"), null);
     assert.equal(store.get("SubtitlePreviewDetection"), null);
     assert.equal(store.values().SubtitleRecapDetection, null);
     assert.equal(store.values().SubtitlePreviewDetection, null);
+    assert.equal(store.values().SubtitleCreditsDetection, null);
     assert.equal(overrideSchema.SubtitleRecapDetection.nullDisplayValue(), false);
     assert.equal(overrideSchema.SubtitlePreviewDetection.nullDisplayValue(), false);
 
@@ -43,6 +45,7 @@ test("subtitle overrides preserve explicit enabled and disabled values", () => {
         PreviewFromCreditsEnd: null,
         SubtitleRecapDetection: true,
         SubtitlePreviewDetection: false,
+        SubtitleCreditsDetection: true,
     });
 
     assert.equal(store.get("SubtitleRecapDetection"), true);

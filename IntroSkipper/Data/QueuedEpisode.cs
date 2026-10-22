@@ -109,6 +109,11 @@ public sealed class QueuedEpisode
     public bool? SubtitlePreviewDetectionOverride { get; set; }
 
     /// <summary>
+    /// Gets or sets the optional season-level setting for subtitle credits detection.
+    /// </summary>
+    public bool? SubtitleCreditsDetectionOverride { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
     public double CreditsFingerprintStart { get; set; }
@@ -179,11 +184,11 @@ public sealed class QueuedEpisode
 
     /// <summary>
     /// Gets or sets a value indicating whether a stored analysis record shows the media file
-    /// was replaced: a record of a mode other than Recap or Preview carries a file version
-    /// other than <see cref="FileVersion"/>, or a Recap or Preview record whose mode has
+    /// was replaced: a record of a mode without subtitle detection carries a file version
+    /// other than <see cref="FileVersion"/>, or a subtitle-detecting record whose mode has
     /// subtitle detection off carries another version under a hash that still matches the
     /// configuration. The pass then discards the item's automatic segments and fingerprints
-    /// before analyzing it again. Any other mismatched Recap or Preview record leaves it unset
+    /// before analyzing it again. Any other mismatched subtitle-detecting record leaves it unset
     /// and reopens only its own mode, since its version can also cover the sidecars
     /// (<see cref="SubtitleFileVersion"/>) or predate a change to subtitle detection.
     /// </summary>

@@ -11,18 +11,14 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
-/// Detects recaps and previews from matching text subtitle cues.
+/// Detects subtitle-based recaps and previews, and supplies subtitle credits candidates.
 /// </summary>
 /// <remarks>
-/// Subtitle detection is deliberately independent from credits detection. A recap starts at the
-/// first matching cue whose start lies inside the recap fingerprint window
-/// (<see cref="QueuedEpisode.GetFingerprintRange"/>), and ends at a chapter start or, without
-/// one, at the start of a black run, within the recap duration limits and before an intro that
-/// follows the cue. Without such an end, the episode settles with its standing rows, as for a
-/// match admission rejected. A preview runs from its matching cue through the episode duration.
-/// When no subtitle cue matches, the normal analyzer chain remains eligible. A pattern that is
-/// not a valid .NET regular expression leaves every pending episode unresolved, so the mode
-/// stays open until the pattern is fixed.
+/// A recap starts at the first matching cue inside its fingerprint window and ends at a chapter
+/// or black-run boundary, before a following intro. A preview runs from its matching cue through
+/// the episode duration. Credits supplies the first matching cue inside the credits window as a
+/// candidate through that window's end; CreditsPass combines it with the other candidates. A
+/// pattern that is not a valid .NET regular expression leaves the affected analysis unresolved.
 /// </remarks>
 internal sealed partial class SubtitleAnalyzer(
     ILogger<SubtitleAnalyzer> logger,
@@ -34,6 +30,32 @@ internal sealed partial class SubtitleAnalyzer(
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = configuration;
+
+    /// <summary>
+    /// Finds the first subtitle cue announcing closing theme music inside an episode's credits
+    /// window. The scan completeness is returned so CreditsPass can retry incomplete scans.
+    /// </summary>
+    internal async Task<(Segment? Candidate, bool Complete)> FindCreditsCandidateAsync(
+        QueuedEpisode episode,
+        CancellationToken cancellationToken)
+    {
+        if (_config.ActiveSubtitlePattern(episode, AnalysisMode.Credits) is not { } expression)
+        {
+            return (null, true);
+        }
+
+        var regex = new Regex(expression, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        var window = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var scan = await _ffmpegService.ExtractSubtitleCuesAsync(episode, window, cancellationToken).ConfigureAwait(false);
+        var cue = scan.Cues
+            .Where(cue => cue.Start >= window.Start && cue.Start < window.End)
+            .OrderBy(cue => cue.Start)
+            .FirstOrDefault(cue => Matches(regex, cue.Text, episode.Name, AnalysisMode.Credits));
+        var candidate = cue is not null && window.End - cue.Start >= _config.MinimumCreditsDuration
+            ? new Segment(episode.EpisodeId, new TimeRange(cue.Start, window.End))
+            : null;
+        return (candidate, scan.Complete);
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(

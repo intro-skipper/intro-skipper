@@ -146,6 +146,9 @@ namespace IntroSkipper.Migrations
                     b.Property<bool?>("SubtitlePreviewDetection")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool?>("SubtitleCreditsDetection")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool?>("SubtitleRecapDetection")
                         .HasColumnType("INTEGER");
 

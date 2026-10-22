@@ -463,6 +463,13 @@ export const configSchema = {
         default:
             "\\b(?:here(?:'|’)?s|now)\\s+the\\s+preview\\b|^\\W*(?:\\[[^\\]]*\\]|\\([^)]*\\)|[^\\s:]+:)?\\s*next\\s+time\\b",
     },
+    SubtitleCreditsPattern: {
+        kind: "regex",
+        label: "Credits regex for subtitles",
+        description:
+            "Matches text-subtitle cues during credits. Enable credits matching for a season or show in Timestamps > Manage.",
+        default: "\\bclosing\\s+theme\\s+music\\b",
+    },
     // FFmpeg
     PreferredAudioLanguage: {
         kind: "text",
@@ -547,6 +554,7 @@ export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
     readonly EnableSubtitleRecapDetection: boolean;
     readonly EnableSubtitlePreviewDetection: boolean;
+    readonly EnableSubtitleCreditsDetection: boolean;
 };
 
 /** Config keys whose value has type V, so a control binds only to keys it can hold. */

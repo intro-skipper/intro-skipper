@@ -77,6 +77,9 @@ internal sealed partial class CreditsPass(
         var useChromaprint = chromaprintAvailable && restriction is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
+        var subtitle = items.Any(e => _config.ActiveSubtitlePattern(e, Mode) is not null)
+            ? new SubtitleAnalyzer(_loggerFactory.CreateLogger<SubtitleAnalyzer>(), _ffmpegService, _database, _config)
+            : null;
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
@@ -183,6 +186,19 @@ internal sealed partial class CreditsPass(
                 if (hasChromaprintCandidate)
                 {
                     candidates.Add(new AttributedSegment(chromaprintCandidate!, SegmentSource.Chromaprint));
+                }
+
+                if (subtitle is not null && _config.ActiveSubtitlePattern(episode, Mode) is not null)
+                {
+                    var (subtitleCandidate, complete) = await subtitle.FindCreditsCandidateAsync(episode, cancellationToken).ConfigureAwait(false);
+                    if (subtitleCandidate is not null)
+                    {
+                        candidates.Add(new AttributedSegment(subtitleCandidate, SegmentSource.Subtitle));
+                    }
+                    else if (!complete)
+                    {
+                        analyzerFailed = true;
+                    }
                 }
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);

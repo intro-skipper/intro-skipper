@@ -216,6 +216,7 @@ public partial class BaseItemAnalyzerTask(
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
             episode.SubtitleRecapDetectionOverride = overrides.SubtitleRecapDetection;
             episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
+            episode.SubtitleCreditsDetectionOverride = overrides.SubtitleCreditsDetection;
 
             var config = Config;
             var duration = episode.Duration;
@@ -349,6 +350,7 @@ public partial class BaseItemAnalyzerTask(
                 ShouldDerivePreview(episode, Config),
                 episode.SubtitleRecapDetectionOverride,
                 episode.SubtitlePreviewDetectionOverride,
+                episode.SubtitleCreditsDetectionOverride,
                 chapterSource: episode.ChaptersSource ?? Config.ChapterSource));
         var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
@@ -632,7 +634,8 @@ public partial class BaseItemAnalyzerTask(
             candidates[0].AnalysisLengthLimitOverride,
             previewFromCreditsEnd,
             candidates[0].SubtitleRecapDetectionOverride,
-            candidates[0].SubtitlePreviewDetectionOverride);
+            candidates[0].SubtitlePreviewDetectionOverride,
+            candidates[0].SubtitleCreditsDetectionOverride);
         var sidecarFolders = new SubtitleSidecarFiles.FolderListings();
 
         foreach (var candidate in candidates)
@@ -658,8 +661,7 @@ public partial class BaseItemAnalyzerTask(
 
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
-                if (config.ActiveSubtitlePattern(candidate, AnalysisMode.Recap) is not null
-                    || config.ActiveSubtitlePattern(candidate, AnalysisMode.Preview) is not null)
+                if (Enum.GetValues<AnalysisMode>().Any(mode => config.ActiveSubtitlePattern(candidate, mode) is not null))
                 {
                     candidate.InternalMetadataPath = item.GetInternalMetadataPath();
                     candidate.SubtitleFileVersion = SubtitleSidecarFiles.FileVersion(candidate, SubtitleLanguageSelection.Parse(config.SubtitleLanguages), sidecarFolders);
@@ -697,6 +699,11 @@ public partial class BaseItemAnalyzerTask(
 
         if (episode.PreviewFromCreditsEndOverride is { } previewFromCreditsEnd
             && previewFromCreditsEnd != config.AnimePreviewFromCreditsEnd)
+        {
+            excludedModes.Add(AnalysisMode.Credits);
+        }
+
+        if (config.ActiveSubtitlePattern(episode, AnalysisMode.Credits) is not null)
         {
             excludedModes.Add(AnalysisMode.Credits);
         }
@@ -753,6 +760,7 @@ public partial class BaseItemAnalyzerTask(
             ShouldDerivePreview(first, Config),
             first.SubtitleRecapDetectionOverride,
             first.SubtitlePreviewDetectionOverride,
+            first.SubtitleCreditsDetectionOverride,
             chapterSource: first.ChaptersSource);
 
         if (action == AnalyzerAction.None)

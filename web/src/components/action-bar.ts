@@ -117,6 +117,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     const subtitleOverrideRow = el("div", { className: "ts-analysis-window-grid ts-subtitle-override-row" });
     subtitleOverrideRow.append(
         overrideForm.field("SubtitleRecapDetection"),
+        overrideForm.field("SubtitleCreditsDetection"),
         overrideForm.field("SubtitlePreviewDetection"),
     );
     const resetWindowBtn = el(
