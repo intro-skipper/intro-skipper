@@ -253,7 +253,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enable keyframe snapping",
         description:
-            "Moves a segment's end to the nearest keyframe so a skip lands on a clean frame. Ends from chapters stay on the chapter mark.",
+            "Moves a segment's end to the nearest keyframe so a skip lands on a clean frame. Ends taken directly from a chapter stay on the chapter mark.",
     },
     AdjustIntroBasedOnChapters: {
         kind: "checkbox",
@@ -265,7 +265,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enable silence detection",
         description:
-            "Moves a segment's end to the first silence inside the adjustment window. Ends from chapters stay on the chapter mark.",
+            "Moves a segment's end to the first silence inside the adjustment window. Ends taken directly from a chapter stay on the chapter mark.",
     },
     SilenceDetectionMaximumNoise: {
         kind: "number",
