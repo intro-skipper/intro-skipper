@@ -63,7 +63,8 @@ public interface IFFmpegService
 
     /// <summary>
     /// Scans the keyframes from the credits start to the end of the file: one page per keyframe,
-    /// with its black percentage and, inside the credits window, its luma percentiles and saturation.
+    /// with its black percentage and, inside the credits window, its luma percentiles, saturation and
+    /// frame difference.
     /// </summary>
     /// <remarks>
     /// One keyframe decode writes two cache rows, the black-frame row and the visuals row. This reads
@@ -95,8 +96,8 @@ public interface IFFmpegService
     /// <remarks>
     /// Not cached: the caller caches the start it derives. The frames are decoded at source
     /// resolution with the keyframe scan's filters, so each frame's
-    /// <see cref="KeyframeVisual.FrameDifference"/> is on the scale of the pages', 16 to 235 on a
-    /// limited-range source and 0 to 255 on a full-range one. The first frame's difference is 0,
+    /// <see cref="KeyframeVisual.FrameDifference"/> compares directly with a page's: both are YDIF of
+    /// the same 8-bit yuv420p frames at the same resolution. The first frame's difference is 0,
     /// since nothing was decoded before it. Each output stream is capped at 64 MiB.
     /// </remarks>
     /// <param name="episode">Media file to decode.</param>

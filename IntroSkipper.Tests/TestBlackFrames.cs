@@ -1361,6 +1361,22 @@ public class TestBlackFrames
         Assert.Equal([new CutDecode(128, 130)], ffmpeg.Calls);
     }
 
+    [Fact]
+    public async Task DetectCreditsAsync_CardRunWithoutBoundaryRefinement_DecodesNoCut()
+    {
+        // The card run from DetectCreditsAsync_CardRun_StartsOnTheCut, analyzed keyframe-only: it
+        // starts on its first page at 30 and nothing between the keyframes is decoded.
+        var ffmpeg = KeyframeScan(
+            Keyframes(0, 70, 2, (30, 30, 0, t => KeyframeVisuals.Card(t) with { FrameDifference = 40 }), (32, 60, 0, KeyframeVisuals.Card)),
+            cutWindows: (_, window) => CutFrames(window, cutFrame: 36));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+
+        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
+
+        Assert.Equal([(SegmentSource.KeyframeVisuals, 130.0, 160.0)], candidates);
+        Assert.Empty(ffmpeg.Calls);
+    }
+
     // ── Card credits from keyframe visuals ───────────────────────────────
 
     [Fact]

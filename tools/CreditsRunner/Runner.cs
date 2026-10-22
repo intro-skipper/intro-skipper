@@ -211,8 +211,8 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                // The analyzer throws when the scan fails or a cut decode throws, which fails the
-                // episode in the credits pass too. The run records it and goes on.
+                // The analyzer throws when the keyframe scan fails, which fails the episode in the
+                // credits pass too. The run records it and goes on.
                 failure = $"{e.GetType().Name}: {e.Message}";
             }
 

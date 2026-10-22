@@ -319,8 +319,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits
-    /// fingerprint range.
+    /// Collects per-keyframe visual statistics (luma percentiles, saturation and frame difference)
+    /// for the credits fingerprint range.
     /// </summary>
     /// <remarks>
     /// Normally served from the row the keyframe scan in
@@ -1348,7 +1348,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will start on a keyframe")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
