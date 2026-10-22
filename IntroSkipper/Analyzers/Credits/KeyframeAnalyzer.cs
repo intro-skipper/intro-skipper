@@ -24,18 +24,19 @@ namespace IntroSkipper.Analyzers.Credits;
 /// between acts, not credits. A scene those rules accept ends at its
 /// roll end: the last of the pages after it that are black or dark, colourless and lettered, since
 /// dense lettering keeps roll pages under the black minimum and would split the roll. A scene's
-/// refined range runs from its refined start to that end. With boundary refinement on, a scene or
+/// range runs from its start to that end. With boundary refinement on, a scene or
 /// the card run whose first page follows a cut starts on the cut frame between that page and the
 /// page before (see <see cref="CutStart"/>), and an interval-supported scene keeps an interval start
 /// that is earlier still. The gap is decoded for every such part the analyzer probes, and the start
-/// is cached under the two keyframes. Every
-/// visually verified scene whose refined range meets the minimum duration is a black-frame candidate,
+/// is cached under the two keyframes. The cut start only refines: the minimum duration reads the
+/// range before it moves the start, so it sets where an admitted part starts and never admits one.
+/// Every visually verified scene whose range meets the minimum duration is a black-frame candidate,
 /// so credits split by a mid-credits scene come out as separate parts. So is every scene after the
 /// last verified one that meets it. Those scenes have no visual evidence because the scan reads black
 /// frames to the end of the file but keeps visuals only inside the credits window, so they lie past a
 /// window that ends early. A scene without visual evidence before a verified one is not a candidate.
 /// With no verified scene, as on an ffmpeg without signalstats, only the latest scene that meets the
-/// refined minimum duration is a candidate. The card run is found over each
+/// minimum duration is a candidate. The card run is found over each
 /// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
 /// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
 /// <see cref="StampCardKinds"/>).
@@ -70,7 +71,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its refined start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or cut decode is logged and falls back.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or cut decode is logged and falls back.</returns>
     internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
         => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
 
@@ -83,7 +84,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its refined start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
+    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
@@ -190,7 +191,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>The black-frame candidates in file time, one for each probed scene whose range from its refined start to its roll end meets the minimum duration; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start and roll end, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
+    /// <returns>The black-frame candidates in file time, one for each probed scene whose range from its start before the cut start to its roll end meets the minimum duration, starting at its refined start; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start and roll end, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
     private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframePage> pages, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
@@ -265,11 +266,11 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         // Each probed scene gets its cut start, and a cut decode that throws propagates, so it fails
-        // the whole scan whichever scene it belongs to. Every verified scene whose refined range
-        // meets the minimum is a candidate, and so is every scene after the last verified one, none
-        // of which has a verdict. A scene without a verdict before a verified one is not probed. With
-        // no verified scene, the scenes are walked latest first and the first whose refined range
-        // meets the minimum is the only candidate.
+        // the whole scan whichever scene it belongs to. Every verified scene whose range meets the
+        // minimum is a candidate, and so is every scene after the last verified one, none of which
+        // has a verdict. A scene without a verdict before a verified one is not probed. With no
+        // verified scene, the scenes are walked latest first and the first whose range meets the
+        // minimum is the only candidate.
         List<Segment> credits = [];
         List<TimeRange> accepted = [];
         var lastVerified = scenes.FindLastIndex(scene => lettering[scene] is true);
@@ -285,16 +286,17 @@ internal sealed partial class KeyframeAnalyzer(
             // Every accepted scene carries its refined start and its roll end. The card kinds read
             // that range: a black or card-like page in it is a black card, which covers black pages
             // among the roll pages. A roll page
-            // itself is neither and stays content. The minimum applies to the whole range.
+            // itself is neither and stays content. The minimum reads the range from the scene's start
+            // before the cut start: the cut start only moves where an admitted scene starts, so the
+            // frames it adds before the first page never lift a short scene over the minimum.
             var endTime = RollEnd(scene, blackFrames, minimum, pages);
             accepted.Add(new TimeRange(refinedStartTime, endTime));
 
-            var segment = new Segment(
-                episode.EpisodeId,
-                new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, endTime + episode.CreditsFingerprintStart));
-
-            if (segment.Duration >= minimumDuration)
+            if (endTime - scene.StartTime >= minimumDuration)
             {
+                var segment = new Segment(
+                    episode.EpisodeId,
+                    new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, endTime + episode.CreditsFingerprintStart));
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
                 credits.Add(segment);
                 if (lastVerified < 0)

@@ -510,6 +510,27 @@ public class TestBlackFrames
         Assert.Equal([new CutDecode(128, 130)], ffmpeg.Calls);
     }
 
+    [Theory]
+    [InlineData(44, null)]
+    [InlineData(46, 128.5)]
+    public async Task DetectCreditsAsync_MinimumReadsTheSceneBeforeTheCutStart(double lastRollPage, double? expectedStart)
+    {
+        // The lead-in trims the scene to the roll from 30, and the cut frame at 128.5 lies 1.5 s
+        // before it. A roll to 44 is 14 s, under the 15 s minimum, and the cut start would lift it to
+        // 15.5 s; it only refines, so the scene stays rejected. A roll to 46 meets the minimum on its
+        // own and starts on the cut.
+        var ffmpeg = KeyframeScan(
+            Keyframes(20, 56, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 30, 95, KeyframeVisuals.BlackAfterCut), (32, lastRollPage, 95, KeyframeVisuals.Black)),
+            cutWindows: (_, window) => CutFrames(window, cutFrame: 12));
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var candidates = await KeyframeCandidates(analyzer, episode);
+
+        (SegmentSource, double, double)[] expected = expectedStart is { } start ? [(SegmentSource.BlackFrame, start, lastRollPage + 100)] : [];
+        Assert.Equal(expected, candidates);
+    }
+
     [Fact]
     public async Task DetectCreditsAsync_CutStartDecodesEachProbedScene()
     {
