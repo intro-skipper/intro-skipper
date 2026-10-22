@@ -20,14 +20,16 @@ namespace CreditsRunner;
 /// </summary>
 /// <remarks>
 /// The process runner logs <c>Starting ffmpeg with the following arguments</c> at debug before
-/// every start, and the recorder counts those lines. The proxy times any method of
-/// <see cref="IFFmpegService"/> that returns a task, so a rewrite that renames or adds service
-/// calls needs no change here.
+/// every start, and the recorder counts those lines. It also counts the warning
+/// <c>ffmpeg did not exit within</c>, logged when a process is killed at its timeout. The proxy
+/// times any method of <see cref="IFFmpegService"/> that returns a task, so a rewrite that
+/// renames or adds service calls needs no change here.
 /// </remarks>
 internal sealed class CallRecorder : ILogger<FFmpegService>
 {
     private readonly List<(Guid? Episode, CallTiming Call)> _calls = [];
     private int _processes;
+    private int _timedOut;
 
     public IReadOnlyList<CallTiming> Calls => [.. _calls.Select(call => call.Call)];
 
@@ -38,12 +40,12 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
     /// <summary>
     /// Takes a reading that <see cref="Measure"/> later measures the work since.
     /// </summary>
-    public Mark Begin() => new(Stopwatch.GetTimestamp(), Volatile.Read(ref _processes), ChildCpu.Seconds());
+    public Mark Begin() => new(Stopwatch.GetTimestamp(), Volatile.Read(ref _processes), Volatile.Read(ref _timedOut), ChildCpu.Seconds());
 
     public CallTiming Measure(string trigger, Mark mark)
     {
         var cpu = ChildCpu.Seconds();
-        return new CallTiming(trigger, Volatile.Read(ref _processes) - mark.Processes, Stopwatch.GetElapsedTime(mark.Timestamp).TotalSeconds, cpu - mark.Cpu);
+        return new CallTiming(trigger, Volatile.Read(ref _processes) - mark.Processes, Stopwatch.GetElapsedTime(mark.Timestamp).TotalSeconds, cpu - mark.Cpu, Volatile.Read(ref _timedOut) - mark.TimedOut);
     }
 
     /// <inheritdoc/>
@@ -60,11 +62,15 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
         {
             Interlocked.Increment(ref _processes);
         }
+        else if (logLevel == LogLevel.Warning && formatter(state, exception).StartsWith("ffmpeg did not exit within", StringComparison.Ordinal))
+        {
+            Interlocked.Increment(ref _timedOut);
+        }
     }
 
     private void Record(Guid? episode, string trigger, Mark mark) => _calls.Add((episode, Measure(trigger, mark)));
 
-    internal readonly record struct Mark(long Timestamp, int Processes, double? Cpu);
+    internal readonly record struct Mark(long Timestamp, int Processes, int TimedOut, double? Cpu);
 
     /// <summary>
     /// Forwards every service call to the real service and records the ones that return a task

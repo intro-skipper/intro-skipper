@@ -25,7 +25,8 @@ internal sealed record Candidate(double Start, double End, string Source)
 /// the ffmpeg processes it started. A call served from the detection cache starts none.
 /// </summary>
 /// <param name="CpuSeconds">The user and system CPU time of the processes it started; <see langword="null"/> off Linux.</param>
-internal sealed record CallTiming(string Trigger, int Processes, double WallSeconds, double? CpuSeconds);
+/// <param name="TimedOut">The processes it started that were killed at their timeout. The analyzer can fall back to another boundary when one is, so a call with any is not a clean measurement. Results written before the field existed read as 0.</param>
+internal sealed record CallTiming(string Trigger, int Processes, double WallSeconds, double? CpuSeconds, int TimedOut = 0);
 
 /// <summary>
 /// One corpus file's result. With repeats, the times are medians over the timed passes, and

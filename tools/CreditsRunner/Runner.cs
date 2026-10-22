@@ -120,6 +120,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             {
                 WallSeconds = Median(timed.Select(pass => pass.Calls[i].WallSeconds)),
                 CpuSeconds = MedianOrNull(timed.Select(pass => pass.Calls[i].CpuSeconds)),
+                TimedOut = timed.Max(pass => pass.Calls[i].TimedOut),
             })]
             : first.Calls;
 
