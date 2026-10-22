@@ -20,7 +20,7 @@ try
         _ => Commands.Usage(Console.Error),
     };
 }
-catch (Exception e) when (e is ArgumentException or IOException or System.Text.Json.JsonException or InvalidDataException)
+catch (Exception e) when (e is ArgumentException or IOException or System.Text.Json.JsonException or InvalidDataException or TimeoutException)
 {
     await Console.Error.WriteLineAsync(e.Message).ConfigureAwait(false);
     return 2;

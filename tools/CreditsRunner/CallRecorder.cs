@@ -33,6 +33,9 @@ internal sealed class CallRecorder : ILogger<FFmpegService>
 
     public IReadOnlyList<CallTiming> Calls => [.. _calls.Select(call => call.Call)];
 
+    /// <summary>Gets the processes killed at their timeout so far, inside a recorded call or not.</summary>
+    public int TimedOut => Volatile.Read(ref _timedOut);
+
     public IReadOnlyList<CallTiming> CallsOf(Guid episode) => [.. _calls.Where(call => call.Episode == episode).Select(call => call.Call)];
 
     public IFFmpegService Wrap(IFFmpegService service) => RecordingProxy.Create(service, this);

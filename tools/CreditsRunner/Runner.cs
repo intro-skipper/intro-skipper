@@ -171,6 +171,16 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         return Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? RuntimeInformation.ProcessArchitecture.ToString();
     }
 
+    // The check runs before any recorded call, so no file's calls would show its timeout, yet a
+    // timed-out query fails the check, which turns off keyframe visuals or Chromaprint.
+    private static void StopIfTheCheckTimedOut(CallRecorder recorder)
+    {
+        if (recorder.TimedOut > 0)
+        {
+            throw new TimeoutException("ffmpeg timed out during its version check, which decides what a pass analyzes; rerun on an idle machine");
+        }
+    }
+
     private async Task<Pass> RunPassAsync(CorpusFile file, CancellationToken cancellationToken)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"credits-runner-{Guid.NewGuid():N}.db");
@@ -184,6 +194,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             // runs before analysis, which also tells the scan whether keyframe visuals are available.
             _ = cache.TryRead<double>(Guid.Empty, AnalysisMode.Credits, CacheEntryType.Keyframe, 0, 0, out _);
             await ffmpeg.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+            StopIfTheCheckTimedOut(recorder);
             var version = Version(ffmpeg);
 
             var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, recorder.Wrap(ffmpeg), cache, config);
@@ -246,6 +257,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             var recorder = new CallRecorder();
             var service = new FFmpegService(recorder, cache);
             var ffmpegValid = await service.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+            StopIfTheCheckTimedOut(recorder);
             var ffmpeg = recorder.Wrap(service);
             var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid, chapterSource: ChapterSource.Embedded);
 
