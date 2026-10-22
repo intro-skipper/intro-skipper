@@ -19,9 +19,6 @@ internal static class CreditSceneBuilder
     private const double DefaultMinimumBlackFrameDensity = 0.50;
     private const double MaximumIntervalToKeyframeGapSeconds = 2.0;
 
-    // Minimum keyframe gap before a scene start for boundary probing to be worthwhile.
-    private const double MinimumBoundaryProbeWindow = 0.50;
-
     /// <summary>
     /// Detects credit scenes that have enough black-frame density and meet the minimum duration.
     /// </summary>
@@ -138,37 +135,6 @@ internal static class CreditSceneBuilder
         }
 
         return scenes;
-    }
-
-    /// <summary>
-    /// Finds the keyframe gap before a scene that a boundary probe should search: from the
-    /// last keyframe before the scene to the first keyframe inside it.
-    /// </summary>
-    /// <param name="frames">The keyframe black-frame scan results.</param>
-    /// <param name="scene">The scene whose start boundary may be refined.</param>
-    /// <returns>The window, or <see langword="null" /> when no keyframe precedes the scene or the
-    /// gap is too short to probe.</returns>
-    internal static (double LastKeyframeTime, double FirstBlackTime)? FindBoundaryProbeWindow(List<BlackFrame> frames, CreditScene scene)
-    {
-        double? lastKeyframeTime = null;
-        double? firstBlackTime = null;
-        foreach (var frame in frames)
-        {
-            if (frame.Time >= scene.StartTime)
-            {
-                firstBlackTime = frame.Time;
-                break;
-            }
-
-            lastKeyframeTime = frame.Time;
-        }
-
-        if (lastKeyframeTime is not { } last || firstBlackTime is not { } first)
-        {
-            return null;
-        }
-
-        return scene.StartTime - last > MinimumBoundaryProbeWindow ? (last, first) : null;
     }
 
     private static List<CreditScene> ShiftStartsToTransitionFrames(List<BlackFrame> frames, List<CreditScene> scenes, int sceneChange)

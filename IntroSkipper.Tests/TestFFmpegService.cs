@@ -387,6 +387,38 @@ public class TestFFmpegService
         Assert.DoesNotContain("Trailing option", logs, StringComparison.Ordinal);
     }
 
+    [FactSkipFFmpegTests]
+    public async Task RunCapturedAsync_StopsAtTheByteCap()
+    {
+        // A minute of frames is far more than the cap; the runner must kill ffmpeg at the cap and
+        // report the cut rather than keep reading.
+        var capture = await new FFmpegProcessRunner(NullLogger.Instance).RunCapturedAsync(
+            "ffmpeg",
+            ["-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=64x36:r=24:d=60", "-f", "rawvideo", "-"],
+            maximumBytesPerStream: 10_000,
+            expectedStdoutBytes: 10_000,
+            timeout: 30_000);
+
+        Assert.True(capture.Truncated);
+        Assert.True(capture.Stdout.Length <= 10_000);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task RunCapturedAsync_StopsAtTheByteCapOnStderr()
+    {
+        // A file that logs without producing frames: showinfo prints a line per frame to stderr and
+        // the null muxer writes nothing. The cap must kill ffmpeg on stderr alone, with no timeout.
+        var capture = await new FFmpegProcessRunner(NullLogger.Instance).RunCapturedAsync(
+            "ffmpeg",
+            ["-nostdin", "-hide_banner", "-loglevel", "info", "-f", "lavfi", "-i", "color=c=black:s=64x36:r=1000:d=60", "-vf", "showinfo", "-f", "null", "-"],
+            maximumBytesPerStream: 10_000,
+            expectedStdoutBytes: 0,
+            timeout: Timeout.Infinite);
+
+        Assert.True(capture.Truncated);
+        Assert.True(capture.Stderr.Length <= 10_000);
+    }
+
     private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>>? versionProbe = null, TimeSpan? versionProbeTimeout = null)
         => FfmpegTestHelpers.CreateFFmpegService(versionProbe, versionProbeTimeout);
 }

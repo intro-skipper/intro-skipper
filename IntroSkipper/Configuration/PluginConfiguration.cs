@@ -183,8 +183,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
-    /// When enabled, the black frame analyzer probes the gap between keyframes
-    /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
+    /// When enabled, the keyframe analyzer decodes every frame between a credits part's first keyframe
+    /// and the keyframe before it, and starts the part on the frame that cuts to it. Disable for faster
+    /// analysis with keyframe-only accuracy.
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
 
