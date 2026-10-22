@@ -54,23 +54,21 @@ The join matches times, not the frame counter both filters print. The counter is
 
 `KeyframeVisualTraits` holds what a visual shows on its own:
 
-- **Tinted.** The 10th percentile saturation reaches `BlackSaturationMaximum`: a dark scene with a coloured background, such as a blue night cave, not a roll. It reads the background's saturation rather than the frame's mean, so coloured lettering on black stays black.
 - **Lettered.** Something at least `TextContrastMinimum` luma levels above the darkest tenth, at any density and colour. A blank page is not lettered.
 - **Card-like.** A dominant background within `BackgroundSpreadMaximum` levels between the 10th and 90th percentile, something at least `TextContrastMinimum` away from it, and low saturation. Text on a black, white, grey or muted card looks like that; busy content does not.
 - **Solid white.** Every percentile at limited-range white. It is neither lettered nor card-like, and always content.
 
-Black is not a trait. It is the black-frame percentage against a threshold normalized over the scan, in which tinted keyframes count as zero, so the order is forced: tinted first, then the thresholds, then black.
+Black is not a trait. It is the black-frame percentage against a threshold normalized over the scan.
 
 ### Scene rules
 
 The analyzer applies these in order. Each step's exact rule is in the named method's XML doc.
 
-1. **Tinted keyframes are not black** (`WithoutTintedKeyframes`): they count as zero when the thresholds are normalized over the scan.
-2. **Scenes.** `CreditSceneBuilder` builds scenes from runs of black keyframes, with density gating and merging. For a sparse candidate, a targeted blackdetect scan can confirm it: all the runs one blackdetect interval supports become one scene anchored to the interval start (`DetectIntervalSupportedCreditScenes`), since blackdetect found the interval black throughout.
-3. **Lead-in.** A scene starts after its dark grey lead-in, the leading black keyframes that show dim content rather than black (`StartAfterDarkGreyLeadIn`). The level is the median darkest tenth of the scene's black keyframes, never below `KeyframeAnalyzer.LimitedRangeBlack`. A dim last shot before the cut to the roll is a lead-in, and so is the lighter prefix of a roll authored at two black levels; nothing the scan keeps tells them apart, and the later start skips less story. Only leading keyframes are trimmed, so a lighter section later in a scene stays. A scene dim on every black keyframe is dark story and is rejected whole.
-4. **Lettering gate.** A black scene lettered on no more than half of its pages that have a visual is a gap between acts, such as a cut to a commercial break, not credits. A scene with no visual on any page gets no verdict. The gate reads the scene from its keyframe start, before any probe, and a scene it rejects is never probed.
-5. **Lead-in probe.** With boundary refinement on, `LeadInProbe` decodes the frames between the last lighter keyframe and the first at the level, `LeadInProbe.Width` pixels wide, and moves the start back over frames that match the level keyframe within `KeyframeAnalyzer.BlackLevelTolerance`. The probe never keeps the lead-in: a channel logo or a burned-in subtitle reads like a credit page carried across the cut, and keeping it would restore minutes of dark story on letterboxed episodes. The result is cached under the two keyframes. A failed decode is not cached, and the scene then starts at the keyframe.
-6. **Candidates.** Every verified scene whose refined range meets the minimum duration is a black-frame candidate, so credits split by a mid-credits scene come out as separate parts. Every scene after the last verified one counts too: the scan keeps visuals only inside the window, so a roll past a window that ends early has no verdict. An unverified scene before a verified one is never a candidate and is not probed. With no verified scene, as on an ffmpeg without `signalstats`, the scenes are walked latest first and the walk stops at the first that meets the minimum, the only candidate. A dark story scene earlier in the window is then never probed and cannot come back as credits. Boundary refinement probes a scene's keyframe gap (`RefineBoundaryAsync`) only when that could change whether the scene reaches the minimum.
+1. **Scenes.** `CreditSceneBuilder` builds scenes from runs of black keyframes, with density gating. A run breaks where two black keyframes lie more than `MaximumSceneMergeGapSeconds` apart. For a sparse candidate, a targeted blackdetect scan can confirm it: all the runs one blackdetect interval supports become one scene anchored to the interval start (`DetectIntervalSupportedCreditScenes`), since blackdetect found the interval black throughout.
+2. **Lead-in.** A scene starts after its dark grey lead-in, the leading black keyframes that show dim content rather than black (`StartAfterDarkGreyLeadIn`). The level is the median darkest tenth of the scene's black keyframes, never below `KeyframeAnalyzer.LimitedRangeBlack`. A dim last shot before the cut to the roll is a lead-in, and so is the lighter prefix of a roll authored at two black levels; nothing the scan keeps tells them apart, and the later start skips less story. Only leading keyframes are trimmed, so a lighter section later in a scene stays. A scene dim on every black keyframe is dark story and is rejected whole.
+3. **Lettering gate.** A black scene lettered on no more than half of its pages that have a visual is a gap between acts, such as a cut to a commercial break, not credits. A scene with no visual on any page gets no verdict. The gate reads the scene from its keyframe start, before any probe, and a scene it rejects is never probed.
+4. **Lead-in probe.** With boundary refinement on, `LeadInProbe` decodes the frames between the last lighter keyframe and the first at the level, `LeadInProbe.Width` pixels wide, and moves the start back over frames that match the level keyframe within `KeyframeAnalyzer.BlackLevelTolerance`. The probe never keeps the lead-in: a channel logo or a burned-in subtitle reads like a credit page carried across the cut, and keeping it would restore minutes of dark story on letterboxed episodes. The result is cached under the two keyframes. A failed decode is not cached, and the scene then starts at the keyframe.
+5. **Candidates.** Every verified scene whose refined range meets the minimum duration is a black-frame candidate, so credits split by a mid-credits scene come out as separate parts. Every scene after the last verified one counts too: the scan keeps visuals only inside the window, so a roll past a window that ends early has no verdict. An unverified scene before a verified one is never a candidate and is not probed. With no verified scene, as on an ffmpeg without `signalstats`, the scenes are walked latest first and the walk stops at the first that meets the minimum, the only candidate. A dark story scene earlier in the window is then never probed and cannot come back as credits. With boundary refinement on, a probed scene without a lead-in gets a blackframe scan of the keyframe gap before its start (`RefineBoundaryAsync`) when that gap is longer than half a second, and starts at an earlier black transition the scan finds there.
 
 A known limit: a text epilogue on black, long enough to make its own scene, is lettered like credit cards and is skipped as credits. Nothing in the keyframe statistics tells the two apart.
 
@@ -78,7 +76,7 @@ A known limit: a text epilogue on black, long enough to make its own scene, is l
 
 After probing, `StampCardKinds` gives each page that has a visual its card kind, from the scenes the black-frame rules accepted and rejected. The rules apply in order:
 
-1. A solid white page, or a tinted page that is black by the raw percentage, is content.
+1. A solid white page is content.
 2. A page that is black by the raw percentage and in a rejected range is content.
 3. When no scene was accepted, a card-like page is a card and any other page is content.
 4. A black or card-like page in an accepted scene is a black card.
@@ -87,7 +85,7 @@ After probing, `StampCardKinds` gives each page that has a visual its card kind,
 
 The kinds come after probing because only the per-keyframe traits are facts about one page. Whether a page is a lead-in, part of a gap or a black card depends on its scene, and the same lifted-black page is a lead-in at a scene's head and a roll page at its tail.
 
-`CardRunFinder.FindCreditRange` reads only each page's time and kind and returns the latest sustained run that meets the minimum duration. A black card extends a run and counts toward its duration, but never toward its density, and the trim cadence reads black cards only when a run has fewer than two cards. A roll on its own is therefore left to the black-frame candidate, and cannot carry stray flat shots before it into the credits or trim sparse white cards next to it. The card run is a candidate like any other, not a fallback for when no black scene is found.
+`CardRunFinder.FindCreditRange` reads only each page's time and kind and returns the latest sustained run that meets the minimum duration. A black card extends a run and counts toward its duration, but never toward its density. A roll on its own is therefore left to the black-frame candidate, and cannot carry stray flat shots before it into the credits. The card run is a candidate like any other, not a fallback for when no black scene is found.
 
 ## Caching and hashes
 

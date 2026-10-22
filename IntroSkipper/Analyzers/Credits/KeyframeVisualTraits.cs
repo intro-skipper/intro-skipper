@@ -6,9 +6,9 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// What one keyframe's visual shows on its own: tinted, lettered, card-like and solid white. Solid
-/// white is neither lettered nor card-like. The other three vary independently: a roll page is
-/// lettered and card-like, dense text is lettered and not card-like, and a blank page is neither.
+/// What one keyframe's visual shows on its own: lettered, card-like and solid white. Solid white is
+/// neither lettered nor card-like. The other two vary independently: a roll page is lettered and
+/// card-like, dense text is lettered and not card-like, and a blank page is neither.
 /// Black is not among them. It is the black-frame row's percentage against a threshold the
 /// black-frame rules normalize over the scan.
 /// </summary>
@@ -26,20 +26,6 @@ internal static class KeyframeVisualTraits
     // them too. Cards are muted or neutral.
     private const double SaturationCreditMaximum = 96.0;
     private const double LimitedRangeWhite = 235.0;
-
-    // A black keyframe's least saturated tenth is its background, and black has no saturation. At or
-    // above this, a black keyframe is a dark tinted scene, not a roll or a card. Coloured lettering on
-    // black leaves that tenth at zero.
-    private const double BlackSaturationMaximum = 10;
-
-    /// <summary>
-    /// Whether a keyframe's background is saturated. A tinted keyframe the blackframe filter counts as
-    /// black is a dark tinted scene, such as a blue night cave, not a roll or a card.
-    /// </summary>
-    /// <param name="visual">The keyframe's visual.</param>
-    /// <returns><see langword="true"/> when the keyframe is tinted.</returns>
-    internal static bool IsTinted(this KeyframeVisual visual)
-        => visual.SaturationLow >= BlackSaturationMaximum;
 
     /// <summary>
     /// Whether a keyframe shows lettering: something far above its darkest tenth, at any density and

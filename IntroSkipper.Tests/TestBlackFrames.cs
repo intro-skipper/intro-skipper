@@ -339,10 +339,9 @@ public class TestBlackFrames
     [Fact]
     public void TestMergeScenesAcross20SecondGap()
     {
-        // Two black-frame scenes whose raw endpoint timestamps differ by exactly 20s.
-        // Since DetectCreditScenes compares scene.StartTime - current.EndTime, this should merge.
-        // Gap uses 10 widely-spaced frames so merged density (40/50 = 80%) stays well above
-        // the 50% threshold, isolating the MaximumTimeSkip boundary condition.
+        // Two dense black parts whose black keyframes lie exactly 20 s apart, 9.5 to 29.5, are one
+        // run. The gap holds 10 widely spaced frames so the run's density (40/50 = 80%) stays well
+        // above the 50% threshold, isolating the 20 s boundary.
         var frames = new List<BlackFrame>();
         frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 9.5, percentage: 95));
         for (var i = 0; i < 10; i++)
@@ -355,8 +354,6 @@ public class TestBlackFrames
         // minimum=85, sceneChange=96 (with floor=0 these are direct values)
         var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
 
-        // The raw scene endpoint timestamps differ by exactly 20.0s: 29.5 - 9.5.
-        // That is within MaximumTimeSkip, so the scenes should merge.
         Assert.Single(scenes);
 
         // StartTime == 0.0 also validates the transition-frame search: no frame reaches
@@ -368,8 +365,7 @@ public class TestBlackFrames
     [Fact]
     public void TestDoesNotMergeScenesAcross20Point5SecondGap()
     {
-        // Two black-frame scenes whose raw endpoint timestamps differ by 20.5s.
-        // Since DetectCreditScenes compares scene.StartTime - current.EndTime, this should not merge.
+        // Two dense black parts whose black keyframes lie 20.5 s apart, 9.5 to 30, are two runs.
         List<BlackFrame> frames =
         [
             .. CreateDenseFrames(startTime: 0, endTime: 9.5, percentage: 95),
@@ -379,8 +375,6 @@ public class TestBlackFrames
 
         var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
 
-        // The raw scene endpoint timestamps differ by 20.5s: 30.0 - 9.5.
-        // That exceeds MaximumTimeSkip, so the scenes should stay separate.
         Assert.Equal(2, scenes.Count);
     }
 
@@ -401,6 +395,7 @@ public class TestBlackFrames
     [Theory]
     [InlineData("black", 120.0)]
     [InlineData("tinted", null)]
+    [InlineData("saturated background", 120.0)]
     [InlineData("blank", null)]
     [InlineData("one page", null)]
     [InlineData("most pages", 120.0)]
@@ -420,13 +415,12 @@ public class TestBlackFrames
     [InlineData("dense first pages", 124.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
-        // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll; saturated
-        // pages are a dark tinted scene, not black at all; blank pages are a gap between acts, not
-        // credits, until lettering shows on more than half of them; no visuals at all leave the
-        // black-frame result alone. Coloured lettering is a roll like any other. A dark scene with
-        // one lit spot on every page is dim on every page, so it is lead-in to its end and not a
-        // roll; a cut followed by such keyframes is lettered on half its pages and is not one
-        // either. A dark grey lead-in, black to the blackframe filter with its darkest tenth above
+        // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll, whatever the
+        // background's saturation; blank pages are a gap between acts, not credits, until lettering
+        // shows on more than half of them; no visuals at all leave the black-frame result alone.
+        // Coloured lettering is a roll like any other. A dark scene with one lit spot on every page,
+        // tinted or not, is dim on every page, so it is lead-in to its end and not a roll; a cut
+        // followed by such keyframes is lettered on half its pages and is not one either. A dark grey lead-in, black to the blackframe filter with its darkest tenth above
         // the roll's, is not part of the roll; a roll with lifted blacks sets the scene's black
         // level and is a roll; a roll authored at two black levels starts at its darker part.
         // Behind letterbox bars a dark scene's darkest tenth is black like the roll's, and its 90th
@@ -440,12 +434,13 @@ public class TestBlackFrames
         // black here: a scan of the roll alone has no zero rows, so its floor stays at 30, its
         // black minimum at 89 and its scene-change threshold at 96, above the roll's 95, so the
         // lead-in trim and not the transition shift starts a roll after its dim pages. No fixture
-        // gives a card run: an accepted roll's pages are black cards, the pages of a rejected or
-        // tinted roll are content, and pages without a visual are invisible to the card finder.
+        // gives a card run: an accepted roll's pages are black cards, the pages of a rejected roll
+        // are content, and pages without a visual are invisible to the card finder.
         Keyframe[] keyframes = visualsKind switch
         {
             "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
             "tinted" => Roll((20, 54, 95, KeyframeVisuals.Tinted)),
+            "saturated background" => Roll((20, 54, 95, t => new KeyframeVisual(t, 16, 16, 16, 235, 21, 30))),
             "blank" => Roll((20, 54, 95, KeyframeVisuals.BlankBlack)),
             "one page" => Roll((30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
             "most pages" => Roll((20, 54, 95, t => (t - 20) % 1.5 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
@@ -729,20 +724,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task DetectCreditsAsync_TintedKeyframesAreNeitherBlackNorCards()
-    {
-        // Saturated black keyframes flat enough to pass the card test on luma alone: not a black
-        // scene, and not a card run through the no-scene fallback either.
-        var ffmpeg = KeyframeScan(Keyframes(20, 54, 0.5, (20, 54, 95, KeyframeVisuals.TintedFlat)));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Empty(candidates);
-    }
-
-    [Fact]
     public async Task DetectCreditsAsync_MultipleSparseScenesRequireBlackIntervalSupport()
     {
         // Two sparse scenes, each after a content keyframe, clear the keyframe density gate because
@@ -809,30 +790,6 @@ public class TestBlackFrames
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 100.0, 130.0), (SegmentSource.KeyframeVisuals, 90.0, 130.0)], candidates);
         Assert.Equal([new IntervalScan(0, 45, 32, 85), new IntervalScan(85, 145, 32, 85)], ffmpeg.Calls);
-    }
-
-    [Fact]
-    public void TestDensityGating_DoesNotMergeAcrossLowDensityGap()
-    {
-        // Two dense black-frame segments separated by a long non-black gap.
-        // Each segment passes density on its own, but the combined span does not.
-        // The analyzer should keep them separate rather than merging into one low-density scene.
-        List<BlackFrame> frames =
-        [
-            .. CreateDenseFrames(startTime: 0, endTime: 7.5, percentage: 95),
-            .. CreateDenseFrames(startTime: 8, endTime: 26.5, percentage: 10),
-            .. CreateDenseFrames(startTime: 27, endTime: 34.5, percentage: 95),
-        ];
-
-        // Gap between scenes: 27.0 - 7.5 = 19.5s (within MaximumTimeSkip of 20s)
-        // Combined span after merge: 0-34.5s = 35s total, 32 black frames out of 70 total → ~46% density
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
-
-        Assert.Equal(2, scenes.Count);
-        Assert.Equal(0.0, scenes[0].StartTime);
-        Assert.Equal(7.5, scenes[0].EndTime);
-        Assert.Equal(27.0, scenes[1].StartTime);
-        Assert.Equal(34.5, scenes[1].EndTime);
     }
 
     [Theory]
@@ -1006,13 +963,13 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_RunsOneIntervalConfirms_AreOneScene()
     {
-        // Tinted pages at 80 and 90 split a sparse roll into keyframe runs at 40 to 70 and 100 to
-        // 150, and one blackdetect interval from 40 confirms both. They are one scene, so its black
+        // Content at 80 and 90 splits a sparse roll into keyframe runs at 40 to 70 and 100 to 150,
+        // and one blackdetect interval from 40 confirms both. They are one scene, so its black
         // level comes from all its pages and the lifted pages at its head are a lead-in. The lead-in
         // decode fails, so the scene starts at the level start frame at 100, and there is one
         // candidate.
         var ffmpeg = KeyframeScan(
-            Keyframes(0, 200, 10, (40, 70, 100, KeyframeVisuals.LiftedBlack), (80, 90, 100, KeyframeVisuals.Tinted), (100, 150, 100, KeyframeVisuals.Black)),
+            Keyframes(0, 200, 10, (40, 70, 100, KeyframeVisuals.LiftedBlack), (100, 150, 100, KeyframeVisuals.Black)),
             intervals: [new BlackInterval(40, 110)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
 
@@ -1029,7 +986,7 @@ public class TestBlackFrames
     {
         // A dense roll at 20 to 40 and a sparse run at 70 to 90. The dense scene keeps its own start
         // and its runs, and an interval makes a scene only of the runs outside it. One interval over
-        // both, through tinted pages between them, gives a second scene from 19, which the credits
+        // both, through the content between them, gives a second scene from 19, which the credits
         // pass joins to the first. An interval over each gives a second scene from 65, and no copy
         // of the dense scene from 19.
         double[] times = [.. Times(0, 62, 2), 70, 80, 90, .. Times(92, 120, 2)];
@@ -1037,7 +994,6 @@ public class TestBlackFrames
             times.Select(t => t switch
             {
                 >= 20 and <= 40 or >= 70 and <= 90 => new Keyframe(t, 100, KeyframeVisuals.Black(t)),
-                > 40 and < 70 when oneInterval => new Keyframe(t, 100, KeyframeVisuals.Tinted(t)),
                 _ => new Keyframe(t, 0, KeyframeVisuals.Content(t)),
             }),
             intervals: oneInterval ? [new BlackInterval(19, 90)] : [new BlackInterval(19, 40), new BlackInterval(65, 90)]);
@@ -1155,26 +1111,11 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task TestDetectCreditsAsync_RefinesSubMinimumFinalSceneBesideEarlierScene()
+    public async Task DetectCreditsAsync_EarlierSceneUnderTheMinimum_IsNotProbed()
     {
-        var ffmpeg = KeyframeScan(
-            [.. Keyframes(0, 58, 0.5, (0, 20, 95, KeyframeVisuals.Black), (20.5, 58, 30, KeyframeVisuals.Dark)), .. Keyframes(60, 74, 0.5, (60, 74, 95, KeyframeVisuals.Black))],
-            probeFrames: [new BlackFrame(95, 0.5, 0)]);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Equal([(SegmentSource.BlackFrame, 100.0, 120.0), (SegmentSource.BlackFrame, 158.5, 174.0)], candidates);
-        Assert.Equal([new RangeScan(158, 160, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_EarlierSceneUnderTheMinimumAfterProbing_IsNotACandidate()
-    {
-        // 10 to 23 is 13 s, admitted because the 2 s keyframe gap before it could bring it to the
-        // minimum, and 60 to 80 is a roll. Every accepted scene is probed. The probe finds no black
-        // before 10, so that scene stays under the minimum and the roll is the only candidate.
+        // 10 to 23 is 13 s, under the minimum, though the 2 s keyframe gap before it could bring it
+        // there, and 60 to 80 is a roll. Only the roll is a scene, so only its gap is probed and it
+        // is the only candidate.
         var ffmpeg = KeyframeScan(
         [
             .. Keyframes(0, 8, 0.5, (0, 8, 30, KeyframeVisuals.Dark)),
@@ -1187,7 +1128,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 160.0, 180.0)], candidates);
-        Assert.Equal([new RangeScan(108, 110, 95, 32, AnalysisMode.Credits), new RangeScan(158, 160, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
+        Assert.Equal([new RangeScan(158, 160, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1206,15 +1147,15 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task TestDetectCreditsAsync_DisabledRefinement_DoesNotSuppressIntervalFallback()
+    public async Task DetectCreditsAsync_SceneUnderTheMinimum_GoesToIntervalRecovery()
     {
-        // The only keyframe scene is too short on its own and could reach the minimum duration only via
-        // boundary refinement. With refinement disabled it must not be admitted, so the interval fallback
-        // can still recover the credits instead of the analyzer returning null.
+        // The only keyframe scene, 14 to 24, is under the minimum, and the 6 s keyframe gap before it
+        // does not admit it with boundary refinement on. Interval recovery finds the credits from 8.
+        // The 0.5 s keyframe gap before that start is too short for the boundary probe.
         var ffmpeg = KeyframeScan(
             [.. Keyframes(0, 8, 0.5, (0, 8, 30, KeyframeVisuals.Dark)), .. Keyframes(14, 24, 0.5, (14, 24, 95, KeyframeVisuals.Black))],
             intervals: [new BlackInterval(8, 24)]);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
         var candidates = await KeyframeCandidates(analyzer, episode);
@@ -1275,44 +1216,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task DetectCreditsAsync_DarkScanWithTintedPages_TakesItsFloorFromThem()
-    {
-        // In this dark scan the blackframe filter scores every page at 50 percent or more: dark shots
-        // at 50, two dark tinted pages at 95 and a roll of large lettering at 87. The analyzer counts
-        // tinted pages as zero before it normalizes the thresholds, so the two tinted pages alone pull
-        // the floor to 0 and keep the black minimum at the configured 85. Without them the floor
-        // would be 30 and the minimum 89, and the roll at 87 would not be black. The boundary probe
-        // runs at the roll's first page, 87, under the scene-change threshold of 95.
-        var ffmpeg = KeyframeScan(Keyframes(0, 100, 2, (10, 12, 95, KeyframeVisuals.Tinted), (60, 90, 87, KeyframeVisuals.BigText), (0, 100, 50, KeyframeVisuals.Dark)));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-
-        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
-
-        Assert.Equal([(SegmentSource.BlackFrame, 160.0, 190.0)], candidates);
-        Assert.Equal([new RangeScan(158, 160, 87, 32, AnalysisMode.Credits)], ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_TintedPageBeforeTheTransitionRow_IsNotTheStart()
-    {
-        // Letterboxed dark shots at 88 percent come first, then a flat tinted page at 100 whose
-        // brightest tenth sits at the roll's black level, then the roll at 100. The black path reads
-        // the tinted page as zero, so the scene starts at the roll's first page at 32 and the
-        // boundary probe reads the gap from the tinted page. Read as black, the tinted page would be
-        // the transition row and, level with the roll, the scene's first page, and the scene would
-        // start at 30. The card kinds read the page's raw percentage, so the page is black there
-        // and, outside every accepted scene, content; read at zero, the flat tinted page would pass
-        // the card test and start a card run at 30.
-        var ffmpeg = KeyframeScan(Keyframes(0, 80, 2, (20, 28, 88, KeyframeVisuals.LetterboxedDark), (30, 30, 100, t => new KeyframeVisual(t, 0, 12, 16, 198, 21, 30)), (32, 60, 100, KeyframeVisuals.Black)));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-
-        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
-
-        Assert.Equal([(SegmentSource.BlackFrame, 132.0, 160.0)], candidates);
-        Assert.Equal([new RangeScan(130, 132, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
-    }
-
-    [Fact]
     public async Task DetectCreditsAsync_SceneOnlyPastTheWindowEnd_LeavesNoCardFallback()
     {
         // The credits window ends 60 s in. The black rows run to the end of the file and have no
@@ -1360,24 +1263,6 @@ public class TestBlackFrames
 
         Assert.Equal([(SegmentSource.KeyframeVisuals, 138.0, 154.0)], candidates);
         Assert.Empty(ffmpeg.Calls);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_SceneUnderTheMinimumAfterProbing_LeavesTheCardFallback()
-    {
-        // The roll's first pages are 92 percent black and the pages after them 100. The scene starts
-        // at the transition row at 20 and runs 14 s. The analyzer admits it because the 2 s gap before
-        // it could bring it to the minimum. The boundary probe finds no black there, so the scene
-        // fails the final duration check. With no candidate, accepted is empty and the card kinds fall
-        // back to the visuals. Every roll page is then a card, including those before the transition
-        // row.
-        var ffmpeg = KeyframeScan(Keyframes(0, 60, 2, (10, 18, 92, KeyframeVisuals.Black), (20, 34, 100, KeyframeVisuals.Black)));
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg);
-
-        var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
-
-        Assert.Equal([(SegmentSource.KeyframeVisuals, 110.0, 134.0)], candidates);
-        Assert.Equal([new RangeScan(118, 120, 95, 32, AnalysisMode.Credits)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1556,13 +1441,6 @@ public class TestBlackFrames
     // Each row: a keyframe scan with no black page, the minimum credit duration, and the expected (Start, End) or null.
     public static TheoryData<KeyframePage[], int, (double Start, double End)?> CardCreditsCases => new()
     {
-        // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
-        { Pages(Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54))), 15, (0, 20) },
-
-        // Leading over-extension: an isolated pre-credit card bridges into a dense block (4s GOP)
-        // -> start anchored to the dense block, not the stray pre-card.
-        { Pages(Seq(88, 4, (36, 36), (52, 80))), 15, (52, 80) },
-
         // Clean dense card run -> unchanged.
         { Pages(Seq(54, 2, (30, 54))), 15, (30, 54) },
 
@@ -1572,11 +1450,10 @@ public class TestBlackFrames
         // Interlude near the end (cards resume densely after) -> preserved.
         { Pages(Seq(60, 2, (0, 48), (56, 60))), 15, (0, 60) },
 
-        // Sparse all-card credits (8s GOP) -> kept (100% density, trailing gap within scaled trim).
+        // Sparse all-card credits (8s GOP) -> kept (100% density).
         { Pages(Seq(40, 8, (0, 40))), 15, (0, 40) },
 
-        // Uniform sparse long-GOP credits (12s cadence) -> kept; the trim keys off the run's own
-        // cadence, so an all-card run is never discarded even when its gap exceeds the capped bridge.
+        // Uniform sparse long-GOP credits (12s cadence) -> kept as one run.
         { Pages(Seq(48, 12, (0, 48))), 15, (0, 48) },
 
         // All-card run whose 21s cadence exceeds the fixed bridge, with nothing non-card between
@@ -1594,10 +1471,6 @@ public class TestBlackFrames
         // card cadence, not the content cadence, or every 12s card gap splits the run.
         { Pages(NotBlack([.. Busy(0, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
 
-        // A substantial dense body followed by isolated cards every 8s out to the window edge -> the
-        // trim anchors to the dense-body cadence and cuts the sparse tail back to the real block.
-        { Pages(NotBlack([.. Cards(0, 20, 2), .. Cards(28, 196, 8)])), 15, (0, 20) },
-
         // Sparse isolated cards bridged across busy 2s content (brief dense head, then a lone card
         // every 8s) -> rejected by the card-density floor: most keyframes in the span are busy
         // content, so this reads as normal content with occasional static shots, not a card sequence.
@@ -1606,7 +1479,7 @@ public class TestBlackFrames
         // Two card-like keyframes 18s apart with busy keyframes between them -> not credits.
         { Pages(Seq(18, 2, (0, 0), (18, 18))), 15, null },
 
-        // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
+        // A final card 4s after the body, busy content between -> kept in the run.
         { Pages(Seq(44, 2, (0, 40), (44, 44))), 15, (0, 44) },
 
         // Only 10s of card -> below the minimum duration.
@@ -1743,8 +1616,7 @@ public class TestBlackFrames
             // the run has no card density.
             data.Add(Pages(Keyframes(32, 60, 2, (32, 50, 100, KeyframeVisuals.Black), (52, 52, 0, KeyframeVisuals.Card), (54, 60, 100, KeyframeVisuals.Black))), [(32, 60)], [(52, 60)], null);
 
-            // Sparse grey cards on a 12 s cadence then a dense roll: the trim cadence comes from the
-            // grey cards, so the roll cannot trim them away.
+            // Sparse grey cards on a 12 s cadence then a dense roll: one run from the first grey card.
             data.Add(Pages([.. Keyframes(0, 24, 12, (0, 24, 0, KeyframeVisuals.Card)), .. Keyframes(36, 80, 2, (36, 80, 100, KeyframeVisuals.Black))]), [(36, 80)], [], (0, 80));
 
             // Dark detailed keyframes at 89 percent are black at the minimum of 85, but their luma spreads
@@ -1768,10 +1640,6 @@ public class TestBlackFrames
             // Black page, grey card, busy frame repeating, with no black-frame candidate: the visuals
             // alone decide, as the old fallback did, and two cards in three keep the run.
             data.Add(Pages(Times(0, 60, 2).Select(t => t % 6 == 0 ? new Keyframe(t, 100, KeyframeVisuals.Black(t)) : new Keyframe(t, 0, t % 6 == 2 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Content(t)))), [], [], (0, 60));
-
-            // Saturated black keyframes flat enough to pass the card test: content, not cards, with
-            // no scene to fall back on.
-            data.Add(Pages(Keyframes(0, 60, 2, (0, 60, 100, KeyframeVisuals.TintedFlat))), [], [], null);
 
             // Red lettering on black raises the mean saturation, not the background's: a card run
             // through the no-scene fallback like white lettering would be.
