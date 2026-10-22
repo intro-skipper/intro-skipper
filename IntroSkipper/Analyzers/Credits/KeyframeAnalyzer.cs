@@ -162,7 +162,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// </remarks>
     /// <param name="pages">The keyframe scan's pages, ordered by time, with their raw black percentages. A page without a visual gets no kind.</param>
     /// <param name="blackMinimum">The black percentage at or above which a page is black, normalized against the scan by the black-frame rules.</param>
-    /// <param name="accepted">Every black scene the black-frame rules accepted, each with its refined start, relative to the credits fingerprint start; empty when no scene met the minimum duration.</param>
+    /// <param name="accepted">Every black scene the black-frame rules accepted, from its refined start to its roll end, relative to the credits fingerprint start; empty when no scene met the minimum duration.</param>
     /// <param name="rejected">The lead-ins and the scenes the lettering gate rejected as gaps, relative to the credits fingerprint start.</param>
     /// <returns>One card page for each page that has a visual, in page order.</returns>
     internal static List<CardPage> StampCardKinds(IReadOnlyList<KeyframePage> pages, int blackMinimum, IReadOnlyList<TimeRange> accepted, IReadOnlyList<TimeRange> rejected)
@@ -298,9 +298,10 @@ internal sealed partial class KeyframeAnalyzer(
                     ? await ProbeLeadInAsync(episode, lastLighterKeyframe, scene.StartTime, cancellationToken).ConfigureAwait(false)
                     : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, cancellationToken).ConfigureAwait(false);
 
-            // Every accepted scene carries its refined start and its roll end, so the frames a probe
-            // moved the start back over and the roll pages after the scene count as part of the
-            // roll for the card run. The minimum applies to the extended range.
+            // Every accepted scene carries its refined start and its roll end. The card kinds read
+            // that range: a black or card-like page in it is a black card, which covers such pages
+            // the probe moved the start back over and black pages among the roll pages. A roll page
+            // itself is neither and stays content. The minimum applies to the whole range.
             var endTime = RollEnd(scene, blackFrames, minimum, pages);
             accepted.Add(new TimeRange(refinedStartTime, endTime));
 

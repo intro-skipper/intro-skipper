@@ -636,12 +636,15 @@ public class TestBlackFrames
         Assert.Equal([(SegmentSource.BlackFrame, 120.0, 180.0)], candidates);
     }
 
-    [Fact]
-    public async Task DetectCreditsAsync_ColouredPagesAfterTheScene_DoNotExtendIt()
+    [Theory]
+    [InlineData(16.0, 74.0, 244.0, 0.5)] // coloured: the darkest-tenth saturation is still 0
+    [InlineData(19.0, 74.0, 244.0, 0.0)] // darkest tenth three levels above black
+    [InlineData(16.0, 20.0, 60.0, 0.0)] // not lettered: the brightest pixel 44 levels above the darkest tenth
+    public async Task DetectCreditsAsync_PagesThatAreNotRollPages_DoNotExtendTheScene(double lumaLow, double lumaHigh, double lumaMax, double saturation)
     {
-        // The same dense lettering at a mean saturation of 0.5 is not a roll page, so the scene ends
-        // at its last black keyframe. The pages' darkest-tenth saturation is still 0.
-        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, t => new KeyframeVisual(t, 16, 16, 74, 244, 0, 0.5)), (82, 90, 0, KeyframeVisuals.Content)));
+        // The pages under the black minimum after the scene each fail one roll page clause, so the
+        // scene ends at its last black keyframe.
+        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, t => new KeyframeVisual(t, 16, lumaLow, lumaHigh, lumaMax, 0, saturation)), (82, 90, 0, KeyframeVisuals.Content)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 

@@ -31,7 +31,7 @@ internal static class KeyframeVisuals
     /// <summary>Busy content: luma spread across the range.</summary>
     internal static KeyframeVisual Content(double time) => new(time, 16, 60, 200, 235, 0, 108);
 
-    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is under the blackframe threshold and its brightest tenth is not, so the filter counts between a tenth and nine tenths of it black. It carries the little colour dark footage has, so it is not a roll page.</summary>
+    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is under the blackframe threshold and its brightest tenth is not, so the filter counts between a tenth and nine tenths of it black. Its mean saturation of 2 keeps it from reading as a roll page; at 0 a black roll before it would end at the last of these pages.</summary>
     internal static KeyframeVisual Dark(double time) => new(time, 0, 10, 50, 120, 0, 2);
 
     /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>
