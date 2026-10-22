@@ -50,6 +50,10 @@ _Avoid_: Non-black credits, entropy credits, uniform-card credits
 What a page is to the card run: content, card or black card. The keyframe analyzer sets it after probing.
 _Avoid_: Keyframe kind, page type
 
+**Roll page**:
+A page of roll credits that dense lettering keeps under the black threshold: black at its darkest tenth, colourless and lettered. A black scene the keyframe analyzer accepts ends at its roll end, the last of the black pages and roll pages that follow it without a break.
+_Avoid_: Dense page, text page
+
 ### Analysis
 
 **File version**:
