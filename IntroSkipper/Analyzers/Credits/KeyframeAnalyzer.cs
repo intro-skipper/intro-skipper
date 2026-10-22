@@ -136,7 +136,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// The accepted and rejected ranges are the only scene evidence the kinds read, and the
     /// accepted scenes carry their interval evidence and cut starts. A probed scene that falls short of
     /// the minimum duration is still accepted while another meets it, so its pages stay black cards.
-    /// Each scene starts at its refined start.
+    /// A scene that meets the minimum starts at its refined start, and a short one at its keyframe.
     /// Inside an accepted scene a blank black page between two roll pages is a black card, so it
     /// does not break the roll. A card-like page inside an accepted scene is a black card too, so a
     /// vanity card between two roll parts cannot give the roll a card density of its own. Both
@@ -265,44 +265,46 @@ internal sealed partial class KeyframeAnalyzer(
             return ([], [], rejected);
         }
 
-        // Each probed scene gets its cut start, and a cut decode that throws propagates, so it fails
-        // the whole scan whichever scene it belongs to. Every verified scene whose range meets the
-        // minimum is a candidate, and so is every scene after the last verified one, none of which
-        // has a verdict. A scene without a verdict before a verified one is not probed. With no
-        // verified scene, the scenes are walked latest first and the first whose range meets the
-        // minimum is the only candidate.
+        // Every verified scene whose range meets the minimum is a candidate, and so is every scene
+        // after the last verified one, none of which has a verdict. A scene without a verdict before
+        // a verified one is not probed. With no verified scene, the scenes are walked latest first and
+        // the first whose range meets the minimum is the only candidate.
         List<Segment> credits = [];
         List<TimeRange> accepted = [];
         var lastVerified = scenes.FindLastIndex(scene => lettering[scene] is true);
         var scenesToProbe = scenes.Where(scene => lettering[scene] is true).Concat(scenes.Skip(lastVerified + 1).Reverse());
         foreach (var scene in scenesToProbe)
         {
+            // Every probed scene runs to its roll end, and the card kinds read its range: a black or
+            // card-like page in it is a black card, which covers black pages among the roll pages. A
+            // roll page itself is neither and stays content.
+            var endTime = RollEnd(scene, blackFrames, minimum, pages);
+
+            // The minimum reads the range before the cut start, so the frames the cut start adds
+            // before the first page never lift a short scene over it, and a short scene is not
+            // decoded. Its start stays at the keyframe: no page lies between the cut and that
+            // keyframe, so the earlier start would change no card kind.
+            if (endTime - scene.StartTime < minimumDuration)
+            {
+                accepted.Add(new TimeRange(scene.StartTime, endTime));
+                continue;
+            }
+
             // The first page is the start frame: an interval-supported scene starts on blackdetect's
             // clock, where no page may lie, and keeps that start when it is earlier than the cut.
             var refinedStartTime = _config.RefineCreditsBoundary
                 ? Math.Min(scene.StartTime, await CutStartAsync(episode, pages, CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(blackFrames, scene.StartFrame), cancellationToken).ConfigureAwait(false))
                 : scene.StartTime;
-
-            // Every accepted scene carries its refined start and its roll end. The card kinds read
-            // that range: a black or card-like page in it is a black card, which covers black pages
-            // among the roll pages. A roll page
-            // itself is neither and stays content. The minimum reads the range from the scene's start
-            // before the cut start: the cut start only moves where an admitted scene starts, so the
-            // frames it adds before the first page never lift a short scene over the minimum.
-            var endTime = RollEnd(scene, blackFrames, minimum, pages);
             accepted.Add(new TimeRange(refinedStartTime, endTime));
 
-            if (endTime - scene.StartTime >= minimumDuration)
+            var segment = new Segment(
+                episode.EpisodeId,
+                new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, endTime + episode.CreditsFingerprintStart));
+            LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
+            credits.Add(segment);
+            if (lastVerified < 0)
             {
-                var segment = new Segment(
-                    episode.EpisodeId,
-                    new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, endTime + episode.CreditsFingerprintStart));
-                LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
-                credits.Add(segment);
-                if (lastVerified < 0)
-                {
-                    break;
-                }
+                break;
             }
         }
 

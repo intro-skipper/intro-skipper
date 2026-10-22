@@ -517,8 +517,8 @@ public class TestBlackFrames
     {
         // The lead-in trims the scene to the roll from 30, and the cut frame at 128.5 lies 1.5 s
         // before it. A roll to 44 is 14 s, under the 15 s minimum, and the cut start would lift it to
-        // 15.5 s; it only refines, so the scene stays rejected. A roll to 46 meets the minimum on its
-        // own and starts on the cut.
+        // 15.5 s; it only refines, so the scene stays rejected and its gap is not decoded. A roll to
+        // 46 meets the minimum on its own and starts on the cut.
         var ffmpeg = KeyframeScan(
             Keyframes(20, 56, 2, (20, 28, 95, KeyframeVisuals.DarkGrey), (30, 30, 95, KeyframeVisuals.BlackAfterCut), (32, lastRollPage, 95, KeyframeVisuals.Black)),
             cutWindows: (_, window) => CutFrames(window, cutFrame: 12));
@@ -528,7 +528,9 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         (SegmentSource, double, double)[] expected = expectedStart is { } start ? [(SegmentSource.BlackFrame, start, lastRollPage + 100)] : [];
+        Call[] decodes = expectedStart is null ? [] : [new CutDecode(128, 130)];
         Assert.Equal(expected, candidates);
+        Assert.Equal(decodes, ffmpeg.Calls);
     }
 
     [Fact]
