@@ -41,7 +41,7 @@ public enum CacheEntryType
     KeyframeVisual,
 
     /// <summary>
-    /// Where the credits lead-in probe starts a black scene, keyed by the two keyframes that bound its window.
+    /// Where the credits cut start places a part's start, keyed by the two keyframes that bound the decoded gap.
     /// </summary>
-    LeadIn,
+    Cut,
 }
