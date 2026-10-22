@@ -37,9 +37,6 @@ internal static class KeyframeVisuals
     /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>
     internal static KeyframeVisual Tinted(double time) => new(time, 0, 10, 19, 198, 21, 30);
 
-    /// <summary>A dark tinted scene flat enough to pass the card test on luma alone.</summary>
-    internal static KeyframeVisual TintedFlat(double time) => new(time, 0, 12, 19, 198, 21, 30);
-
     /// <summary>A dark grey scene before the cut to the roll: black to the blackframe filter, unsaturated, its darkest tenth five levels above black.</summary>
     internal static KeyframeVisual DarkGrey(double time) => new(time, 15, 21, 26, 131, 0, 0);
 

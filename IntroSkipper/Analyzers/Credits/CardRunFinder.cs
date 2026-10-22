@@ -8,14 +8,11 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <summary>
 /// Finds the card run in one episode's pages, each read as its time and card kind: credits on a
 /// near-uniform low-saturation card. A black card extends a run and counts toward its duration but
-/// never toward its density, and the trim cadence reads black cards only when a run has fewer than
-/// two cards, so a black roll cannot carry stray flat shots before it into the credits or trim sparse
-/// white cards next to it. The keyframe analyzer sets the kinds (see
-/// <see cref="KeyframeAnalyzer.StampCardKinds"/>).
+/// never toward its density, so a black roll cannot carry stray flat shots before it into the
+/// credits. The keyframe analyzer sets the kinds (see <see cref="KeyframeAnalyzer.StampCardKinds"/>).
 /// </summary>
 internal static class CardRunFinder
 {
-    private const double IsolatedCardTrimGapMultiplier = 2.5;
     private const double MinimumCardFraction = 0.5;
 
     /// <summary>
@@ -75,9 +72,8 @@ internal static class CardRunFinder
             return currentBest;
         }
 
-        var (start, end) = TrimIsolatedEnds(runCards, minimumDuration);
-        var runStart = runCards[start];
-        var lastCard = runCards[end];
+        var runStart = runCards[0];
+        var lastCard = runCards[^1];
         if (lastCard.Time - runStart.Time < minimumDuration)
         {
             return currentBest;
@@ -119,61 +115,5 @@ internal static class CardRunFinder
         }
 
         return total > 0 && (double)cards / total >= MinimumCardFraction;
-    }
-
-    // Trim sparse isolated cards from each edge of the run, anchored to the dense-body cadence rather
-    // than the run's overall median (which a long sparse tail can dominate and thereby block the trim).
-    // When trimming leaves less than the minimum duration there is no dominant dense body, so the run
-    // only qualifies (if at all) as a uniformly sparse credit run: keep its full span rather than
-    // collapsing it to the brief dense edge.
-    private static (int Start, int End) TrimIsolatedEnds(List<CardPage> runCards, int minimumDuration)
-    {
-        var start = 0;
-        var end = runCards.Count - 1;
-        if (end < 1)
-        {
-            return (start, end);
-        }
-
-        var trimGap = DenseCadenceGap(runCards) * IsolatedCardTrimGapMultiplier;
-
-        while (start < end && runCards[start + 1].Time - runCards[start].Time > trimGap)
-        {
-            start++;
-        }
-
-        while (end > start && runCards[end].Time - runCards[end - 1].Time > trimGap)
-        {
-            end--;
-        }
-
-        if (runCards[end].Time - runCards[start].Time < minimumDuration)
-        {
-            return (0, runCards.Count - 1);
-        }
-
-        return (start, end);
-    }
-
-    // Lower-quartile card-to-card gap: the cadence of the dense body, robust to a sparse tail or head
-    // that would pull the median up and stop the trim from removing isolated edge cards. Measured over
-    // the non-black cards when there are enough of them, so a dense roll's cadence does not trim
-    // sparse white cards next to it.
-    private static double DenseCadenceGap(List<CardPage> runCards)
-    {
-        var cards = runCards.Where(card => card.Kind == CardKind.Card).ToList();
-        if (cards.Count < 2)
-        {
-            cards = runCards;
-        }
-
-        var gaps = new List<double>(cards.Count - 1);
-        for (var i = 1; i < cards.Count; i++)
-        {
-            gaps.Add(cards[i].Time - cards[i - 1].Time);
-        }
-
-        gaps.Sort();
-        return gaps[gaps.Count / 4];
     }
 }

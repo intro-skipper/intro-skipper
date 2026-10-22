@@ -18,8 +18,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <remarks>
 /// One decode reports both. Black-frame evidence is frame-accurate for credits on black and goes
 /// through density gating, blackdetect interval recovery for sparse candidates and optional boundary
-/// refinement. Three rules use the visuals on black keyframes: a keyframe whose background is
-/// saturated is a dark tinted scene and does not count as black; a black scene starts after leading
+/// refinement. Two rules use the visuals on black keyframes: a black scene starts after leading
 /// keyframes that show dim content rather than black, such as a dim last shot before the cut to the
 /// roll, and a scene dim on every black keyframe is dark story; and a black scene lettered on no more
 /// than half its pages is a gap between acts, not credits. With boundary refinement on, the frames
@@ -84,10 +83,8 @@ internal sealed partial class KeyframeAnalyzer(
         // keyframes inert.
         var pages = await _ffmpegService.ScanKeyframesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
 
-        // Tinted keyframes are content to the black-frame rules, so they leave before the thresholds
-        // are normalized against the scan they will be applied to. The black-frame rules read the
-        // pages' rows through this list, index-aligned with the pages.
-        var sceneFrames = WithoutTintedKeyframes(pages);
+        // The black-frame rules read the pages' rows through this list, index-aligned with the pages.
+        List<BlackFrame> sceneFrames = [.. pages.Select(page => page.Frame)];
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
             ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
             : (minimumPercentage, minimumPercentage);
@@ -128,7 +125,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// rules accepted and rejected. The rules apply in order, with membership by
     /// <see cref="InScene"/> on the page's time:
     /// <list type="number">
-    /// <item><description>A solid white page, or a tinted page that is black by the raw percentage, is content.</description></item>
+    /// <item><description>A solid white page is content.</description></item>
     /// <item><description>A page that is black by the raw percentage and in a rejected range is content.</description></item>
     /// <item><description>When accepted is empty, a card-like page is a card and any other page is content.</description></item>
     /// <item><description>A black or card-like page in an accepted scene is a black card.</description></item>
@@ -175,7 +172,7 @@ internal sealed partial class KeyframeAnalyzer(
             var time = frame.Time;
             var black = frame.Percentage >= blackMinimum;
             var cardLike = visual.IsCardLike();
-            var kind = visual.IsSolidWhite() || (black && (visual.IsTinted() || rejected.Any(range => InScene(range.Start, range.End, time)))) ? CardKind.Content
+            var kind = visual.IsSolidWhite() || (black && rejected.Any(range => InScene(range.Start, range.End, time))) ? CardKind.Content
                 : accepted.Count == 0 ? (cardLike ? CardKind.Card : CardKind.Content)
                 : (black || cardLike) && accepted.Any(scene => InScene(scene.Start, scene.End, time)) ? CardKind.BlackCard
                 : cardLike && !black ? CardKind.Card
@@ -190,7 +187,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// Detects credits from black-frame keyframe evidence, with optional blackdetect interval recovery and boundary refinement.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="blackFrames">The keyframe black-frame scan results, tinted keyframes at zero.</param>
+    /// <param name="blackFrames">The keyframe black-frame scan results.</param>
     /// <param name="pages">The keyframe scan's pages, index-aligned with <paramref name="blackFrames"/>.</param>
     /// <param name="minimum">The black percentage at or above which a keyframe is black, normalized against the scan.</param>
     /// <param name="sceneChange">The black percentage that marks the transition into credits, normalized against the scan.</param>
@@ -200,7 +197,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <returns>The black-frame candidates in file time, one for each probed scene whose refined range meets the minimum duration; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
     private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, IReadOnlyList<KeyframePage> pages, int minimum, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
-        var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
         if (scenes.Count == 0)
         {
             var candidates = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
@@ -293,7 +290,7 @@ internal sealed partial class KeyframeAnalyzer(
                 ? scene.StartTime
                 : lastLighterKeyframes.TryGetValue(scene, out var lastLighterKeyframe)
                     ? await ProbeLeadInAsync(episode, lastLighterKeyframe, scene.StartTime, cancellationToken).ConfigureAwait(false)
-                    : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
+                    : await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, cancellationToken).ConfigureAwait(false);
 
             // Every accepted scene carries its refined start, so the frames a probe moved the start
             // back over count as part of the roll for the card run.
@@ -317,14 +314,6 @@ internal sealed partial class KeyframeAnalyzer(
         // With no candidate no scene is accepted, and the card kinds fall back to the visuals.
         return (credits, credits.Count > 0 ? accepted : [], rejected);
     }
-
-    /// <summary>
-    /// Projects the pages onto their black-frame rows, one row per page in page order, with the
-    /// percentage of each tinted keyframe set to zero (see <see cref="KeyframeVisualTraits.IsTinted"/>).
-    /// The lead-in and lettering gates read page i beside row i, so this maps and never filters.
-    /// </summary>
-    private static List<BlackFrame> WithoutTintedKeyframes(IReadOnlyList<KeyframePage> pages)
-        => [.. pages.Select(page => page.Visual?.IsTinted() is true ? page.Frame with { Percentage = 0 } : page.Frame)];
 
     /// <summary>
     /// Moves a scene's start past its dark grey lead-in: the leading black keyframes that show dim
@@ -511,8 +500,8 @@ internal sealed partial class KeyframeAnalyzer(
 
     /// <summary>
     /// Refines a scene start time when a targeted blackframe probe of the keyframe gap before the
-    /// scene finds an earlier black transition. Probes only when the gap could change whether the
-    /// scene reaches the minimum duration.
+    /// scene finds an earlier black transition. Probes whenever that keyframe gap is longer than
+    /// half a second.
     /// </summary>
     /// <returns>The refined start time, or the original scene start when no valid refinement exists.</returns>
     private async Task<double> RefineBoundaryAsync(
@@ -521,10 +510,9 @@ internal sealed partial class KeyframeAnalyzer(
         CreditScene scene,
         int sceneChange,
         int threshold,
-        int minimumDuration,
         CancellationToken cancellationToken)
     {
-        if (CreditSceneBuilder.FindBoundaryProbeWindow(frames, scene, minimumDuration) is not var (lastKeyframeTime, firstBlackTime))
+        if (CreditSceneBuilder.FindBoundaryProbeWindow(frames, scene) is not var (lastKeyframeTime, firstBlackTime))
         {
             return scene.StartTime;
         }
