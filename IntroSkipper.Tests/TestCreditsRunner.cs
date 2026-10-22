@@ -127,6 +127,26 @@ public class TestCreditsRunner
     }
 
     [Fact]
+    public void Summarize_KeepsATimeoutFromAnyTimedPass()
+    {
+        var file = new CorpusFile("episode", "episode.mkv", 450);
+        Runner.Pass Pass(params CallTiming[] calls) => new(new QueuedEpisode(), "ffmpeg", [], [], null, new CallTiming("total", 0, 1, null), 0, calls);
+        var scan = new CallTiming(nameof(IFFmpegService.ScanKeyframesAsync), 1, 2, null);
+        var black = new CallTiming(nameof(IFFmpegService.DetectBlackIntervalsAsync), 1, 1, null);
+        var killed = black with { WallSeconds = 300, TimedOut = 1 };
+        var luma = new CallTiming(nameof(IFFmpegService.DecodeLumaWindowAsync), 1, 1, null);
+
+        // The second pass's probe timed out and the analyzer made the same calls after it.
+        var same = Runner.Summarize(file, [Pass(scan, black, luma), Pass(scan, killed, luma)]);
+        Assert.Equal(1, same.Calls.Sum(call => call.TimedOut));
+
+        // The second pass's probe timed out and the analyzer took another path.
+        var differ = Runner.Summarize(file, [Pass(scan, black, luma), Pass(scan, killed)]);
+        Assert.Equal(1, differ.Calls.Sum(call => call.TimedOut));
+        Assert.True(differ.Nondeterministic);
+    }
+
+    [Fact]
     public void Score_ListsTimedOutCalls()
     {
         using var directory = new TempDirectory();

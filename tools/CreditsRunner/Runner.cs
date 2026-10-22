@@ -109,8 +109,10 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         CreditsFingerprintEnd = file.Duration,
     };
 
-    // The first timed pass is the reference; the others only vote on times and determinism.
-    private static EpisodeResult Summarize(CorpusFile file, IReadOnlyList<Pass> timed)
+    // The first timed pass is the reference; the others vote on times and determinism. A timeout
+    // can change the calls a pass makes, so when the passes disagree on them the file keeps the
+    // calls of the pass with the most timeouts, and a timeout in any pass reaches score and diff.
+    internal static EpisodeResult Summarize(CorpusFile file, IReadOnlyList<Pass> timed)
     {
         var first = timed[0];
         var sameCalls = timed.All(pass => pass.Calls.Select(call => call.Trigger).SequenceEqual(first.Calls.Select(call => call.Trigger)));
@@ -122,7 +124,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
                 CpuSeconds = MedianOrNull(timed.Select(pass => pass.Calls[i].CpuSeconds)),
                 TimedOut = timed.Max(pass => pass.Calls[i].TimedOut),
             })]
-            : first.Calls;
+            : timed.OrderByDescending(pass => pass.Calls.Sum(call => call.TimedOut)).First().Calls;
 
         return new EpisodeResult(
             file.Id,
@@ -338,7 +340,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
     private static Candidate ToCandidate(AttributedSegment candidate)
         => new(candidate.Segment.Start, candidate.Segment.End, candidate.Source.ToString());
 
-    private sealed record Pass(
+    internal sealed record Pass(
         QueuedEpisode Episode,
         string Ffmpeg,
         IReadOnlyList<Candidate> Combined,
