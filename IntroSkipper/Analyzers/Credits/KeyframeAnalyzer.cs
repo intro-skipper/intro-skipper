@@ -84,7 +84,7 @@ internal sealed partial class KeyframeAnalyzer(
         var pages = await _ffmpegService.ScanKeyframesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
 
         // The black-frame rules read the pages' rows through this list, index-aligned with the pages.
-        var sceneFrames = pages.Select(page => page.Frame).ToList();
+        List<BlackFrame> sceneFrames = [.. pages.Select(page => page.Frame)];
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
             ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
             : (minimumPercentage, minimumPercentage);
