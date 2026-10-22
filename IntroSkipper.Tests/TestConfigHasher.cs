@@ -85,6 +85,7 @@ public sealed class TestConfigHasher
         Case("Credits BlackFrame cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits), "3C80558124EB7712", false);
         Case("Credits KeyframeVisual cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "587D32B8BFB41219", false);
         Case("Credits BlackInterval cache invalidates rows probed under tinted-zeroed thresholds", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "3BB44B93C34D3451", false);
+
         // BlackFrameMinimumPercentage is passed to blackdetect as pic_th and is baked into the
         // cached intervals, so changing it must invalidate the BlackInterval detection cache.
         Case("BlackInterval cache varies with minimum percentage", Cache(percentage85, CacheEntryType.BlackInterval, AnalysisMode.Credits), Cache(percentage95, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
