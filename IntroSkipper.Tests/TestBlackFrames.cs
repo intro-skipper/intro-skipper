@@ -378,6 +378,24 @@ public class TestBlackFrames
         Assert.Equal(2, scenes.Count);
     }
 
+    [Fact]
+    public void TestRunAcrossSparseGap_IsGatedOnDensityAsAWhole()
+    {
+        // Two dense black parts whose black keyframes lie 19.5 s apart, 7.5 to 27, are one run
+        // however few of the frames between them are black. The run is 32 black frames of 70, under
+        // half, so it fails the density gate and neither dense part survives on its own.
+        List<BlackFrame> frames =
+        [
+            .. CreateDenseFrames(startTime: 0, endTime: 7.5, percentage: 95),
+            .. CreateDenseFrames(startTime: 8, endTime: 26.5, percentage: 10),
+            .. CreateDenseFrames(startTime: 27, endTime: 34.5, percentage: 95),
+        ];
+
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
+
+        Assert.Empty(scenes);
+    }
+
     [Theory]
     [InlineData(90, 90, 89, 96)] // uniform 90% frames: floor capped at 30, not 90
     [InlineData(5, 80, 85, 95)]  // 1st percentile of 5%: floor stays 5, not capped
@@ -420,9 +438,10 @@ public class TestBlackFrames
         // shows on more than half of them; no visuals at all leave the black-frame result alone.
         // Coloured lettering is a roll like any other. A dark scene with one lit spot on every page,
         // tinted or not, is dim on every page, so it is lead-in to its end and not a roll; a cut
-        // followed by such keyframes is lettered on half its pages and is not one either. A dark grey lead-in, black to the blackframe filter with its darkest tenth above
-        // the roll's, is not part of the roll; a roll with lifted blacks sets the scene's black
-        // level and is a roll; a roll authored at two black levels starts at its darker part.
+        // followed by such keyframes is lettered on half its pages and is not one either. A dark
+        // grey lead-in, black to the blackframe filter with its darkest tenth above the roll's, is
+        // not part of the roll; a roll with lifted blacks sets the scene's black level and is a
+        // roll; a roll authored at two black levels starts at its darker part.
         // Behind letterbox bars a dark scene's darkest tenth is black like the roll's, and its 90th
         // percentile gives it away, however long it runs; large lettering lifts a roll page's 90th
         // percentile onto the text and is a roll. Pages dense enough to lift the 90th percentile
@@ -963,11 +982,11 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_RunsOneIntervalConfirms_AreOneScene()
     {
-        // Content at 80 and 90 splits a sparse roll into keyframe runs at 40 to 70 and 100 to 150,
-        // and one blackdetect interval from 40 confirms both. They are one scene, so its black
-        // level comes from all its pages and the lifted pages at its head are a lead-in. The lead-in
-        // decode fails, so the scene starts at the level start frame at 100, and there is one
-        // candidate.
+        // The 30 s between the black keyframes at 70 and 100 splits a sparse roll into keyframe runs
+        // at 40 to 70 and 100 to 150, and one blackdetect interval from 40 confirms both. They are
+        // one scene, so its black level comes from all its pages and the lifted pages at its head
+        // are a lead-in. The lead-in decode fails, so the scene starts at the level start frame at
+        // 100, and there is one candidate.
         var ffmpeg = KeyframeScan(
             Keyframes(0, 200, 10, (40, 70, 100, KeyframeVisuals.LiftedBlack), (100, 150, 100, KeyframeVisuals.Black)),
             intervals: [new BlackInterval(40, 110)]);
