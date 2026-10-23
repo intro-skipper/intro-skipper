@@ -48,6 +48,9 @@ internal sealed partial class ChromaprintAnalyzer(
     private const double BridgeMinimumRunDuration = 8.0;
     private const double BridgeMaximumGapShare = 0.5;
 
+    // A shared region that starts this close to the start of its fingerprint starts at 0.
+    private const double StartSnapSeconds = 5;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -681,12 +684,12 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
-        if (lhs.Start <= 5)
+        if (lhs.Start <= StartSnapSeconds)
         {
             lhs.Start = 0;
         }
 
-        if (rhs.Start <= 5)
+        if (rhs.Start <= StartSnapSeconds)
         {
             rhs.Start = 0;
         }
@@ -871,16 +874,22 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        // Every RHS position is its LHS position plus the shift.
+        var positionShift = rightOffset - leftOffset;
+
         // A join only lengthens runs, so passes repeat until none joins, whichever side is longer.
-        // A join past the mode maximum would get the whole comparison discarded, so it is refused.
-        var maximumSamples = MaximumRegionDuration(Math.Min(lhs.Length, rhs.Length)) / ChromaprintConstants.SampleDuration;
+        // A join past the mode maximum would get the whole comparison discarded, so it is refused,
+        // measured from where SelectSharedRegion will start it on each side.
+        var maximumDuration = MaximumRegionDuration(Math.Min(lhs.Length, rhs.Length));
         bool joined;
         do
         {
             joined = false;
             for (var i = 0; i + 1 < runs.Count; i++)
             {
-                if (Bridges(runs[i], runs[i + 1]) && runs[i + 1].End - runs[i].Start <= maximumSamples)
+                var (start, end) = (runs[i].Start, runs[i + 1].End);
+                if (Bridges(runs[i], runs[i + 1])
+                    && Math.Max(SnappedDuration(start, end), SnappedDuration(start + positionShift, end + positionShift)) <= maximumDuration)
                 {
                     runs[i] = (runs[i].Start, runs[i + 1].End);
                     runs.RemoveAt(i + 1);
@@ -905,8 +914,6 @@ internal sealed partial class ChromaprintAnalyzer(
             return (new TimeRange(), new TimeRange());
         }
 
-        // Every RHS position is its LHS position plus the shift.
-        var positionShift = rightOffset - leftOffset;
         return (
             new TimeRange(bestStart * ChromaprintConstants.SampleDuration, bestEnd * ChromaprintConstants.SampleDuration),
             new TimeRange((bestStart + positionShift) * ChromaprintConstants.SampleDuration, (bestEnd + positionShift) * ChromaprintConstants.SampleDuration));
@@ -922,6 +929,12 @@ internal sealed partial class ChromaprintAnalyzer(
             AnalysisMode.Credits => (fingerprintLength * ChromaprintConstants.SampleDuration) - 1,
             _ => double.MaxValue,
         };
+
+    private static double SnappedDuration(int start, int end)
+    {
+        var startSeconds = start * ChromaprintConstants.SampleDuration;
+        return (end * ChromaprintConstants.SampleDuration) - (startSeconds <= StartSnapSeconds ? 0 : startSeconds);
+    }
 
     private static bool Bridges((int Start, int End) left, (int Start, int End) right)
     {

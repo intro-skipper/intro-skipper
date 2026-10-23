@@ -60,6 +60,7 @@ public class TestTimeRanges
     [InlineData(new[] { 70, 100, 170, 220 }, 120, 0, 0, 599)]  // 8.5 s, 8.5 s, 47 s: the first two join, then the pair joins the third
     [InlineData(new[] { 380, 430, 500, 530 }, 120, 0, 0, 599)] // the same runs in reverse order join the same way
     [InlineData(new[] { 100, 140 }, 60, 0, 140, 599)]  // the joined run would pass MaximumIntroDuration: no join
+    [InlineData(new[] { 0, 30, 130, 170 }, 72, 0, 170, 599)] // 70.5 s, but 74.2 s once its 3.7 s start snaps to 0: no join
     [InlineData(new[] { 0, 50, 150, 190 }, 120, 7, 50, 592)] // joined on a shifted alignment, which compares the first 593 samples
     public void CompareEpisodes_JoinsALongGapOnlyBetweenTwoLongRuns(int[] gaps, int maximumIntroDuration, int shift, int expectedStartSample, int expectedEndSample)
     {
