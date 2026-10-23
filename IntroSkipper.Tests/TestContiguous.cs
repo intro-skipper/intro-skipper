@@ -88,6 +88,7 @@ public class TestTimeRanges
         Assert.Equal(expectedStartSample * ChromaprintConstants.SampleDuration, left.Start);
         Assert.Equal(expectedEndSample * ChromaprintConstants.SampleDuration, left.End);
         Assert.Equal((expectedStartSample + shift) * ChromaprintConstants.SampleDuration, right.Start);
+        Assert.Equal((expectedEndSample + shift) * ChromaprintConstants.SampleDuration, right.End);
     }
 
     /// <summary>

@@ -286,6 +286,68 @@ public class TestRecapDetection
     }
 
     [Fact]
+    public async Task AnalyzeMediaFiles_RecapStingDoesNotJoinALaterSharedRun()
+    {
+        // Two episodes share 25 to 65 s and 69 to 100 s on one alignment. Joined, the sting would
+        // end at 100, past the only closing black run long enough (90 to 92.5), and neither episode
+        // would get a recap. Unjoined, the longer run is the sting and the recap ends at 90.
+        var fingerprints = new[] { Fingerprint(0x10000), Fingerprint(0x20000) };
+        var episodes = fingerprints.Select((_, index) => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = $"E{index}",
+            EpisodeNumber = index + 1,
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+        }).ToList();
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => fingerprints[episode.EpisodeNumber - 1],
+            RangeBlackFrames = (_, _, _, _, _) => BlackFrameFixtures.RecapBlackFrames(),
+        };
+        using var db = new TempSegmentDb();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            db.Database,
+            new PluginConfiguration
+            {
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var recap = Assert.Single(await db.Database.GetSegmentsAsync(episode.EpisodeId));
+            Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
+        }
+
+        // A hundred and twenty seconds of points unique to one episode, with the two shared runs.
+        static uint[] Fingerprint(uint unique)
+        {
+            var points = Enumerable.Range(0, Position(120)).Select(i => unique + (uint)i).ToArray();
+            foreach (var (start, end, shared) in new[] { (25.0, 65.0, 0x1000u), (69.0, 100.0, 0x2000u) })
+            {
+                for (var i = Position(start); i < Position(end); i++)
+                {
+                    points[i] = shared + (uint)(i - Position(start));
+                }
+            }
+
+            return points;
+        }
+
+        static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
+    }
+
+    [Fact]
     public void RecapFingerprintRange_UsesIntroFingerprintWindow()
     {
         var episode = new QueuedEpisode
