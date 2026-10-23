@@ -21,7 +21,7 @@ namespace CreditsRunner;
 
 /// <summary>
 /// Runs the keyframe credits path over corpus files outside Jellyfin, one file at a time, or the
-/// intro chain over them, one season at a time.
+/// intro chain or the whole credits pass over them, one season at a time.
 /// </summary>
 /// <remarks>
 /// Every pass builds the production pieces afresh over an empty temp detection cache, so every
@@ -33,12 +33,14 @@ namespace CreditsRunner;
 /// configured path. With more than one repeat, an untimed pass first warms the page cache.
 /// </remarks>
 /// <param name="config">The configuration the analyzers run with. Intro mode sets it to read embedded chapters.</param>
-/// <param name="repeats">Timed passes per file. Intro mode ignores it and makes one pass.</param>
+/// <param name="repeats">Timed passes per file. A season run ignores it and makes one pass.</param>
 /// <param name="progress">Where to write one line per file.</param>
-/// <param name="mode">Credits, or Introduction for the intro chain.</param>
-/// <param name="noChapters">Whether intro mode drops the chapters it reads.</param>
-internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter progress, AnalysisMode mode = AnalysisMode.Credits, bool noChapters = false)
+/// <param name="mode">What to analyze.</param>
+/// <param name="noChapters">Whether a season run drops the chapters it reads.</param>
+internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter progress, RunMode mode = RunMode.Credits, bool noChapters = false)
 {
+    private readonly AnalysisMode _segmentType = mode == RunMode.Introduction ? AnalysisMode.Introduction : AnalysisMode.Credits;
+
     /// <summary>
     /// Runs every file, whose paths must exist.
     /// </summary>
@@ -46,7 +48,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
     {
         List<EpisodeResult> episodes = [];
         var ffmpeg = string.Empty;
-        if (mode == AnalysisMode.Introduction)
+        if (mode != RunMode.Credits)
         {
             config.UseEmbeddedChaptersForAnalysis = true;
             foreach (var season in files.GroupBy(file => file.Season ?? "\0" + file.Id))
@@ -240,10 +242,11 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
     }
 
     /// <summary>
-    /// Runs one season through the intro chain as <c>BaseItemAnalyzerTask.RunAnalyzerChainAsync</c>
-    /// runs it at default settings: the chapter analyzer, then Chromaprint when ffmpeg passed its
-    /// check. Both write to a temp segment database, and each file's result is its Introduction
-    /// rows. A file whose chapters ffprobe cannot read sits out, as it does in the season pass.
+    /// Runs one season as the analysis pass runs it at default settings. Intro mode runs the chain
+    /// <c>BaseItemAnalyzerTask.RunAnalyzerChainAsync</c> runs: the chapter analyzer, then Chromaprint
+    /// when ffmpeg passed its check. Credits mode runs <see cref="CreditsPass"/>. Both write to a
+    /// temp segment database, and each file's result is its rows of the mode. A file whose
+    /// chapters ffprobe cannot read sits out, as it does in the season pass.
     /// </summary>
     private async Task<(string Ffmpeg, IReadOnlyList<EpisodeResult> Episodes)> RunSeasonAsync(IReadOnlyList<CorpusFile> season, CancellationToken cancellationToken)
     {
@@ -260,21 +263,19 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             var ffmpegValid = await service.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
             StopIfTheCheckTimedOut(recorder, service);
             var ffmpeg = recorder.Wrap(service);
-            var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid, chapterSource: ChapterSource.Embedded);
+            var hash = ConfigHasher.Analysis(config, _segmentType, AnalyzerAction.Default, ffmpegValid, chapterSource: ChapterSource.Embedded);
 
-            // The window follows SeasonResolver. Chromaprint pads a lone open episode with the
-            // episodes next to it by EpisodeNumber.
-            var queued = season.Select((file, i) => new QueuedEpisode
+            // The intro window follows SeasonResolver and the credits window SetCreditsWindowsAsync.
+            // Chromaprint pads a lone open episode with the episodes next to it by EpisodeNumber.
+            var queued = season.Select((file, i) =>
             {
-                EpisodeId = Guid.NewGuid(),
-                Name = file.Id,
-                Path = file.Path,
-                Duration = file.Duration,
-                EpisodeNumber = i + 1,
-                Category = QueuedMediaCategory.Episode,
-                IntroFingerprintEnd = Math.Min(file.Duration >= 5 * 60 ? file.Duration * config.AnalysisPercent / 100.0 : file.Duration, 60 * config.AnalysisLengthLimit),
-                ChaptersSource = ChapterSource.Embedded,
-                AnalysisConfigHash = hash,
+                var episode = Queue(file, config);
+                episode.EpisodeNumber = i + 1;
+                episode.Category = QueuedMediaCategory.Episode;
+                episode.IntroFingerprintEnd = Math.Min(file.Duration >= 5 * 60 ? file.Duration * config.AnalysisPercent / 100.0 : file.Duration, 60 * config.AnalysisLengthLimit);
+                episode.ChaptersSource = ChapterSource.Embedded;
+                episode.AnalysisConfigHash = hash;
+                return episode;
             }).ToList();
 
             var failures = new Dictionary<Guid, string>();
@@ -294,12 +295,20 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
 
             try
             {
-                var items = await new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, config, enableRecapBlackFrameFallback: false)
-                    .AnalyzeMediaFiles(readable, AnalysisMode.Introduction, cancellationToken).ConfigureAwait(false);
-                if (ffmpegValid)
+                if (mode == RunMode.CreditsPass)
                 {
-                    await new ChromaprintAnalyzer(NullLogger<ChromaprintAnalyzer>.Instance, ffmpeg, cache, database, config)
-                        .AnalyzeMediaFiles(items, AnalysisMode.Introduction, cancellationToken).ConfigureAwait(false);
+                    await new CreditsPass(NullLoggerFactory.Instance, ffmpeg, cache, database, config)
+                        .RunAsync(readable, AnalyzerAction.Default, ffmpegValid, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    var items = await new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, config, enableRecapBlackFrameFallback: false)
+                        .AnalyzeMediaFiles(readable, AnalysisMode.Introduction, cancellationToken).ConfigureAwait(false);
+                    if (ffmpegValid)
+                    {
+                        await new ChromaprintAnalyzer(NullLogger<ChromaprintAnalyzer>.Instance, ffmpeg, cache, database, config)
+                            .AnalyzeMediaFiles(items, AnalysisMode.Introduction, cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)
@@ -307,7 +316,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
                 // The analysis pass logs an exception out of the chain, keeps the rows each
                 // analyzer call committed before it and retries the season on its next pass.
                 // Here the run is the only pass, so the episodes still open fail with it.
-                foreach (var episode in readable.Where(episode => episode.NeedsAnalysis(AnalysisMode.Introduction)))
+                foreach (var episode in readable.Where(episode => episode.NeedsAnalysis(_segmentType)))
                 {
                     failures[episode.EpisodeId] = $"{e.GetType().Name}: {e.Message}";
                 }
@@ -317,17 +326,18 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             foreach (var episode in queued)
             {
                 var failure = failures.GetValueOrDefault(episode.EpisodeId)
-                    ?? (episode.GetAnalyzed(AnalysisMode.Introduction) == EpisodeState.AnalysisFailed ? "analysis failed" : null);
+                    ?? (episode.GetAnalyzed(_segmentType) == EpisodeState.AnalysisFailed ? "analysis failed" : null);
                 Candidate[] rows = failure is not null
                     ? []
                     : [.. (await database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
-                        .Where(row => row.Type == AnalysisMode.Introduction)
+                        .Where(row => row.Type == _segmentType)
                         .Select(row => new Candidate(TickConversions.ToSeconds(row.StartTicks), TickConversions.ToSeconds(row.EndTicks), row.Source.ToString()))];
                 var calls = recorder.CallsOf(episode.EpisodeId);
+                var (windowStart, windowEnd) = episode.GetFingerprintRange(_segmentType);
                 results.Add(new EpisodeResult(
                     episode.Name,
-                    0,
-                    episode.IntroFingerprintEnd,
+                    windowStart,
+                    windowEnd,
                     rows,
                     [],
                     failure,
