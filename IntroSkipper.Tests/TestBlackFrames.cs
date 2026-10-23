@@ -433,7 +433,10 @@ public class TestBlackFrames
     [InlineData("dense first pages", 124.0)]
     [InlineData("dark picture after a black head", null)]
     [InlineData("dense white text on a tint", 120.0)]
-    [InlineData("dense colourless grey text", 120.0)]
+    [InlineData("dense warm grey text", 120.0)]
+    [InlineData("dense coloured text", 120.0)]
+    [InlineData("tinted dark lead-in majority", 138.0)]
+    [InlineData("an eighth dark picture", 120.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll, whatever the
@@ -458,9 +461,11 @@ public class TestBlackFrames
         // lead-in trim and not the transition shift starts a roll after its dim pages. No fixture
         // gives a card run: an accepted roll's pages are black cards, the pages of a rejected roll
         // are content, and pages without a visual are invisible to the card finder.
-        // A dark tinted picture with dim highlights is rejected whole even when the page at its head
-        // sits at the black level and so ends no lead-in; dense lettering after such a head stays a
-        // roll when it is near white, tint or not, or colourless.
+        // A faintly tinted dark picture with dim highlights is rejected whole even when the page at
+        // its head sits at the black level and so ends no lead-in; dense lettering after such a head
+        // stays a roll when it is near white, grey with a warm cast under the tint band, or strongly
+        // coloured. The majority is read after the lead-in, so a tinted lead-in longer than the roll
+        // is trimmed, and a roll with an eighth of its pages a dark picture is still a roll.
         Keyframe[] keyframes = visualsKind switch
         {
             "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
@@ -485,7 +490,10 @@ public class TestBlackFrames
             "dense first pages" => Roll((20, 23.5, 89, KeyframeVisuals.DenseText), (24, 54, 95, KeyframeVisuals.Black)),
             "dark picture after a black head" => Roll((20, 20, 95, t => new KeyframeVisual(t, 15, 17, 19, 179, 1.1, 0)), (20.5, 54, 95, t => new KeyframeVisual(t, 15, 17, 26, 100, 2, 0))),
             "dense white text on a tint" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 10, 16, 37, 241, 1.2, 0))),
-            "dense colourless grey text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 30, 150, 0, 0))),
+            "dense warm grey text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 30, 150, 0.9, 0))),
+            "dense coloured text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 60, 177, 12, 0))),
+            "tinted dark lead-in majority" => Roll((20, 37.5, 95, t => new KeyframeVisual(t, 16, 16, 32, 150, 3, 0)), (38, 54, 95, KeyframeVisuals.Black)),
+            "an eighth dark picture" => Roll((20, 54, 95, t => (t - 20) % 4 == 0.5 ? new KeyframeVisual(t, 16, 16, 26, 100, 2, 0) : KeyframeVisuals.Black(t))),
             _ => throw new ArgumentOutOfRangeException(nameof(visualsKind)),
         };
         var ffmpeg = KeyframeScan(keyframes);
