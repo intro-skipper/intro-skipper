@@ -431,6 +431,9 @@ public class TestBlackFrames
     [InlineData("letterboxed dark majority", 138.0)]
     [InlineData("big text", 120.0)]
     [InlineData("dense first pages", 124.0)]
+    [InlineData("dark picture after a black head", null)]
+    [InlineData("dense white text on a tint", 120.0)]
+    [InlineData("dense colourless grey text", 120.0)]
     public async Task DetectCreditsAsync_GatesBlackScenesOnTheirVisuals(string visualsKind, double? expectedStart)
     {
         // A dense black roll at 20 to 54. Its visuals decide: text pages are a roll, whatever the
@@ -455,6 +458,9 @@ public class TestBlackFrames
         // lead-in trim and not the transition shift starts a roll after its dim pages. No fixture
         // gives a card run: an accepted roll's pages are black cards, the pages of a rejected roll
         // are content, and pages without a visual are invisible to the card finder.
+        // A dark tinted picture with dim highlights is rejected whole even when the page at its head
+        // sits at the black level and so ends no lead-in; dense lettering after such a head stays a
+        // roll when it is near white, tint or not, or colourless.
         Keyframe[] keyframes = visualsKind switch
         {
             "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
@@ -477,6 +483,9 @@ public class TestBlackFrames
             "letterboxed dark majority" => Roll((20, 37.5, 89, KeyframeVisuals.LetterboxedDark), (38, 54, 95, KeyframeVisuals.Black)),
             "big text" => Roll((20, 54, 89, KeyframeVisuals.BigText)),
             "dense first pages" => Roll((20, 23.5, 89, KeyframeVisuals.DenseText), (24, 54, 95, KeyframeVisuals.Black)),
+            "dark picture after a black head" => Roll((20, 20, 95, t => new KeyframeVisual(t, 15, 17, 19, 179, 1.1, 0)), (20.5, 54, 95, t => new KeyframeVisual(t, 15, 17, 26, 100, 2, 0))),
+            "dense white text on a tint" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 10, 16, 37, 241, 1.2, 0))),
+            "dense colourless grey text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 30, 150, 0, 0))),
             _ => throw new ArgumentOutOfRangeException(nameof(visualsKind)),
         };
         var ffmpeg = KeyframeScan(keyframes);

@@ -60,6 +60,11 @@ internal sealed partial class KeyframeAnalyzer(
     // Mean saturation (SATAVG, 0 to 255) under which a dark lettered page is a roll page.
     private const double RollSaturationMaximum = 0.25;
 
+    // A dim keyframe at or over this mean saturation, with nothing at or over this luma, is a dark
+    // picture rather than lettering (see IsDarkPicture).
+    private const double DarkPictureSaturationMinimum = 0.5;
+    private const double DarkPictureLumaMaximum = 200;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -234,7 +239,8 @@ internal sealed partial class KeyframeAnalyzer(
         // scene starts after such a lead-in, and the lead-in is a rejected range to the card kinds, so
         // its card-like keyframes cannot come back as a card run when what is left of the scene is too
         // short to be credits. A lighter section later in the scene stays. A scene that is lead-in to
-        // its end, such as a dim night scene well before the roll, goes whole.
+        // its end, such as a dim night scene well before the roll, goes whole, and so does a scene that
+    // is mostly a tinted dark picture without white lettering.
         var rejected = new List<TimeRange>();
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
@@ -326,13 +332,14 @@ internal sealed partial class KeyframeAnalyzer(
     /// their darkest tenth and keeps its start unless their 90th percentile is dim too; the 90th
     /// percentile sets no level, so a dark majority is still a lead-in, bars or not. A scene dim on
     /// every black keyframe is lead-in to its end: none of its keyframes reads as black, so it is dark
-    /// story, not credits. The black keyframes are read from 10 ms before the start (see
+    /// story, not credits. So is a scene whose black keyframes are mostly a dark picture (see
+    /// <see cref="IsDarkPicture"/>), even when the keyframe at its head is not dim. The black keyframes are read from 10 ms before the start (see
     /// <see cref="InScene"/>). A scene that a blackdetect interval confirmed starts on blackdetect's
     /// clock, and its cut keyframe can sit just before that start on the scan's clock. The first
     /// keyframe read counts as the scene's first, whether or not it is the start frame. Stopping on it
     /// leaves no lead-in, and a lead-in starts at it when it is earlier than the scene's start.
     /// </summary>
-    /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; no scene and that lead-in, ending on the last keyframe read, when every keyframe read is dim; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
+    /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; no scene and that lead-in, ending on the last keyframe read, when every keyframe read is dim or most are a dark picture; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene? Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
         List<(BlackFrame Frame, KeyframeVisual? Visual)> scenePages = [];
@@ -353,6 +360,12 @@ internal sealed partial class KeyframeAnalyzer(
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
         var firstPage = scenePages[0].Frame;
+        var visuals = scenePages.Select(page => page.Visual).OfType<KeyframeVisual>().ToList();
+        if (visuals.Count(visual => IsDarkPicture(visual, blackLevel)) * 2 > visuals.Count)
+        {
+            return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Frame.Time));
+        }
+
         var lastLeadInTime = scene.StartTime;
         foreach (var (frame, visual) in scenePages)
         {
@@ -422,6 +435,16 @@ internal sealed partial class KeyframeAnalyzer(
         return visual.LumaLow > dimFloor
             || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + KeyframeVisualTraits.TextContrastMinimum);
     }
+
+    // A dark picture on a black keyframe: dim content that is tinted and has nothing near white. A
+    // page dense with small lettering is dim by the same test, but its lettering is near white or
+    // the page is colourless; on the measured corpus a credits part had at most an eighth of its
+    // black keyframes like this, from coloured closing logos, and a dark story scene the
+    // blackframe filter reads as black had most of them.
+    private static bool IsDarkPicture(KeyframeVisual visual, double blackLevel)
+        => IsDimContent(visual, blackLevel)
+            && visual.Saturation >= DarkPictureSaturationMinimum
+            && visual.LumaMax < DarkPictureLumaMaximum;
 
     // A roll page: black at the darkest tenth, colourless and lettered. Dense lettering takes roll
     // pages to 70 to 87 percent black, under the minimum, so black pages can lie more than 20 s
