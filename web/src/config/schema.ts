@@ -253,7 +253,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enable keyframe snapping",
         description:
-            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+            "Moves a segment's end to the nearest keyframe so a skip lands on a clean frame. Ends taken directly from a chapter stay on the chapter mark.",
     },
     AdjustIntroBasedOnChapters: {
         kind: "checkbox",
@@ -264,7 +264,8 @@ export const configSchema = {
     AdjustIntroBasedOnSilence: {
         kind: "checkbox",
         label: "Enable silence detection",
-        description: "When enabled, segment endpoints will be adjusted to the nearest silence point.",
+        description:
+            "Moves a segment's end to the first silence inside the adjustment window. Ends taken directly from a chapter stay on the chapter mark.",
     },
     SilenceDetectionMaximumNoise: {
         kind: "number",
