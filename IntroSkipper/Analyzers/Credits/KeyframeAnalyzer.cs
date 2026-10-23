@@ -20,7 +20,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// through density gating and blackdetect interval recovery for sparse candidates. Two rules use the
 /// visuals on black keyframes: a black scene starts after leading keyframes that show dim content
 /// rather than black, such as a dim last shot before the cut to the roll, and a scene dim on every
-/// black keyframe is dark story; and a black scene lettered on no more than half its pages is a gap
+/// black keyframe, or mostly a tinted dark picture after its lead-in, is dark story; and a black
+/// scene lettered on no more than half its pages is a gap
 /// between acts, not credits. A scene those rules accept ends at its
 /// roll end: the last of the pages after it that are black or dark, colourless and lettered, since
 /// dense lettering keeps roll pages under the black minimum and would split the roll. A scene's
@@ -59,6 +60,12 @@ internal sealed partial class KeyframeAnalyzer(
 
     // Mean saturation (SATAVG, 0 to 255) under which a dark lettered page is a roll page.
     private const double RollSaturationMaximum = 0.25;
+
+    // A dim keyframe with a mean saturation (SATAVG, 0 to 255) in this band and nothing at or over
+    // this luma is a dark picture rather than lettering (see IsDarkPicture).
+    private const double DarkPictureSaturationMinimum = 1;
+    private const double DarkPictureSaturationMaximum = 8;
+    private const double DarkPictureLumaMaximum = 200;
 
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
@@ -234,7 +241,8 @@ internal sealed partial class KeyframeAnalyzer(
         // scene starts after such a lead-in, and the lead-in is a rejected range to the card kinds, so
         // its card-like keyframes cannot come back as a card run when what is left of the scene is too
         // short to be credits. A lighter section later in the scene stays. A scene that is lead-in to
-        // its end, such as a dim night scene well before the roll, goes whole.
+        // its end, such as a dim night scene well before the roll, goes whole, and so does a scene
+        // that is mostly a tinted dark picture after its lead-in.
         var rejected = new List<TimeRange>();
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
@@ -326,13 +334,15 @@ internal sealed partial class KeyframeAnalyzer(
     /// their darkest tenth and keeps its start unless their 90th percentile is dim too; the 90th
     /// percentile sets no level, so a dark majority is still a lead-in, bars or not. A scene dim on
     /// every black keyframe is lead-in to its end: none of its keyframes reads as black, so it is dark
-    /// story, not credits. The black keyframes are read from 10 ms before the start (see
+    /// story, not credits. So is a scene whose keyframes from where the lead-in stops are mostly a
+    /// dark picture (see <see cref="IsDarkPicture"/>): a night scene can open on a keyframe at the
+    /// black level, which ends no lead-in. The black keyframes are read from 10 ms before the start (see
     /// <see cref="InScene"/>). A scene that a blackdetect interval confirmed starts on blackdetect's
     /// clock, and its cut keyframe can sit just before that start on the scan's clock. The first
     /// keyframe read counts as the scene's first, whether or not it is the start frame. Stopping on it
     /// leaves no lead-in, and a lead-in starts at it when it is earlier than the scene's start.
     /// </summary>
-    /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; no scene and that lead-in, ending on the last keyframe read, when every keyframe read is dim; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
+    /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; no scene and that lead-in, ending on the last keyframe read, when every keyframe read is dim or most of those after the lead-in are a dark picture; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene? Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
         List<(BlackFrame Frame, KeyframeVisual? Visual)> scenePages = [];
@@ -354,10 +364,17 @@ internal sealed partial class KeyframeAnalyzer(
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
         var firstPage = scenePages[0].Frame;
         var lastLeadInTime = scene.StartTime;
-        foreach (var (frame, visual) in scenePages)
+        for (var k = 0; k < scenePages.Count; k++)
         {
+            var (frame, visual) = scenePages[k];
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
+                List<KeyframeVisual> rest = [.. scenePages.Skip(k).Select(page => page.Visual).OfType<KeyframeVisual>()];
+                if (rest.Count(page => IsDarkPicture(page, blackLevel)) * 2 > rest.Count)
+                {
+                    return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Frame.Time));
+                }
+
                 return frame.Frame == firstPage.Frame
                     ? (scene, null)
                     : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
@@ -411,17 +428,30 @@ internal sealed partial class KeyframeAnalyzer(
     // tenth and stay at black however dim the picture is, and a dark scene without bars sets the
     // level itself. Either way a dark scene sits at 25 to 45 on the 90th percentile. A roll page
     // sits at the level on both, or lifts its 90th percentile onto the text when the lettering is
-    // large. Pages dense with small lettering can land in between: inside a roll the rule never
+    // large. Pages dense with small lettering can land in between: inside a roll the trim never
     // reaches them, since it reads leading keyframes only, a roll that opens on them starts after
-    // them, and a roll of nothing else is rejected whole. At the head of a scene nothing the scan
-    // keeps tells such a page from a dark scene. After an accepted scene they are roll pages, and
-    // the scene's roll end takes them back (see RollEnd).
+    // them, and a roll of nothing else is rejected whole. This test alone does not tell such a page
+    // from a dark scene; IsDarkPicture adds the tint. After an accepted scene they are roll pages,
+    // and the scene's roll end takes them back (see RollEnd).
     private static bool IsDimContent(KeyframeVisual visual, double blackLevel)
     {
         var dimFloor = blackLevel + BlackLevelTolerance;
         return visual.LumaLow > dimFloor
             || (visual.LumaHigh > dimFloor && visual.LumaHigh < blackLevel + KeyframeVisualTraits.TextContrastMinimum);
     }
+
+    // A dark picture on a black keyframe: dim content with a faint tint and nothing near white. A
+    // page dense with small lettering is dim by the same test, but its lettering is near white,
+    // colourless (grey text measured under 0.9) or strongly coloured (coloured lettering and logos
+    // over 10). On the measured corpus a credits part had at most a twenty-fifth of its black
+    // keyframes like this, and a dark story scene the blackframe filter reads as black had most.
+    // An HDR source is scanned without tone mapping, so its white lettering reads under 200 and
+    // only the tint band protects it.
+    private static bool IsDarkPicture(KeyframeVisual visual, double blackLevel)
+        => IsDimContent(visual, blackLevel)
+            && visual.Saturation >= DarkPictureSaturationMinimum
+            && visual.Saturation < DarkPictureSaturationMaximum
+            && visual.LumaMax < DarkPictureLumaMaximum;
 
     // A roll page: black at the darkest tenth, colourless and lettered. Dense lettering takes roll
     // pages to 70 to 87 percent black, under the minimum, so black pages can lie more than 20 s
