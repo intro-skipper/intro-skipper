@@ -4,7 +4,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using IntroSkipper.Data;
 
 namespace CreditsRunner;
 
@@ -58,8 +57,8 @@ internal sealed record EpisodeResult(
 /// <param name="Ffmpeg">The first line of <c>ffmpeg -version</c>.</param>
 /// <param name="Repeats">Timed passes per file. Above one, an untimed pass warms the page cache first.</param>
 /// <param name="Configuration">The plugin configuration the analyzer ran with.</param>
-/// <param name="Mode">The segment type the run detected. Results written before intro mode existed read as credits.</param>
-/// <param name="NoChapters">Whether the intro run dropped every chapter after reading it.</param>
+/// <param name="Mode">What the run analyzed. Results written before intro mode existed read as credits.</param>
+/// <param name="NoChapters">Whether the season run dropped every chapter after reading it.</param>
 internal sealed record RunResults(
     string Commit,
     string Ffmpeg,
@@ -68,5 +67,21 @@ internal sealed record RunResults(
     int Repeats,
     JsonElement Configuration,
     IReadOnlyList<EpisodeResult> Episodes,
-    AnalysisMode Mode = AnalysisMode.Credits,
+    RunMode Mode = RunMode.Credits,
     bool NoChapters = false);
+
+/// <summary>
+/// What a run analyzes: the keyframe credits path one file at a time, or one season at a time
+/// through the Introduction chain or the whole credits pass.
+/// </summary>
+internal enum RunMode
+{
+    /// <summary>The keyframe analyzer and the credits combiner, per file.</summary>
+    Credits,
+
+    /// <summary>The Introduction chain, per season.</summary>
+    Introduction,
+
+    /// <summary><c>CreditsPass</c>: chapters, Chromaprint and the keyframe analyzer, per season.</summary>
+    CreditsPass,
+}

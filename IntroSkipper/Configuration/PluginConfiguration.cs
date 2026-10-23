@@ -577,6 +577,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the maximum number of seconds that can pass between two similar fingerprint points before a new time range is started.
+    /// Two long time ranges can still be joined across a longer gap; see <c>ChromaprintAnalyzer.FindContiguous</c>.
     /// </summary>
     public double MaximumTimeSkip { get; set; } = 3.5;
 

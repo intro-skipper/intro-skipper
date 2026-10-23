@@ -42,6 +42,15 @@ internal sealed partial class ChromaprintAnalyzer(
     private const int ConsensusSupermajorityNumerator = 3;
     private const int ConsensusSupermajorityDenominator = 4;
 
+    // Two runs on one shift sit on the same timeline in both episodes, so a gap between two long
+    // runs is a slot of the same length in both: shared material with something laid over it, or
+    // a gag that changes every episode inside a fixed title sequence.
+    private const double BridgeMinimumRunDuration = 8.0;
+    private const double BridgeMaximumGapShare = 0.5;
+
+    // A shared region that starts this close to the start of its fingerprint starts at 0.
+    private const double StartSnapSeconds = 5;
+
     private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -675,12 +684,12 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
-        if (lhs.Start <= 5)
+        if (lhs.Start <= StartSnapSeconds)
         {
             lhs.Start = 0;
         }
 
-        if (rhs.Start <= 5)
+        if (rhs.Start <= StartSnapSeconds)
         {
             rhs.Start = 0;
         }
@@ -827,8 +836,10 @@ internal sealed partial class ChromaprintAnalyzer(
     /// </summary>
     /// <remarks>
     /// A run-length pass over the sample positions: a run continues while the gap between two
-    /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>; the longest
-    /// run wins, the earlier one on a tie.
+    /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>. A longer gap
+    /// still joins two neighbouring runs when both last at least 8 s, the gap is at most half of
+    /// the shorter one and the joined run stays within the mode's maximum duration. A joined run
+    /// can join again, against its own length. The longest run wins, the earlier one on a tie.
     /// </remarks>
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
@@ -843,12 +854,8 @@ internal sealed partial class ChromaprintAnalyzer(
         var rightOffset = shiftAmount > 0 ? shiftAmount : 0;
         var upperLimit = Math.Min(lhs.Length, rhs.Length) - Math.Abs(shiftAmount);
 
-        // Sample positions on the LHS; -1 while no run has started.
-        var bestStart = -1;
-        var bestEnd = -1;
-        var runStart = -1;
-        var runEnd = -1;
-
+        // Sample positions on the LHS.
+        List<(int Start, int End)> runs = [];
         for (var i = 0; i < upperLimit; i++)
         {
             var lhsPosition = i + leftOffset;
@@ -857,23 +864,49 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            if (runStart >= 0 && (lhsPosition - runEnd) * ChromaprintConstants.SampleDuration <= _config.MaximumTimeSkip)
+            if (runs.Count > 0 && (lhsPosition - runs[^1].End) * ChromaprintConstants.SampleDuration <= _config.MaximumTimeSkip)
             {
-                runEnd = lhsPosition;
-                continue;
+                runs[^1] = (runs[^1].Start, lhsPosition);
             }
-
-            if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+            else
             {
-                (bestStart, bestEnd) = (runStart, runEnd);
+                runs.Add((lhsPosition, lhsPosition));
             }
-
-            runStart = runEnd = lhsPosition;
         }
 
-        if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+        // Every RHS position is its LHS position plus the shift.
+        var positionShift = rightOffset - leftOffset;
+
+        // A join only lengthens runs, so passes repeat until none joins, whichever side is longer.
+        // A join past the mode maximum would get the whole comparison discarded, so it is refused,
+        // measured from where SelectSharedRegion will start it on each side.
+        var maximumDuration = MaximumRegionDuration(Math.Min(lhs.Length, rhs.Length));
+        bool joined;
+        do
         {
-            (bestStart, bestEnd) = (runStart, runEnd);
+            joined = false;
+            for (var i = 0; i + 1 < runs.Count; i++)
+            {
+                var (start, end) = (runs[i].Start, runs[i + 1].End);
+                if (Bridges(runs[i], runs[i + 1])
+                    && Math.Max(SnappedDuration(start, end), SnappedDuration(start + positionShift, end + positionShift)) <= maximumDuration)
+                {
+                    runs[i] = (runs[i].Start, runs[i + 1].End);
+                    runs.RemoveAt(i + 1);
+                    joined = true;
+                }
+            }
+        }
+        while (joined);
+
+        var bestStart = -1;
+        var bestEnd = -1;
+        foreach (var (start, end) in runs)
+        {
+            if (bestStart < 0 || end - start > bestEnd - bestStart)
+            {
+                (bestStart, bestEnd) = (start, end);
+            }
         }
 
         if (bestStart < 0 || (bestEnd - bestStart) * ChromaprintConstants.SampleDuration < GetMinimumRegionDuration(_analysisMode, _config))
@@ -881,11 +914,33 @@ internal sealed partial class ChromaprintAnalyzer(
             return (new TimeRange(), new TimeRange());
         }
 
-        // Every RHS position is its LHS position plus the shift.
-        var positionShift = rightOffset - leftOffset;
         return (
             new TimeRange(bestStart * ChromaprintConstants.SampleDuration, bestEnd * ChromaprintConstants.SampleDuration),
             new TimeRange((bestStart + positionShift) * ChromaprintConstants.SampleDuration, (bestEnd + positionShift) * ChromaprintConstants.SampleDuration));
+    }
+
+    // The bound GetMaximumSegmentDuration later applies to a match. A credits fingerprint covers
+    // the credits window, whose length stands in for the episode's window minus 1 s.
+    private double MaximumRegionDuration(int fingerprintLength)
+        => _analysisMode switch
+        {
+            AnalysisMode.Introduction => _config.MaximumIntroDuration,
+            AnalysisMode.Recap => _config.MaximumRecapDetectionDuration,
+            AnalysisMode.Credits => (fingerprintLength * ChromaprintConstants.SampleDuration) - 1,
+            _ => double.MaxValue,
+        };
+
+    private static double SnappedDuration(int start, int end)
+    {
+        var startSeconds = start * ChromaprintConstants.SampleDuration;
+        return (end * ChromaprintConstants.SampleDuration) - (startSeconds <= StartSnapSeconds ? 0 : startSeconds);
+    }
+
+    private static bool Bridges((int Start, int End) left, (int Start, int End) right)
+    {
+        var shorter = Math.Min(left.End - left.Start, right.End - right.Start) * ChromaprintConstants.SampleDuration;
+        return shorter >= BridgeMinimumRunDuration
+            && (right.Start - left.End) * ChromaprintConstants.SampleDuration <= shorter * BridgeMaximumGapShare;
     }
 
     /// <summary>

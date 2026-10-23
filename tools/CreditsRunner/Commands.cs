@@ -27,22 +27,28 @@ internal static class Commands
 
         var mode = options.Optional("mode") switch
         {
-            null or "credits" => AnalysisMode.Credits,
-            "intro" => AnalysisMode.Introduction,
-            var other => throw new ArgumentException($"--mode must be intro or credits, got '{other}'"),
+            null or "credits" => RunMode.Credits,
+            "intro" => RunMode.Introduction,
+            "credits-pass" => RunMode.CreditsPass,
+            var other => throw new ArgumentException($"--mode must be credits, intro or credits-pass, got '{other}'"),
         };
         var noChapters = options.Flag("no-chapters");
 
-        // The credits path reads no chapters. Intro mode has no credits minimum, and its season
-        // pass is not repeated: repeats over a season are a separate design.
-        if (mode == AnalysisMode.Credits && noChapters)
+        // The keyframe path reads no chapters. Intro mode has no credits minimum, and a season
+        // run is not repeated: repeats over a season are a separate design.
+        if (noChapters && mode == RunMode.Credits)
         {
-            throw new ArgumentException("--no-chapters needs --mode intro");
+            throw new ArgumentException("--no-chapters needs --mode intro or credits-pass");
         }
 
-        if (mode == AnalysisMode.Introduction && (options.Optional("minimum-credits-duration") is not null || options.Optional("repeat") is not null))
+        if (mode == RunMode.Introduction && options.Optional("minimum-credits-duration") is not null)
         {
-            throw new ArgumentException("--mode intro takes neither --minimum-credits-duration nor --repeat");
+            throw new ArgumentException("--mode intro takes no --minimum-credits-duration");
+        }
+
+        if (mode != RunMode.Credits && options.Optional("repeat") is not null)
+        {
+            throw new ArgumentException($"--mode {options.Optional("mode")} takes no --repeat");
         }
 
         var config = new PluginConfiguration();
@@ -58,10 +64,10 @@ internal static class Commands
             .Select(file => file with { Path = Path.GetFullPath(file.Path, directory) })
             .ToList();
 
-        // Intro mode queues every file as an episode, and the analysis pass never fingerprints a movie.
-        if (mode == AnalysisMode.Introduction && files.Where(file => file.Movie).Select(file => file.Id).ToList() is { Count: > 0 } movies)
+        // A season run queues every file as an episode, and the analysis pass never fingerprints a movie.
+        if (mode != RunMode.Credits && files.Where(file => file.Movie).Select(file => file.Id).ToList() is { Count: > 0 } movies)
         {
-            throw new ArgumentException($"--mode intro takes no movies: {string.Join(", ", movies)}");
+            throw new ArgumentException($"--mode {options.Optional("mode")} takes no movies: {string.Join(", ", movies)}");
         }
 
         var bad = files
@@ -235,6 +241,7 @@ internal static class Commands
     {
         output.WriteLine("""
             CreditsRunner run --manifest <manifest.json> --out <results.json> [--repeat <n>] [--minimum-credits-duration <s>] [--ffmpeg <dir>]
+            CreditsRunner run --mode credits-pass --manifest <manifest.json> --out <results.json> [--no-chapters] [--minimum-credits-duration <s>] [--ffmpeg <dir>]
             CreditsRunner run --mode intro --manifest <manifest.json> --out <results.json> [--no-chapters] [--ffmpeg <dir>]
             CreditsRunner score --results <results.json> --labels <labels.json>
             CreditsRunner diff --baseline <results.json> --candidate <results.json> --labels <labels.json>
@@ -245,7 +252,7 @@ internal static class Commands
     private static Dictionary<string, Label> Labels(Options options)
         => Json.Read<LabelSet>(options.Required("labels")).Files.ToDictionary(label => label.Id);
 
-    private static void WriteSummaries(TextWriter output, IReadOnlyList<EpisodeScore> scores, AnalysisMode mode)
+    private static void WriteSummaries(TextWriter output, IReadOnlyList<EpisodeScore> scores, RunMode mode)
     {
         (string Name, IReadOnlyList<EpisodeScore> Group)[] groups = [("all", scores), ("tuning", [.. scores.Where(s => !s.Holdout)]), ("holdout", [.. scores.Where(s => s.Holdout)])];
         foreach (var (name, group) in groups)
@@ -261,7 +268,7 @@ internal static class Commands
         }
     }
 
-    private static string Describe(EpisodeScore score, AnalysisMode mode)
+    private static string Describe(EpisodeScore score, RunMode mode)
     {
         var parts = score.Parts.Select(part => part.Missed ? "missed" : Invariant($"{part.StartError:+0.00;-0.00;+0.00}/{part.EndError:+0.00;-0.00;+0.00}"));
         return (score.Failed ? "FAILED, " : string.Empty)
@@ -270,7 +277,7 @@ internal static class Commands
             + Invariant($", story {score.StorySkipped:F2} s, {Part(mode)} missed {score.CreditsMissed:F2} s");
     }
 
-    private static string Part(AnalysisMode mode) => mode == AnalysisMode.Introduction ? "intro" : "credits";
+    private static string Part(RunMode mode) => mode == RunMode.Introduction ? "intro" : "credits";
 
     private static string Candidates(EpisodeResult episode)
         => episode.Failure ?? (episode.Combined.Count == 0 ? "none" : string.Join(", ", episode.Combined));
