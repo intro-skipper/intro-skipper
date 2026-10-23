@@ -837,7 +837,7 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <remarks>
     /// A run-length pass over the sample positions: a run continues while the gap between two
     /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>. A longer gap
-    /// still joins two neighbouring runs when both last at least 8 s, the gap is at most half of
+    /// still joins two neighbouring runs, outside Recap, when both last at least 8 s, the gap is at most half of
     /// the shorter one and the joined run stays within the mode's maximum duration. A joined run
     /// can join again, against its own length. The longest run wins, the earlier one on a tie.
     /// </remarks>
@@ -879,10 +879,12 @@ internal sealed partial class ChromaprintAnalyzer(
 
         // A join only lengthens runs, so passes repeat until none joins, whichever side is longer.
         // A join past the mode maximum would get the whole comparison discarded, so it is refused,
-        // measured from where SelectSharedRegion will start it on each side.
+        // measured from where SelectSharedRegion will start it on each side. A recap needs only where
+        // its sting starts, and a join can carry the sting's end past the closing black run or the
+        // boundary its rebuild reads, which costs the pair the recap, so a recap never joins.
         var maximumDuration = MaximumRegionDuration(Math.Min(lhs.Length, rhs.Length));
-        bool joined;
-        do
+        var joined = _analysisMode != AnalysisMode.Recap;
+        while (joined)
         {
             joined = false;
             for (var i = 0; i + 1 < runs.Count; i++)
@@ -897,7 +899,6 @@ internal sealed partial class ChromaprintAnalyzer(
                 }
             }
         }
-        while (joined);
 
         var bestStart = -1;
         var bestEnd = -1;
@@ -925,7 +926,6 @@ internal sealed partial class ChromaprintAnalyzer(
         => _analysisMode switch
         {
             AnalysisMode.Introduction => _config.MaximumIntroDuration,
-            AnalysisMode.Recap => _config.MaximumRecapDetectionDuration,
             AnalysisMode.Credits => (fingerprintLength * ChromaprintConstants.SampleDuration) - 1,
             _ => double.MaxValue,
         };
