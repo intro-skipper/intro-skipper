@@ -89,8 +89,6 @@ public class TestCreditsRunner
     public void Diff_TagsAndCountsHoldoutRegressionsApart()
     {
         using var directory = new TempDirectory();
-        var configuration = JsonSerializer.SerializeToElement(new PluginConfiguration(), Json.Options);
-        RunResults Run(params EpisodeResult[] episodes) => new("commit", "ffmpeg", "cpu", "os", 1, configuration, episodes);
         Json.Write(directory.Join("baseline.json"), Run(Result("tune", new Candidate(100, 200, "BlackFrame")), Result("held", new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"))));
         Json.Write(directory.Join("candidate.json"), Run(Result("tune"), Result("held")));
         Json.Write(directory.Join("tuning-unchanged.json"), Run(Result("tune"), Result("held", new(100, 200, "BlackFrame"), new(300, 400, "BlackFrame"))));
@@ -112,6 +110,79 @@ public class TestCreditsRunner
 
         // A holdout regression alone still fails the diff.
         Assert.Equal(1, Commands.Diff(["--baseline", directory.Join("tuning-unchanged.json"), "--candidate", directory.Join("candidate.json"), "--labels", directory.Join("labels.json")], TextWriter.Null));
+    }
+
+    [Fact]
+    public async Task Recorder_CountsARunKilledAtItsTimeout()
+    {
+        var recorder = new CallRecorder();
+        var mark = recorder.Begin();
+        var (path, args) = OperatingSystem.IsWindows()
+            ? ("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30" })
+            : ("/bin/sh", new[] { "-c", "sleep 30" });
+
+        await Assert.ThrowsAsync<TimeoutException>(() => new FFmpegProcessRunner(recorder).RunAsync(path, args, timeout: 500));
+
+        Assert.Equal(1, recorder.Measure("x", mark).TimedOut);
+    }
+
+    [Fact]
+    public void Summarize_KeepsATimeoutFromAnyTimedPass()
+    {
+        var file = new CorpusFile("episode", "episode.mkv", 450);
+        Runner.Pass Pass(params CallTiming[] calls) => new(new QueuedEpisode(), "ffmpeg", [], [], null, new CallTiming("total", 0, 1, null), 0, calls);
+        var scan = new CallTiming(nameof(IFFmpegService.ScanKeyframesAsync), 1, 2, null);
+        var black = new CallTiming(nameof(IFFmpegService.DetectBlackIntervalsAsync), 1, 1, null);
+        var killed = black with { WallSeconds = 300, TimedOut = 1 };
+        var cut = new CallTiming(nameof(IFFmpegService.DecodeCutWindowAsync), 1, 1, null);
+
+        // The second pass's probe timed out and the analyzer made the same calls after it.
+        var same = Runner.Summarize(file, [Pass(scan, black, cut), Pass(scan, killed, cut)]);
+        Assert.Equal(1, same.Calls.Sum(call => call.TimedOut));
+
+        // The second pass's probe timed out and the analyzer took another path.
+        var differ = Runner.Summarize(file, [Pass(scan, black, cut), Pass(scan, killed)]);
+        Assert.Equal(1, differ.Calls.Sum(call => call.TimedOut));
+        Assert.True(differ.Nondeterministic);
+    }
+
+    [Fact]
+    public void Score_ListsTimedOutCalls()
+    {
+        using var directory = new TempDirectory();
+        Json.Write(directory.Join("run.json"), Run(Unfinished("episode")));
+        File.WriteAllText(directory.Join("labels.json"), """{ "files": [{ "id": "episode", "parts": [] }] }""");
+        using var output = new StringWriter();
+
+        Commands.Score(["--results", directory.Join("run.json"), "--labels", directory.Join("labels.json")], output);
+
+        var lines = output.ToString().Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("unfinished: episode: DetectBlackIntervalsAsync, 2 timed out", Assert.Single(lines, line => line.StartsWith("unfinished:", StringComparison.Ordinal)));
+        Assert.Contains("timed out: 2", lines);
+    }
+
+    [Fact]
+    public void Diff_WarnsAndFailsWhenEitherRunHasATimedOutCall()
+    {
+        using var directory = new TempDirectory();
+        Json.Write(directory.Join("clean.json"), Run(Result("episode")));
+        Json.Write(directory.Join("unfinished.json"), Run(Unfinished("episode")));
+        File.WriteAllText(directory.Join("labels.json"), """{ "files": [{ "id": "episode", "parts": [] }] }""");
+        (int ExitCode, string[] Lines) Diff(string baseline, string candidate)
+        {
+            using var output = new StringWriter();
+            var exitCode = Commands.Diff(["--baseline", directory.Join(baseline), "--candidate", directory.Join(candidate), "--labels", directory.Join("labels.json")], output);
+            return (exitCode, output.ToString().Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        // The runs agree on every candidate, so the timeout alone fails the diff.
+        Assert.Equal(0, Diff("clean.json", "clean.json").ExitCode);
+        var (exitCode, lines) = Diff("clean.json", "unfinished.json");
+        Assert.Equal(1, exitCode);
+        Assert.Contains("warning: episode: ffmpeg timed out in the candidate; its scores are not a comparison", lines);
+        (exitCode, lines) = Diff("unfinished.json", "clean.json");
+        Assert.Equal(1, exitCode);
+        Assert.Contains("warning: episode: ffmpeg timed out in the baseline; its scores are not a comparison", lines);
     }
 
     [Fact]
@@ -233,6 +304,7 @@ public class TestCreditsRunner
         Assert.Equal((0, 39), (episode.WindowStart, episode.WindowEnd));
         var scan = Assert.Single(episode.Calls, call => call.Trigger == nameof(IFFmpegService.ScanKeyframesAsync));
         Assert.True(scan.Processes >= 1 && scan.WallSeconds > 0);
+        Assert.All(episode.Calls, call => Assert.Equal(0, call.TimedOut));
         if (OperatingSystem.IsLinux())
         {
             // A misread struct rusage gives zero or garbage rather than a few milliseconds of ffmpeg.
@@ -268,4 +340,11 @@ public class TestCreditsRunner
 
     private static EpisodeResult Result(string id, params Candidate[] combined)
         => new(id, 0, 450, combined, combined, null, false, 0, null, 0, []);
+
+    // A file with no candidates whose black-interval probe had two processes killed at the timeout.
+    private static EpisodeResult Unfinished(string id)
+        => Result(id) with { Calls = [new CallTiming(nameof(IFFmpegService.ScanKeyframesAsync), 1, 2, null), new CallTiming(nameof(IFFmpegService.DetectBlackIntervalsAsync), 2, 600, null, TimedOut: 2)] };
+
+    private static RunResults Run(params EpisodeResult[] episodes)
+        => new("commit", "ffmpeg", "cpu", "os", 1, JsonSerializer.SerializeToElement(new PluginConfiguration(), Json.Options), episodes);
 }

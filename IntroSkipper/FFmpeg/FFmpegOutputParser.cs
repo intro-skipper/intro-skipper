@@ -31,8 +31,6 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
-    private static readonly Regex _showInfoRegex = ShowInfoRegex();
-
     private static readonly Regex _mappedStreamRegex = MappedStreamRegex();
 
     // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
@@ -136,8 +134,8 @@ internal static partial class FFmpegOutputParser
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATLOW=0
          * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=0
          */
         double? time = null;
         var stats = new Dictionary<string, double>(KeyframeSignalStatCount, StringComparer.Ordinal);
@@ -171,27 +169,8 @@ internal static partial class FFmpegOutputParser
     {
         if (time is { } keyframeTime && stats.Count == KeyframeSignalStatCount)
         {
-            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATLOW"], stats["SATAVG"]));
+            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"], stats["YDIF"]));
         }
-    }
-
-    /// <summary>
-    /// Parses the showinfo filter's log: the presentation time and size of every frame it saw, in order.
-    /// </summary>
-    /// <param name="raw">The ffmpeg standard error output.</param>
-    /// <returns>One entry per frame.</returns>
-    internal static ShowInfoFrame[] ParseShowInfo(string raw)
-    {
-        var frames = new List<ShowInfoFrame>();
-        foreach (Match match in _showInfoRegex.Matches(raw))
-        {
-            frames.Add(new ShowInfoFrame(
-                double.Parse(match.Groups["time"].Value, CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["width"].Value, CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["height"].Value, CultureInfo.InvariantCulture)));
-        }
-
-        return [.. frames];
     }
 
     internal static BlackInterval[] ParseBlackIntervals(string raw)
@@ -448,15 +427,8 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeVisualTimeRegex();
 
-    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATLOW|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATAVG|YDIF)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSignalStatRegex();
-
-    /*
-     * Sample output:
-     * [Parsed_showinfo_3 @ 0x0] n:   0 pts:     17 pts_time:0.017   duration:     41 duration_time:0.041   fmt:gray cl:left sar:1/1 s:320x240 i:P iskey:0 type:B checksum:6B847A12 plane_checksum:[6B847A12] mean:[32] stdev:[42.1]
-     */
-    [GeneratedRegex(@"\[Parsed_showinfo_\d+ @ [^\]]+\] n:\s*\d+ pts:\s*-?\d+ pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)[^\n]*? s:(?<width>\d+)x(?<height>\d+)")]
-    private static partial Regex ShowInfoRegex();
 
     // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
     [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+) ")]

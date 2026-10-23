@@ -109,8 +109,10 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         CreditsFingerprintEnd = file.Duration,
     };
 
-    // The first timed pass is the reference; the others only vote on times and determinism.
-    private static EpisodeResult Summarize(CorpusFile file, IReadOnlyList<Pass> timed)
+    // The first timed pass is the reference; the others vote on times and determinism. A timeout
+    // can change the calls a pass makes, so when the passes disagree on them the file keeps the
+    // calls of the pass with the most timeouts, and a timeout in any pass reaches score and diff.
+    internal static EpisodeResult Summarize(CorpusFile file, IReadOnlyList<Pass> timed)
     {
         var first = timed[0];
         var sameCalls = timed.All(pass => pass.Calls.Select(call => call.Trigger).SequenceEqual(first.Calls.Select(call => call.Trigger)));
@@ -120,8 +122,9 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             {
                 WallSeconds = Median(timed.Select(pass => pass.Calls[i].WallSeconds)),
                 CpuSeconds = MedianOrNull(timed.Select(pass => pass.Calls[i].CpuSeconds)),
+                TimedOut = timed.Max(pass => pass.Calls[i].TimedOut),
             })]
-            : first.Calls;
+            : timed.OrderByDescending(pass => pass.Calls.Sum(call => call.TimedOut)).First().Calls;
 
         return new EpisodeResult(
             file.Id,
@@ -168,6 +171,17 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         return Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? RuntimeInformation.ProcessArchitecture.ToString();
     }
 
+    // The check runs before any recorded call, so no file's calls would show its timeout. A query
+    // killed at its cap fails the check, and the gate's own bound reports "timed_out". Either way
+    // intro mode runs without Chromaprint, and credits mode loses the ffmpeg version.
+    private static void StopIfTheCheckTimedOut(CallRecorder recorder, FFmpegService ffmpeg)
+    {
+        if (recorder.TimedOut > 0 || ffmpeg.GetCheckResult().Status == "timed_out")
+        {
+            throw new TimeoutException("ffmpeg timed out during its version check, which decides what a pass analyzes; rerun on an idle machine");
+        }
+    }
+
     private async Task<Pass> RunPassAsync(CorpusFile file, CancellationToken cancellationToken)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"credits-runner-{Guid.NewGuid():N}.db");
@@ -181,6 +195,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             // runs before analysis, which also tells the scan whether keyframe visuals are available.
             _ = cache.TryRead<double>(Guid.Empty, AnalysisMode.Credits, CacheEntryType.Keyframe, 0, 0, out _);
             await ffmpeg.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+            StopIfTheCheckTimedOut(recorder, ffmpeg);
             var version = Version(ffmpeg);
 
             var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, recorder.Wrap(ffmpeg), cache, config);
@@ -196,8 +211,8 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                // The analyzer throws when the scan or a boundary probe fails, which fails the
-                // episode in the credits pass too. The run records it and goes on.
+                // The analyzer throws when the keyframe scan fails, which fails the episode in the
+                // credits pass too. The run records it and goes on.
                 failure = $"{e.GetType().Name}: {e.Message}";
             }
 
@@ -243,6 +258,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             var recorder = new CallRecorder();
             var service = new FFmpegService(recorder, cache);
             var ffmpegValid = await service.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+            StopIfTheCheckTimedOut(recorder, service);
             var ffmpeg = recorder.Wrap(service);
             var hash = ConfigHasher.Analysis(config, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid, chapterSource: ChapterSource.Embedded);
 
@@ -337,7 +353,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
     private static Candidate ToCandidate(AttributedSegment candidate)
         => new(candidate.Segment.Start, candidate.Segment.End, candidate.Source.ToString());
 
-    private sealed record Pass(
+    internal sealed record Pass(
         QueuedEpisode Episode,
         string Ffmpeg,
         IReadOnlyList<Candidate> Combined,

@@ -23,17 +23,18 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Per-keyframe luma percentiles and mean saturation. format=yuv420p brings 10-bit sources to
-    // 8-bit values and keeps the source's range, so a full-range source spans 0 to 255.
+    // Per-frame luma percentiles, mean saturation and luma difference to the frame before.
+    // format=yuv420p brings 10-bit sources to 8-bit values and keeps the source's range, so a
+    // full-range source spans 0 to 255.
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
     // VP9/WebM may ignore -skip_frame nokey; filter expensive scans by packet keyframe.
     private const string KeyframeSelect = "select=eq(key\\,1)";
 
-    // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
-    // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops
-    // a runaway decode or a file whose diagnostics never end.
-    private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
+    // Bytes of each ffmpeg output stream a cut decode may hold at once. It writes no frames, and
+    // metadata=print logs about 2 KB per frame, so the cap holds over 30000 frames and only stops a
+    // runaway decode or a file whose diagnostics never end.
+    private const long CutWindowMaximumBytes = 64L * 1024 * 1024;
 
     // Subtitle text should be small, but a malformed or malicious episode must not allow FFmpeg's
     // WebVTT files to grow without bound across its embedded streams and sidecars.
@@ -91,7 +92,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     ];
 
     // Probed after the requirements. This filter only feeds keyframe visuals, so a build
-    // without it keeps every other scan and loses card credits detection.
+    // without it keeps every other scan and loses card credits detection and the cut start,
+    // which reads the visuals' frame difference.
     private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
     [
         ("signalstats", "signalstats options"),
@@ -317,8 +319,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits
-    /// fingerprint range.
+    /// Collects per-keyframe visual statistics (luma percentiles, saturation and frame difference)
+    /// for the credits fingerprint range.
     /// </summary>
     /// <remarks>
     /// Normally served from the row the keyframe scan in
@@ -379,70 +381,48 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string KeyframeFilters(string? codec, string filters) => codec == "vp9" ? $"{KeyframeSelect},{filters}" : filters;
 
     /// <inheritdoc/>
-    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    public async Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
-        // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
-        // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
-        // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
-        // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
-        // frames it logged.
+        // Every frame, at source resolution with the keyframe scan's filters, so a frame's
+        // difference is on the scale of the page's. Seeking to the earlier keyframe starts the
+        // decode on it.
         string[] args =
         [
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
             "-i", episode.Path,
-            "-an", "-dn", "-sn",
-            "-fps_mode", "passthrough",
-            "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
-            "-f", "rawvideo", "-",
+            .. OutputArgs(KeyframeVisualFilters),
         ];
 
-        // Sized for 16:9 frames at 30 fps, so the capture usually fills one buffer instead of
-        // doubling its way there.
-        var expectedBytes = (long)(width * (width * 9 / 16) * 30 * window.Duration);
         ProcessCapture capture;
         try
         {
-            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), CutWindowMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
-            LogLumaWindowFailed(ex, episode.Name);
+            LogCutWindowFailed(ex, episode.Name);
             return null;
         }
 
         if (capture.Truncated || capture.ExitCode != 0)
         {
-            LogLumaWindowUnusable(episode.Name, capture.ExitCode, capture.Truncated);
+            LogCutWindowUnusable(episode.Name, capture.ExitCode, capture.Truncated);
             return null;
         }
 
-        var frames = FFmpegOutputParser.ParseShowInfo(capture.Stderr);
-        if (frames.Length == 0
-            || frames[0].Width <= 0
-            || frames[0].Height <= 0
-            || frames.Any(frame => frame.Width != frames[0].Width || frame.Height != frames[0].Height)
-            || capture.Stdout.Length != (long)frames.Length * frames[0].Width * frames[0].Height)
-        {
-            LogLumaWindowMismatch(episode.Name, frames.Length, capture.Stdout.Length);
-            return null;
-        }
-
-        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
+        return [.. FFmpegOutputParser.ParseKeyframeVisuals(capture.Stderr).Select(frame => frame with { Time = window.Start + frame.Time })];
     }
 
     // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
     // value under 1e-5, such as a trim start a rounding error away from zero.
     private static string FormatSeconds(double seconds) => seconds.ToString("0.######", CultureInfo.InvariantCulture);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} could not be decoded")]
-    private partial void LogLumaWindowFailed(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Cut window of {Episode} could not be decoded")]
+    private partial void LogCutWindowFailed(Exception ex, string episode);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
-    private partial void LogLumaWindowUnusable(string episode, int exitCode, bool truncated);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: {FrameTimes} frame times for {Bytes} bytes of frames")]
-    private partial void LogLumaWindowMismatch(string episode, int frameTimes, long bytes);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Cut window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogCutWindowUnusable(string episode, int exitCode, bool truncated);
 
     // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
     // requested duration) and the keyframe scan runs to end of file, so every writer of a
@@ -1368,7 +1348,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]

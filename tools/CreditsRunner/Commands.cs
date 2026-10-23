@@ -120,13 +120,24 @@ internal static class Commands
             output.WriteLine(Invariant($"{trigger.Key}: {trigger.Count()} calls, {trigger.Sum(call => call.Processes)} ffmpeg, {trigger.Sum(call => call.WallSeconds):F1} s"));
         }
 
+        foreach (var episode in results.Episodes)
+        {
+            foreach (var call in episode.Calls.Where(call => call.TimedOut > 0))
+            {
+                output.WriteLine($"unfinished: {episode.Id}: {call.Trigger}, {call.TimedOut} timed out");
+            }
+        }
+
+        output.WriteLine($"timed out: {results.Episodes.Sum(episode => episode.Calls.Sum(call => call.TimedOut))}");
         output.WriteLine(Invariant($"total: {results.Episodes.Sum(episode => episode.WallSeconds):F1} s wall, {Seconds(results.Episodes.Select(episode => episode.CpuSeconds))} ffmpeg CPU, {results.Episodes.Sum(episode => episode.PluginCpuSeconds):F1} s plugin CPU"));
         return 0;
     }
 
     /// <summary>
     /// Lists every file whose candidates changed, flags every regression, tagging and counting
-    /// held-out files apart, and prints both runs' totals. Returns 1 when it finds a regression.
+    /// held-out files apart, and prints both runs' totals. Returns 1 when it finds a regression, or
+    /// when either run has an ffmpeg process killed at its timeout, whose boundaries may be a
+    /// fallback that machine load caused rather than the code.
     /// </summary>
     public static int Diff(IReadOnlyList<string> args, TextWriter output)
     {
@@ -150,6 +161,16 @@ internal static class Commands
             if (before != after)
             {
                 output.WriteLine($"warning: {what} differs: {before} -> {after}");
+            }
+        }
+
+        var unfinished = 0;
+        foreach (var (name, run) in new[] { ("baseline", baseline), ("candidate", candidate) })
+        {
+            foreach (var episode in run.Episodes.Where(episode => episode.Calls.Any(call => call.TimedOut > 0)))
+            {
+                unfinished++;
+                output.WriteLine($"warning: {episode.Id}: ffmpeg timed out in the {name}; its scores are not a comparison");
             }
         }
 
@@ -207,7 +228,7 @@ internal static class Commands
         WriteSummaries(output, candidateScores, candidate.Mode);
         output.WriteLine();
         output.WriteLine(Invariant($"{tuning} tuning and {holdout} holdout regressions, wall {baseline.Episodes.Sum(e => e.WallSeconds):F1} -> {candidate.Episodes.Sum(e => e.WallSeconds):F1} s, ffmpeg CPU {Seconds(baseline.Episodes.Select(e => e.CpuSeconds))} -> {Seconds(candidate.Episodes.Select(e => e.CpuSeconds))}"));
-        return tuning + holdout > 0 ? 1 : 0;
+        return tuning + holdout + unfinished > 0 ? 1 : 0;
     }
 
     public static int Usage(TextWriter output)

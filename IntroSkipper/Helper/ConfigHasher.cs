@@ -253,17 +253,20 @@ internal static class ConfigHasher
             CacheEntryType.BlackFrame => Invariant(
                 $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
+            // v2: blackdetect's pic_th is the minimum normalized over the scan, which this key does
+            // not carry, and tinted keyframes stopped counting as zero in that normalization.
             CacheEntryType.BlackInterval => Invariant(
-                $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
+                $"cache|v2|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
             // v2: VP9 keyframe listings select packet keyframes.
             CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Credits v4: VP9 visual scans select packet keyframes.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
+            // Credits v4: VP9 visual scans select packet keyframes. Credits v5: visuals carry the
+            // frame difference and no longer the darkest-tenth saturation.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 5 : 3)}|{type}|{mode}",
 
-            // The probe's width, tolerance and rule are constants: bump the token when they change.
-            CacheEntryType.LeadIn => $"cache|v1|{type}",
+            // The rule's thresholds are constants: bump the token when they change.
+            CacheEntryType.Cut => $"cache|v1|{type}",
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };

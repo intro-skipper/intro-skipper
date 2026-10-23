@@ -39,16 +39,24 @@ The per-keyframe black percentage a keyframe scan reports. The basis for detecti
 _Avoid_: Black frames (for the data), pblack
 
 **Keyframe visuals**:
-The per-keyframe luma percentiles and saturation a keyframe scan reports. The basis for detecting credits on a uniform card.
+The per-keyframe luma percentiles, saturation and frame difference a keyframe scan reports. The basis for detecting credits on a uniform card, and the frame difference nominates the cut start.
 _Avoid_: Entropy data, visual stats, card evidence
 
 **Card credits**:
 Credits rendered as text on a near-uniform low-saturation card: black, white, grey or muted colour. Detectable from keyframe visuals.
 _Avoid_: Non-black credits, entropy credits, uniform-card credits
 
+**Cut start**:
+Where a credits part starts with boundary refinement on: the frame between its first page and the page before that carries most of the change between the two keyframes, or the first page when no frame does.
+_Avoid_: Lead-in probe, boundary probe
+
 **Card kind**:
 What a page is to the card run: content, card or black card. The keyframe analyzer sets it after probing.
 _Avoid_: Keyframe kind, page type
+
+**Roll page**:
+A page of roll credits that dense lettering keeps under the black threshold: black at its darkest tenth, colourless and lettered. A black scene the keyframe analyzer accepts ends at its roll end, the last of the black pages and roll pages that follow it without a break.
+_Avoid_: Dense page, text page
 
 ### Analysis
 
