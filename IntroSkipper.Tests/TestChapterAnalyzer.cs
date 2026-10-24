@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -200,6 +201,23 @@ public class TestChapterAnalyzer
     // A pattern that backtracks past the one-second match timeout on a chapter name is the
     // user's configuration. The chapter counts as no match; the RegexMatchTimeoutException,
     // a TimeoutException, must not reach the pass's handler and stop the season's other modes.
+    [Theory]
+    [InlineData("END CREDITS", AnalysisMode.Credits)]
+    [InlineData("OPENING", AnalysisMode.Introduction)]
+    public void ChapterExpression_IgnoresCaseUnderATurkishCulture(string chapterName, AnalysisMode mode)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
+        try
+        {
+            Assert.NotNull(FindChapter(chapterName, mode));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = culture;
+        }
+    }
+
     [Fact]
     public void FindMatchingChapters_PatternThatTimesOut_CountsAsNoMatch()
     {

@@ -471,10 +471,12 @@ internal sealed partial class ChapterAnalyzer(
         // between function invocations.
         try
         {
+            // CultureInvariant: under a Turkish server culture, IgnoreCase does not fold I to i,
+            // so "END CREDITS" would miss "Credits".
             return Regex.IsMatch(
                 chapterName,
                 expression,
-                RegexOptions.IgnoreCase,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
                 TimeSpan.FromSeconds(1));
         }
         catch (RegexMatchTimeoutException)
