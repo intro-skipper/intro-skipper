@@ -154,15 +154,17 @@ public sealed class TestConfigHasher
         Case("Preview analysis re-derives under the last-credits anchor", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "EEAC9F1E9F57CD47", true);
 
         // 12.0.5 wrote 9F39FAF9AB4D7445 here, when a Chromaprint recap ended at the latest black
-        // frame. The sting end token reruns Recap once in every season.
-        Case("Recap analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Recap), "584E57B3CA358E11", true);
+        // frame. The sting end token reruns Recap once in every season. 12.0.6 wrote
+        // 584E57B3CA358E11 (subtitle-v1:584E57B3CA358E11:034582192926BF24 with subtitle detection
+        // on), under the old recap chapter pattern.
+        Case("Recap analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Recap), "A7C626905F2D0CF0", true);
         Case("Recap analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Recap), Analysis(new PluginConfiguration { SubtitleRecapPattern = "previously" }, AnalysisMode.Recap), true);
         Case("Preview analysis ignores the subtitle pattern while detection is off", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { SubtitlePreviewPattern = "preview" }, AnalysisMode.Preview), true);
 
         // With subtitle detection on, the hash is "subtitle-v1:", the conventional hash, ":" and a
         // hash of every setting. The pins keep a refactor of the hasher from changing what a
         // stored record means. A blank pattern detects nothing, so it hashes as detection off.
-        Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:584E57B3CA358E11:034582192926BF24", true);
+        Case("Recap analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true }, AnalysisMode.Recap), "subtitle-v1:A7C626905F2D0CF0:8C5986DAF7BAFC78", true);
         Case("Preview analysis hash is pinned while subtitle detection is on", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true }, AnalysisMode.Preview), "subtitle-v1:19C776EE18C06441:ED1EF897C859EA54", true);
         Case("Recap analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitleRecapDetection = true, SubtitleRecapPattern = " " }, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap), true);
         Case("Preview analysis treats a blank subtitle pattern as detection off", Analysis(new PluginConfiguration { EnableSubtitlePreviewDetection = true, SubtitlePreviewPattern = string.Empty }, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview), true);

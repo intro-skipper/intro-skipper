@@ -424,8 +424,9 @@ export const configSchema = {
         label: "Recaps",
         description: "Enter a regular expression to detect recap chapters.",
         default:
-            "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)" +
-            PATTERN_TAIL,
+            "(^|[-\\u2013\\u2014|:.()\\[\\]])\\s*(Recap(?![a-z])(?![\\s:]+End)|(Last(\\s+(time|week|episode|season))?|Catch[ -]?up),?\\s+on(?![a-z])|" +
+            "(Summary|Previously|Previous\\s+episode|Earlier|Last\\s+(time|week|episode|season)|Catch[ -]?up|(The\\s+)?(Story|Road)\\s+so\\s+far)(?![\\s:]+End)\\s*($|[-\\u2013\\u2014|:.()\\[\\]\\u2026]))|" +
+            "(^|\\s)Previously,?\\s+(on|in)(?![a-z])",
     },
     ChapterAnalyzerCommercialPattern: {
         kind: "regex",

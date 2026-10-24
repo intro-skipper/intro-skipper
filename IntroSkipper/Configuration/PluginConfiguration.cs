@@ -77,6 +77,12 @@ public class PluginConfiguration : BasePluginConfiguration
     internal const string FirstEpisodeIntroModeIgnore = "Ignore";
     internal const string FirstEpisodeIntroModeIgnoreAnime = "IgnoreAnime";
 
+    // The default recap chapter patterns through 12.0.6. The first shipped from 10.11.22 on, the
+    // second before it. Jellyfin saved the defaults of the first load, so installs from those
+    // releases still carry them untouched. Frozen.
+    internal const string LegacyDefaultRecapPattern = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultRecapPatternBefore101122 = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
+
     private string? _firstEpisodeIntroMode;
     private int _settledSeasonChromaprintConsensusEpisodes = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
@@ -499,8 +505,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a recap phrase only at the start of the title or after a separator
+    /// (a hyphen, an en or em dash, or one of <c>| : . ( ) [ ]</c>), so scene names such as
+    /// "The Last Supper" or "2023 Recap" stay out. "Recap" may be followed by more text.
+    /// Summary, Previously, Previous episode, Earlier, Last time/week/episode/season, Catch up
+    /// and (The) Story/Road so far must end the title or meet a separator. Last,
+    /// Last time/week/episode/season and Catch up may instead be followed by "on". Only
+    /// "Previously on" or "Previously in" may follow other words.
+    /// </remarks>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
+        @"(^|[-\u2013\u2014|:.()\[\]])\s*(Recap(?![a-z])(?![\s:]+End)|(Last(\s+(time|week|episode|season))?|Catch[ -]?up),?\s+on(?![a-z])|(Summary|Previously|Previous\s+episode|Earlier|Last\s+(time|week|episode|season)|Catch[ -]?up|(The\s+)?(Story|Road)\s+so\s+far)(?![\s:]+End)\s*($|[-\u2013\u2014|:.()\[\]\u2026]))|(^|\s)Previously,?\s+(on|in)(?![a-z])";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.
@@ -708,4 +723,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </returns>
     public long? RecordedFileVersion(QueuedEpisode episode, AnalysisMode mode)
         => ActiveSubtitlePattern(episode, mode) is null ? episode.FileVersion : episode.SubtitleFileVersion;
+
+    /// <summary>
+    /// Replaces, in memory, a saved default the plugin has since changed with the current
+    /// default. A value the user edited is kept. Call it on every load. It does not save, so
+    /// the file keeps the old default until the next dashboard save.
+    /// </summary>
+    internal void UpgradeLegacyDefaults()
+    {
+        if (ChapterAnalyzerRecapPattern is LegacyDefaultRecapPattern or LegacyDefaultRecapPatternBefore101122)
+        {
+            ChapterAnalyzerRecapPattern = new PluginConfiguration().ChapterAnalyzerRecapPattern;
+        }
+    }
 }

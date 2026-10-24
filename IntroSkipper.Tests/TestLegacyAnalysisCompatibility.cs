@@ -35,7 +35,7 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Recap, true, false, "3E22D6A17CDA5178")]
     public void LegacyHashes_MatchOriginal1011Hasher(AnalysisMode mode, bool available, bool alternative, string expected)
     {
-        Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(new PluginConfiguration(), mode, AnalyzerAction.Default, available, alternative));
+        Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(Released1011Defaults(), mode, AnalyzerAction.Default, available, alternative));
     }
 
     /// <summary>
@@ -69,8 +69,12 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(23, AnalysisMode.Commercial, true, false, "E795D9EA95F28728")]
     public void OlderHashes_MatchPublishedReleaseHashers(int release, AnalysisMode mode, bool available, bool alternative, string expected)
     {
-        Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(new PluginConfiguration(), mode, AnalyzerAction.Default, available, alternative, release));
+        Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(Released1011Defaults(), mode, AnalyzerAction.Default, available, alternative, release));
     }
+
+    // The defaults the 10.11 releases hashed, with the recap chapter pattern they shipped.
+    private static PluginConfiguration Released1011Defaults()
+        => new() { ChapterAnalyzerRecapPattern = PluginConfiguration.LegacyDefaultRecapPattern };
 
     /// <summary>
     /// Adopts a completed 10.11 season, or leaves it open where adoption is not allowed:
