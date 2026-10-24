@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -239,6 +240,66 @@ public class TestChapterAnalyzer
 
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview)));
         Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    /// <summary>
+    /// A file whose keyframe snap throws on every pass, here a codec probe cut before its stream
+    /// mapping, fails only its own episode; its sibling still gets its black-frame recap.
+    /// </summary>
+    [Fact]
+    public async Task FailedKeyframeSnap_FailsOnlyItsEpisode()
+    {
+        var config = new Configuration.PluginConfiguration { DetectRecapUsingBlackFrames = true, AdjustIntroBasedOnSilence = false };
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
+        ];
+        // Bright frames (0-3% black) every 0.5 s up to 19.5 s, then a 95% black frame at 40 s, where the recap ends.
+        BlackFrame[] recapScan = [.. Enumerable.Range(0, 40).Select(i => new BlackFrame(i % 4, i * 0.5, i)).Append(new BlackFrame(95, 40, 1000))];
+        var ffmpeg = new StubFFmpegService
+        {
+            RangeBlackFrames = (_, _, _, _, _) => recapScan,
+            KeyFrames = (episode, _, _) => episode == episodes[0] ? throw new InvalidDataException("cut before the stream mapping") : [],
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, config, enableChapterDetection: false);
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Recap));
+        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Recap));
+        Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+    }
+
+    // The chapter mark at 90 s is the end, though silence starts at 88.9 s and a keyframe sits at 89.1 s.
+    [Fact]
+    public async Task ChapterIntro_EndsOnTheMark_WithoutSilenceOrKeyframeProbes()
+    {
+        var probes = 0;
+        var ffmpeg = new StubFFmpegService
+        {
+            Silence = (_, _, _) =>
+            {
+                probes++;
+                return [new TimeRange(88.9, 89.5)];
+            },
+            KeyFrames = (_, _, _) =>
+            {
+                probes++;
+                return [89.1];
+            },
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, new Configuration.PluginConfiguration());
+        QueuedEpisode[] episodes = [new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Intro", AnalysisMode.Introduction) }];
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        var intro = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).ToSegment();
+        Assert.Equal((60, 90), (intro.Start, intro.End));
+        Assert.Equal(0, probes);
     }
 
     [Theory]

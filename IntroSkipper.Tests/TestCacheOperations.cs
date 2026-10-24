@@ -7,6 +7,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -363,6 +364,69 @@ public sealed class TestCacheOperations
         }
     }
 
+    /// <summary>
+    /// New episodes reopen the season's comparison, which pulls in the settled siblings
+    /// through their cached fingerprints. Episode 3 shares its intro only with the
+    /// chapter-settled episode 1, which keeps its chapter intro but still supplies the match.
+    /// Episode 4 shares its intro only with the Chromaprint-settled episode 2, which is re-derived.
+    /// </summary>
+    [Fact]
+    public async Task AnalyzeMediaFiles_KeepsChapterIntroOfSettledSibling()
+    {
+        using var scope = new CachingPluginScope();
+        var hash = ConfigHasher.DetectionCache(Plugin.Instance!.Configuration, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        var episodes = new List<QueuedEpisode>();
+        foreach (var (number, intro, unique, settledBy) in new (int, uint, uint, SegmentSource?)[] { (1, 0x1000u, 0x2000u, SegmentSource.Chapter), (2, 0x5000u, 0x3000u, SegmentSource.Chromaprint), (3, 0x1000u, 0x4000u, null), (4, 0x5000u, 0x6000u, null) })
+        {
+            var episode = new QueuedEpisode
+            {
+                EpisodeId = Guid.NewGuid(),
+                EpisodeNumber = number,
+                Path = "/does/not/exist.mkv",
+                IntroFingerprintEnd = 600,
+                Duration = 1800,
+            };
+            if (settledBy is { } source)
+            {
+                episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+                await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Introduction, [new Segment(episode.EpisodeId, new TimeRange(30, 60))], source);
+            }
+
+            // Twenty shared intro points (about 2.5 s) followed by twenty points unique to the episode.
+            uint[] points = [.. Enumerable.Range(0, 20).Select(i => intro + (uint)i), .. Enumerable.Range(0, 20).Select(i => unique + (uint)i)];
+            scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheService.CompressBrotli(points), 0, 600, hash);
+            episodes.Add(episode);
+        }
+
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            scope.CreateFFmpegService(),
+            scope.CacheService,
+            database,
+            new PluginConfiguration
+            {
+                MinimumIntroDuration = 1,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        var chapterRow = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((SegmentSource.Chapter, TickConversions.FromSeconds(30)), (chapterRow.Source, chapterRow.StartTicks));
+        foreach (var episode in episodes.Skip(1))
+        {
+            var row = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId));
+            Assert.Equal((SegmentSource.Chromaprint, 0L), (row.Source, row.StartTicks));
+        }
+    }
+
     [Fact]
     public async Task DeleteUnreadableEntriesAsync_DeletesOnlyRowsNoReadPathAccepts()
     {
@@ -555,6 +619,53 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
+    /// VP9 ignores <c>-skip_frame nokey</c>, so a codec probe that could not read the stream
+    /// mapping would cache every frame as a keyframe. Here the file's tags push the mapping past
+    /// the probe's 1 MiB capture.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task KeyframeScan_CachesNothingWhenTheCodecProbeIsCut()
+    {
+        var path = await CreateTaggedVp9Async(12000);
+        try
+        {
+            using var scope = new CachingPluginScope();
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 6 };
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => scope.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction));
+
+            Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 6));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// ffmpeg prints the tags twice, in the input dump before the stream mapping and in the
+    /// output dump after it. Here the capture is cut in the output dump, so the probe still
+    /// reads VP9.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task KeyframeScan_ReadsTheCodecWhenTheCodecProbeIsCutAfterTheMapping()
+    {
+        var path = await CreateTaggedVp9Async(6000);
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 6 };
+
+            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction);
+
+            Assert.Equal([0, 2, 4], actual);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
     /// Slice threads decode an HEVC stream whose slice segments don't match their wavefront entry
     /// points as black, with exit 0. ffmpeg logs the bad slices, so the scan decodes again with
     /// frame threads and reads the picture.
@@ -580,6 +691,33 @@ public sealed class TestCacheOperations
             logger.Processes.Where(process => process.Contains("-skip_frame", StringComparison.Ordinal)),
             slice => Assert.Contains("-thread_type slice", slice, StringComparison.Ordinal),
             frame => Assert.DoesNotContain("-thread_type", frame, StringComparison.Ordinal));
+    }
+
+    // A 6 s VP9 mkv with a keyframe every 2 s and tagCount global tags of 100 bytes each.
+    private static async Task<string> CreateTaggedVp9Async(int tagCount)
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-vp9.mkv");
+        var metadataPath = Path.ChangeExtension(path, ".txt");
+        File.WriteAllLines(metadataPath, [";FFMETADATA1", .. Enumerable.Range(0, tagCount).Select(i => $"k{i}={new string('x', 100)}")]);
+        try
+        {
+            await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+                "ffmpeg",
+                [
+                    "-y", "-v", "error",
+                    "-f", "lavfi", "-i", "testsrc2=s=32x32:r=25:d=6",
+                    "-f", "ffmetadata", "-i", metadataPath,
+                    "-map", "0", "-map_metadata", "1",
+                    "-c:v", "libvpx-vp9", "-g", "50", "-keyint_min", "50", "-deadline", "realtime",
+                    path,
+                ]);
+        }
+        finally
+        {
+            File.Delete(metadataPath);
+        }
+
+        return path;
     }
 
     // Records the detection scans FFmpegService logs, and the processes its runner starts.

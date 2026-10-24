@@ -706,9 +706,11 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
     }
 
     [Theory]
-    [InlineData(CreditsDetectionMethod.TextAware)]
-    [InlineData(CreditsDetectionMethod.IntroSkipper)]
-    public async Task RemoteCreditsOwnership_SettlesChapterBeforeQueueingUnmatchedSibling(CreditsDetectionMethod method)
+    [InlineData(CreditsDetectionMethod.TextAware, false)]
+    [InlineData(CreditsDetectionMethod.IntroSkipper, false)]
+    [InlineData(CreditsDetectionMethod.TextAware, true)]
+    [InlineData(CreditsDetectionMethod.IntroSkipper, true)]
+    public async Task RemoteCreditsOwnership_SettlesOnlyAuthoritativeChapters(CreditsDetectionMethod method, bool storyAfter)
     {
         var chapteredId = Guid.NewGuid();
         var unmatchedId = Guid.NewGuid();
@@ -743,7 +745,7 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         [
             new ChapterInfo { Name = "Main", StartPositionTicks = 0 },
             new ChapterInfo { Name = "Ending", StartPositionTicks = TimeSpan.FromSeconds(180).Ticks },
-            new ChapterInfo { Name = "Epilogue", StartPositionTicks = TimeSpan.FromSeconds(220).Ticks },
+            new ChapterInfo { Name = storyAfter ? "Epilogue" : "Preview", StartPositionTicks = TimeSpan.FromSeconds(220).Ticks },
         ];
         var unmatched = CreateQueuedEpisode(unmatchedId, seasonId, seriesId, unmatchedVersion);
         unmatched.EpisodeNumber = 2;
@@ -754,11 +756,21 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
             PluginMode.Credits,
             AnalyzerAction.Default,
             ffmpegValid: false,
-            CancellationToken.None);
+            CancellationToken.None,
+            useLocalConsensus: true,
+            manualScan: true);
 
-        var chapter = Assert.Single(await _harness.Database.GetSegmentsAsync(chapteredId));
-        Assert.Equal(SegmentSource.Chapter, chapter.Source);
-        Assert.Equal((180, 220), (chapter.ToSegment().Start, chapter.ToSegment().End));
+        var chapterRows = await _harness.Database.GetSegmentsAsync(chapteredId);
+        if (storyAfter)
+        {
+            Assert.Empty(chapterRows);
+        }
+        else
+        {
+            var chapter = Assert.Single(chapterRows);
+            Assert.Equal(SegmentSource.Chapter, chapter.Source);
+            Assert.Equal((180, 220), (chapter.ToSegment().Start, chapter.ToSegment().End));
+        }
         Assert.Empty(await _harness.Database.GetSegmentsAsync(unmatchedId));
         Assert.Equal(0, ffmpeg.FingerprintCalls);
         Assert.Equal(0, ffmpeg.KeyframeScanCalls);
@@ -768,13 +780,19 @@ public sealed class RemoteAnalysisBridgeTests : IDisposable
         Assert.NotNull(lease);
         Assert.Equal(RemoteMode.Credits, Assert.Single(lease.Modes));
         Assert.Equal(method, lease.CreditsMethod);
-        var remoteItem = Assert.Single(lease.Items, item => item.WriteTarget);
+        Assert.True(lease.UseLocalChromaprintConsensus);
+        Assert.True(lease.ManualScan);
+        Assert.Equal(storyAfter ? 2 : 1, lease.Items.Count(item => item.WriteTarget));
+        var remoteItem = Assert.Single(lease.Items, item => item.ItemId == unmatchedId);
         Assert.Equal(unmatchedId, remoteItem.ItemId);
         Assert.True(remoteItem.WriteTarget);
-        if (method == CreditsDetectionMethod.IntroSkipper)
+        if (method == CreditsDetectionMethod.IntroSkipper || storyAfter)
         {
-            Assert.False(lease.Items.Single(item => item.ItemId == chapteredId).WriteTarget);
-            Assert.NotNull(lease.CreditsSettings);
+            Assert.Equal(storyAfter, lease.Items.Single(item => item.ItemId == chapteredId).WriteTarget);
+            if (method == CreditsDetectionMethod.IntroSkipper)
+            {
+                Assert.NotNull(lease.CreditsSettings);
+            }
         }
         else
         {

@@ -192,19 +192,24 @@ public sealed class TestJellyfinSegmentStore
         var store = CreateStore(db);
         var itemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
-        await SeedAsync(db, CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, ForeignProviderId, segmentId));
+        var ownId = Guid.NewGuid();
+        await SeedAsync(
+            db,
+            CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, ForeignProviderId, segmentId),
+            CreateEntity(Guid.NewGuid(), MediaSegmentType.Outro, 30, 40, JellyfinSegmentStore.ProviderId, ownId));
 
         // The resolution read for external deletes: by bare id, any item, any
-        // provider — the caller validates ownership afterwards.
-        var result = await store.FindSegmentAsync(segmentId, CancellationToken.None);
+        // provider, reporting whether Intro Skipper's provider wrote the row.
+        var (result, isOwn) = Assert.NotNull(await store.FindSegmentAsync(segmentId, CancellationToken.None));
 
-        Assert.NotNull(result);
-        Assert.Equal(segmentId, result!.Id);
+        Assert.False(isOwn);
+        Assert.Equal(segmentId, result.Id);
         Assert.Equal(itemId, result.ItemId);
         Assert.Equal(MediaSegmentType.Intro, result.Type);
         Assert.Equal(10, result.StartTicks);
         Assert.Equal(20, result.EndTicks);
 
+        Assert.True(Assert.NotNull(await store.FindSegmentAsync(ownId, CancellationToken.None)).IsOwn);
         Assert.Null(await store.FindSegmentAsync(Guid.NewGuid(), CancellationToken.None));
     }
 

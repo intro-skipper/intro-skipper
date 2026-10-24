@@ -44,7 +44,7 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The mutation outcome; <see cref="MutationResult.Outcome"/> is
     /// <see langword="null"/> when the change committed.</returns>
-    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
+    public async Task<MutationResult> ApplyChangeAsync(SegmentChangeIntent intent, Func<Task<(MediaSegmentDto Segment, bool IsOwn)?>>? resolveExternalTarget = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(intent);
         if (Validate(intent) is { } rejection)
@@ -76,6 +76,14 @@ public sealed partial class IntroSkipperDatabase
                 // mutation, so disposing the transaction unwinds nothing that
                 // matters, and a 404-style probe pays no journal write.
                 return result;
+            }
+
+            // A preview derived from the old credits end would otherwise stay: an edited
+            // Credits mode settles as user-provided and never reruns its derive. A
+            // visibility change lists every visible row but changes no credits.
+            if (intent is not SegmentVisibilityChangeIntent && result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
+            {
+                await ClearItemAnalysisCoreAsync(db, intent.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
             }
 
             // Accepted and Ignored both journal: an Ignored intent re-asserts state
@@ -221,7 +229,7 @@ public sealed partial class IntroSkipperDatabase
     /// change, so the caller can abandon the transaction on those; an Ignore that
     /// journals may additionally have staged a foreign-row operation.
     /// </summary>
-    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, Func<Task<MediaSegmentDto?>>? resolveExternalTarget, CancellationToken cancellationToken)
+    private static async Task<MutationResult> MutateAsync(IntroSkipperDbContext db, SegmentChangeIntent intent, Func<Task<(MediaSegmentDto Segment, bool IsOwn)?>>? resolveExternalTarget, CancellationToken cancellationToken)
     {
         switch (intent)
         {
@@ -406,10 +414,10 @@ public sealed partial class IntroSkipperDatabase
                     // this arm needs the read, and the caller's stripe keeps it
                     // race-free against concurrent projections — and require it to
                     // corroborate the request before the external delete runs.
-                    var target = resolveExternalTarget is null
+                    var resolved = resolveExternalTarget is null
                         ? null
                         : await resolveExternalTarget().ConfigureAwait(false);
-                    if (target is null || target.Id != value.SegmentId)
+                    if (resolved is not var (target, isOwn) || target.Id != value.SegmentId)
                     {
                         // The row may be missing because this very delete's journaled
                         // operation already removed it while the item sync behind it
@@ -438,7 +446,7 @@ public sealed partial class IntroSkipperDatabase
                             TypeMismatchMessage(value.SegmentId, target.Type, value.ExpectedType));
                     }
 
-                    return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, target, itemRows, cancellationToken).ConfigureAwait(false);
+                    return await DeleteExternalRowAsync(db, value.ItemId, value.SegmentId, value.ExpectedType, target, isOwn, itemRows, cancellationToken).ConfigureAwait(false);
                 }
 
             case SegmentVisibilityChangeIntent value:
@@ -465,18 +473,20 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Deletes one exactly validated, uncorrelated Jellyfin row and its plugin
-    /// counterpart. The counterpart is matched by the shared uncorrelated rule
-    /// (1-tick tolerance, closest wins, non-commercial mode-wide fallback), without
-    /// which a pre-shared-id row sitting one tick off would stay active and the very
-    /// sync this change journals would resurrect the deleted segment. The fallback
-    /// cannot re-claim after a concurrent or retried single-row delete: every such
-    /// delete journals its target's operation, and the pending-op guard above
-    /// answers those retries before matching runs. The journaled operation removes
-    /// the foreign row either way, carrying the validated boundaries for the
+    /// Deletes one exactly validated, uncorrelated Jellyfin row and, when Intro
+    /// Skipper's provider wrote it, its plugin counterpart. Another provider's row
+    /// says nothing about the plugin's segments, so its delete touches no plugin row
+    /// and no analysis record. The counterpart is matched by the shared uncorrelated
+    /// rule (1-tick tolerance, closest wins, non-commercial mode-wide fallback),
+    /// without which a pre-shared-id row sitting one tick off would stay active and
+    /// the very sync this change journals would resurrect the deleted segment. The
+    /// fallback cannot re-claim after a concurrent or retried single-row delete:
+    /// every such delete journals its target's operation, and the pending-op guard
+    /// above answers those retries before matching runs. The journaled operation
+    /// removes the Jellyfin row either way, carrying the validated boundaries for the
     /// apply-time guard.
     /// </summary>
-    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, MediaSegmentDto target, List<DbSegment> itemRows, CancellationToken cancellationToken)
+    private static async Task<MutationResult> DeleteExternalRowAsync(IntroSkipperDbContext db, Guid itemId, Guid externalSegmentId, MediaSegmentType expectedType, MediaSegmentDto target, bool isOwn, List<DbSegment> itemRows, CancellationToken cancellationToken)
     {
         var mode = AnalysisHelpers.TryMapSegmentTypeToMode(expectedType)!.Value;
 
@@ -495,7 +505,9 @@ public sealed partial class IntroSkipperDatabase
             return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentMissingOrDeleted, "The external segment's delete is already journaled.");
         }
 
-        var match = FindUncorrelatedCounterpart(itemRows.Where(s => s.State == SegmentState.Active).ToList(), mode, target.StartTicks, target.EndTicks);
+        var match = isOwn
+            ? FindUncorrelatedCounterpart(itemRows.Where(s => s.State == SegmentState.Active).ToList(), mode, target.StartTicks, target.EndTicks)
+            : null;
 
         var affected = new List<SegmentValue>();
         if (match is not null)
@@ -508,11 +520,11 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Finds the plugin counterpart of a Jellyfin row that shares no plugin id (a row
-    /// predating the shared-id scheme, or a foreign-provider row) by mode and
-    /// boundaries. Several rows can sit inside the tolerance (1-tick-shifted copies of
-    /// the same boundaries), so the closest one wins (an exact match beats a shifted
-    /// copy) with the id as a deterministic tie-break instead of enumeration order. A
+    /// Finds the plugin counterpart of an Intro Skipper Jellyfin row that shares no
+    /// plugin id (typically a row predating the shared-id scheme) by mode and boundaries.
+    /// Several rows can sit inside the tolerance (1-tick-shifted copies of the same
+    /// boundaries), so the closest one wins (an exact match beats a shifted copy)
+    /// with the id as a deterministic tie-break instead of enumeration order. A
     /// Jellyfin row can drift further from its plugin counterpart when re-analysis or
     /// edits ran while mirroring was off; the legacy DELETE wire matched mode-wide for
     /// non-commercial types, so that is honored where it is unambiguous: exactly one

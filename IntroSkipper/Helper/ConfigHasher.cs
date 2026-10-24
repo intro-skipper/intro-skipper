@@ -21,7 +21,8 @@ internal static class ConfigHasher
     public const string StreamScopedDetectionCacheHashPrefix = "audio-stream-v1|";
 
     /// <summary>
-    /// Cache identity used when FFmpeg's default audio stream is the effective stream.
+    /// Cache identity used when FFmpeg's own audio pick is the effective stream: the default-disposition
+    /// stream, then most channels, then lowest index. Frozen: rows carrying it are already on disk.
     /// </summary>
     public const string DefaultAudioStreamCacheVariant = "policy=most-channels";
 
@@ -57,6 +58,22 @@ internal static class ConfigHasher
     // It sits in the conventional part of a compound hash, so a switch is never a subtitle-only
     // change.
     private const string EmbeddedChapterSourceToken = "|chapterSource=embedded";
+
+    // Settled consensus is an opt-in analysis path, so it is hashed only when settled-season
+    // re-analysis can use it. Existing hashes stay stable for users who do not enable that path.
+
+    // With a preferred audio language under the most-channels policy, Chromaprint ranks the
+    // default-disposition stream first, as ffmpeg does, and maps the chosen stream. It used to rank
+    // by channels alone and leave the stream it ranked first unmapped, so ffmpeg could fingerprint
+    // another one. Present only in that configuration, so those seasons rerun once and no other
+    // season reopens.
+    private const string FfmpegStreamRankToken = "|audioRank=ffmpeg";
+
+    // The default preview chapter pattern before 10.11.22. Jellyfin saved the defaults of the
+    // first load, so installs from that time still carry it untouched. Frozen.
+    private const string LegacyDefaultPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
+
+    private static readonly PluginConfiguration _defaults = new();
 
     /// <summary>
     /// Computes a hash for a stored analysis result.
@@ -103,22 +120,23 @@ internal static class ConfigHasher
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={analysisPercent}|limit={analysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             // Frozen at v3 on purpose: the credits pass replaced the first-wins chain
             // without a bump, because a bump re-fingerprints and re-scans every season a chapter
             // or black frame settled. Seasons analyzed by the chain keep their result until they
-            // are rescanned. The prefer token stays for the same reason although the pass does
-            // not read PreferChromaprint. A pinned-hash test guards the string.
+            // are rescanned. The pass does not read PreferChromaprint, AnalysisPercent or
+            // MinimumIntroDuration, so their tokens keep the defaults' literals, and the
+            // chapter-marker toggle counts only for the legacy analyzer that reads it. A
+            // pinned-hash test guards the string.
             AnalysisMode.Credits => Invariant(
-                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
-                $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
-                $"|minRegion={config.MinimumIntroDuration}",
-                $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
+                $"analysis|v3|mode={mode}|action={action}|prefer=False|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
+                $"|pct=25|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}|minRegion=15",
+                $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
-                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
+                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
                 $"{AdjustmentHash(config)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -235,17 +253,20 @@ internal static class ConfigHasher
             CacheEntryType.BlackFrame => Invariant(
                 $"cache|v{(mode == AnalysisMode.Credits ? 2 : 1)}|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
+            // v2: blackdetect's pic_th is the minimum normalized over the scan, which this key does
+            // not carry, and tinted keyframes stopped counting as zero in that normalization.
             CacheEntryType.BlackInterval => Invariant(
-                $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
+                $"cache|v2|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
             // v2: VP9 keyframe listings select packet keyframes.
             CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Credits v4: VP9 visual scans select packet keyframes.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 4 : 3)}|{type}|{mode}",
+            // Credits v4: VP9 visual scans select packet keyframes. Credits v5: visuals carry the
+            // frame difference and no longer the darkest-tenth saturation.
+            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 5 : 3)}|{type}|{mode}",
 
-            // The probe's width, tolerance and rule are constants: bump the token when they change.
-            CacheEntryType.LeadIn => $"cache|v1|{type}",
+            // The rule's thresholds are constants: bump the token when they change.
+            CacheEntryType.Cut => $"cache|v1|{type}",
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
@@ -347,12 +368,55 @@ internal static class ConfigHasher
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
         => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
 
+    // Without enhancement a credits chapter settles its episode only when no story runs to the
+    // next preview chapter, so the preview chapter settings can change Credits. Present only when
+    // they differ from the defaults, the pre-10.11.22 pattern included, so default installs keep
+    // their hash. The two default patterns differ only on colon-delimited end labels such as
+    // "Preview: End". Full-length chapters replace the duration limits for every mode, so under
+    // them the limits count as their defaults.
+    private static string PreviewChapterToken(PluginConfiguration config, AnalyzerAction action)
+    {
+        if (config.EnhanceChapterCredits || action is AnalyzerAction.BlackFrame)
+        {
+            return string.Empty;
+        }
+
+        var (minimum, maximum) = config.FullLengthChapters
+            ? (_defaults.MinimumPreviewDuration, _defaults.MaximumPreviewDuration)
+            : (config.MinimumPreviewDuration, config.MaximumPreviewDuration);
+        var customPattern = config.ChapterAnalyzerPreviewPattern != _defaults.ChapterAnalyzerPreviewPattern
+            && config.ChapterAnalyzerPreviewPattern != LegacyDefaultPreviewPattern;
+        return customPattern || minimum != _defaults.MinimumPreviewDuration || maximum != _defaults.MaximumPreviewDuration
+            ? FormattableString.Invariant($"|previewChap={config.ChapterAnalyzerPreviewPattern}|previewMin={minimum}|previewMax={maximum}")
+            : string.Empty;
+    }
+
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
 
+    // Settled consensus only changes stored output during settled-season re-analysis. Keep its
+    // token out of ordinary analysis hashes so changes made while that path is disabled are applied
+    // when the setting is later enabled.
+    private static string SettledConsensusToken(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    {
+        if (!ffmpegValid ||
+            !config.ReanalyzeSettledSeasons ||
+            (mode == AnalysisMode.Credits && action == AnalyzerAction.BlackFrame) ||
+            !config.UseSettledSeasonChromaprintConsensus)
+        {
+            return string.Empty;
+        }
+
+        return FormattableString.Invariant(
+            $"|settledChromaprintConsensus=local-v2:{config.SettledSeasonChromaprintConsensusEpisodes}");
+    }
+
     private static string ChromaprintStreamToken(PluginConfiguration config)
-        => FormattableString.Invariant(
-            $"|audioLanguage={NormalizeAudioLanguage(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+    {
+        var language = NormalizeAudioLanguage(config.PreferredAudioLanguage);
+        var rank = language.Length > 0 && config.PreferAudioStreamWithMostChannels ? FfmpegStreamRankToken : string.Empty;
+        return FormattableString.Invariant($"|audioLanguage={language}|audioMostChannels={config.PreferAudioStreamWithMostChannels}{rank}");
+    }
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated

@@ -14,6 +14,7 @@ using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -120,11 +121,14 @@ public sealed class TestAnalysisScheduler
         await h.Ffmpeg.Entered.Task.WaitAsync(Timeout);
         var changed = h.Queue.ItemChangedAsync(h.EpisodeId);
 
+        h.Time.Advance(AnalysisScheduler.QuietPeriod - TimeSpan.FromSeconds(1));
+        Assert.False(changed.IsCompleted);
+
         h.Ffmpeg.Gate.SetResult();
         await scan.WaitAsync(Timeout);
 
         Assert.False(changed.IsCompleted);
-        h.Time.Advance(AnalysisScheduler.QuietPeriod + TimeSpan.FromSeconds(1));
+        h.Time.Advance(TimeSpan.FromSeconds(2));
         await changed.WaitAsync(Timeout);
     }
 
@@ -206,6 +210,18 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task ManualScan_AnalyzesOptedOutSpecials_ThatALibraryPassSkips()
+    {
+        await using var h = await QueueHarness.StartAsync(seasonNumber: 0);
+
+        await h.Queue.RunLibraryAsync(new RecordingProgress(), CancellationToken.None).WaitAsync(Timeout);
+        Assert.False(await h.IsAnalyzedAsync(h.EpisodeId));
+
+        await h.Scan().WaitAsync(Timeout);
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
     public async Task ManualScan_OfASeasonThatNoLongerResolves_CompletesWithoutRunning()
     {
         await using var h = await QueueHarness.StartAsync();
@@ -269,6 +285,36 @@ public sealed class TestAnalysisScheduler
         h.Ffmpeg.Gate.SetResult();
         await followUp.WaitAsync(Timeout);
         Assert.Equal(new ManualScanStatus(Queued: false, Failed: false), h.Queue.ScanStatus(h.SeasonId));
+    }
+
+    [Fact]
+    public async Task ManualScan_WhoseSeasonFails_Faults()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_chapterRepository", ChapterManagerStub.Throwing(new InvalidOperationException("chapter table unreadable")));
+
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => h.Scan().WaitAsync(Timeout));
+
+        Assert.Equal("chapter table unreadable", Assert.Single(exception.InnerExceptions).Message);
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
+    }
+
+    [Fact]
+    public async Task ManualScan_WhoseSeriesFailsToResolveForItsAnalysis_Faults()
+    {
+        await using var h = await QueueHarness.StartAsync();
+
+        // The erase runs after the scan resolved its season and before the analysis
+        // resolves the series.
+        h.Eraser.OnErase = _ =>
+        {
+            h.SeriesQueryFails = true;
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAsync<AggregateException>(() => h.Scan().WaitAsync(Timeout));
+
+        Assert.Equal(new ManualScanStatus(Queued: false, Failed: true), h.Queue.ScanStatus(h.SeasonId));
     }
 
     [Fact]
@@ -497,7 +543,7 @@ public sealed class TestAnalysisScheduler
         private readonly EntrypointTestHelpers.PluginInstanceScope _scope;
         private readonly List<string> _events = [];
 
-        private QueueHarness(bool gated, Func<bool>? versionCheck)
+        private QueueHarness(bool gated, Func<bool>? versionCheck, int seasonNumber)
         {
             var config = new PluginConfiguration
             {
@@ -510,8 +556,15 @@ public sealed class TestAnalysisScheduler
             _scope = EntrypointTestHelpers.CreatePluginScope(config, []);
             MediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
             File.WriteAllText(MediaPath, string.Empty);
-            Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath))];
-            var library = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Shows")], Items);
+            Items = [.. JellyfinItems.WithParents(JellyfinItems.Episode(EpisodeId, SeriesId, SeasonId, path: MediaPath, seasonNumber: seasonNumber))];
+            List<VirtualFolderInfo> folders = [JellyfinItems.Folder("Shows")];
+            var items = EntrypointTestHelpers.FakeLibraryManager.Create(folders, Items);
+            var library = EntrypointTestHelpers.FakeLibraryManager.Create(
+                folders,
+                query => SeriesQueryFails && query?.AncestorIds is { Length: > 0 }
+                    ? throw new InvalidOperationException("series query failed")
+                    : [.. items.GetItemList(query!, false)],
+                id => items.GetItemById(id));
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
 
             Ffmpeg = new GatedFfmpeg(gated)
@@ -548,6 +601,9 @@ public sealed class TestAnalysisScheduler
 
         public FakeTimeProvider Time { get; } = new();
 
+        /// <summary>Gets or sets a value indicating whether the library fails every query for a series' episodes.</summary>
+        public bool SeriesQueryFails { get; set; }
+
         public GatedFfmpeg Ffmpeg { get; }
 
         /// <summary>Gets the manual scan's eraser: counts erases and runs its hook, which records "erase" unless a test replaces it, before erasing for real.</summary>
@@ -571,11 +627,11 @@ public sealed class TestAnalysisScheduler
             }
         }
 
-        public static QueueHarness Create(bool gated = false, Func<bool>? versionCheck = null) => new(gated, versionCheck);
+        public static QueueHarness Create(bool gated = false, Func<bool>? versionCheck = null, int seasonNumber = 1) => new(gated, versionCheck, seasonNumber);
 
-        public static async Task<QueueHarness> StartAsync(bool gated = false, Func<bool>? versionCheck = null)
+        public static async Task<QueueHarness> StartAsync(bool gated = false, Func<bool>? versionCheck = null, int seasonNumber = 1)
         {
-            var harness = Create(gated, versionCheck);
+            var harness = Create(gated, versionCheck, seasonNumber);
             await harness.Queue.StartAsync(CancellationToken.None);
             return harness;
         }

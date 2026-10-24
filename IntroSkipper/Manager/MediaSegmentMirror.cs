@@ -45,8 +45,9 @@ internal sealed partial class MediaSegmentMirror(
     /// </summary>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The segment, or <see langword="null"/> when no row has the id.</returns>
-    public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    /// <returns>The segment and whether Intro Skipper's provider wrote it, or
+    /// <see langword="null"/> when no row has the id.</returns>
+    public Task<(MediaSegmentDto Segment, bool IsOwn)?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
         => segmentStore.FindSegmentAsync(segmentId, cancellationToken);
 
     /// <summary>

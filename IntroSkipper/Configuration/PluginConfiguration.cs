@@ -44,6 +44,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int DefaultSettledSeasonDelayHours = 24;
 
     /// <summary>
+    /// Default number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int DefaultSettledSeasonChromaprintConsensusEpisodes = 10;
+
+    /// <summary>
+    /// Minimum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MinimumSettledSeasonChromaprintConsensusEpisodes = 2;
+
+    /// <summary>
+    /// Maximum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MaximumSettledSeasonChromaprintConsensusEpisodes = 1000;
+
+    /// <summary>
     /// Maximum number of hours after the newest queued episode before a season is treated as settled.
     /// </summary>
     public const int MaximumSettledSeasonDelayHours = 87600;
@@ -63,6 +78,7 @@ public class PluginConfiguration : BasePluginConfiguration
     internal const string FirstEpisodeIntroModeIgnoreAnime = "IgnoreAnime";
 
     private string? _firstEpisodeIntroMode;
+    private int _settledSeasonChromaprintConsensusEpisodes = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -106,6 +122,27 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ReanalyzeSettledSeasons { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether settled-season Introduction and Credits re-analysis
+    /// requires local Chromaprint consensus groups.
+    /// </summary>
+    public bool UseSettledSeasonChromaprintConsensus { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the target number of distinct episodes required in a settled-season Chromaprint
+    /// consensus group. Comparable pattern groups may lower the target to their smallest group size,
+    /// and a single group covering at least three quarters of the usable fingerprints may qualify
+    /// below the target.
+    /// </summary>
+    public int SettledSeasonChromaprintConsensusEpisodes
+    {
+        get => _settledSeasonChromaprintConsensusEpisodes;
+        set => _settledSeasonChromaprintConsensusEpisodes = Math.Clamp(
+            value,
+            MinimumSettledSeasonChromaprintConsensusEpisodes,
+            MaximumSettledSeasonChromaprintConsensusEpisodes);
+    }
+
+    /// <summary>
     /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
     /// A value of 0 means no additional quiet-time wait once the season is queued.
     /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
@@ -129,8 +166,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to combine recognized credits chapters with
-    /// black-frame and chromaprint candidates. When disabled, valid credits chapters settle
-    /// the episode before combined detection, even when playback adjustments consume the range.
+    /// black-frame and chromaprint candidates. When disabled, valid credits chapters that no story
+    /// follows settle the episode before combined detection, even when playback adjustments
+    /// consume the range.
     /// Explicit per-season analyzer restrictions still apply.
     /// </summary>
     public bool EnhanceChapterCredits { get; set; }
@@ -148,8 +186,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
-    /// When enabled, the black frame analyzer probes the gap between keyframes
-    /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
+    /// When enabled, the keyframe analyzer decodes every frame between a credits part's first keyframe
+    /// and the keyframe before it, and starts the part on the frame that cuts to it. Disable for faster
+    /// analysis with keyframe-only accuracy.
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
 
@@ -331,8 +370,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string PreferredAudioLanguage { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether Chromaprint should prefer the audio stream with the most channels.
-    /// Streams with equal channel counts are ordered by their stream index.
+    /// Gets or sets a value indicating whether Chromaprint should take the audio stream FFmpeg would pick:
+    /// the default-disposition stream, then the most channels, then the lowest stream index.
+    /// When disabled, the lowest stream index wins.
     /// </summary>
     public bool PreferAudioStreamWithMostChannels { get; set; } = true;
 
@@ -540,6 +580,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the maximum number of seconds that can pass between two similar fingerprint points before a new time range is started.
+    /// Two long time ranges can still be joined across a longer gap; see <c>ChromaprintAnalyzer.FindContiguous</c>.
     /// </summary>
     public double MaximumTimeSkip { get; set; } = 3.5;
 

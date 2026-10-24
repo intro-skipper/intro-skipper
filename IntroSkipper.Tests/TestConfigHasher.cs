@@ -4,6 +4,10 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
@@ -17,6 +21,39 @@ using Xunit;
 public sealed class TestConfigHasher
 {
     private const string MostChannelsStreamCacheVariant = "policy=most-channels";
+
+    // Settings that change no analysis hash: scheduling, scope, storage, serving, playback UI
+    // and process limits.
+    private static readonly HashSet<string> NotDetection =
+    [
+        nameof(PluginConfiguration.AutoDetectIntros),
+        nameof(PluginConfiguration.AnalysisPaused),
+        nameof(PluginConfiguration.RemoteAnalysisEnabled),
+        nameof(PluginConfiguration.RemoteCreditsProfileHash),
+        nameof(PluginConfiguration.RemoteAnalysisLeaseMinutes),
+        nameof(PluginConfiguration.SettledSeasonDelayHours),
+        nameof(PluginConfiguration.AnalyzeSeasonZero),
+        nameof(PluginConfiguration.CacheCompressionLevel),
+        nameof(PluginConfiguration.UpdateMediaSegments),
+        nameof(PluginConfiguration.ScanIntroduction),
+        nameof(PluginConfiguration.ScanCredits),
+        nameof(PluginConfiguration.ScanRecap),
+        nameof(PluginConfiguration.ScanPreview),
+        nameof(PluginConfiguration.ScanCommercial),
+        nameof(PluginConfiguration.FirstEpisodeIntroMode),
+        nameof(PluginConfiguration.SkipFirstEpisode),
+        nameof(PluginConfiguration.SkipFirstEpisodeAnime),
+        nameof(PluginConfiguration.MaxParallelism),
+        nameof(PluginConfiguration.ProcessThreads),
+        nameof(PluginConfiguration.ScanTimeoutSeconds),
+        nameof(PluginConfiguration.ProcessPriority),
+        nameof(PluginConfiguration.UseFileTransformationPlugin),
+        nameof(PluginConfiguration.SkipbuttonHideDelay),
+        nameof(PluginConfiguration.AutoSkipIntro),
+        nameof(PluginConfiguration.AutoSkipCredits),
+        nameof(PluginConfiguration.SkipButtonVisibleSeconds),
+        nameof(PluginConfiguration.EnableMainMenu),
+    ];
 
     public static TheoryData<string, string, string, bool> Cases()
     {
@@ -51,6 +88,8 @@ public sealed class TestConfigHasher
         Case("BlackInterval cache differs from BlackFrame", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("Credits BlackFrame cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits), "3C80558124EB7712", false);
         Case("Credits KeyframeVisual cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "587D32B8BFB41219", false);
+        Case("Credits KeyframeVisual cache invalidates rows without the frame difference", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "0F5DAFC545AB413F", false);
+        Case("Credits BlackInterval cache invalidates rows probed under tinted-zeroed thresholds", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "3BB44B93C34D3451", false);
 
         // BlackFrameMinimumPercentage is passed to blackdetect as pic_th and is baked into the
         // cached intervals, so changing it must invalidate the BlackInterval detection cache.
@@ -66,6 +105,9 @@ public sealed class TestConfigHasher
         Case("Introduction analysis changes with preferred language", Analysis(defaults, AnalysisMode.Introduction), Analysis(english, AnalysisMode.Introduction), false);
         Case("Credits analysis changes with preferred language", Analysis(defaults, AnalysisMode.Credits), Analysis(english, AnalysisMode.Credits), false);
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
+
+        // Pin the analysis identity for a preferred language under the configured stream-selection policy.
+        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "BC177183ECC85CBA", true);
 
         // Toggling card credits changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
@@ -86,7 +128,23 @@ public sealed class TestConfigHasher
         // The string is frozen to what releases before the credits pass wrote, so seasons the
         // first-wins chain settled stay settled after the upgrade instead of re-scanning.
         Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "353008E48A5F559E", true);
-        Case("Credits analysis ignores the preview minimum; the Preview hash carries it", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
+        // The credits pass reads none of these, so changing one must not rerun Credits.
+        Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the analysis percentage", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnalysisPercent = 40 }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the intro minimum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumIntroDuration = 30 }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores black-frame chapter markers outside the legacy analyzer", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { UseChapterMarkersBlackFrame = false }, AnalysisMode.Credits), true);
+        Case("Credits analysis changes with black-frame chapter markers under the legacy analyzer", Analysis(new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true, UseChapterMarkersBlackFrame = false }, AnalysisMode.Credits), false);
+        // A preview chapter after a credits chapter tells whether story follows the chapter.
+        Case("Credits analysis changes with the preview chapter pattern", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
+        Case("Credits analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), false);
+        Case("Credits analysis changes with the preview maximum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MaximumPreviewDuration = 60 }, AnalysisMode.Credits), false);
+        Case("Credits analysis ignores the preview minimum under chapter enhancement", Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { EnhanceChapterCredits = true, MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
+        Case("Credits analysis ignores the preview chapter pattern under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
+        // Full-length chapters replace the preview duration limits; the pattern still applies.
+        Case("Credits analysis ignores the preview duration limits under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, MinimumPreviewDuration = 30, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), true);
+        Case("Credits analysis changes with the preview chapter pattern under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
+        // Installs from before 10.11.22 still carry that release's default preview pattern.
+        Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "353008E48A5F559E", true);
         Case("Preview analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Preview), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
@@ -215,6 +273,40 @@ public sealed class TestConfigHasher
     }
 
     [Fact]
+    public void SettledConsensusHash_PreservesDisabledHashAndTracksEnabledAlgorithm()
+    {
+        static string Hash(PluginConfiguration configuration)
+            => ConfigHasher.Analysis(configuration, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true);
+
+        var disabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = false,
+        };
+        var enabled = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+        var changedMinimum = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = true,
+            UseSettledSeasonChromaprintConsensus = true,
+            SettledSeasonChromaprintConsensusEpisodes = PluginConfiguration.DefaultSettledSeasonChromaprintConsensusEpisodes + 1,
+        };
+        var reanalysisOff = new PluginConfiguration
+        {
+            ReanalyzeSettledSeasons = false,
+            UseSettledSeasonChromaprintConsensus = true,
+        };
+
+        Assert.Equal(Hash(new PluginConfiguration()), Hash(disabled));
+        Assert.Equal(Hash(reanalysisOff), Hash(new PluginConfiguration { ReanalyzeSettledSeasons = false, UseSettledSeasonChromaprintConsensus = false }));
+        Assert.NotEqual(Hash(disabled), Hash(enabled));
+        Assert.NotEqual(Hash(enabled), Hash(changedMinimum));
+    }
+
+    [Fact]
     public void LegacyChromaprintCacheHash_MatchesPreStreamSelectionRows()
     {
         // Pinned output for a default configuration; rows written by releases without audio
@@ -227,6 +319,87 @@ public sealed class TestConfigHasher
         // The legacy hash predates audio stream selection, so those settings must not affect it.
         var changedSelection = new PluginConfiguration { PreferredAudioLanguage = "eng", PreferAudioStreamWithMostChannels = false };
         Assert.Equal(hash, ConfigHasher.LegacyChromaprintCacheWithoutLanguage(changedSelection, AnalysisMode.Introduction));
+    }
+
+    /// <summary>
+    /// Every scalar persisted setting (bool, number, string or enum) either reaches some
+    /// analysis hash or is listed in <see cref="NotDetection"/>, so a new setting cannot change
+    /// detection output while seasons keep results computed under its old value.
+    /// </summary>
+    [Fact]
+    public void EverySetting_ChangesSomeAnalysisHash_ExactlyWhenItIsDetection()
+    {
+        Func<PluginConfiguration>[] bases =
+        [
+            () => new PluginConfiguration(),
+            // Subtitle patterns and languages count only while subtitle detection is on.
+            () => new PluginConfiguration { EnableSubtitleRecapDetection = true, EnableSubtitlePreviewDetection = true },
+            // The chapter-marker toggle counts only for the legacy analyzer.
+            () => new PluginConfiguration { UseLegacyBlackFrameAnalyzer = true },
+            // The consensus settings count only while settled seasons are re-analyzed.
+            () => new PluginConfiguration { ReanalyzeSettledSeasons = true },
+        ];
+
+        var settings = typeof(PluginConfiguration)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.CanRead && p.CanWrite && p.GetIndexParameters().Length == 0 && !p.IsDefined(typeof(XmlIgnoreAttribute)))
+            .Where(p => p.PropertyType.IsValueType || p.PropertyType == typeof(string));
+
+        var hashedButListed = new List<string>();
+        var unhashedAndUnlisted = new List<string>();
+        foreach (var setting in settings)
+        {
+            var hashed = bases.Any(create => ChangesSomeHash(create, setting));
+            var listed = NotDetection.Contains(setting.Name);
+            if (hashed && listed)
+            {
+                hashedButListed.Add(setting.Name);
+            }
+            else if (!hashed && !listed)
+            {
+                unhashedAndUnlisted.Add(setting.Name);
+            }
+        }
+
+        Assert.True(
+            hashedButListed.Count == 0 && unhashedAndUnlisted.Count == 0,
+            $"Hashed but listed as not detection: [{string.Join(", ", hashedButListed)}]. Not hashed and not listed: [{string.Join(", ", unhashedAndUnlisted)}].");
+
+        static bool ChangesSomeHash(Func<PluginConfiguration> create, PropertyInfo setting)
+        {
+            var config = create();
+            var before = Hashes(config);
+            var original = setting.GetValue(config);
+            setting.SetValue(config, Perturb(setting, original));
+            Assert.False(Equals(original, setting.GetValue(config)), $"{setting.Name} reads back unchanged after perturbing it.");
+            return !before.SequenceEqual(Hashes(config));
+        }
+
+        static string[] Hashes(PluginConfiguration config)
+            => [.. from mode in Enum.GetValues<AnalysisMode>()
+                   from action in Enum.GetValues<AnalyzerAction>()
+                   select ConfigHasher.Analysis(config, mode, action, ffmpegValid: true)];
+
+        // The getter maps an unknown first-episode mode back to Analyze, so it needs a real value.
+        static object Perturb(PropertyInfo setting, object? value)
+            => setting.Name == nameof(PluginConfiguration.FirstEpisodeIntroMode)
+                ? PluginConfiguration.FirstEpisodeIntroModeIgnore
+                : value switch
+                {
+                    bool flag => !flag,
+                    int number => number + 1,
+                    double number => number + 0.5,
+                    string text => text + "x",
+                    Enum member => NextMember(member),
+                    _ => throw new InvalidOperationException($"No perturbation for {setting.Name} ({setting.PropertyType})."),
+                };
+
+        // The next declared value, not value + 1: ProcessPriorityClass values are sparse.
+        static object NextMember(Enum member)
+        {
+            var members = Enum.GetValues(member.GetType());
+            return members.GetValue((Array.IndexOf(members, member) + 1) % members.Length)!;
+        }
     }
 
     [Theory]

@@ -26,7 +26,9 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
         IReadOnlyList<QueuedEpisode> comparisonReferences,
         PluginMode mode,
         CancellationToken token,
-        AnalyzerAction action = AnalyzerAction.Default)
+        AnalyzerAction action = AnalyzerAction.Default,
+        bool useLocalConsensus = false,
+        bool manualScan = false)
     {
         if (writeTargets.Count == 0)
         {
@@ -129,6 +131,8 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
                 CreditsSettings = mode == PluginMode.Credits && node.CreditsMethod == CreditsDetectionMethod.IntroSkipper
                     ? GetCreditsSettings(configuration, action) : null,
                 ScanSettings = GetScanSettings(configuration, selected[0], action),
+                UseLocalChromaprintConsensus = useLocalConsensus,
+                ManualScan = manualScan,
                 NodePolicy = node.Policy,
                 CreditsRecipe = mode == PluginMode.Credits ? recipe : null,
             };
@@ -275,6 +279,8 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
                 configuration.FullLengthChapters,
                 configuration.EnableSponsorBlockChapterDetection,
                 configuration.EnhanceChapterCredits,
+                configuration.UseSettledSeasonChromaprintConsensus,
+                configuration.SettledSeasonChromaprintConsensusEpisodes,
                 configuration.BlackFrameMinimumPercentage,
                 configuration.BlackFrameThreshold,
                 configuration.UseLegacyBlackFrameAnalyzer,
@@ -336,7 +342,9 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
         double MaximumTimeSkip,
         int InvertedIndexShift,
         int SilenceDetectionMaximumNoise,
-        double SilenceDetectionMinimumDuration)
+        double SilenceDetectionMinimumDuration,
+        bool UseSettledSeasonChromaprintConsensus,
+        int SettledSeasonChromaprintConsensusEpisodes)
     {
         public static IntroductionProfile From(PluginConfiguration configuration, int? analysisPercentOverride, int? analysisLengthLimitOverride, AnalyzerAction action)
             => new(
@@ -368,6 +376,8 @@ public sealed class RemoteAnalysisDispatcher(IntroSkipperDatabase database, ISer
                 configuration.MaximumTimeSkip,
                 configuration.InvertedIndexShift,
                 configuration.SilenceDetectionMaximumNoise,
-                configuration.SilenceDetectionMinimumDuration);
+                configuration.SilenceDetectionMinimumDuration,
+                configuration.UseSettledSeasonChromaprintConsensus,
+                configuration.SettledSeasonChromaprintConsensusEpisodes);
     }
 }

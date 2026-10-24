@@ -85,27 +85,6 @@ internal static class SeasonReanalysisPlanner
     }
 
     /// <summary>
-    /// Adds Preview to a reset that includes Credits when previews are derived from the
-    /// credits end, so the derived segments are regenerated with their source.
-    /// </summary>
-    /// <param name="modes">The modes selected for reset.</param>
-    /// <param name="previewFromCreditsEnd">Whether a Preview is derived from the end of Credits.</param>
-    /// <returns>The modes to reset, with Preview appended when it is derived from Credits.</returns>
-    internal static IReadOnlyCollection<AnalysisMode> ExpandSettledResetModesForDerivedSegments(
-        IReadOnlyList<AnalysisMode> modes,
-        bool previewFromCreditsEnd)
-    {
-        if (!previewFromCreditsEnd ||
-            !modes.Contains(AnalysisMode.Credits) ||
-            modes.Contains(AnalysisMode.Preview))
-        {
-            return modes;
-        }
-
-        return [.. modes, AnalysisMode.Preview];
-    }
-
-    /// <summary>
     /// Returns whether a settle re-analysis of the mode would actually run an analyzer: Introduction
     /// needs Chromaprint unless the season is pinned to the chapter analyzer.
     /// </summary>

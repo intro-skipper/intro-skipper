@@ -84,7 +84,7 @@ public sealed class TestRemoteScheduling
         using var scope = EntrypointTestHelpers.CreatePluginScope(config,
         [
             new ChapterInfo { Name = "Credits", StartPositionTicks = DatabaseTestHelpers.Ticks(180) },
-            new ChapterInfo { Name = "Scene", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
+            new ChapterInfo { Name = "Preview", StartPositionTicks = DatabaseTestHelpers.Ticks(210) },
         ]);
         using var media = new TempFile();
         using var db = new TempSegmentDb();

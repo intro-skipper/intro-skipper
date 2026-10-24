@@ -51,9 +51,7 @@ public sealed class TestKeyframeAnalyzerFallback
         var ffmpeg = new StubFFmpegService
         {
             KeyframeScan = (_, _) => pages,
-            RangeBlackFrames = (_, _, _, _, _) => [],
             BlackIntervals = (_, _, _, _) => [],
-            LumaWindows = (_, _, _) => null,
         };
         var config = new PluginConfiguration();
         var analyzer = new KeyframeAnalyzer(
@@ -91,9 +89,7 @@ public sealed class TestKeyframeAnalyzerFallback
         var ffmpeg = new StubFFmpegService
         {
             KeyframeScan = (_, _) => pages,
-            RangeBlackFrames = (_, _, _, _, _) => [],
             BlackIntervals = (_, _, _, _) => [],
-            LumaWindows = (_, _, _) => null,
         };
         var analyzer = new KeyframeAnalyzer(
             NullLogger<KeyframeAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), new PluginConfiguration());

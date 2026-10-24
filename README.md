@@ -18,6 +18,8 @@
 
 ## Remote scanner nodes
 
+This fork integrates stable Intro Skipper **12.0.6.0** ([upstream `da3d8d5`](https://github.com/intro-skipper/intro-skipper/releases/tag/12.0/v12.0.6.0)) and requires Jellyfin **12.2.0** or newer. Update the plugin and companion node together.
+
 The **Nodes** settings page manages the default local scanner and connected [IntroSkipper-Node](https://github.com/GOvEy1nw/intro-skipper-node) workers. Select libraries and analysis types per node, disable local scanning when desired, and manage remote credits methods, GPU use, parallelism and path mappings centrally. Shared detection settings synchronise on save and reconnect. The companion repository contains the node application, build instructions and setup documentation; this repository contains the Jellyfin plugin and shared protocol contracts.
 
 ## Manifest URL (All Jellyfin Versions)

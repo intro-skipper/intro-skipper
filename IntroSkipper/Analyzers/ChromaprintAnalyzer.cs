@@ -22,18 +22,36 @@ namespace IntroSkipper.Analyzers;
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="environment">Analysis host dependencies, or <see langword="null"/> to use the active Jellyfin host.</param>
+/// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase? database,
     PluginConfiguration? configuration = null,
-    IAnalysisEnvironment? environment = null) : IMediaFileAnalyzer
+    IAnalysisEnvironment? environment = null,
+    bool applyLocalConsensus = false) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
     /// </summary>
     private const double RecapCardMinimumDuration = 3.0;
+
+    // Compare at most two successfully fingerprinted episodes away on either side. A local window
+    // lets anime openings and endings change mid-season without one theme dominating the season.
+    private const int ConsensusNeighborRadius = 2;
+    private const double ConsensusMinimumRangeOverlap = 0.8;
+    private const int ConsensusSupermajorityNumerator = 3;
+    private const int ConsensusSupermajorityDenominator = 4;
+
+    // Two runs on one shift sit on the same timeline in both episodes, so a gap between two long
+    // runs is a slot of the same length in both: shared material with something laid over it, or
+    // a gag that changes every episode inside a fixed title sequence.
+    private const double BridgeMinimumRunDuration = 8.0;
+    private const double BridgeMaximumGapShare = 0.5;
+
+    // A shared region that starts this close to the start of its fingerprint starts at 0.
+    private const double StartSnapSeconds = 5;
 
     private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
     private readonly PluginConfiguration _config = configuration ?? environment?.Configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -41,6 +59,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase? _database = database;
+    private readonly bool _applyLocalConsensus = applyLocalConsensus;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -93,16 +112,29 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            if (mode == AnalysisMode.Recap && currentEpisode.GetAnalyzed(mode) == EpisodeState.Analyzed)
+            // A settled sibling is re-derived only from a Chromaprint result; one another
+            // analyzer settled keeps its rows and was compared only for its fingerprint.
+            if (!currentEpisode.NeedsAnalysis(mode)
+                && (await _database!.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false))
+                    .Any(row => row.Type == mode && row.Source != SegmentSource.Chromaprint))
             {
-                var segments = await _database!.GetSegmentsAsync(currentEpisode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (segments.Any(segment => segment.Type == mode && segment.Source == SegmentSource.Subtitle && segment.State == SegmentState.Active))
-                {
-                    continue;
-                }
+                continue;
             }
 
-            var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // Keyframe snapping can fail on every pass for one file, such as one whose tags push
+            // the codec probe's stream mapping past its capture; that fails only this episode.
+            Segment adjustedIntro;
+            try
+            {
+                adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                currentEpisode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+                LogErrorAdjustingIntro(ex, mode, currentEpisode.Name);
+                continue;
+            }
+
             if (!adjustedIntro.Valid)
             {
                 await _database!.ReplaceAutoSegmentsAsync(currentEpisode.EpisodeId, mode, [], SegmentSource.Chromaprint, currentEpisode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
@@ -235,8 +267,16 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            LogCaughtFingerprintError(error);
-            WarningManager.RecordFingerprintFailure(error.Message);
+            if (error.InnerException is TimeoutException)
+            {
+                LogFingerprintTimeout(error, episode.Name, episode.Path);
+            }
+            else
+            {
+                LogCaughtFingerprintError(error, episode.Path);
+            }
+
+            WarningManager.RecordFingerprintFailure($"{episode.EpisodeId:N}: {error.Message}");
 
             // Keep a transient fingerprint failure retriable. A completed neighbor may be
             // included only to provide a comparison fingerprint; do not discard its valid result.
@@ -347,7 +387,265 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
+        {
+            seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, mode, cancellationToken);
+        }
+
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+    }
+
+    /// <summary>
+    /// Keeps season-selected Introduction and Credits ranges only when each forms a local
+    /// connected group across the configured number of distinct episodes, capped at the number
+    /// of usable fingerprints. Comparable pattern groups may lower that target to their smallest
+    /// group size so a mid-season theme change does not invalidate both patterns. This is used
+    /// during settled-season re-analysis; each pair is limited to two successfully fingerprinted
+    /// positions.
+    /// </summary>
+    /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
+    /// <param name="fingerprints">The fingerprints already extracted for those episodes.</param>
+    /// <param name="candidates">Candidates selected by the existing season comparison.</param>
+    /// <param name="mode">Analysis mode whose duration limits and time offsets apply.</param>
+    /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
+    /// <returns>Locally confirmed candidates.</returns>
+    internal Dictionary<Guid, Segment> ConfirmLocalConsensus(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, uint[]> fingerprints,
+        IReadOnlyDictionary<Guid, Segment> candidates,
+        AnalysisMode mode,
+        CancellationToken cancellationToken)
+    {
+        _analysisMode = mode;
+        if (candidates.Count == 0)
+        {
+            return [];
+        }
+
+        var orderedEpisodes = episodes
+            .Where(episode =>
+                fingerprints.TryGetValue(episode.EpisodeId, out var fingerprint) &&
+                fingerprint.Length > 0)
+            .OrderBy(episode => episode.EpisodeNumber)
+            .ThenBy(episode => episode.EpisodeId)
+            .ToList();
+        var maximumGroupSize = Math.Min(_config.SettledSeasonChromaprintConsensusEpisodes, orderedEpisodes.Count);
+
+        var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
+        var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
+
+        for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
+        {
+            var leftEpisode = orderedEpisodes[leftIndex];
+            var leftFingerprint = fingerprints[leftEpisode.EpisodeId];
+            var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
+            for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var rightEpisode = orderedEpisodes[rightIndex];
+                var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
+
+                var (leftCandidate, rightCandidate) = CompareEpisodes(
+                    leftEpisode.EpisodeId,
+                    leftFingerprint,
+                    rightEpisode.EpisodeId,
+                    rightFingerprint);
+
+                var leftCandidateValid = leftCandidate.Valid &&
+                    leftCandidate.Duration <= GetMaximumSegmentDuration(leftEpisode);
+                var rightCandidateValid = rightCandidate.Valid &&
+                    rightCandidate.Duration <= GetMaximumSegmentDuration(rightEpisode);
+
+                if (mode == AnalysisMode.Credits)
+                {
+                    leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
+                    leftCandidate.End += leftEpisode.CreditsFingerprintStart;
+                    rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
+                    rightCandidate.End += rightEpisode.CreditsFingerprintStart;
+                }
+
+                if (leftCandidateValid)
+                {
+                    KeepBetterCandidate(localCandidates, leftCandidate);
+                }
+
+                if (rightCandidateValid)
+                {
+                    KeepBetterCandidate(localCandidates, rightCandidate);
+                }
+
+                if (leftCandidateValid && rightCandidateValid)
+                {
+                    var leftRange = GetConsensusRangeKey(leftCandidate);
+                    var rightRange = GetConsensusRangeKey(rightCandidate);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
+                }
+            }
+        }
+
+        // Consensus confirms the season-selected ranges; it must not introduce a new endpoint
+        // from a local pair that the season comparison itself did not select.
+        foreach (var candidate in candidates.Values)
+        {
+            KeepBetterCandidate(localCandidates, candidate);
+        }
+
+        // Pairwise comparisons can find slightly different endpoints for the same opening in
+        // different episode pairs. Join those compatible ranges within each episode so that
+        // their neighboring pair matches contribute to one local group. Requiring the ranges
+        // to overlap by most of the longer range keeps a longer cold open from borrowing the
+        // consensus of a shorter intro that merely starts at the same time.
+        foreach (var episodeRanges in localCandidates.Values.GroupBy(candidate => candidate.EpisodeId))
+        {
+            var ranges = episodeRanges.ToArray();
+            for (var leftIndex = 0; leftIndex < ranges.Length; leftIndex++)
+            {
+                for (var rightIndex = leftIndex + 1; rightIndex < ranges.Length; rightIndex++)
+                {
+                    if (!AreConsensusRangesCompatible(ranges[leftIndex], ranges[rightIndex]))
+                    {
+                        continue;
+                    }
+
+                    var leftRange = GetConsensusRangeKey(ranges[leftIndex]);
+                    var rightRange = GetConsensusRangeKey(ranges[rightIndex]);
+                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
+                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
+                }
+            }
+        }
+
+        var groups = new List<List<ConsensusRangeKey>>();
+        var visited = new HashSet<ConsensusRangeKey>();
+        foreach (var rangeKey in matchingNeighbors.Keys)
+        {
+            if (!visited.Add(rangeKey))
+            {
+                continue;
+            }
+
+            var group = new List<ConsensusRangeKey>();
+            var pending = new Stack<ConsensusRangeKey>();
+            pending.Push(rangeKey);
+            while (pending.TryPop(out var currentRangeKey))
+            {
+                group.Add(currentRangeKey);
+                foreach (var neighborKey in matchingNeighbors[currentRangeKey])
+                {
+                    if (visited.Add(neighborKey))
+                    {
+                        pending.Push(neighborKey);
+                    }
+                }
+            }
+
+            groups.Add(group);
+        }
+
+        // A season may contain multiple themes. When there are multiple comparably supported
+        // patterns, lower the configured target to the smallest such group so each pattern can
+        // qualify. A small, isolated pattern cannot lower the target for a larger group.
+        var groupEpisodeCounts = groups
+            .Select(group => group.Select(key => key.EpisodeId).Distinct().Count())
+            .Where(count => count > 0)
+            .ToArray();
+        var largestGroupSize = groupEpisodeCounts.DefaultIfEmpty(0).Max();
+        var comparableGroupSizes = groupEpisodeCounts
+            .Where(count => count * 2 >= largestGroupSize)
+            .ToArray();
+        var minimumGroupSize = comparableGroupSizes.Length > 1
+            ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
+            : maximumGroupSize;
+        var supermajoritySize =
+            ((orderedEpisodes.Count * ConsensusSupermajorityNumerator) + (ConsensusSupermajorityDenominator - 1)) /
+            ConsensusSupermajorityDenominator;
+        if (largestGroupSize >= supermajoritySize)
+        {
+            minimumGroupSize = Math.Min(minimumGroupSize, largestGroupSize);
+        }
+
+        minimumGroupSize = Math.Max(
+            PluginConfiguration.MinimumSettledSeasonChromaprintConsensusEpisodes,
+            minimumGroupSize);
+
+        var supportedRanges = new HashSet<ConsensusRangeKey>();
+        foreach (var group in groups)
+        {
+            if (group.Select(key => key.EpisodeId).Distinct().Count() < minimumGroupSize)
+            {
+                continue;
+            }
+
+            foreach (var memberRange in group)
+            {
+                supportedRanges.Add(memberRange);
+            }
+        }
+
+        var confirmed = new Dictionary<Guid, Segment>();
+
+        foreach (var candidate in candidates.Values)
+        {
+            if (supportedRanges.Contains(GetConsensusRangeKey(candidate)))
+            {
+                KeepBetterCandidate(confirmed, candidate);
+            }
+        }
+
+        var removed = candidates.Keys.Count(id => !confirmed.ContainsKey(id));
+        if (removed > 0)
+        {
+            LogCandidatesWithoutLocalConsensus(_logger, mode, minimumGroupSize, removed, confirmed.Count);
+        }
+
+        return confirmed;
+    }
+
+    private static ConsensusRangeKey GetConsensusRangeKey(Segment candidate)
+        => new(
+            candidate.EpisodeId,
+            (long)Math.Round(candidate.Start, MidpointRounding.AwayFromZero),
+            (long)Math.Round(candidate.End, MidpointRounding.AwayFromZero));
+
+    private static bool AreConsensusRangesCompatible(Segment left, Segment right)
+    {
+        var overlap = Math.Max(0, Math.Min(left.End, right.End) - Math.Max(left.Start, right.Start));
+        var longerDuration = Math.Max(left.Duration, right.Duration);
+        return longerDuration > 0 && overlap / longerDuration >= ConsensusMinimumRangeOverlap;
+    }
+
+    private static void AddNeighbor(
+        Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>> matchingNeighbors,
+        ConsensusRangeKey rangeKey,
+        ConsensusRangeKey neighborKey)
+    {
+        if (!matchingNeighbors.TryGetValue(rangeKey, out var neighbors))
+        {
+            neighbors = [];
+            matchingNeighbors.Add(rangeKey, neighbors);
+        }
+
+        neighbors.Add(neighborKey);
+    }
+
+    private void KeepBetterCandidate(Dictionary<ConsensusRangeKey, Segment> candidates, Segment candidate)
+    {
+        var rangeKey = GetConsensusRangeKey(candidate);
+        if (!candidates.TryGetValue(rangeKey, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[rangeKey] = candidate;
+        }
+    }
+
+    private void KeepBetterCandidate(Dictionary<Guid, Segment> candidates, Segment candidate)
+    {
+        if (!candidates.TryGetValue(candidate.EpisodeId, out var saved) ||
+            IsBetterCandidate(candidate, saved, _analysisMode, _config.AnchorRecapToColdOpen, _config.EndSnapThreshold))
+        {
+            candidates[candidate.EpisodeId] = candidate;
+        }
     }
 
     /// <summary>
@@ -432,12 +730,12 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
-        if (lhs.Start <= 5)
+        if (lhs.Start <= StartSnapSeconds)
         {
             lhs.Start = 0;
         }
 
-        if (rhs.Start <= 5)
+        if (rhs.Start <= StartSnapSeconds)
         {
             rhs.Start = 0;
         }
@@ -584,8 +882,10 @@ internal sealed partial class ChromaprintAnalyzer(
     /// </summary>
     /// <remarks>
     /// A run-length pass over the sample positions: a run continues while the gap between two
-    /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>; the longest
-    /// run wins, the earlier one on a tie.
+    /// similar samples is at most <see cref="PluginConfiguration.MaximumTimeSkip"/>. A longer gap
+    /// still joins two neighbouring runs, outside Recap, when both last at least 8 s, the gap is at most half of
+    /// the shorter one and the joined run stays within the mode's maximum duration. A joined run
+    /// can join again, against its own length. The longest run wins, the earlier one on a tie.
     /// </remarks>
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
@@ -600,12 +900,8 @@ internal sealed partial class ChromaprintAnalyzer(
         var rightOffset = shiftAmount > 0 ? shiftAmount : 0;
         var upperLimit = Math.Min(lhs.Length, rhs.Length) - Math.Abs(shiftAmount);
 
-        // Sample positions on the LHS; -1 while no run has started.
-        var bestStart = -1;
-        var bestEnd = -1;
-        var runStart = -1;
-        var runEnd = -1;
-
+        // Sample positions on the LHS.
+        List<(int Start, int End)> runs = [];
         for (var i = 0; i < upperLimit; i++)
         {
             var lhsPosition = i + leftOffset;
@@ -614,23 +910,50 @@ internal sealed partial class ChromaprintAnalyzer(
                 continue;
             }
 
-            if (runStart >= 0 && (lhsPosition - runEnd) * ChromaprintConstants.SampleDuration <= _config.MaximumTimeSkip)
+            if (runs.Count > 0 && (lhsPosition - runs[^1].End) * ChromaprintConstants.SampleDuration <= _config.MaximumTimeSkip)
             {
-                runEnd = lhsPosition;
-                continue;
+                runs[^1] = (runs[^1].Start, lhsPosition);
             }
-
-            if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+            else
             {
-                (bestStart, bestEnd) = (runStart, runEnd);
+                runs.Add((lhsPosition, lhsPosition));
             }
-
-            runStart = runEnd = lhsPosition;
         }
 
-        if (runStart >= 0 && (bestStart < 0 || runEnd - runStart > bestEnd - bestStart))
+        // Every RHS position is its LHS position plus the shift.
+        var positionShift = rightOffset - leftOffset;
+
+        // A join only lengthens runs, so passes repeat until none joins, whichever side is longer.
+        // A join past the mode maximum would get the whole comparison discarded, so it is refused,
+        // measured from where SelectSharedRegion will start it on each side. A recap needs only where
+        // its sting starts, and a join can carry the sting's end past the closing black run or the
+        // boundary its rebuild reads, which costs the pair the recap, so a recap never joins.
+        var maximumDuration = MaximumRegionDuration(Math.Min(lhs.Length, rhs.Length));
+        var joined = _analysisMode != AnalysisMode.Recap;
+        while (joined)
         {
-            (bestStart, bestEnd) = (runStart, runEnd);
+            joined = false;
+            for (var i = 0; i + 1 < runs.Count; i++)
+            {
+                var (start, end) = (runs[i].Start, runs[i + 1].End);
+                if (Bridges(runs[i], runs[i + 1])
+                    && Math.Max(SnappedDuration(start, end), SnappedDuration(start + positionShift, end + positionShift)) <= maximumDuration)
+                {
+                    runs[i] = (runs[i].Start, runs[i + 1].End);
+                    runs.RemoveAt(i + 1);
+                    joined = true;
+                }
+            }
+        }
+
+        var bestStart = -1;
+        var bestEnd = -1;
+        foreach (var (start, end) in runs)
+        {
+            if (bestStart < 0 || end - start > bestEnd - bestStart)
+            {
+                (bestStart, bestEnd) = (start, end);
+            }
         }
 
         if (bestStart < 0 || (bestEnd - bestStart) * ChromaprintConstants.SampleDuration < GetMinimumRegionDuration(_analysisMode, _config))
@@ -638,11 +961,32 @@ internal sealed partial class ChromaprintAnalyzer(
             return (new TimeRange(), new TimeRange());
         }
 
-        // Every RHS position is its LHS position plus the shift.
-        var positionShift = rightOffset - leftOffset;
         return (
             new TimeRange(bestStart * ChromaprintConstants.SampleDuration, bestEnd * ChromaprintConstants.SampleDuration),
             new TimeRange((bestStart + positionShift) * ChromaprintConstants.SampleDuration, (bestEnd + positionShift) * ChromaprintConstants.SampleDuration));
+    }
+
+    // The bound GetMaximumSegmentDuration later applies to a match. A credits fingerprint covers
+    // the credits window, whose length stands in for the episode's window minus 1 s.
+    private double MaximumRegionDuration(int fingerprintLength)
+        => _analysisMode switch
+        {
+            AnalysisMode.Introduction => _config.MaximumIntroDuration,
+            AnalysisMode.Credits => (fingerprintLength * ChromaprintConstants.SampleDuration) - 1,
+            _ => double.MaxValue,
+        };
+
+    private static double SnappedDuration(int start, int end)
+    {
+        var startSeconds = start * ChromaprintConstants.SampleDuration;
+        return (end * ChromaprintConstants.SampleDuration) - (startSeconds <= StartSnapSeconds ? 0 : startSeconds);
+    }
+
+    private static bool Bridges((int Start, int End) left, (int Start, int End) right)
+    {
+        var shorter = Math.Min(left.End - left.Start, right.End - right.Start) * ChromaprintConstants.SampleDuration;
+        return shorter >= BridgeMinimumRunDuration
+            && (right.Start - left.End) * ChromaprintConstants.SampleDuration <= shorter * BridgeMaximumGapShare;
     }
 
     /// <summary>
@@ -674,14 +1018,25 @@ internal sealed partial class ChromaprintAnalyzer(
         return invIndex;
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
-    private partial void LogCaughtFingerprintError(Exception exception);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error for \"{Path}\"")]
+    private partial void LogCaughtFingerprintError(Exception exception, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint fingerprint scan for {Episode} (\"{Path}\") timed out. " + FFmpegProcessRunner.ScanTimeoutHint)]
+    private partial void LogFingerprintTimeout(Exception exception, string episode, string path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error adjusting the {Mode} boundaries for {Episode}")]
+    private partial void LogErrorAdjustingIntro(Exception exception, AnalysisMode mode, string episode);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarding the {Mode} region shared between {LHS} and {RHS}: {Duration:F2}s exceeds the maximum of {Maximum}s")]
     private partial void LogSharedRegionTooLong(Guid lhs, Guid rhs, AnalysisMode mode, double duration, int maximum);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a {MinimumGroupSize}-episode local group; {ConfirmedCount} candidate(s) remain")]
+    private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int minimumGroupSize, int removedCount, int confirmedCount);
+
+    private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 }
 
 /// <summary>

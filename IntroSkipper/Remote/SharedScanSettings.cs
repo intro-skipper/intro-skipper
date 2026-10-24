@@ -29,6 +29,8 @@ internal static class SharedScanSettings
                 {
                 configuration.AutoDetectIntros,
                 configuration.ReanalyzeSettledSeasons,
+                configuration.UseSettledSeasonChromaprintConsensus,
+                configuration.SettledSeasonChromaprintConsensusEpisodes,
                 configuration.SettledSeasonDelayHours,
                 configuration.AnalyzeSeasonZero,
                 configuration.PreferChromaprint,

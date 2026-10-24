@@ -206,7 +206,12 @@ public sealed class TestSegmentChange : IDisposable
         var itemId = Guid.NewGuid();
         var drifted = new DbSegment(itemId, AnalysisMode.Introduction, 5000, 6000, SegmentSource.Chapter);
         await SeedAsync(drifted);
-        var store = new FakeJellyfinSegmentStore { WriteException = JellyfinDown() };
+        var externalId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [SegmentChangeHarness.MirroredDto(itemId, externalId, MediaSegmentType.Intro, 100, 200)],
+            WriteException = JellyfinDown(),
+        };
         var service = CreateService(store);
 
         // An unrelated failed change leaves the item's marker pending. The
@@ -216,16 +221,39 @@ public sealed class TestSegmentChange : IDisposable
         Assert.IsType<Accepted>(await service.ApplyAsync(
             new AddUserSegmentIntent(itemId, AnalysisMode.Credits, 30, 40)));
 
-        var externalId = Guid.NewGuid();
-        AddForeign(store, itemId, externalId, MediaSegmentType.Intro, 100, 200);
         store.WriteException = null;
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
             new EditorDeleteSegmentIntent(itemId, externalId, MediaSegmentType.Intro)));
 
-        // The mode's single active intro is the legacy mode-scoped match and is
-        // tombstoned alongside the journaled foreign-row delete.
+        // The mode's single active intro is the legacy mode-scoped match for the
+        // stale Intro Skipper row and is tombstoned alongside its journaled delete.
         Assert.Equal(drifted.Id, Assert.Single(outcome.AffectedValues).Id);
         Assert.Equal(SegmentState.Suppressed, Assert.Single(await SegmentsAsync(), s => s.Id == drifted.Id).State);
+    }
+
+    // Another provider's intro at the plugin intro's exact boundaries: both the
+    // tolerance match and the mode-wide fallback would claim the plugin row if
+    // counterpart matching ran for foreign rows.
+    [Fact]
+    public async Task EditorDelete_ForeignRow_LeavesPluginSegmentAndAnalysisAlone()
+    {
+        var itemId = Guid.NewGuid();
+        var pluginIntro = new DbSegment(itemId, AnalysisMode.Introduction, 10, 20, SegmentSource.Chapter, "auto-hash");
+        await SeedAsync(pluginIntro);
+        await SeedAnalyzedItemAsync(new DbAnalyzedItem(itemId, AnalysisMode.Introduction, "auto-hash"));
+        var store = new FakeJellyfinSegmentStore();
+        var foreignId = Guid.NewGuid();
+        AddForeign(store, itemId, foreignId, MediaSegmentType.Intro, 10, 20);
+        var service = CreateService(store);
+
+        var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
+            new EditorDeleteSegmentIntent(itemId, foreignId, MediaSegmentType.Intro)));
+
+        Assert.Empty(outcome.AffectedValues);
+        Assert.Empty(store.ForeignSegments);
+        Assert.Equal(pluginIntro.Id, Assert.Single(await MirroredAsync(store, itemId)).Id);
+        await AssertSegmentsAsync(row => Assert.Equal(SegmentState.Active, row.State));
+        await AssertAnalyzedItemAsync(itemId, AnalysisMode.Introduction, "auto-hash");
     }
 
     [Fact]
@@ -323,8 +351,7 @@ public sealed class TestSegmentChange : IDisposable
         var pluginRow = new DbSegment(itemId, AnalysisMode.Introduction, 1238398, 500000000, SegmentSource.User);
         await SeedAsync(pluginRow);
         var jellyfinRowId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore();
-        AddForeign(store, itemId, jellyfinRowId, MediaSegmentType.Intro, 1238397, 500000000);
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [SegmentChangeHarness.MirroredDto(itemId, jellyfinRowId, MediaSegmentType.Intro, 1238397, 500000000)] };
         var service = CreateService(store);
 
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(
@@ -350,8 +377,7 @@ public sealed class TestSegmentChange : IDisposable
         var exactCopy = new DbSegment(itemId, AnalysisMode.Introduction, 1238398, 500000000, SegmentSource.User);
         await SeedAsync(shiftedCopy, exactCopy);
         var jellyfinRowId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore();
-        AddForeign(store, itemId, jellyfinRowId, MediaSegmentType.Intro, 1238398, 500000000);
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [SegmentChangeHarness.MirroredDto(itemId, jellyfinRowId, MediaSegmentType.Intro, 1238398, 500000000)] };
         var service = CreateService(store);
 
         Assert.IsType<Accepted>(await service.ApplyAsync(
@@ -424,7 +450,7 @@ public sealed class TestSegmentChange : IDisposable
 
         var result = await CreateDatabase().ApplyChangeAsync(
             new EditorDeleteSegmentIntent(itemId, requestedId, MediaSegmentType.Intro),
-            () => Task.FromResult(target));
+            () => Task.FromResult<(MediaSegmentDto Segment, bool IsOwn)?>(target is null ? null : (target, false)));
 
         Assert.Equal(expected, Assert.IsType<Rejected>(result.Outcome).Reason);
         await AssertQueueEmptyAsync();
@@ -560,6 +586,28 @@ public sealed class TestSegmentChange : IDisposable
         });
         await using var db = CreateContext();
         Assert.Empty(await db.AnalyzedItems.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreditsEdit_ReopensPreview_ButHidingOrShowingTheItemDoesNot()
+    {
+        var itemId = Guid.NewGuid();
+        var credits = new DbSegment(itemId, AnalysisMode.Credits, 1200, 1260, SegmentSource.BlackFrame, "credits-hash");
+        var preview = new DbSegment(itemId, AnalysisMode.Preview, 1260, 1320, SegmentSource.CreditsDerived, "credits-hash");
+        await SeedAsync(credits, preview);
+        await SeedAnalyzedItemAsync(
+            new DbAnalyzedItem(itemId, AnalysisMode.Credits, "credits-hash"),
+            new DbAnalyzedItem(itemId, AnalysisMode.Preview, "preview-hash"));
+        var service = CreateService(new FakeJellyfinSegmentStore());
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: false)));
+        Assert.IsType<Accepted>(await service.ApplyAsync(new SegmentVisibilityChangeIntent(itemId, Visible: true)));
+        await AssertAnalyzedItemAsync(itemId, AnalysisMode.Preview, "preview-hash");
+
+        Assert.IsType<Accepted>(await service.ApplyAsync(new UpdateSegmentIntent(itemId, credits.Id, 1200, 1290)));
+
+        await using var db = CreateContext();
+        Assert.False(await db.AnalyzedItems.AnyAsync(item => item.ItemId == itemId && item.Type == AnalysisMode.Preview));
     }
 
     [Fact]
@@ -749,8 +797,7 @@ public sealed class TestSegmentChange : IDisposable
         var externalId = Guid.NewGuid();
         var counterpart = new DbSegment(itemId, AnalysisMode.Introduction, 11, 21, SegmentSource.Chapter);
         await SeedAsync(counterpart);
-        var store = new FakeJellyfinSegmentStore();
-        AddForeign(store, itemId, externalId, MediaSegmentType.Intro, 10, 20);
+        var store = new FakeJellyfinSegmentStore { ExistingSegments = [SegmentChangeHarness.MirroredDto(itemId, externalId, MediaSegmentType.Intro, 10, 20)] };
         var service = CreateService(store);
 
         var outcome = Assert.IsType<Accepted>(await service.ApplyAsync(

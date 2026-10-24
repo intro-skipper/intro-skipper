@@ -25,17 +25,18 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Per-keyframe luma percentiles and mean saturation. format=yuv420p brings 10-bit sources to
-    // 8-bit values and keeps the source's range, so a full-range source spans 0 to 255.
+    // Per-frame luma percentiles, mean saturation and luma difference to the frame before.
+    // format=yuv420p brings 10-bit sources to 8-bit values and keeps the source's range, so a
+    // full-range source spans 0 to 255.
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
     // VP9/WebM may ignore -skip_frame nokey; filter expensive scans by packet keyframe.
     private const string KeyframeSelect = "select=eq(key\\,1)";
 
-    // Bytes of each ffmpeg output stream a lead-in probe may hold at once. The probe decodes at a
-    // small width, a few megabytes of luma and a line of showinfo per frame, so the cap only stops
-    // a runaway decode or a file whose diagnostics never end.
-    private const long LumaWindowMaximumBytes = 64L * 1024 * 1024;
+    // Bytes of each ffmpeg output stream a cut decode may hold at once. It writes no frames, and
+    // metadata=print logs about 2 KB per frame, so the cap holds over 30000 frames and only stops a
+    // runaway decode or a file whose diagnostics never end.
+    private const long CutWindowMaximumBytes = 64L * 1024 * 1024;
 
     // Subtitle text should be small, but a malformed or malicious episode must not allow FFmpeg's
     // WebVTT files to grow without bound across its embedded streams and sidecars.
@@ -93,7 +94,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     ];
 
     // Probed after the requirements. This filter only feeds keyframe visuals, so a build
-    // without it keeps every other scan and loses card credits detection.
+    // without it keeps every other scan and loses card credits detection and the cut start,
+    // which reads the visuals' frame difference.
     private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
     [
         ("signalstats", "signalstats options"),
@@ -352,8 +354,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles and saturation) for the credits
-    /// fingerprint range.
+    /// Collects per-keyframe visual statistics (luma percentiles, saturation and frame difference)
+    /// for the credits fingerprint range.
     /// </summary>
     /// <remarks>
     /// Normally served from the row the keyframe scan in
@@ -469,13 +471,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string KeyframeFilters(string? codec, string filters) => codec == "vp9" ? $"{KeyframeSelect},{filters}" : filters;
 
     /// <inheritdoc/>
-    public async Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    public async Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
-        // The keyframe scan's own format=yuv420p, then the luma plane: no range conversion either
-        // way, so the frames read as the scan's signalstats did. showinfo logs each frame's time and
-        // size at the info level. The rawvideo muxer syncs to a constant rate by default and would
-        // duplicate or drop frames after showinfo counted them; passthrough writes exactly the
-        // frames it logged.
+        // Match the keyframe scan at source resolution when locating the preceding cut.
         string[] args;
         if (UsesCreditHardwareDecoder)
         {
@@ -484,10 +482,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             [
                 .. input.Arguments,
                 "-t", FormatSeconds(window.Duration),
-                "-an", "-dn", "-sn",
-                "-fps_mode", "passthrough",
-                "-vf", input.FilterPrefix + $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
-                "-f", "rawvideo", "-",
+                .. OutputArgs(input.FilterPrefix + KeyframeVisualFilters),
             ];
         }
         else
@@ -497,59 +492,39 @@ internal sealed partial class FFmpegService : IFFmpegService
                 "-ss", FormatSeconds(window.Start),
                 "-t", FormatSeconds(window.Duration),
                 "-i", episode.Path,
-                "-an", "-dn", "-sn",
-                "-fps_mode", "passthrough",
-                "-vf", $"scale={width.ToString(CultureInfo.InvariantCulture)}:-2,format=yuv420p,extractplanes=y,showinfo",
-                "-f", "rawvideo", "-",
+                .. OutputArgs(KeyframeVisualFilters),
             ];
         }
 
-        // Sized for 16:9 frames at 30 fps, so the capture usually fills one buffer instead of
-        // doubling its way there.
-        var expectedBytes = (long)(width * (width * 9 / 16) * 30 * window.Duration);
         ProcessCapture capture;
         try
         {
-            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), LumaWindowMaximumBytes, expectedBytes, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), CutWindowMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
-            LogLumaWindowFailed(ex, episode.Name);
+            LogCutWindowFailed(ex, episode.Name);
             return null;
         }
 
         if (capture.Truncated || capture.ExitCode != 0)
         {
-            LogLumaWindowUnusable(episode.Name, capture.ExitCode, capture.Truncated);
+            LogCutWindowUnusable(episode.Name, capture.ExitCode, capture.Truncated);
             return null;
         }
 
-        var frames = FFmpegOutputParser.ParseShowInfo(capture.Stderr);
-        if (frames.Length == 0
-            || frames[0].Width <= 0
-            || frames[0].Height <= 0
-            || frames.Any(frame => frame.Width != frames[0].Width || frame.Height != frames[0].Height)
-            || capture.Stdout.Length != (long)frames.Length * frames[0].Width * frames[0].Height)
-        {
-            LogLumaWindowMismatch(episode.Name, frames.Length, capture.Stdout.Length);
-            return null;
-        }
-
-        return new LumaWindow(frames[0].Width, frames[0].Height, capture.Stdout, [.. frames.Select(frame => window.Start + frame.Time)]);
+        return [.. FFmpegOutputParser.ParseKeyframeVisuals(capture.Stderr).Select(frame => frame with { Time = window.Start + frame.Time })];
     }
 
     // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
     // value under 1e-5, such as a trim start a rounding error away from zero.
     private static string FormatSeconds(double seconds) => seconds.ToString("0.######", CultureInfo.InvariantCulture);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} could not be decoded")]
-    private partial void LogLumaWindowFailed(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Cut window of {Episode} could not be decoded")]
+    private partial void LogCutWindowFailed(Exception ex, string episode);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
-    private partial void LogLumaWindowUnusable(string episode, int exitCode, bool truncated);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Luma window of {Episode} unusable: {FrameTimes} frame times for {Bytes} bytes of frames")]
-    private partial void LogLumaWindowMismatch(string episode, int frameTimes, long bytes);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Cut window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
+    private partial void LogCutWindowUnusable(string episode, int exitCode, bool truncated);
 
     // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
     // requested duration) and the keyframe scan runs to end of file, so every writer of a
@@ -1202,28 +1177,29 @@ internal sealed partial class FFmpegService : IFFmpegService
     // mapping of an ffmpeg run that decodes no frame. ffmpeg ranks the video streams by frame
     // size, the default disposition and whether the stream delivered packets while ffmpeg
     // probed the file. ffprobe cannot report the last, so no ffprobe rule can copy the choice.
-    // Null when the run fails or the file has no video stream.
+    // Null when the file has no video stream. A run that fails to start, times out or is cut at
+    // the cap before its stream mapping throws instead, since the scan would cache a VP9 file's
+    // every frame as a keyframe.
     private async Task<string?> ProbeVideoCodecAsync(string filePath, CancellationToken cancellationToken)
     {
         string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
-        try
+
+        // The mapping block follows the input dump, which prints every metadata tag, so the
+        // capture is capped rather than buffered whole.
+        var capture = await _processRunner.RunCapturedAsync(
+            FFmpegPath,
+            ProcessArgs(args, "info"),
+            VideoCodecProbeMaximumBytes,
+            expectedStdoutBytes: 0,
+            ScanTimeout(),
+            cancellationToken).ConfigureAwait(false);
+        var codec = FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
+        if (codec is null && capture.Truncated)
         {
-            // The mapping block follows the input dump, which prints every metadata tag, so the
-            // capture is capped rather than buffered whole; a run cut at the cap maps nothing.
-            var capture = await _processRunner.RunCapturedAsync(
-                FFmpegPath,
-                ProcessArgs(args, "info"),
-                VideoCodecProbeMaximumBytes,
-                expectedStdoutBytes: 0,
-                timeout: 10 * 1000,
-                cancellationToken).ConfigureAwait(false);
-            return FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
+            throw new InvalidDataException($"The ffmpeg log of \"{filePath}\" passed {VideoCodecProbeMaximumBytes} bytes before its stream mapping");
         }
-        catch (Exception ex) when (IsProcessFailure(ex))
-        {
-            LogVideoCodecProbeFailed(_logger, ex, filePath);
-            return null;
-        }
+
+        return codec;
     }
 
     /// <summary>
@@ -1292,10 +1268,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         bool preferMostChannels,
         CancellationToken cancellationToken)
     {
-        // No probe or explicit map is needed to keep ffmpeg's default selection: most channels, then lowest index.
+        // ffmpeg's own pick (the most-channels policy, see SelectAudioStream) needs no probe or map.
         if (string.IsNullOrWhiteSpace(preferredLanguage) && preferMostChannels)
         {
-            return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant));
+            return Task.FromResult<AudioStreamSelection?>(new AudioStreamSelection(null, AudioStreamSelection.DefaultStreamCacheVariant, SelectsDefaultStream: true));
         }
 
         return _audioStreamSelections.GetAsync(
@@ -1318,7 +1294,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             [
                 "-v", "error",
                 "-select_streams", "a",
-                "-show_entries", "stream=index,channels:stream_tags=language",
+                "-show_entries", "stream=index,channels:stream_tags=language:stream_disposition=default",
                 "-of", "json",
                 filePath,
             ];
@@ -1336,7 +1312,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return null;
             }
 
-            var audioStreams = new List<(int Index, int Channels, string? Language)>();
+            var audioStreams = new List<(int Index, int Channels, string? Language, bool Default)>();
             foreach (var stream in streams.EnumerateArray())
             {
                 if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
@@ -1349,8 +1325,12 @@ internal sealed partial class FFmpegService : IFFmpegService
                         tags.TryGetProperty("language", out var languageElement)
                         ? languageElement.GetString()?.Trim()
                         : null;
+                    var isDefault = stream.TryGetProperty("disposition", out var disposition) &&
+                        disposition.TryGetProperty("default", out var defaultElement) &&
+                        defaultElement.TryGetInt32(out var defaultFlag) &&
+                        defaultFlag == 1;
 
-                    audioStreams.Add((streamIndex, channels, language));
+                    audioStreams.Add((streamIndex, channels, language, isDefault));
                 }
             }
 
@@ -1360,6 +1340,10 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var defaultStream = SelectAudioStream(audioStreams, preferMostChannels: true);
+
+            // 12.0 wrote rows under the default variant for its own pick, most channels then lowest index,
+            // mapping that stream explicitly. Where that is not ffmpeg's pick, those rows hold either stream.
+            var defaultVariantIsUnambiguous = defaultStream.Index == audioStreams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First().Index;
             var candidates = hasLanguagePreference
                 ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
                 : audioStreams;
@@ -1371,14 +1355,12 @@ internal sealed partial class FFmpegService : IFFmpegService
             }
 
             var selectedStream = SelectAudioStream(candidates, preferMostChannels);
-            var selectsDefaultMostStream = selectedStream.Index == defaultStream.Index;
-            var cacheVariant = selectsDefaultMostStream
+            var selectsDefaultStream = selectedStream.Index == defaultStream.Index;
+            var cacheVariant = selectsDefaultStream && defaultVariantIsUnambiguous
                 ? AudioStreamSelection.DefaultStreamCacheVariant
                 : FormattableString.Invariant($"stream-index={selectedStream.Index}");
 
-            return new AudioStreamSelection(
-                preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
-                cacheVariant);
+            return new AudioStreamSelection(selectedStream.Index, cacheVariant, selectsDefaultStream);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -1459,13 +1441,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         }
         catch (TimeoutException ex)
         {
-            throw new FingerprintException($"chromaprint fingerprinting of \"{episode.Path}\" timed out", ex);
+            throw new FingerprintException("chromaprint fingerprinting timed out", ex);
         }
 
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
+            throw new FingerprintException("chromaprint output was malformed");
         }
 
         var results = MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
@@ -1477,11 +1459,12 @@ internal sealed partial class FFmpegService : IFFmpegService
         return results;
     }
 
-    private static (int Index, int Channels, string? Language) SelectAudioStream(
-        IReadOnlyList<(int Index, int Channels, string? Language)> streams,
+    // The most-channels policy is ffmpeg's own pick: the default-disposition stream, then most channels, then lowest index.
+    private static (int Index, int Channels, string? Language, bool Default) SelectAudioStream(
+        IReadOnlyList<(int Index, int Channels, string? Language, bool Default)> streams,
         bool preferMostChannels)
         => preferMostChannels
-            ? streams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
+            ? streams.OrderByDescending(stream => stream.Default).ThenByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
             : streams.OrderBy(stream => stream.Index).First();
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
@@ -1502,11 +1485,8 @@ internal sealed partial class FFmpegService : IFFmpegService
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not determine the video codec for \"{Path}\"; using standard frame handling")]
-    private static partial void LogVideoCodecProbeFailed(ILogger logger, Exception ex, string path);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
@@ -1520,15 +1500,14 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <summary>
     /// The audio stream a fingerprint is taken from.
     /// </summary>
-    /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's default selection unmapped.</param>
+    /// <param name="StreamIndex">Stream index to map explicitly, or <see langword="null"/> to leave FFmpeg's own pick unmapped.</param>
     /// <param name="CacheVariant">Effective stream identity that keys the fingerprint cache row.</param>
-    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant)
+    /// <param name="SelectsDefaultStream">Whether the effective stream is FFmpeg's own pick, the stream rows from
+    /// releases before stream selection hold. Also true where <paramref name="CacheVariant"/> names its index.</param>
+    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool SelectsDefaultStream)
     {
-        /// <summary>Cache variant of FFmpeg's default selection: most channels, then lowest index.</summary>
+        /// <summary>Cache variant of FFmpeg's own pick.</summary>
         public const string DefaultStreamCacheVariant = ConfigHasher.DefaultAudioStreamCacheVariant;
-
-        /// <summary>Gets a value indicating whether the effective stream is FFmpeg's default one.</summary>
-        public bool SelectsDefaultStream => CacheVariant == DefaultStreamCacheVariant;
     }
 
     /// <summary>

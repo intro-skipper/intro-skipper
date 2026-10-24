@@ -88,13 +88,23 @@ public sealed partial class Entrypoint(
 
         Assembly? fileTransformationAssembly =
             AssemblyLoadContext.All.SelectMany(x => x.Assemblies).FirstOrDefault(x =>
-                x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                x.GetName().Name == "Jellyfin.Plugin.FileTransformation");
 
-        if (fileTransformationAssembly is not null)
+        if (fileTransformationAssembly is null)
         {
-            Type? pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+            return;
+        }
 
-            pluginInterfaceType?.GetMethod("RegisterTransformation")?.Invoke(null, [payload]);
+        // Untyped call into another plugin: any reflection or plugin failure here would abort Jellyfin startup.
+        try
+        {
+            fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface")
+                ?.GetMethod("RegisterTransformation")
+                ?.Invoke(null, [payload]);
+        }
+        catch (Exception ex)
+        {
+            LogFileTransformationRegistrationFailed(ex);
         }
     }
 
@@ -117,9 +127,11 @@ public sealed partial class Entrypoint(
 
         // Queues the item's own id. The pass resolves the season it belongs to when it
         // starts, off this library event thread and after Jellyfin has attached a new
-        // episode to its season. A replaced file needs no special handling: queue
-        // verification compares the stored file version and reopens the item. The
-        // handle is dropped; the queue logs a failed pass itself.
+        // episode to its season. A replaced file needs no special handling: Jellyfin's
+        // refresh has already had SegmentProvider.CleanupExtractedData erase the item's
+        // records and detection cache, so the pass analyzes it like a new one. A change
+        // the refresh misses is caught by queue verification comparing the stored file
+        // version. The handle is dropped; the queue logs a failed pass itself.
         LogMediaLibraryChanged();
         _ = _queue.ItemChangedAsync(item.Id);
     }
@@ -167,4 +179,7 @@ public sealed partial class Entrypoint(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Media Library changed, analysis will start soon!")]
     private partial void LogMediaLibraryChanged();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not register the skip button transformation with File Transformation")]
+    private partial void LogFileTransformationRegistrationFailed(Exception ex);
 }

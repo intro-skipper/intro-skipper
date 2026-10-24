@@ -21,8 +21,13 @@ using Xunit;
 public sealed class TestSegmentProvider : IDisposable
 {
     private readonly SegmentChangeHarness _h = new();
+    private readonly TempCacheDb _cache = new();
 
-    public void Dispose() => _h.Dispose();
+    public void Dispose()
+    {
+        _h.Dispose();
+        _cache.Dispose();
+    }
 
     [Fact]
     public async Task CleanupExtractedData_KeepsUserSegmentsAndTombstones_AndProjectsTheUserSegmentsBack()
@@ -44,7 +49,7 @@ public sealed class TestSegmentProvider : IDisposable
         };
         await _h.ClearQueueAsync();
 
-        await new SegmentProvider(database, new SegmentDtoFactory(database)).CleanupExtractedData(itemId, CancellationToken.None);
+        await CreateProvider().CleanupExtractedData(itemId, CancellationToken.None);
 
         // The erase journals the item, so the worker will push the kept user segment back.
         Assert.Equal([itemId], await _h.QueuedItemIdsAsync());
@@ -65,4 +70,20 @@ public sealed class TestSegmentProvider : IDisposable
 
         Assert.Equal(user.Id, Assert.Single(await _h.Store.GetOwnSegmentsAsync(itemId, CancellationToken.None)).Id);
     }
+
+    [Fact]
+    public async Task CleanupExtractedData_DeletesTheItemsDetectionCache()
+    {
+        var itemId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        _cache.Database.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600, EntrypointTestHelpers.EmptyJsonArray, "hash");
+        _cache.Database.Upsert(otherId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 600, EntrypointTestHelpers.EmptyJsonArray, "hash");
+
+        await CreateProvider().CleanupExtractedData(itemId, CancellationToken.None);
+
+        await using var db = _cache.Context();
+        Assert.Equal([otherId], await db.DetectionCache.Select(e => e.ItemId).ToListAsync());
+    }
+
+    private SegmentProvider CreateProvider() => new(_h.Database, _cache.Database, new SegmentDtoFactory(_h.Database));
 }

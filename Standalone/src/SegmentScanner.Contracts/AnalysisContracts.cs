@@ -81,6 +81,10 @@ public sealed record JobSnapshot
     public JsonElement? CreditsSettings { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JobScanSettings? ScanSettings { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UseLocalChromaprintConsensus { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ManualScan { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RemoteNodePolicy? NodePolicy { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -118,7 +122,7 @@ public sealed record TimeRange(long StartTicks, long EndTicks);
 public sealed record DetectorIdentity
 {
     public required string Id { get; init; }
-    public string UpstreamCommit { get; init; } = "e39a56b74308bfef95f8d83b4ccdabc1f4529d8a";
+    public string UpstreamCommit { get; init; } = "da3d8d50af3418ecd1ba80c58eefa48df5b5e2b4";
     public required string ProfileHash { get; init; }
     public string? ModelSha256 { get; init; }
     public string? InferenceEnvironment { get; init; }

@@ -10,17 +10,17 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers.Credits;
 
 /// <summary>
-/// Runs credits analysis for a season, trusting recognized credits chapters by default
-/// and combining analyzer candidates for episodes without a chapter result.
+/// Runs credits analysis for a season, trusting recognized credits chapters that no story
+/// follows by default and combining analyzer candidates for the other episodes.
 /// </summary>
 /// <remarks>
-/// With chapter enhancement enabled, chapter matches, the keyframe analyzer (black rolls from
-/// black-frame evidence and card credits from keyframe visuals, over one keyframe scan) and the
-/// season-wide chromaprint comparison each contribute candidates;
-/// <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly touch and
-/// keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
+/// With chapter enhancement enabled, or when story follows the credits chapter, chapter matches,
+/// the keyframe analyzer (black rolls from black-frame evidence and card credits from keyframe
+/// visuals, over one keyframe scan) and the season-wide chromaprint comparison each contribute
+/// candidates; <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly
+/// touch and keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
 /// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
-/// references for siblings without credits chapters, but their results are not replaced.
+/// references for siblings without an authoritative chapter, but their results are not replaced.
 /// Times are adjusted once per stored segment and every episode is written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
@@ -29,13 +29,15 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
 /// <param name="environment">Explicit analysis environment.</param>
+/// <param name="useLocalConsensus">Whether this run is a settled-season re-analysis.</param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration config,
-    IAnalysisEnvironment environment)
+    IAnalysisEnvironment? environment = null,
+    bool useLocalConsensus = false)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -45,7 +47,8 @@ internal sealed partial class CreditsPass(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
-    private readonly IAnalysisEnvironment _environment = environment;
+    private readonly IAnalysisEnvironment _environment = environment ?? new PluginAnalysisEnvironment();
+    private readonly bool _useLocalConsensus = useLocalConsensus;
 
     /// <summary>
     /// Settles recognized chapters before local detection or remote ownership is considered.
@@ -71,7 +74,7 @@ internal sealed partial class CreditsPass(
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var matches = chapter.FindChapterCandidates(episode, Mode);
+                var matches = AuthoritativeChapterMatches(chapter, episode);
                 if (matches.Count == 0)
                 {
                     continue;
@@ -85,7 +88,7 @@ internal sealed partial class CreditsPass(
             {
                 handled.Add(episode.EpisodeId);
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name);
+                LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
             }
         }
 
@@ -140,7 +143,7 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _environment)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _environment, _useLocalConsensus)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -148,7 +151,11 @@ internal sealed partial class CreditsPass(
                 // The season-wide comparison failed as a whole; the other analyzers still
                 // write what they find below, and an episode they find nothing for stays
                 // retriable.
-                LogChromaprintComparisonFailed(ex);
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                }
+
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
             }
         }
@@ -168,7 +175,7 @@ internal sealed partial class CreditsPass(
             // An already-analyzed sibling re-derived from a changed season is re-scanned only
             // when its new shared-audio candidate reaches outside what is stored; otherwise
             // the combination could not change and the black-frame scan is skipped.
-            if (!episode.NeedsAnalysis(Mode) && await IsCoveredByStoredCreditsAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false))
+            if (!episode.NeedsAnalysis(Mode) && IsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
             }
@@ -176,7 +183,7 @@ internal sealed partial class CreditsPass(
             // A fingerprint failure costs the episode its shared-audio candidate. A result from
             // the other analyzers settles it like any other; with no result at all the episode
             // stays failed so the next scan retries instead of recording a false "no credits".
-            var fingerprintFailed = fingerprintFailures.Contains(episode.EpisodeId);
+            var analyzerFailed = fingerprintFailures.Contains(episode.EpisodeId);
             using var activity = _environment.TrackItem(episode, Mode, "Credits detection");
 
             try
@@ -184,17 +191,15 @@ internal sealed partial class CreditsPass(
                 var candidates = new List<AttributedSegment>();
                 if (chapter is not null)
                 {
-                    if (_config.EnhanceChapterCredits)
+                    if (!episode.NeedsAnalysis(Mode) && AuthoritativeChapterMatches(chapter, episode).Count > 0)
                     {
-                        candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
-                    }
-                    else if (!episode.NeedsAnalysis(Mode) && chapter.FindChapterCandidates(episode, Mode).Count > 0)
-                    {
-                        // A settled sibling's recognized chapter stays authoritative over the
-                        // re-derived candidate. Pending episodes reached here only because the
-                        // pre-pass found no chapter for them.
+                        // A settled sibling's authoritative chapter stays over the re-derived
+                        // candidate. Pending episodes reached here only because the pre-pass found
+                        // no authoritative chapter for them.
                         continue;
                     }
+
+                    candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
                 }
 
                 if (hasChromaprintCandidate)
@@ -204,7 +209,6 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
-                var keyframeFailed = false;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
@@ -217,12 +221,26 @@ internal sealed partial class CreditsPass(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        // Keyframe detection is an enhancement to the chapter and Chromaprint
-                        // candidates. A failed black-frame scan must not erase a valid result that
-                        // was already found by another analyzer; when it is the only producer,
-                        // keep the episode failed so the black-frame analysis is retried.
-                        LogKeyframeAnalysisFailed(ex, episode.Name);
-                        keyframeFailed = true;
+                        if (_logger.IsEnabled(LogLevel.Warning))
+                        {
+                            LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                        }
+
+                        // Without the keyframe result, the other candidates alone could lose the
+                        // roll the standing credits hold, so a failed keyframe scan never replaces
+                        // them. A settled sibling stays settled; a pending episode is marked failed
+                        // and the next pass retries it.
+                        if ((await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false)).Count > 0)
+                        {
+                            if (episode.NeedsAnalysis(Mode))
+                            {
+                                episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
+                            }
+
+                            continue;
+                        }
+
+                        analyzerFailed = true;
                     }
                 }
 
@@ -230,14 +248,17 @@ internal sealed partial class CreditsPass(
                     episode,
                     CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
                     timeAdjustmentHelper,
-                    fingerprintFailed || keyframeFailed,
+                    analyzerFailed,
                     cancellationToken).ConfigureAwait(false);
                 episode.SetAnalyzed(Mode, state);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
-                LogErrorAnalyzingCredits(ex, episode.Name);
+                if (_logger.IsEnabled(LogLevel.Error))
+                {
+                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                }
             }
         }
     }
@@ -246,16 +267,16 @@ internal sealed partial class CreditsPass(
         QueuedEpisode episode,
         IReadOnlyList<AttributedSegment> candidates,
         TimeAdjustmentHelper timeAdjustmentHelper,
-        bool analysisFailed,
+        bool analyzerFailed,
         CancellationToken cancellationToken)
     {
         var adjusted = new List<AttributedSegment>();
         foreach (var (segment, source) in candidates)
         {
-            // A chapter-only range already sits on authored boundaries; do not snap it
-            // to another chapter, but retain the configured playback adjustments.
+            // A chapter range sits on authored marks: it is not snapped to another chapter,
+            // silence or keyframe, but the configured offsets apply.
             var adjustedSegment = await timeAdjustmentHelper
-                .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter ? false : null, cancellationToken)
+                .AdjustIntroTimesAsync(episode, segment, source == SegmentSource.Chapter, cancellationToken)
                 .ConfigureAwait(false);
             if (adjustedSegment.Valid)
             {
@@ -265,7 +286,7 @@ internal sealed partial class CreditsPass(
 
         if (adjusted.Count == 0)
         {
-            if (analysisFailed)
+            if (analyzerFailed)
             {
                 return EpisodeState.AnalysisFailed;
             }
@@ -280,18 +301,43 @@ internal sealed partial class CreditsPass(
             LogFoundCredits(episode.Name, segment.Start, segment.End, source);
         }
 
-        var persisted = await _database
-            .ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken)
-            .ConfigureAwait(false);
-        return analysisFailed && persisted == 0
-            ? EpisodeState.AnalysisFailed
-            : EpisodeState.Analyzed;
+        // A result settles the episode even when admission refuses all of it. The refusal comes
+        // from a tombstone, a user row or the intro overlap rule, and every retry would meet it again.
+        await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, Mode, adjusted, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+        return EpisodeState.Analyzed;
     }
 
     /// <summary>
-    /// The keyframe candidate producer: the legacy black-frame analyzer under its toggle, otherwise
-    /// the keyframe analyzer, which also produces the card candidate. One instance per season, since
-    /// the legacy analyzer carries search state between episodes.
+    /// The episode's credits chapter matches when they settle it without combined detection:
+    /// enhancement is off and no story follows them. Empty otherwise, and then any matches are
+    /// combined with the other candidates.
+    /// </summary>
+    /// <remarks>
+    /// Story follows when at least the minimum credits duration runs from the end of the matches
+    /// to the first preview chapter after them or the credits window end, whichever comes first.
+    /// That room can hold closing cards after an epilogue, which a mid-episode ending chapter
+    /// leaves out. The window ends before the file only under ProbeAudioDuration, which is for
+    /// runtimes padded past the audio, so room past it is not counted as story, though the
+    /// keyframe scan would still read black frames there.
+    /// </remarks>
+    private IReadOnlyList<Segment> AuthoritativeChapterMatches(ChapterAnalyzer chapter, QueuedEpisode episode)
+    {
+        var matches = chapter.FindChapterCandidates(episode, Mode);
+        if (_config.EnhanceChapterCredits || matches.Count == 0)
+        {
+            return [];
+        }
+
+        var end = matches.Max(m => m.End);
+        var windowEnd = episode.GetFingerprintRange(Mode).End;
+        var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
+        return storyEnd - end < _config.MinimumCreditsDuration ? matches : [];
+    }
+
+    /// <summary>
+    /// The keyframe detector: the legacy black-frame analyzer under its toggle, otherwise the
+    /// keyframe analyzer, which also finds the card candidate. One instance per season, since the
+    /// legacy analyzer carries search state between episodes.
     /// </summary>
     private Func<QueuedEpisode, CancellationToken, Task<IReadOnlyList<AttributedSegment>>> CreateKeyframeDetector()
     {
@@ -307,19 +353,34 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Whether a stored active credits row already contains the raw candidate, allowing for
+    /// The episode's active credits rows, whoever wrote them.
+    /// </summary>
+    private async Task<IReadOnlyList<DbSegment>> StandingCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    {
+        var rows = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return [.. rows.Where(row => row.Type == Mode && row.State == SegmentState.Active)];
+    }
+
+    /// <summary>
+    /// Whether one of the standing credits rows already contains the raw candidate, allowing for
     /// the boundary movement time adjustment applies before storing.
     /// </summary>
-    private async Task<bool> IsCoveredByStoredCreditsAsync(QueuedEpisode episode, Segment candidate, CancellationToken cancellationToken)
+    private bool IsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
     {
         var tolerance = Math.Max(_config.AdjustWindowInward, _config.AdjustWindowOutward);
-        var rows = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return rows.Any(row =>
-            row.Type == Mode &&
-            row.State == SegmentState.Active &&
+        return standing.Any(row =>
             TickConversions.ToSeconds(row.StartTicks) <= candidate.Start + tolerance &&
             TickConversions.ToSeconds(row.EndTicks) >= candidate.End - tolerance);
     }
+
+    /// <summary>
+    /// The sentence a failure log appends when an ffmpeg scan timed out, naming the setting that
+    /// raises the timeout. The season-level timeout warning shares it. Empty for any other failure.
+    /// </summary>
+    private static string TimeoutHint(Exception ex) =>
+        ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
+            ? ". " + FFmpegProcessRunner.ScanTimeoutHint
+            : string.Empty;
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No credits found for {Episode}")]
     private partial void LogNoCreditsFound(string episode);
@@ -327,12 +388,12 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s to {End:F2}s ({Source})")]
     private partial void LogFoundCredits(string episode, double start, double end, SegmentSource source);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
-    private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits{Hint}")]
+    private partial void LogErrorAnalyzingCredits(Exception ex, string episode, string hint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}; continuing with the other credits candidates")]
-    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keyframe credits analysis failed for {Episode}{Hint}")]
+    private partial void LogKeyframeAnalysisFailed(Exception ex, string episode, string hint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers")]
-    private partial void LogChromaprintComparisonFailed(Exception ex);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
+    private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 }

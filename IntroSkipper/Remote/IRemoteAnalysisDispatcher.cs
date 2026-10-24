@@ -19,11 +19,15 @@ public interface IRemoteAnalysisDispatcher
     /// <param name="mode">The requested plugin analysis mode.</param>
     /// <param name="token">Cancellation token.</param>
     /// <param name="action">The season's effective analyzer action.</param>
+    /// <param name="useLocalConsensus">Whether this is a settled-season Chromaprint retry.</param>
+    /// <param name="manualScan">Whether an explicit scan permits an opted-out Season 0.</param>
     /// <returns>The write-target ids durably accepted for remote ownership.</returns>
     Task<IReadOnlySet<Guid>> QueueAsync(
         IReadOnlyList<QueuedEpisode> writeTargets,
         IReadOnlyList<QueuedEpisode> comparisonReferences,
         AnalysisMode mode,
         CancellationToken token,
-        AnalyzerAction action = AnalyzerAction.Default);
+        AnalyzerAction action = AnalyzerAction.Default,
+        bool useLocalConsensus = false,
+        bool manualScan = false);
 }

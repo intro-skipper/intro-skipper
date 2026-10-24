@@ -22,6 +22,21 @@ export const configSchema = {
         description:
             "When a season has no new episodes for the configured delay, re-analyze the season (using cached fingerprints) so segments are recomputed against the full season. Media is not re-decoded.",
     },
+    UseSettledSeasonChromaprintConsensus: {
+        kind: "checkbox",
+        label: "Require Chromaprint consensus",
+        description:
+            "During settled-season re-analysis, require locally connected groups of episodes to share an intro or credits pattern for the pattern to be accepted as a segment.",
+    },
+    SettledSeasonChromaprintConsensusEpisodes: {
+        kind: "number",
+        label: "Consensus episode threshold",
+        min: 2,
+        max: 1000,
+        step: 1,
+        description:
+            "Target number of distinct episodes required to confirm a shared pattern. Comparable pattern groups can lower the target so mid-season theme changes can still qualify; one group covering at least three quarters of usable fingerprints can also qualify below the target.",
+    },
     SettledSeasonDelayHours: {
         kind: "number",
         label: "Settled season delay (hours)",
@@ -238,7 +253,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enable keyframe snapping",
         description:
-            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+            "Moves a segment's end to the nearest keyframe so a skip lands on a clean frame. Ends taken directly from a chapter stay on the chapter mark.",
     },
     AdjustIntroBasedOnChapters: {
         kind: "checkbox",
@@ -249,7 +264,8 @@ export const configSchema = {
     AdjustIntroBasedOnSilence: {
         kind: "checkbox",
         label: "Enable silence detection",
-        description: "When enabled, segment endpoints will be adjusted to the nearest silence point.",
+        description:
+            "Moves a segment's end to the first silence inside the adjustment window. Ends taken directly from a chapter stay on the chapter mark.",
     },
     SilenceDetectionMaximumNoise: {
         kind: "number",
@@ -460,7 +476,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Prefer highest audio channel count",
         description:
-            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
+            "When enabled, Chromaprint uses the stream FFmpeg would pick, ranking the default stream first, then channel count, then stream order. When disabled, the first stream is selected.",
     },
     ProbeAudioDuration: {
         kind: "checkbox",

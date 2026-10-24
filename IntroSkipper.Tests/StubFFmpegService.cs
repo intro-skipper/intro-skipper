@@ -16,7 +16,7 @@ using MediaBrowser.Model.Entities;
 /// <see cref="IFFmpegService"/> stand-in for analyzer tests. Each member runs a delegate hook; a
 /// member without a hook throws <see cref="NotSupportedException"/> so a test fails loudly when an
 /// analyzer reaches an operation it was not expected to use. Members are virtual for the rare case
-/// a hook is not enough. The probes (range scans, interval scans and luma decodes) are appended to
+/// a hook is not enough. The probes (range scans, interval scans and cut decodes) are appended to
 /// <see cref="Calls"/> in arrival order before the hook runs, so a probe whose hook throws is
 /// recorded too. The version check, fingerprint, keyframe scan and audio probe count
 /// their calls.
@@ -50,7 +50,8 @@ internal class StubFFmpegService : IFFmpegService
 
     public Func<QueuedEpisode, TimeRange, int, int, BlackInterval[]>? BlackIntervals { get; init; }
 
-    public Func<QueuedEpisode, TimeRange, int, LumaWindow?>? LumaWindows { get; init; }
+    /// <summary>Gets the cut decode; a hook that returns <see langword="null"/> stands for a decode that failed.</summary>
+    public Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? CutWindows { get; init; }
 
     public int VersionCheckCalls => Volatile.Read(ref _versionCheckCalls);
 
@@ -114,11 +115,11 @@ internal class StubFFmpegService : IFFmpegService
     public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
-    public virtual Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default)
+    public virtual Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
-        _calls.Enqueue(new LumaDecode(window.Start, window.End, width));
+        _calls.Enqueue(new CutDecode(window.Start, window.End));
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(LumaWindows)(episode, window, width));
+        return Task.FromResult(Hook(CutWindows)(episode, window));
     }
 
     public virtual Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
@@ -149,12 +150,12 @@ internal class StubFFmpegService : IFFmpegService
     /// <summary>A probe the stub received. Times are copied out of the <see cref="TimeRange"/>, which compares by reference.</summary>
     internal abstract record Call;
 
-    /// <summary>A black-frame scan over a range, as the boundary probe, recap detection and the legacy analyzer run it.</summary>
+    /// <summary>A black-frame scan over a range, as recap detection and the legacy analyzer run it.</summary>
     internal sealed record RangeScan(double Start, double End, int Minimum, int Threshold, AnalysisMode Mode) : Call;
 
     /// <summary>A blackdetect interval scan over a range.</summary>
     internal sealed record IntervalScan(double Start, double End, int Threshold, int Minimum) : Call;
 
-    /// <summary>A luma window decode for the lead-in probe.</summary>
-    internal sealed record LumaDecode(double Start, double End, int Width) : Call;
+    /// <summary>A cut decode of the keyframe gap before a credits part.</summary>
+    internal sealed record CutDecode(double Start, double End) : Call;
 }

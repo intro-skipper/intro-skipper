@@ -96,13 +96,18 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         }
     }
 
-    public Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    public Task<(MediaSegmentDto Segment, bool IsOwn)?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(FindSegmentException);
         lock (_mirrorLock)
         {
-            return Task.FromResult(MirrorRows.Values.SelectMany(rows => rows).FirstOrDefault(segment => segment.Id == segmentId)
-                ?? ForeignSegments.GetValueOrDefault(segmentId));
+            if (MirrorRows.Values.SelectMany(rows => rows).FirstOrDefault(segment => segment.Id == segmentId) is { } own)
+            {
+                return Task.FromResult<(MediaSegmentDto Segment, bool IsOwn)?>((own, true));
+            }
+
+            return Task.FromResult<(MediaSegmentDto Segment, bool IsOwn)?>(
+                ForeignSegments.TryGetValue(segmentId, out var foreign) ? (foreign, false) : null);
         }
     }
 
