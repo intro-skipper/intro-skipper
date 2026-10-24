@@ -103,7 +103,8 @@ public sealed class TestConfigHasher
         Case("Recap analysis changes with preferred language", Analysis(defaults, AnalysisMode.Recap), Analysis(english, AnalysisMode.Recap), false);
 
         // Pin the analysis identity for a preferred language under the configured stream-selection policy.
-        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "BC177183ECC85CBA", true);
+        // 12.0.6 wrote BC177183ECC85CBA here, under the old introduction chapter pattern.
+        Case("Introduction analysis with a preferred language is pinned", Analysis(english, AnalysisMode.Introduction), "CBA961CE4B043254", true);
 
         // Toggling card credits changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result. The legacy
@@ -121,9 +122,10 @@ public sealed class TestConfigHasher
         // The credits pass never consults chapters under a BlackFrame action, so the enhancement
         // option cannot change those seasons' results and must not re-scan them.
         Case("Credits analysis ignores chapter enhancement under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
-        // The string is frozen to what releases before the credits pass wrote, so seasons the
-        // first-wins chain settled stay settled after the upgrade instead of re-scanning.
-        Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "353008E48A5F559E", true);
+        // The string is frozen to what releases before the credits pass wrote, except for the
+        // chapter pattern. 12.0.6 wrote 353008E48A5F559E under the old credits chapter pattern,
+        // and the new default reruns Credits once in every season.
+        Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "7EF68040EE4E4EC7", true);
         // The credits pass reads none of these, so changing one must not rerun Credits.
         Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
         Case("Credits analysis ignores the analysis percentage", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnalysisPercent = 40 }, AnalysisMode.Credits), true);
@@ -140,7 +142,7 @@ public sealed class TestConfigHasher
         Case("Credits analysis ignores the preview duration limits under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, MinimumPreviewDuration = 30, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), true);
         Case("Credits analysis changes with the preview chapter pattern under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
         // Installs from before 10.11.22 still carry that release's default preview pattern.
-        Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "353008E48A5F559E", true);
+        Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "7EF68040EE4E4EC7", true);
         Case("Preview analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Preview), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);

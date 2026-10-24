@@ -125,11 +125,11 @@ internal static class ConfigHasher
 
             // Frozen at v3 on purpose: the credits pass replaced the first-wins chain
             // without a bump, because a bump re-fingerprints and re-scans every season a chapter
-            // or black frame settled. Seasons analyzed by the chain keep their result until they
-            // are rescanned. The pass does not read PreferChromaprint, AnalysisPercent or
-            // MinimumIntroDuration, so their tokens keep the defaults' literals, and the
-            // chapter-marker toggle counts only for the legacy analyzer that reads it. A
-            // pinned-hash test guards the string.
+            // or black frame settled. Seasons analyzed by the chain kept their result until a
+            // rescan or another input change, such as the credits chapter default after 12.0.6.
+            // The pass does not read PreferChromaprint, AnalysisPercent or MinimumIntroDuration,
+            // so their tokens keep the defaults' literals, and the chapter-marker toggle counts
+            // only for the legacy analyzer that reads it. A pinned-hash test guards the string.
             AnalysisMode.Credits => Invariant(
                 $"analysis|v3|mode={mode}|action={action}|prefer=False|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct=25|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}|minRegion=15",

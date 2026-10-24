@@ -83,6 +83,20 @@ public class PluginConfiguration : BasePluginConfiguration
     internal const string LegacyDefaultRecapPattern = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
     internal const string LegacyDefaultRecapPatternBefore101122 = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
 
+    // The default introduction and credits chapter patterns of every release through 12.0.6,
+    // newest first. The first shipped from 10.11.22 on, the second from 10.10.10 to 10.11.21
+    // and the third before 10.10.10. Credits also shipped the fourth in 10.8 and in 10.9 before
+    // v0.2.0.18, and the fifth from 2022 to March 2024. A pair a 10.11 prerelease build carried
+    // for a few hours is not recognized. Frozen.
+    internal const string LegacyDefaultIntroPattern = @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultIntroPatternBefore101122 = @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)";
+    internal const string LegacyDefaultIntroPatternBefore101010 = @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+    internal const string LegacyDefaultCreditsPattern = @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultCreditsPatternBefore101122 = @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternBefore101010 = @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternWithoutOutro = @"(^|\s)(Credits?|ED|Ending)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternWithoutEd = @"(^|\s)(Credits?|Ending)(\s|$)";
+
     private string? _firstEpisodeIntroMode;
     private int _settledSeasonChromaprintConsensusEpisodes = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
@@ -487,14 +501,29 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a title that, after an optional number or ♪ prefix or a slash,
+    /// is Intro or Introduction (optionally with Start), or starts with OP, Opening, Abertura,
+    /// オープニング or (Main) Title(s), optionally followed by Theme, Song, Music, Credits,
+    /// Titles, Sequence or Start, and then ends or meets a separator. "Opening Night" and
+    /// "Photo Op" stay out, and "Opening Credits" counts as an introduction.
+    /// </remarks>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
+        @"(^[\s0-9.\u266A-]*|/\s*)((Intro|Introduction)(\s+Start)?:?$|(OP[0-9]*|Opening|Abertura|\u30AA\u30FC\u30D7\u30CB\u30F3\u30B0|(Main\s+)?Titles?)(\s+(Theme|Song|Music|Credits|Titles?|Sequences?|Start))?(?![\s:]+End)\s*($|[-\u2013\u2014/:(]))";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a title that, after an optional number or ♪ prefix, or after
+    /// <c>+ , ; :</c>, starts with (The) Credits, ED, Ending, Outro, Closing, Cast List, Abspann,
+    /// Encerramento or エンディング, optionally followed by Theme, Song, Music or Start, and then
+    /// ends or meets a colon or a spaced dash. End, Ending, Closing, Early or Final followed by Credits
+    /// or Titles matches anywhere in the title. "Ed Gein", "Happy Ending" and "Opening Credits"
+    /// stay out.
+    /// </remarks>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
+        @"(^[0-9.\s\u266A]*|[+,;:]\s*)((The\s+)?Credits?|(Mixed\s+)?(ED[0-9]*(v[0-9]+)?|Ending)|Outro|Closing|Cast\s+List|Abspann|Encerramento|\u30A8\u30F3\u30C7\u30A3\u30F3\u30B0)(\s+(Theme|Song|Music|Start))?(?![\s:]+End)\s*($|:|[-\u2013\u2014]\s)|(^|[^a-z])(End|Ending|Closing|Early|Final)\s+(Credits?|Titles?)(?![a-z])(?![\s:]+End)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
@@ -731,9 +760,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     internal void UpgradeLegacyDefaults()
     {
+        var defaults = new PluginConfiguration();
+        if (ChapterAnalyzerIntroductionPattern is LegacyDefaultIntroPattern or LegacyDefaultIntroPatternBefore101122 or LegacyDefaultIntroPatternBefore101010)
+        {
+            ChapterAnalyzerIntroductionPattern = defaults.ChapterAnalyzerIntroductionPattern;
+        }
+
+        if (ChapterAnalyzerEndCreditsPattern is LegacyDefaultCreditsPattern or LegacyDefaultCreditsPatternBefore101122 or LegacyDefaultCreditsPatternBefore101010
+            or LegacyDefaultCreditsPatternWithoutOutro or LegacyDefaultCreditsPatternWithoutEd)
+        {
+            ChapterAnalyzerEndCreditsPattern = defaults.ChapterAnalyzerEndCreditsPattern;
+        }
+
         if (ChapterAnalyzerRecapPattern is LegacyDefaultRecapPattern or LegacyDefaultRecapPatternBefore101122)
         {
-            ChapterAnalyzerRecapPattern = new PluginConfiguration().ChapterAnalyzerRecapPattern;
+            ChapterAnalyzerRecapPattern = defaults.ChapterAnalyzerRecapPattern;
         }
     }
 }

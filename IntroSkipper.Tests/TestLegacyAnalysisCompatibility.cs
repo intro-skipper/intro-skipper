@@ -72,9 +72,14 @@ public sealed class TestLegacyAnalysisCompatibility
         Assert.Equal(expected, LegacyAnalysisCompatibility.AnalysisHash(Released1011Defaults(), mode, AnalyzerAction.Default, available, alternative, release));
     }
 
-    // The defaults the 10.11 releases hashed, with the recap chapter pattern they shipped.
+    // The defaults the 10.11 releases hashed, with the chapter patterns they shipped.
     private static PluginConfiguration Released1011Defaults()
-        => new() { ChapterAnalyzerRecapPattern = PluginConfiguration.LegacyDefaultRecapPattern };
+        => new()
+        {
+            ChapterAnalyzerIntroductionPattern = PluginConfiguration.LegacyDefaultIntroPattern,
+            ChapterAnalyzerEndCreditsPattern = PluginConfiguration.LegacyDefaultCreditsPattern,
+            ChapterAnalyzerRecapPattern = PluginConfiguration.LegacyDefaultRecapPattern,
+        };
 
     /// <summary>
     /// Adopts a completed 10.11 season, or leaves it open where adoption is not allowed:
@@ -203,10 +208,12 @@ public sealed class TestLegacyAnalysisCompatibility
     [InlineData(AnalysisMode.Credits, "legacy")]
     [InlineData(AnalysisMode.Credits, "chapter-enhancement")]
     [InlineData(AnalysisMode.Credits, "threshold")]
+    [InlineData(AnalysisMode.Introduction, "upgraded-pattern")]
+    [InlineData(AnalysisMode.Credits, "upgraded-pattern")]
     public async Task ChangedSettings_DoNotAdoptLegacyCompletion(AnalysisMode mode, string change)
     {
         using var temp = new TempSegmentDb();
-        var config = new PluginConfiguration();
+        var config = Released1011Defaults();
         var id = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(config, mode, AnalyzerAction.Default, true, false);
@@ -220,6 +227,7 @@ public sealed class TestLegacyAnalysisCompatibility
             case "legacy": config.UseLegacyBlackFrameAnalyzer = true; break;
             case "chapter-enhancement": config.EnhanceChapterCredits = true; break;
             case "threshold": config.BlackFrameThreshold++; break;
+            case "upgraded-pattern": config.UpgradeLegacyDefaults(); break;
             default: throw new ArgumentOutOfRangeException(nameof(change));
         }
 
