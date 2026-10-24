@@ -109,4 +109,18 @@ public class TestPluginConfiguration
 
         Assert.Equal(expected, config.SettledSeasonDelayHours);
     }
+
+    [Theory]
+    [InlineData(PluginConfiguration.LegacyDefaultRecapPattern, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultRecapPatternBefore101122, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultRecapPattern + "|Rückblick", false)]
+    [InlineData("Recap", false)]
+    public void UpgradeLegacyDefaults_ReplacesOnlyAnUntouchedOldRecapDefault(string saved, bool upgraded)
+    {
+        var config = new PluginConfiguration { ChapterAnalyzerRecapPattern = saved };
+
+        config.UpgradeLegacyDefaults();
+
+        Assert.Equal(upgraded ? new PluginConfiguration().ChapterAnalyzerRecapPattern : saved, config.ChapterAnalyzerRecapPattern);
+    }
 }

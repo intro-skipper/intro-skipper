@@ -41,6 +41,26 @@ public class TestChapterAnalyzer
     [InlineData("Trailer", AnalysisMode.Preview, 1890, 2000)]
     [InlineData("Recap", AnalysisMode.Recap, 60, 90)]
     [InlineData("Previously", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously...", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously, on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last season on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Catch up on the story so far", AnalysisMode.Recap, 60, 90)]
+    [InlineData("The Road So Far", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show - Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show \u2013 Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show | Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("(Recap)", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Chapter 01: Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Lost: Previously On", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously in Show", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previous Episode", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last Time", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last time\u2026", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last time on Dragon Ball Z", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Earlier", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Summary", AnalysisMode.Recap, 60, 90)]
+    [InlineData("The Story So Far", AnalysisMode.Recap, 60, 90)]
     [InlineData("Ad", AnalysisMode.Commercial, 60, 90)]
     [InlineData("Advertisement", AnalysisMode.Commercial, 60, 90)]
     [InlineData("Commercial", AnalysisMode.Commercial, 60, 90)]
@@ -307,6 +327,7 @@ public class TestChapterAnalyzer
     [InlineData("Credits: End", AnalysisMode.Credits)]
     [InlineData("Preview: End", AnalysisMode.Preview)]
     [InlineData("Recap: End", AnalysisMode.Recap)]
+    [InlineData("Previously: End", AnalysisMode.Recap)]
     [InlineData("Commercial: End", AnalysisMode.Commercial)]
     [InlineData("Intermission: End", AnalysisMode.Commercial)]
     public void TestChapterExpressionIgnoresColonDelimitedEndLabels(string chapterName, AnalysisMode mode)
@@ -315,6 +336,21 @@ public class TestChapterAnalyzer
 
         Assert.Null(chapter);
     }
+
+    // Scene and topic titles that contain a recap word without being a recap.
+    [Theory]
+    [InlineData("The Last Supper")]
+    [InlineData("Earlier That Day")]
+    [InlineData("Executive Summary")]
+    [InlineData("2023 Recap")]
+    [InlineData("Last Time in New York")]
+    [InlineData("Previously Unreleased")]
+    [InlineData("Previously Onward")]
+    [InlineData("Recapture")]
+    [InlineData("Recap End")]
+    [InlineData("Preview/Recap")]
+    public void RecapExpression_IgnoresTitlesThatOnlyContainARecapWord(string chapterName)
+        => Assert.Null(FindChapter(chapterName, AnalysisMode.Recap));
 
     [Theory]
     [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
