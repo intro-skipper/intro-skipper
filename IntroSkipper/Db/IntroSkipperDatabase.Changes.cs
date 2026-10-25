@@ -1,4 +1,6 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-FileCopyrightText: 2026 mani
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
