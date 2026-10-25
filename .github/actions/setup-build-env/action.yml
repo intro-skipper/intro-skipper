@@ -8,15 +8,33 @@ runs:
       shell: bash
       run: |
         CONFIG=$(cat build.json)
-        MAIN_VERSION=$(echo "$CONFIG" | jq -r '.version')
+        FILE_VERSION=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p;T;q' IntroSkipper/IntroSkipper.csproj)
+        IFS='.' read -r FIRST SECOND THIRD _ <<< "$FILE_VERSION"
+        # The release line is the Jellyfin version the FileVersion starts with:
+        # 12.0.6.0 is on 12.0, and the older 1.10.11.24 layout is on 10.11.
+        if [ "$FIRST" = "1" ]; then
+          MAIN_VERSION="${SECOND}.${THIRD}"
+        else
+          MAIN_VERSION="${FIRST}.${SECOND}"
+        fi
+        if ! [[ "$MAIN_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          echo "Failed to read the release line from <FileVersion> in IntroSkipper/IntroSkipper.csproj"
+          exit 1
+        fi
         IS_BETA=$(echo "$CONFIG" | jq -r '.beta')
-        DOTNET_VERSION=$(echo "$CONFIG" | jq -r '."dotnet-version"')
-        DOTNET_MAJOR=$(echo "$DOTNET_VERSION" | cut -d'.' -f1)
+        # The SDK channel (e.g. 10.0.x) follows the plugin's TargetFramework (e.g. net10.0).
+        DOTNET_TFM=$(sed -n 's|.*<TargetFramework>\(net[0-9]*\.[0-9]*\)</TargetFramework>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+        if [ -z "$DOTNET_TFM" ]; then
+          echo "Failed to read <TargetFramework> from IntroSkipper/IntroSkipper.csproj"
+          exit 1
+        fi
+        DOTNET_VERSION="${DOTNET_TFM#net}.x"
 
+        echo "FILE_VERSION=$FILE_VERSION" >> "$GITHUB_ENV"
         echo "MAIN_VERSION=$MAIN_VERSION" >> "$GITHUB_ENV"
         echo "IS_BETA=$IS_BETA" >> "$GITHUB_ENV"
         echo "DOTNET_VERSION=$DOTNET_VERSION" >> "$GITHUB_ENV"
-        echo "DOTNET_TFM=net${DOTNET_MAJOR}.0" >> "$GITHUB_ENV"
+        echo "DOTNET_TFM=$DOTNET_TFM" >> "$GITHUB_ENV"
         echo "dotnet-version=$DOTNET_VERSION" >> "$GITHUB_OUTPUT"
         echo "is-beta=$IS_BETA" >> "$GITHUB_OUTPUT"
 
