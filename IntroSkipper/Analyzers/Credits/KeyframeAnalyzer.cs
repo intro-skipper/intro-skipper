@@ -468,9 +468,17 @@ internal sealed partial class KeyframeAnalyzer(
     // not the end time, which for an interval-supported scene can lie past its last black
     // keyframe. A page without a visual stops it, so it never leaves the credits window and is
     // inert on an ffmpeg without signalstats.
-    private static double RollEnd(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
+    internal static double RollEnd(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
         var last = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(blackFrames, scene.EndFrame);
+
+        // No keyframe at or after the end frame, so there is no page to walk on from and the scene
+        // keeps its end.
+        if (last >= blackFrames.Count)
+        {
+            return scene.EndTime;
+        }
+
         while (last + 1 < pages.Count
             && pages[last + 1].Visual is { } visual
             && (blackFrames[last + 1].Percentage >= minimum || IsRollPage(visual)))

@@ -698,6 +698,19 @@ public class TestBlackFrames
         Assert.Equal([(SegmentSource.BlackFrame, 130.0, 160.0)], candidates);
     }
 
+    [Fact]
+    public void RollEnd_EndFrameAfterEveryKeyframe_KeepsTheSceneEnd()
+    {
+        // FirstIndexAtOrAfterFrame reports frames.Count when every frame is earlier than the end
+        // frame. There is no page to walk on from, so the scene keeps its end instead of indexing
+        // one past the last keyframe.
+        var pages = Pages(Keyframes(0, 20, 2, (0, 20, 96, KeyframeVisuals.Black)));
+        List<BlackFrame> frames = [.. pages.Select(page => page.Frame)];
+        var scene = new CreditScene(0, frames[^1].Frame + 5, 0, 24);
+
+        Assert.Equal(24, KeyframeAnalyzer.RollEnd(scene, frames, 85, pages));
+    }
+
     [Theory]
     [InlineData("level", 40.0, true)]
     [InlineData("no visual", 40.0, false)]
