@@ -17,7 +17,7 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
   - `Data/` TickConversions, DTOs
   - `Services/` AnalysisScheduler (the analysis queue: one worker runs every pass; feeders enqueue and get a completion handle), Entrypoint (library watcher)
   - `Configuration/`, `Helper/`, `Filters/`
-- `IntroSkipper.Tests/` xUnit tests
+- `IntroSkipper.Tests/` xUnit tests, in folders that mirror the plugin project's (`Db/`, `Helper/`, `Analyzers/Credits/`, ...); shared test seams in `IntroSkipper.Tests/Support/`
 - `web/` frontend (pnpm)
 - `tools/CreditsRunner/` runs the keyframe credits analyzer, or one season at a time the Introduction chain (intro mode) or the whole credits pass (credits-pass mode), over real files outside Jellyfin and scores it against labels
 - `CONTEXT.md` domain glossary. Use its terms in code, tests and prose.
@@ -45,7 +45,7 @@ Run .NET commands from the repo root. Ignore `IntroSkipper/IntroSkipper.sln`; it
 <important if="you are writing or changing tests">
 Tautological tests considered harmful.
 
-Reuse the shared seams in `IntroSkipper.Tests/` instead of building new ones:
+Put a test in the folder matching the plugin code it covers. Reuse the shared seams in `IntroSkipper.Tests/Support/` instead of building new ones:
 - `TempSegmentDb`, `TempCacheDb` (temp-file segment and detection-cache databases, deleted on dispose), `DatabaseTestHelpers` (facades over temp-file SQLite), `TempJellyfinDb` (real `JellyfinDbContext` over temp SQLite)
 - `SegmentChangeHarness` (production segment-change composition over a temp DB and a fake store), `SegmentSeeding` (seeds user state through `ApplyChangeAsync`), `EntrypointTestHelpers` (entrypoint over fresh databases)
 - `FakeJellyfinSegmentStore` (records calls, can throw or park), `FakeMirrorPolicy` (settable policy with a toggle event), `StubFFmpegService` (counting `IFFmpegService` with per-member hooks), `ChapterManagerStub` (fixed chapter list), `JellyfinItems` (library items shaped for the season resolver, `WithParents` adds the series and seasons the episodes name)
