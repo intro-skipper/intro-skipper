@@ -1074,22 +1074,22 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
-    public async Task Upgrade_PreservesExistingCombinedCreditsUntilReanalysis()
+    public async Task SettledCombinedCredits_SurviveSiblingAnalysis()
     {
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         var config = new PluginConfiguration();
-        const string oldHash = "353008E48A5F559E";
-        Assert.Equal(oldHash, ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, true));
+        const string currentHash = "7EF68040EE4E4EC7";
+        Assert.Equal(currentHash, ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, true));
         await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits,
-            [new Segment(episodes[0].EpisodeId, new TimeRange(750, Duration))], SegmentSource.Combined, oldHash);
-        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [episodes[0].EpisodeId], oldHash);
+            [new Segment(episodes[0].EpisodeId, new TimeRange(750, Duration))], SegmentSource.Combined, currentHash);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [episodes[0].EpisodeId], currentHash);
         var snapshot = await database.GetSeasonQueueSnapshotAsync(episodes[0].SeasonId, episodes.Select(e => e.EpisodeId).ToArray());
         var verifier = new QueueVerifier(config, [AnalysisMode.Credits], snapshot, true);
         foreach (var episode in episodes)
         {
             verifier.Classify(episode);
-            episode.AnalysisConfigHash = oldHash;
+            episode.AnalysisConfigHash = currentHash;
         }
 
         await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);

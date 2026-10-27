@@ -403,13 +403,15 @@ export const configSchema = {
         kind: "regex",
         label: "Introductions",
         description: "Enter a regular expression to detect introduction chapters.",
-        default: "(^|\\s)(Intro|Introduction|OP|Opening)" + PATTERN_TAIL,
+        default:
+            "(^[\\s0-9.\\u266A-]*|/\\s*)((Intro|Introduction)(\\s+Start)?:?$|(OP[0-9]*|Opening|Abertura|\\u30AA\\u30FC\\u30D7\\u30CB\\u30F3\\u30B0|(Main\\s+)?Titles?)(\\s+(Theme|Song|Music|Credits|Titles?|Sequences?|Start))?(?![\\s:]+End)\\s*($|[-\\u2013\\u2014/:(]))",
     },
     ChapterAnalyzerEndCreditsPattern: {
         kind: "regex",
         label: "Credits",
         description: "Enter a regular expression to detect credits chapters.",
-        default: "(^|\\s)(Credits?|ED|Ending|Outro)" + PATTERN_TAIL,
+        default:
+            "(^[0-9.\\s\\u266A]*|[+,;:]\\s*)((The\\s+)?Credits?|(Mixed\\s+)?(ED[0-9]*(v[0-9]+)?|Ending)|Outro|Closing|Cast\\s+List|Abspann|Encerramento|\\u30A8\\u30F3\\u30C7\\u30A3\\u30F3\\u30B0)(\\s+(Theme|Song|Music|Start))?(?![\\s:]+End)\\s*($|:|[-\\u2013\\u2014]\\s)|(^|[^a-z])(End|Ending|Closing|Early|Final)\\s+(Credits?|Titles?)(?![a-z])(?![\\s:]+End)",
     },
     ChapterAnalyzerPreviewPattern: {
         kind: "regex",

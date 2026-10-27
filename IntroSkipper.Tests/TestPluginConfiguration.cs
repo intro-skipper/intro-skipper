@@ -123,4 +123,34 @@ public class TestPluginConfiguration
 
         Assert.Equal(upgraded ? new PluginConfiguration().ChapterAnalyzerRecapPattern : saved, config.ChapterAnalyzerRecapPattern);
     }
+
+    [Theory]
+    [InlineData(PluginConfiguration.LegacyDefaultIntroPattern, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultIntroPatternBefore101122, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultIntroPatternBefore101010, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultIntroPattern + "|Vorspann", false)]
+    public void UpgradeLegacyDefaults_ReplacesOnlyAnUntouchedOldIntroDefault(string saved, bool upgraded)
+    {
+        var config = new PluginConfiguration { ChapterAnalyzerIntroductionPattern = saved };
+
+        config.UpgradeLegacyDefaults();
+
+        Assert.Equal(upgraded ? new PluginConfiguration().ChapterAnalyzerIntroductionPattern : saved, config.ChapterAnalyzerIntroductionPattern);
+    }
+
+    [Theory]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPattern, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPatternBefore101122, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPatternBefore101010, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPatternWithoutOutro, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPatternWithoutEd, true)]
+    [InlineData(PluginConfiguration.LegacyDefaultCreditsPattern + "|Abspann", false)]
+    public void UpgradeLegacyDefaults_ReplacesOnlyAnUntouchedOldCreditsDefault(string saved, bool upgraded)
+    {
+        var config = new PluginConfiguration { ChapterAnalyzerEndCreditsPattern = saved };
+
+        config.UpgradeLegacyDefaults();
+
+        Assert.Equal(upgraded ? new PluginConfiguration().ChapterAnalyzerEndCreditsPattern : saved, config.ChapterAnalyzerEndCreditsPattern);
+    }
 }
