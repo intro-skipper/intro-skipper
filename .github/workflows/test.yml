@@ -26,13 +26,27 @@ jobs:
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
 
-      - name: Install jellyfin-ffmpeg
+      - name: Resolve jellyfin-ffmpeg package
+        id: ffmpeg
         run: |
-          sudo apt update
           . /etc/os-release
-          deb="jellyfin-ffmpeg8_8.1.3-1-${VERSION_CODENAME}_amd64.deb"
-          curl -fsSLO "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.3-1/${deb}"
-          sudo apt install -y "./${deb}"
+          echo "deb=jellyfin-ffmpeg8_8.1.3-1-${VERSION_CODENAME}_amd64.deb" >> "$GITHUB_OUTPUT"
+
+      - name: Cache jellyfin-ffmpeg package
+        uses: actions/cache@v6
+        with:
+          path: ~/jellyfin-ffmpeg
+          key: ${{ steps.ffmpeg.outputs.deb }}
+
+      - name: Install jellyfin-ffmpeg
+        env:
+          DEB: ${{ steps.ffmpeg.outputs.deb }}
+        run: |
+          mkdir -p ~/jellyfin-ffmpeg
+          cd ~/jellyfin-ffmpeg
+          [ -f "$DEB" ] || curl -fsSLO "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.3-1/${DEB}"
+          # The runner image usually has every dependency, so refresh the package index only when it does not.
+          sudo apt install -y "./${DEB}" || { sudo apt update && sudo apt install -y "./${DEB}"; }
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
           ffmpeg -version
