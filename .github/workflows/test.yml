@@ -19,6 +19,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Keep in step with FfmpegZipUrl in IntroSkipper.Tests/WindowsFfmpegTestBootstrap.cs.
+      JELLYFIN_FFMPEG_VERSION: 8.1.3-1
 
     steps:
       - uses: actions/checkout@v7
@@ -30,10 +33,27 @@ jobs:
         id: ffmpeg
         run: |
           . /etc/os-release
-          echo "deb=jellyfin-ffmpeg8_8.1.3-1-${VERSION_CODENAME}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "deb=jellyfin-ffmpeg8_${JELLYFIN_FFMPEG_VERSION}-${VERSION_CODENAME}_amd64.deb" >> "$GITHUB_OUTPUT"
 
-      - name: Cache jellyfin-ffmpeg package
-        uses: actions/cache@v6
+      - name: Restore jellyfin-ffmpeg package
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/jellyfin-ffmpeg
+          key: ${{ steps.ffmpeg.outputs.deb }}
+
+      - name: Download jellyfin-ffmpeg package
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        env:
+          DEB: ${{ steps.ffmpeg.outputs.deb }}
+        run: |
+          mkdir -p ~/jellyfin-ffmpeg
+          curl -fsSL -o ~/jellyfin-ffmpeg/"$DEB" "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v${JELLYFIN_FFMPEG_VERSION}/${DEB}"
+
+      # Saved right after the download so a failing test run still fills the cache.
+      - name: Save jellyfin-ffmpeg package
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
         with:
           path: ~/jellyfin-ffmpeg
           key: ${{ steps.ffmpeg.outputs.deb }}
@@ -42,11 +62,8 @@ jobs:
         env:
           DEB: ${{ steps.ffmpeg.outputs.deb }}
         run: |
-          mkdir -p ~/jellyfin-ffmpeg
-          cd ~/jellyfin-ffmpeg
-          [ -f "$DEB" ] || curl -fsSLO "https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v8.1.3-1/${DEB}"
-          # The runner image usually has every dependency, so refresh the package index only when it does not.
-          sudo apt install -y "./${DEB}" || { sudo apt update && sudo apt install -y "./${DEB}"; }
+          sudo apt update
+          sudo apt install -y ~/jellyfin-ffmpeg/"$DEB"
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
           ffmpeg -version
