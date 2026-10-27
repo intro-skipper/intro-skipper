@@ -48,7 +48,7 @@ A derived preview ranks below chapter and subtitle previews (`docs/segments.md`)
 
 `IFFmpegService.ScanKeyframesAsync` decodes the keyframes from the credits start to the end of the file. The blackframe filter reports each keyframe's black percentage, and inside the credits window `signalstats` reports its luma percentiles, its saturation and its frame difference: the mean luma difference to the keyframe decoded before it (`YDIF`). The two outputs are cached as two rows and joined once, by `KeyframeJoin.Pages`, into one page per keyframe. A page's time is its black-frame time, never rounded, because the interval probe and the cut start key their cache rows from it. A page has no visual past the credits window, when no visual lies within `KeyframeJoin.Tolerance`, or when ffmpeg lacks `signalstats`; every visual rule below, the cut start included, is then inert, and no part starts on a cut.
 
-The join matches times, not the frame counter both filters print. The counter is exact within one decode, but the two rows can come from separate decodes, since a visuals row can be decoded again after the black-frame row, and the times agree closely enough: to under a microsecond from FFmpeg 7.0 on.
+The join matches times, not the frame counter both filters print, and no rule below reads the counter: a scene holds the scan positions of its first and last black keyframes. The counter starts over at 0 whenever ffmpeg rebuilds the filtergraph, as it does when the video changes resolution mid-stream, and the two rows can come from separate decodes, since a visuals row can be decoded again after the black-frame row. The times agree closely enough: to under a microsecond from FFmpeg 7.0 on.
 
 ### Facts about one keyframe
 
