@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -213,6 +214,23 @@ public class TestChapterAnalyzer
         var matches = analyzer.FindMatchingChapters(new() { Duration = 2000 }, chapters, @"^(\w+\s?)*$", AnalysisMode.Introduction);
 
         Assert.Empty(matches);
+    }
+
+    [Theory]
+    [InlineData("END CREDITS", AnalysisMode.Credits)]
+    [InlineData("OPENING", AnalysisMode.Introduction)]
+    public void ChapterExpression_IgnoresCaseUnderATurkishCulture(string chapterName, AnalysisMode mode)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
+        try
+        {
+            Assert.NotNull(FindChapter(chapterName, mode));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = culture;
+        }
     }
 
     [Fact]

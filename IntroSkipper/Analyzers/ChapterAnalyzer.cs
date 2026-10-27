@@ -35,6 +35,10 @@ internal sealed partial class ChapterAnalyzer(
     bool enableChapterDetection = true,
     bool enableRecapBlackFrameFallback = true) : IMediaFileAnalyzer
 {
+    // CultureInvariant: under a Turkish server culture, IgnoreCase does not fold I to i,
+    // so "END CREDITS" would miss "Credits".
+    private const RegexOptions ChapterPatternOptions = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IntroSkipperDatabase _database = database;
@@ -284,7 +288,7 @@ internal sealed partial class ChapterAnalyzer(
         {
             try
             {
-                _ = Regex.IsMatch(string.Empty, expression, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+                _ = Regex.IsMatch(string.Empty, expression, ChapterPatternOptions, TimeSpan.FromSeconds(1));
             }
             catch (ArgumentException ex)
             {
@@ -474,7 +478,7 @@ internal sealed partial class ChapterAnalyzer(
             return Regex.IsMatch(
                 chapterName,
                 expression,
-                RegexOptions.IgnoreCase,
+                ChapterPatternOptions,
                 TimeSpan.FromSeconds(1));
         }
         catch (RegexMatchTimeoutException)
