@@ -103,30 +103,4 @@ internal static class CreditSceneMetricsCalculator
 
         return low;
     }
-
-    /// <summary>
-    /// Finds the first index whose frame number is at or after <paramref name="frameNumber"/>.
-    /// </summary>
-    /// <param name="frames">Frames in decode order, so frame numbers are non-decreasing.</param>
-    /// <param name="frameNumber">Frame number to search for.</param>
-    /// <returns>The index, or <c>frames.Count</c> when every frame is earlier.</returns>
-    public static int FirstIndexAtOrAfterFrame(IReadOnlyList<BlackFrame> frames, int frameNumber)
-    {
-        var low = 0;
-        var high = frames.Count;
-        while (low < high)
-        {
-            var mid = low + ((high - low) / 2);
-            if (frames[mid].Frame < frameNumber)
-            {
-                low = mid + 1;
-            }
-            else
-            {
-                high = mid;
-            }
-        }
-
-        return low;
-    }
 }

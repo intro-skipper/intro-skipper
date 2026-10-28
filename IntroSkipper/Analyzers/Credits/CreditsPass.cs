@@ -40,6 +40,11 @@ internal sealed partial class CreditsPass(
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
+    // How far before a Chromaprint start the black it opens on may begin, and how far from the
+    // start that black may end (see StartOnBlackBeforeAsync).
+    private const double BlackBeforeLookBackSeconds = CreditSceneBuilder.MaximumSceneMergeGapSeconds;
+    private const double BlackBeforeToleranceSeconds = 1;
+
     private readonly ILogger<CreditsPass> _logger = loggerFactory.CreateLogger<CreditsPass>();
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -108,7 +113,8 @@ internal sealed partial class CreditsPass(
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                     if (_logger.IsEnabled(LogLevel.Error))
                     {
-                        LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                        var hint = TimeoutHint(ex);
+                        LogErrorAnalyzingCredits(ex, episode.Name, hint);
                     }
                 }
             }
@@ -123,7 +129,15 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus)
+                // A Chromaprint region that joins one before a chapter's end would be capped there
+                // and lose what lies after it, so the comparison gets each episode's hard boundaries,
+                // relative to its credits window, as the combiner will draw them.
+                var hardBoundaries = chapter is null
+                    ? null
+                    : items.ToDictionary(
+                        episode => episode.EpisodeId,
+                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(ChapterCandidates(chapter, episode), episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -133,7 +147,8 @@ internal sealed partial class CreditsPass(
                 // retriable.
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                    var hint = TimeoutHint(ex);
+                    LogChromaprintComparisonFailed(ex, hint);
                 }
 
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
@@ -178,12 +193,7 @@ internal sealed partial class CreditsPass(
                         continue;
                     }
 
-                    candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
-                }
-
-                if (hasChromaprintCandidate)
-                {
-                    candidates.Add(new AttributedSegment(chromaprintCandidate!, SegmentSource.Chromaprint));
+                    candidates.AddRange(ChapterCandidates(chapter, episode));
                 }
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
@@ -202,7 +212,8 @@ internal sealed partial class CreditsPass(
                     {
                         if (_logger.IsEnabled(LogLevel.Warning))
                         {
-                            LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                            var hint = TimeoutHint(ex);
+                            LogKeyframeAnalysisFailed(ex, episode.Name, hint);
                         }
 
                         // Without the keyframe result, the other candidates alone could lose the
@@ -223,6 +234,18 @@ internal sealed partial class CreditsPass(
                     }
                 }
 
+                // After the keyframe scan, so a scan that keeps the standing credits costs no probe.
+                if (hasChromaprintCandidate)
+                {
+                    var moved = await StartOnBlackBeforeAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false);
+
+                    // A start moved across a chapter's end would be capped there and could drop the
+                    // credits after it, so it stays on its side of every boundary.
+                    candidates.Add(new AttributedSegment(
+                        CreditsCandidateCombiner.HasBoundaryBetween(CreditsCandidateCombiner.HardBoundaries(candidates, windowEnd), moved.Start, chromaprintCandidate!.Start) ? chromaprintCandidate : moved,
+                        SegmentSource.Chromaprint));
+                }
+
                 var state = await StoreCandidatesAsync(
                     episode,
                     CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
@@ -236,7 +259,8 @@ internal sealed partial class CreditsPass(
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                 if (_logger.IsEnabled(LogLevel.Error))
                 {
-                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    var hint = TimeoutHint(ex);
+                    LogErrorAnalyzingCredits(ex, episode.Name, hint);
                 }
             }
         }
@@ -360,6 +384,66 @@ internal sealed partial class CreditsPass(
         ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
             ? ". " + FFmpegProcessRunner.ScanTimeoutHint
             : string.Empty;
+
+    private static List<AttributedSegment> ChapterCandidates(ChapterAnalyzer chapter, QueuedEpisode episode)
+        => [.. chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter))];
+
+    /// <summary>
+    /// Moves a Chromaprint credits candidate's start back to the black it opens on. Shared end
+    /// titles often follow a cut to black that still carries each episode's own story sound, so the
+    /// shared audio, and the match, starts only as the black ends. One blackdetect probe covers
+    /// <see cref="BlackBeforeLookBackSeconds"/> before the start; the start moves to the beginning of
+    /// the black that ends within <see cref="BlackBeforeToleranceSeconds"/> of it, counting intervals
+    /// within that tolerance of each other as one black. A black that begins within that tolerance of
+    /// where the probe begins may have begun earlier, so it moves nothing, and neither does a failed
+    /// probe. The probe uses the configured black threshold and minimum.
+    /// </summary>
+    private async Task<Segment> StartOnBlackBeforeAsync(QueuedEpisode episode, Segment candidate, CancellationToken cancellationToken)
+    {
+        var (windowStart, _) = episode.GetFingerprintRange(Mode);
+        var probe = new TimeRange(Math.Max(windowStart, candidate.Start - BlackBeforeLookBackSeconds), candidate.Start + BlackBeforeToleranceSeconds);
+        BlackInterval[] intervals;
+        try
+        {
+            intervals = await _ffmpegService.DetectBlackIntervalsAsync(episode, probe, _config.BlackFrameThreshold, _config.BlackFrameMinimumPercentage, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                var hint = TimeoutHint(ex);
+                LogBlackBeforeProbeFailed(ex, episode.Name, hint);
+            }
+
+            return candidate;
+        }
+
+        // The intervals are relative to the credits fingerprint start. A title fading in can split
+        // one black into pieces a few frames apart, so pieces within the tolerance of each other are
+        // walked back as one black.
+        var offset = episode.CreditsFingerprintStart;
+        var reach = candidate.Start - BlackBeforeToleranceSeconds;
+        double? start = null;
+        foreach (var interval in intervals.Where(interval => interval.Start + offset < candidate.Start).OrderByDescending(interval => interval.Start))
+        {
+            if (interval.End + offset < reach)
+            {
+                break;
+            }
+
+            start = interval.Start + offset;
+            reach = start.Value - BlackBeforeToleranceSeconds;
+        }
+
+        // A seek lands blackdetect's first frame up to a frame or more after the probe start, so a
+        // black reported that close to it was already running when the probe began.
+        return start is not { } blackStart || blackStart < probe.Start + BlackBeforeToleranceSeconds
+            ? candidate
+            : new Segment(candidate.EpisodeId) { Start = blackStart, End = candidate.End };
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Black probe before the Chromaprint credits of {Episode} failed; keeping its start{Hint}")]
+    private partial void LogBlackBeforeProbeFailed(Exception ex, string episode, string hint);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No credits found for {Episode}")]
     private partial void LogNoCreditsFound(string episode);

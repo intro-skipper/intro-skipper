@@ -229,10 +229,10 @@ internal sealed partial class KeyframeAnalyzer(
                 var denseScenes = scenes
                     .Where(scene => !CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration))
                     .ToList();
-                List<CreditScene> runsOutsideDenseScenes = [.. runs.Where(run => !denseScenes.Any(dense => run.StartFrame <= dense.EndFrame && run.EndFrame >= dense.StartFrame))];
+                List<CreditScene> runsOutsideDenseScenes = [.. runs.Where(run => !denseScenes.Any(dense => run.StartIndex <= dense.EndIndex && run.EndIndex >= dense.StartIndex))];
                 scenes = [.. denseScenes
                     .Concat(CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, runsOutsideDenseScenes, blackIntervals, minimum, minimumDuration))
-                    .OrderBy(scene => scene.StartFrame)];
+                    .OrderBy(scene => scene.StartIndex)];
             }
         }
 
@@ -301,7 +301,7 @@ internal sealed partial class KeyframeAnalyzer(
             // The first page is the start frame: an interval-supported scene starts on blackdetect's
             // clock, where no page may lie, and keeps that start when it is earlier than the cut.
             var refinedStartTime = _config.RefineCreditsBoundary
-                ? Math.Min(scene.StartTime, await CutStartAsync(episode, pages, CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(blackFrames, scene.StartFrame), cancellationToken).ConfigureAwait(false))
+                ? Math.Min(scene.StartTime, await CutStartAsync(episode, pages, scene.StartIndex, cancellationToken).ConfigureAwait(false))
                 : scene.StartTime;
             accepted.Add(new TimeRange(refinedStartTime, endTime));
 
@@ -345,13 +345,13 @@ internal sealed partial class KeyframeAnalyzer(
     /// <returns>The scene with its start moved and the lead-in from the earlier of the old start and the first keyframe read to the lead-in's last keyframe; no scene and that lead-in, ending on the last keyframe read, when every keyframe read is dim or most of those after the lead-in are a dark picture; the scene unchanged and <see langword="null"/> when there is no lead-in.</returns>
     private static (CreditScene? Scene, TimeRange? LeadIn) StartAfterDarkGreyLeadIn(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
-        List<(BlackFrame Frame, KeyframeVisual? Visual)> scenePages = [];
+        List<(int Index, BlackFrame Frame, KeyframeVisual? Visual)> scenePages = [];
         for (var i = 0; i < blackFrames.Count; i++)
         {
             var frame = blackFrames[i];
             if (frame.Percentage >= minimum && InScene(scene.StartTime, scene.EndTime, frame.Time))
             {
-                scenePages.Add((frame, pages[i].Visual));
+                scenePages.Add((i, frame, pages[i].Visual));
             }
         }
 
@@ -366,7 +366,7 @@ internal sealed partial class KeyframeAnalyzer(
         var lastLeadInTime = scene.StartTime;
         for (var k = 0; k < scenePages.Count; k++)
         {
-            var (frame, visual) = scenePages[k];
+            var (index, frame, visual) = scenePages[k];
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
                 List<KeyframeVisual> rest = [.. scenePages.Skip(k).Select(page => page.Visual).OfType<KeyframeVisual>()];
@@ -375,9 +375,9 @@ internal sealed partial class KeyframeAnalyzer(
                     return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Frame.Time));
                 }
 
-                return frame.Frame == firstPage.Frame
+                return k == 0
                     ? (scene, null)
-                    : (new CreditScene(frame.Frame, scene.EndFrame, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
+                    : (new CreditScene(index, scene.EndIndex, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
             }
 
             lastLeadInTime = frame.Time;
@@ -464,13 +464,13 @@ internal sealed partial class KeyframeAnalyzer(
             && visual.IsLettered();
 
     // Where an accepted scene ends: at the last of the pages after its last black keyframe that are
-    // black or roll pages, walked page by page from that keyframe. The walk starts at the end frame,
+    // black or roll pages, walked page by page from that keyframe. The walk starts at the end index,
     // not the end time, which for an interval-supported scene can lie past its last black
     // keyframe. A page without a visual stops it, so it never leaves the credits window and is
     // inert on an ffmpeg without signalstats.
     private static double RollEnd(CreditScene scene, List<BlackFrame> blackFrames, int minimum, IReadOnlyList<KeyframePage> pages)
     {
-        var last = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(blackFrames, scene.EndFrame);
+        var last = scene.EndIndex;
         while (last + 1 < pages.Count
             && pages[last + 1].Visual is { } visual
             && (blackFrames[last + 1].Percentage >= minimum || IsRollPage(visual)))

@@ -628,9 +628,14 @@ internal sealed partial class FFmpegService : IFFmpegService
                     return seconds;
                 }
 
-                if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
+                // A Matroska DURATION tag is HH:MM:SS with nine fractional digits, two more than TimeSpan parses.
+                if (value.Split(':') is [var hours, var minutes, var tagSeconds]
+                    && int.TryParse(hours, CultureInfo.InvariantCulture, out var h)
+                    && int.TryParse(minutes, CultureInfo.InvariantCulture, out var m)
+                    && double.TryParse(tagSeconds, CultureInfo.InvariantCulture, out var s)
+                    && (h * 3600) + (m * 60) + s is var total and > 0)
                 {
-                    return duration.TotalSeconds;
+                    return total;
                 }
             }
         }
