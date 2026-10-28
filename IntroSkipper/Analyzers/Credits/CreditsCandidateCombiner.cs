@@ -24,6 +24,10 @@ internal static class CreditsCandidateCombiner
     // Chapter starts are rounded to ticks; half a second absorbs that and keyframe jitter.
     private const double BoundaryTolerance = 0.5;
 
+    // The most story a mid-credits or post-credits scene leaves between two credits parts. The widest
+    // in the measured corpus is 132 s.
+    private const double MaximumStoryBetweenPartsSeconds = 180;
+
     /// <summary>
     /// Combines the candidates of one episode.
     /// </summary>
@@ -31,7 +35,11 @@ internal static class CreditsCandidateCombiner
     /// The end of a chapter credits candidate is an authored credits-to-content boundary: the
     /// next chapter, such as a named preview, starts there. No candidate extends or merges
     /// across it, and a black-frame or chromaprint candidate reaching past it is capped
-    /// there. Later chapter markers carry no such meaning.
+    /// there. Later chapter markers carry no such meaning. A keyframe candidate that ends more than
+    /// <see cref="MaximumStoryBetweenPartsSeconds"/> before the next candidate starts, and that no
+    /// chapter or chromaprint candidate overlaps, is dropped: a lettered black scene inside the
+    /// episode, such as a text screen, reads as credits to the keyframe analyzer, but minutes of story
+    /// follow it, more than any mid-credits scene leaves between two parts.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
@@ -44,11 +52,12 @@ internal static class CreditsCandidateCombiner
     {
         var boundaries = HardBoundaries(candidates, windowEnd);
 
-        List<AttributedSegment> ordered = [.. candidates
+        List<AttributedSegment> bounded = [.. candidates
             .Where(c => c.Segment.Valid)
             .Select(c => Bound(c, boundaries, windowEnd, minimumDuration))
             .OfType<AttributedSegment>()
             .OrderBy(c => c.Segment.Start)];
+        List<AttributedSegment> ordered = [.. bounded.Where(c => !IsUnsupportedFarBeforeTheNext(c, bounded))];
 
         var result = new List<AttributedSegment>(ordered.Count);
         foreach (var candidate in ordered)
@@ -79,6 +88,22 @@ internal static class CreditsCandidateCombiner
     /// <returns><see langword="true"/> if the candidate reaches the window end for combination purposes; otherwise, <see langword="false"/>.</returns>
     public static bool ReachesWindowEnd(double candidateEnd, double windowEnd, int minimumDuration)
         => candidateEnd > windowEnd - minimumDuration;
+
+    // A keyframe candidate with more story after it than a mid-credits scene leaves before the next
+    // candidate, and no chapter or chromaprint evidence of its own. The latest candidate always stays.
+    private static bool IsUnsupportedFarBeforeTheNext(AttributedSegment candidate, IReadOnlyList<AttributedSegment> candidates)
+    {
+        if (candidate.Source is not (SegmentSource.BlackFrame or SegmentSource.KeyframeVisuals)
+            || candidates.Any(other => other.Source is SegmentSource.Chapter or SegmentSource.Chromaprint
+                && other.Segment.Start < candidate.Segment.End
+                && other.Segment.End > candidate.Segment.Start))
+        {
+            return false;
+        }
+
+        var later = candidates.Where(other => other.Segment.Start > candidate.Segment.Start).Select(other => other.Segment.Start).DefaultIfEmpty().Min();
+        return later > candidate.Segment.Start && later - candidate.Segment.End > MaximumStoryBetweenPartsSeconds;
+    }
 
     /// <summary>
     /// Whether one of the hard boundaries caps a non-chapter candidate that starts at

@@ -53,6 +53,31 @@ public class TestCreditsCandidateCombiner
         Assert.Equal((200, 450, SegmentSource.Combined), Shape(Assert.Single(blackFirst)));
     }
 
+    // A lettered black scene at 10-30 s and a black roll from 30 s plus the gap. A mid-credits
+    // scene's worth of story between them keeps both; over 180 s the earlier is a text screen inside
+    // the episode, unless a chapter or shared audio from 5 s vouches for it, which shows as a
+    // Combined first segment. Only keyframe candidates go; the chapter's end caps the black at 25 s.
+    [Theory]
+    [InlineData(170, SegmentSource.BlackFrame, null, 10, 30, SegmentSource.BlackFrame)]
+    [InlineData(190, SegmentSource.BlackFrame, null, 220, 260, SegmentSource.BlackFrame)]
+    [InlineData(190, SegmentSource.KeyframeVisuals, null, 220, 260, SegmentSource.BlackFrame)]
+    [InlineData(190, SegmentSource.BlackFrame, SegmentSource.Chapter, 5, 25, SegmentSource.Combined)]
+    [InlineData(190, SegmentSource.BlackFrame, SegmentSource.Chromaprint, 5, 30, SegmentSource.Combined)]
+    [InlineData(190, SegmentSource.Chromaprint, null, 10, 30, SegmentSource.Chromaprint)]
+    public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(double gap, SegmentSource earlierSource, SegmentSource? support, double firstStart, double firstEnd, SegmentSource firstSource)
+    {
+        List<AttributedSegment> candidates = [Candidate(10, 30, earlierSource), Candidate(30 + gap, 30 + gap + 40, SegmentSource.BlackFrame)];
+        if (support is { } source)
+        {
+            candidates.Add(Candidate(5, 25, source));
+        }
+
+        var result = Combine([.. candidates]);
+
+        Assert.Equal((firstStart, firstEnd, firstSource), Shape(result[0]));
+        Assert.Equal(30 + gap, result[^1].Segment.Start);
+    }
+
     [Fact]
     public void CandidatesSeparatedByContent_StayApartUnderTheirOwnSources()
     {
