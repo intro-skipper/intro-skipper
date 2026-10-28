@@ -39,10 +39,14 @@ public sealed class TestCreditsPass
     private const double WindowStart = Duration - 450;
     private const double BlackStart = 950;
     private const int SharedAudioFirstPoint = 1600;
+    private const int TitlesFirstPoint = 1300;
     private const int DefaultSharedAudioLastPoint = 3499;
 
     // The cut decode of the default roll, over the gap from the keyframe before it.
     private static readonly CutDecode RollProbe = new(948, 950);
+
+    // The probe for the black a Chromaprint candidate opens on, over the 20 s before its start.
+    private static readonly IntervalScan BlackBeforeProbe = new(PointTime(SharedAudioFirstPoint) - 20, PointTime(SharedAudioFirstPoint) + 1, 28, 85);
 
     [Theory]
     [InlineData(AnalyzerAction.Default, false)]
@@ -106,7 +110,7 @@ public sealed class TestCreditsPass
         Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(2, ffmpeg.KeyframeScanCalls);
         Assert.Equal(
-            [RollProbe, RollProbe],
+            [RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe],
             ffmpeg.Calls);
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
     }
@@ -195,7 +199,7 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, cache, new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
         var chapter = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(SegmentSource.Chapter, chapter.Source);
         Assert.Equal((900, 950), (chapter.ToSegment().Start, chapter.ToSegment().End));
@@ -223,7 +227,7 @@ public sealed class TestCreditsPass
         Assert.Equal(source, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
 
         // Only the black-frame action runs the keyframe analyzer.
-        Call[] probes = action == AnalyzerAction.BlackFrame ? [RollProbe, RollProbe] : [];
+        Call[] probes = action switch { AnalyzerAction.BlackFrame => [RollProbe, RollProbe], AnalyzerAction.Chromaprint => [BlackBeforeProbe, BlackBeforeProbe], _ => [] };
         Assert.Equal(probes, ffmpeg.Calls);
     }
 
@@ -270,7 +274,7 @@ public sealed class TestCreditsPass
 
         Assert.Equal(WindowStart, ffmpeg.LastKeyframeScanStart);
         Assert.Equal(
-            [RollProbe, RollProbe],
+            [RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe],
             ffmpeg.Calls);
         foreach (var episode in episodes)
         {
@@ -296,7 +300,7 @@ public sealed class TestCreditsPass
             [(600, 660, SegmentSource.Chapter), (700, Duration, SegmentSource.Combined)],
             segments.Select(s => (s.ToSegment().Start, s.ToSegment().End, s.Source)).ToList());
         Assert.Equal(
-            [new CutDecode(698, 700), new CutDecode(698, 700)],
+            [new CutDecode(698, 700), BlackBeforeProbe, new CutDecode(698, 700), BlackBeforeProbe],
             ffmpeg.Calls);
     }
 
@@ -546,7 +550,7 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Source);
         Assert.Equal(SegmentSource.User, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
         Assert.Equal(EpisodeState.UserProvided, episodes[1].GetAnalyzed(AnalysisMode.Credits));
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
     }
 
     [Fact]
@@ -603,6 +607,106 @@ public sealed class TestCreditsPass
             ffmpeg.Calls);
     }
 
+    // The shared audio starts at PointTime(SharedAudioFirstPoint), and the intervals are given as
+    // (start, end) offsets from it; the probe reads the 20 s before it.
+    [Theory]
+    [InlineData(new[] { -3.0, -0.4, -0.3, 0.2 }, -3.0)] // a black split by a fade-in walks back as one
+    [InlineData(new[] { -4.0, -1.5 }, 0.0)]              // a black ending over 1 s before moves nothing
+    [InlineData(new[] { -20.0, -0.5 }, 0.0)]             // a black from the probe's start may have begun earlier
+    [InlineData(new[] { -6.0, -2.5, -0.5, 0.1 }, -0.5)] // a piece over 1 s before the next one is apart
+    [InlineData(new[] { -5.0, -1.3, -1.2, 0.0 }, -5.0)] // a piece ending over 1 s before the start joins through the next one
+    [InlineData(new[] { -19.96, -0.5 }, 0.0)]            // a black a frame after the probe's start may have begun earlier too
+    [InlineData(new[] { 0.3, 0.9 }, 0.0)]                // a black after the start moves nothing
+    public async Task ChromaprintCredits_StartOnTheBlackTheyOpenOn(double[] blacks, double expectedOffset)
+    {
+        using var scope = Scope();
+        var start = PointTime(SharedAudioFirstPoint);
+        BlackInterval[] intervals = [.. blacks.Chunk(2).Select(black => new BlackInterval(start + black[0] - WindowStart, start + black[1] - WindowStart))];
+        var (episodes, ffmpeg, database) = CreateSeason(blackIntervals: range => range.End > start ? intervals : []);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            Assert.Equal(start + expectedOffset, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).ToSegment().Start, 3);
+        }
+    }
+
+    // A credits chapter ends 1 s before the shared audio and a black runs across that end. Moved
+    // onto the black, the candidate would be capped at the chapter's end and dropped as too short,
+    // leaving only the roll at 950. Kept, it starts at the chapter's end, where the time adjustment
+    // snaps it.
+    [Fact]
+    public async Task ChromaprintCredits_KeepTheirStartWhenTheBlackCrossesAChapterEnd()
+    {
+        using var scope = Scope();
+        var start = PointTime(SharedAudioFirstPoint);
+        var (episodes, ffmpeg, database) = CreateSeason(
+            chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", start - 1)],
+            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4 - WindowStart, start - 0.2 - WindowStart)] : []);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            Assert.Contains(segments, segment => segment.Source != SegmentSource.Chapter
+                && segment.ToSegment().Start >= start - 1 - 0.001
+                && segment.ToSegment().Start <= start
+                && segment.ToSegment().End == Duration);
+        }
+    }
+
+    // The titles match on another alignment than the roll, 12 s and 17 s before it, and join it.
+    [Fact]
+    public async Task TitlesOnAnotherAlignment_JoinTheRoll()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(fingerprints: TitlesThenRoll);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(PointTime(TitlesFirstPoint), Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(TitlesFirstPoint - 40), Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).ToSegment().Start, 0.5);
+    }
+
+    // The same titles, with a credits chapter ending between them and the roll. Joined, the region
+    // would start before the chapter's end, be capped there and lose the roll; it keeps the roll.
+    [Fact]
+    public async Task TitlesOnAnotherAlignment_NeverJoinTheRollAcrossAChapterEnd()
+    {
+        using var scope = Scope();
+        var boundary = PointTime(1550);
+        var (episodes, ffmpeg, database) = CreateSeason(
+            fingerprints: TitlesThenRoll,
+            chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", boundary)]);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            Assert.Contains(segments, segment => segment.Source != SegmentSource.Chapter
+                && segment.ToSegment().Start >= boundary - 0.001
+                && segment.ToSegment().Start <= PointTime(SharedAudioFirstPoint) + 0.001
+                && segment.ToSegment().End == Duration);
+        }
+    }
+
+    [Fact]
+    public async Task ChromaprintCredits_KeepTheirStartWhenTheBlackProbeFails()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(blackIntervals: _ => throw new InvalidOperationException("probe failed"));
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            Assert.Equal(PointTime(SharedAudioFirstPoint), Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).ToSegment().Start, 3);
+        }
+    }
+
     [Fact]
     public async Task SettledSibling_WhoseCandidateIsAlreadyStored_IsNotRescanned()
     {
@@ -631,7 +735,7 @@ public sealed class TestCreditsPass
 
         // Both runs: two episodes in the first, only the new one in the second.
         Assert.Equal(
-            [RollProbe, RollProbe, RollProbe],
+            [RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe],
             ffmpeg.Calls);
     }
 
@@ -657,7 +761,7 @@ public sealed class TestCreditsPass
         // Both runs share the cache: two episodes decode in the first; in the second the recombined
         // episode reads its cut start from the cache and only the new one decodes.
         Assert.Equal(
-            [RollProbe, RollProbe, RollProbe],
+            [RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe],
             ffmpeg.Calls);
     }
 
@@ -678,7 +782,7 @@ public sealed class TestCreditsPass
         Assert.Equal(EpisodeState.Analyzed, episodes[0].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
         Assert.Equal(2, ffmpeg.KeyframeScanCalls);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([BlackBeforeProbe, RollProbe, BlackBeforeProbe], ffmpeg.Calls);
     }
 
     // With the keyframe analyzer as the only analyzer in the pass, its failure leaves nothing to
@@ -716,7 +820,7 @@ public sealed class TestCreditsPass
         Assert.Equal((standing.Id, SegmentSource.BlackFrame, BlackStart, Duration), (kept.Id, kept.Source, kept.ToSegment().Start, kept.ToSegment().End));
         Assert.Equal(EpisodeState.AnalysisFailed, failing.GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
     }
 
     // A settled sibling is rescanned for a Chromaprint candidate reaching outside its stored
@@ -749,7 +853,7 @@ public sealed class TestCreditsPass
         // Both runs: two scans in the first; in the second, the new episode decodes while the
         // settled sibling's failing scan stops before its cut decode.
         Assert.Equal(
-            [RollProbe, RollProbe, RollProbe],
+            [RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe, RollProbe, BlackBeforeProbe],
             ffmpeg.Calls);
     }
 
@@ -984,7 +1088,7 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, cache).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
         Assert.Equal(storedId, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).Id);
         Assert.All(episodes, episode => Assert.Equal(EpisodeState.Analyzed, episode.GetAnalyzed(AnalysisMode.Credits)));
     }
@@ -1008,7 +1112,7 @@ public sealed class TestCreditsPass
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
@@ -1031,7 +1135,7 @@ public sealed class TestCreditsPass
         Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
         Assert.Equal(2, ffmpeg.FingerprintCalls);
         Assert.Equal(1, ffmpeg.KeyframeScanCalls);
-        Assert.Equal([RollProbe], ffmpeg.Calls);
+        Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
         Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Credits));
         Assert.Equal(SegmentSource.Combined, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
     }
@@ -1144,7 +1248,9 @@ public sealed class TestCreditsPass
         Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? rangeScan = null,
         Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? cutDecode = null,
         Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? keyFrames = null,
-        ChapterInfo[]? chapters = null)
+        ChapterInfo[]? chapters = null,
+        Func<TimeRange, BlackInterval[]>? blackIntervals = null,
+        Func<QueuedEpisode, uint[]>? fingerprints = null)
     {
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
@@ -1155,12 +1261,12 @@ public sealed class TestCreditsPass
         {
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
                 ? throw failure
-                : SharedAudioFingerprint(episode, sharedAudioLastPoint),
+                : fingerprints?.Invoke(episode) ?? SharedAudioFingerprint(episode, sharedAudioLastPoint),
             KeyframeScan = (episode, _) => scanFailure?.Invoke(episode) is { } failure
                 ? throw failure
                 : ScanOf(episode, scanSpans),
             RangeBlackFrames = rangeScan ?? ((_, _, _, _, _) => []),
-            BlackIntervals = (_, _, _, _) => [],
+            BlackIntervals = (_, range, _, _) => blackIntervals?.Invoke(range) ?? [],
             CutWindows = cutDecode ?? ((_, _) => []),
             Silence = (_, _, _) => [],
             KeyFrames = keyFrames ?? ((_, _, _) => []),
@@ -1198,6 +1304,20 @@ public sealed class TestCreditsPass
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
     /// shift; everything outside it differs in at least eight bits between any two episodes.
     /// </summary>
+    // Styled titles shared at points 1300-1499 in episode 1 and 1260-1459 in episode 2, a second
+    // alignment, and the default roll from SharedAudioFirstPoint on the first.
+    private static uint[] TitlesThenRoll(QueuedEpisode episode)
+    {
+        var points = SharedAudioFingerprint(episode, DefaultSharedAudioLastPoint);
+        var titlesStart = episode.EpisodeNumber == 1 ? TitlesFirstPoint : TitlesFirstPoint - 40;
+        for (var k = 0; k < 200; k++)
+        {
+            points[titlesStart + k] = 0x50000000u + ((uint)k * 104729u);
+        }
+
+        return points;
+    }
+
     private static uint[] SharedAudioFingerprint(QueuedEpisode episode, int sharedAudioLastPoint)
     {
         var mask = 0x11111111u * (uint)episode.EpisodeNumber;

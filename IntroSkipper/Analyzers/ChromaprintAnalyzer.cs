@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Numerics;
+using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -23,13 +24,15 @@ namespace IntroSkipper.Analyzers;
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
+/// <param name="hardBoundaries">Per episode, the credits chapter boundaries the credits combiner caps at, relative to the episode's credits window; a cross-alignment join never moves a credits region's start back across one.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration? configuration = null,
-    bool applyLocalConsensus = false) : IMediaFileAnalyzer
+    bool applyLocalConsensus = false,
+    IReadOnlyDictionary<Guid, IReadOnlyList<double>>? hardBoundaries = null) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
@@ -58,6 +61,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly bool _applyLocalConsensus = applyLocalConsensus;
+    private readonly IReadOnlyDictionary<Guid, IReadOnlyList<double>>? _hardBoundaries = hardBoundaries;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -623,7 +627,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         if (lhsRanges.Count > 0)
         {
-            return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode);
+            return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode, MaximumRegionDuration(Math.Min(lhsPoints.Length, rhsPoints.Length)), HardBoundaries(lhsId), HardBoundaries(rhsId));
         }
 
         LogSharedIntroNotFound(lhsId, rhsId);
@@ -648,20 +652,27 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <summary>
     /// Selects which shared audio region should be returned for the given analysis mode.
     /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
-    /// A region starting within 5 s of the episode start is snapped to 0.
+    /// Credits grow it by the regions of other alignments within the credits merge gap on the
+    /// same side in both episodes. A region starting within 5 s of the episode start is snapped to 0.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsRanges">Second episode shared timecodes, index-aligned with <paramref name="lhsRanges"/>.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="maximumDuration">The longest a credits region may grow to by joining, in seconds, measured from its snapped start.</param>
+    /// <param name="lhsBoundaries">The first episode's hard boundaries on the ranges' clock; a join never moves its start back across one.</param>
+    /// <param name="rhsBoundaries">The second episode's, likewise.</param>
     /// <returns>Segments for the first and second episodes; invalid segments when there is no pair.</returns>
     internal static (Segment Lhs, Segment Rhs) SelectSharedRegion(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,
         List<TimeRange> rhsRanges,
-        AnalysisMode mode)
+        AnalysisMode mode,
+        double maximumDuration,
+        IReadOnlyList<double>? lhsBoundaries = null,
+        IReadOnlyList<double>? rhsBoundaries = null)
     {
         var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
         if (pairCount == 0)
@@ -685,6 +696,47 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var lhs = new TimeRange(lhsRanges[selected]);
         var rhs = new TimeRange(rhsRanges[selected]);
+        var (seedLhs, seedRhs) = (lhsRanges[selected], rhsRanges[selected]);
+
+        // An end-title sequence whose styled part runs a few seconds longer in one episode matches
+        // on one alignment and the roll after it on another, so the longest region holds only the
+        // roll. A region of another alignment joins it when it lies past the same edge of the longest
+        // region in both episodes, before its start or after its end, and reaches within the gap the
+        // credits combiner merges across of the region joined so far: the combiner would merge the
+        // two were both its candidates. A longer gap in either episode is a scene that plays between
+        // them. The side is read against the longest region and the reach against the joined one,
+        // and a region may overlap the joined one, so whichever joins first, every region on a side
+        // within reach joins. Longer regions are tried first, which decides only between two joins
+        // that fit the maximum apart but not together. A region joins once, so the passes end.
+        List<int> others = [.. Enumerable.Range(0, pairCount).Where(i => i != selected).OrderByDescending(i => lhsRanges[i].Duration).ThenBy(i => lhsRanges[i].Start)];
+        for (var joined = mode == AnalysisMode.Credits; joined;)
+        {
+            joined = false;
+            foreach (var i in others.ToList())
+            {
+                var (otherLhs, otherRhs) = (lhsRanges[i], rhsRanges[i]);
+                var before = otherLhs.Start < seedLhs.Start && otherRhs.Start < seedRhs.Start && Reaches(otherLhs.End, lhs.Start) && Reaches(otherRhs.End, rhs.Start);
+                var after = otherLhs.End > seedLhs.End && otherRhs.End > seedRhs.End && Reaches(lhs.End, otherLhs.Start) && Reaches(rhs.End, otherRhs.Start);
+                if (!before && !after)
+                {
+                    continue;
+                }
+
+                var joinedLhs = new TimeRange(Math.Min(lhs.Start, otherLhs.Start), Math.Max(lhs.End, otherLhs.End));
+                var joinedRhs = new TimeRange(Math.Min(rhs.Start, otherRhs.Start), Math.Max(rhs.End, otherRhs.End));
+                // The combiner caps a region at a chapter's end after its start, so a start moved
+                // back across one would lose everything after it.
+                if (Math.Max(SnappedDuration(joinedLhs.Start, joinedLhs.End), SnappedDuration(joinedRhs.Start, joinedRhs.End)) <= maximumDuration
+                    && !CreditsCandidateCombiner.HasBoundaryBetween(lhsBoundaries ?? [], joinedLhs.Start, lhs.Start)
+                    && !CreditsCandidateCombiner.HasBoundaryBetween(rhsBoundaries ?? [], joinedRhs.Start, rhs.Start))
+                {
+                    (lhs, rhs) = (joinedLhs, joinedRhs);
+                    others.Remove(i);
+                    joined = true;
+                }
+            }
+        }
+
         if (lhs.Start <= StartSnapSeconds)
         {
             lhs.Start = 0;
@@ -892,7 +944,9 @@ internal sealed partial class ChromaprintAnalyzer(
             {
                 var (start, end) = (runs[i].Start, runs[i + 1].End);
                 if (Bridges(runs[i], runs[i + 1])
-                    && Math.Max(SnappedDuration(start, end), SnappedDuration(start + positionShift, end + positionShift)) <= maximumDuration)
+                    && Math.Max(
+                        SnappedDuration(start * ChromaprintConstants.SampleDuration, end * ChromaprintConstants.SampleDuration),
+                        SnappedDuration((start + positionShift) * ChromaprintConstants.SampleDuration, (end + positionShift) * ChromaprintConstants.SampleDuration)) <= maximumDuration)
                 {
                     runs[i] = (runs[i].Start, runs[i + 1].End);
                     runs.RemoveAt(i + 1);
@@ -923,6 +977,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     // The bound GetMaximumSegmentDuration later applies to a match. A credits fingerprint covers
     // the credits window, whose length stands in for the episode's window minus 1 s.
+    private IReadOnlyList<double> HardBoundaries(Guid episodeId)
+        => _hardBoundaries?.GetValueOrDefault(episodeId) ?? [];
+
     private double MaximumRegionDuration(int fingerprintLength)
         => _analysisMode switch
         {
@@ -931,11 +988,14 @@ internal sealed partial class ChromaprintAnalyzer(
             _ => double.MaxValue,
         };
 
-    private static double SnappedDuration(int start, int end)
-    {
-        var startSeconds = start * ChromaprintConstants.SampleDuration;
-        return (end * ChromaprintConstants.SampleDuration) - (startSeconds <= StartSnapSeconds ? 0 : startSeconds);
-    }
+    // A region's length once SelectSharedRegion snaps its start, in seconds.
+    private static double SnappedDuration(double start, double end)
+        => end - (start <= StartSnapSeconds ? 0 : start);
+
+    // Whether something ending at the first time and something starting at the second lie at most
+    // the merge gap apart; an overlap reaches too.
+    private static bool Reaches(double end, double start)
+        => start - end <= CreditSceneBuilder.MaximumSceneMergeGapSeconds;
 
     private static bool Bridges((int Start, int End) left, (int Start, int End) right)
     {

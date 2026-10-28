@@ -91,6 +91,114 @@ public class TestTimeRanges
         Assert.Equal((expectedEndSample + shift) * ChromaprintConstants.SampleDuration, right.End);
     }
 
+    // The longest region, a roll, sits at 130-290 s in one episode and 135-295 s in the other.
+    // The second region matched on another alignment, as a styled end-title sequence of a
+    // different length per episode does before the roll.
+    [Theory]
+    [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 1000, 20, 290, 15, 295)]     // 5 s and 15 s gaps before: joined
+    [InlineData(AnalysisMode.Credits, 300, 340, 310, 350, 1000, 130, 340, 135, 350)] // 10 s and 15 s gaps after: joined
+    [InlineData(AnalysisMode.Credits, 20, 125, 5, 110, 1000, 130, 290, 135, 295)]    // 25 s gap in one episode: a scene between, kept apart
+    [InlineData(AnalysisMode.Credits, 20, 125, 300, 405, 1000, 130, 290, 135, 295)]  // before the roll in one episode, after it in the other
+    [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 250, 130, 290, 135, 295)]    // the joined region would pass the maximum
+    [InlineData(AnalysisMode.Credits, 6, 125, 2, 120, 294, 130, 290, 135, 295)]      // 293 s, but 295 s once its 2 s start snaps to 0
+    [InlineData(AnalysisMode.Introduction, 20, 125, 15, 120, 1000, 130, 290, 135, 295)] // only credits join across alignments
+    public void SelectSharedRegion_JoinsCreditsRegionsOfTwoAlignmentsWithinTheMergeGap(
+        AnalysisMode mode,
+        double otherLhsStart,
+        double otherLhsEnd,
+        double otherRhsStart,
+        double otherRhsEnd,
+        double maximumDuration,
+        double expectedLhsStart,
+        double expectedLhsEnd,
+        double expectedRhsStart,
+        double expectedRhsEnd)
+    {
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), new TimeRange(otherLhsStart, otherLhsEnd)],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), new TimeRange(otherRhsStart, otherRhsEnd)],
+            mode,
+            maximumDuration);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
+    // The same roll with several regions of other alignments, each given as (lhs start, lhs end,
+    // rhs start, rhs end) in list order. The result must not depend on that order.
+    [Theory]
+    [InlineData(new double[] { 60, 100, 55, 95, 105, 125, 100, 120 }, 1000, 60, 290, 55, 295)]  // the far region joins once the near one has
+    [InlineData(new double[] { 112, 120, 117, 125, 40, 118, 45, 123 }, 1000, 40, 290, 45, 295)] // a fragment first does not shut out the region it overlaps
+    [InlineData(new double[] { 40, 118, 45, 123, 112, 120, 117, 125 }, 1000, 40, 290, 45, 295)] // the same regions the other way round
+    [InlineData(new double[] { 110, 180, 120, 190, 120, 190, 110, 180 }, 1000, 110, 290, 110, 295)] // starts that cross between the episodes both join
+    [InlineData(new double[] { 120, 190, 110, 180, 110, 180, 120, 190 }, 1000, 110, 290, 110, 295)] // the same the other way round
+    [InlineData(new double[] { 295, 320, 300, 325, 60, 125, 65, 130 }, 240, 60, 290, 65, 295)]  // two joins that fit apart but not together: the longer region
+    [InlineData(new double[] { 60, 125, 65, 130, 295, 320, 300, 325 }, 240, 60, 290, 65, 295)]  // the same the other way round
+    public void SelectSharedRegion_JoinsCreditsRegionsWhateverTheirOrder(double[] others, double maximumDuration, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
+    {
+        var regions = others.Chunk(4).ToArray();
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), .. regions.Select(region => new TimeRange(region[0], region[1]))],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), .. regions.Select(region => new TimeRange(region[2], region[3]))],
+            AnalysisMode.Credits,
+            maximumDuration);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
+    // The roll of the theory above with a region before it, 5 s and 15 s away, and a hard boundary in
+    // one episode (-1 for none). A start moved back across a boundary would lose what lies after it;
+    // a region after the roll may still reach past one.
+    [Theory]
+    [InlineData(20, 125, 15, 120, 127, -1, 130, 290, 135, 295)]   // a boundary in the first episode refuses the join
+    [InlineData(20, 125, 15, 120, -1, 128, 130, 290, 135, 295)]   // so does one in the second
+    [InlineData(20, 125, 15, 120, 10, -1, 20, 290, 15, 295)]      // a boundary before the joined region's start is not crossed
+    [InlineData(300, 340, 310, 350, 295, 297, 130, 340, 135, 350)] // a region after the roll joins across one
+    public void SelectSharedRegion_NeverMovesACreditsStartBackAcrossAHardBoundary(double otherLhsStart, double otherLhsEnd, double otherRhsStart, double otherRhsEnd, double lhsBoundary, double rhsBoundary, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
+    {
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), new TimeRange(otherLhsStart, otherLhsEnd)],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), new TimeRange(otherRhsStart, otherRhsEnd)],
+            AnalysisMode.Credits,
+            1000,
+            lhsBoundary < 0 ? [] : [lhsBoundary],
+            rhsBoundary < 0 ? [] : [rhsBoundary]);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
+    // A longest region of 130-260 s and 131-261 s, leading titles at 0-125 s and a short trailing
+    // match at 265-299.8 s and 264.5-299.3 s. Either join fits the 299 s maximum, both together do
+    // not, and the leading titles, the longer region, join whichever order the alignments came in.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SelectSharedRegion_PrefersTheLongerOfTwoJoinsThatOnlyFitApart(bool leadingFirst)
+    {
+        (TimeRange Lhs, TimeRange Rhs) leading = (new TimeRange(0, 125), new TimeRange(0, 125));
+        (TimeRange Lhs, TimeRange Rhs) trailing = (new TimeRange(265, 299.8), new TimeRange(264.5, 299.3));
+        var others = leadingFirst ? new[] { leading, trailing } : [trailing, leading];
+
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 260), .. others.Select(other => other.Lhs)],
+            Guid.NewGuid(),
+            [new TimeRange(131, 261), .. others.Select(other => other.Rhs)],
+            AnalysisMode.Credits,
+            299);
+
+        Assert.Equal((0.0, 260.0), (left.Start, left.End));
+        Assert.Equal((0.0, 261.0), (right.Start, right.End));
+    }
+
     /// <summary>
     /// Tests that TimeRange intersections are detected correctly.
     /// Tests each time range against a range of 5 to 10 seconds.
