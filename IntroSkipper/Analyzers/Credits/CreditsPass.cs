@@ -113,7 +113,8 @@ internal sealed partial class CreditsPass(
                     episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                     if (_logger.IsEnabled(LogLevel.Error))
                     {
-                        LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                        var hint = TimeoutHint(ex);
+                        LogErrorAnalyzingCredits(ex, episode.Name, hint);
                     }
                 }
             }
@@ -146,7 +147,8 @@ internal sealed partial class CreditsPass(
                 // retriable.
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    LogChromaprintComparisonFailed(ex, TimeoutHint(ex));
+                    var hint = TimeoutHint(ex);
+                    LogChromaprintComparisonFailed(ex, hint);
                 }
 
                 fingerprintFailures = [.. items.Where(e => e.NeedsAnalysis(Mode)).Select(e => e.EpisodeId)];
@@ -210,7 +212,8 @@ internal sealed partial class CreditsPass(
                     {
                         if (_logger.IsEnabled(LogLevel.Warning))
                         {
-                            LogKeyframeAnalysisFailed(ex, episode.Name, TimeoutHint(ex));
+                            var hint = TimeoutHint(ex);
+                            LogKeyframeAnalysisFailed(ex, episode.Name, hint);
                         }
 
                         // Without the keyframe result, the other candidates alone could lose the
@@ -256,7 +259,8 @@ internal sealed partial class CreditsPass(
                 episode.SetAnalyzed(Mode, EpisodeState.AnalysisFailed);
                 if (_logger.IsEnabled(LogLevel.Error))
                 {
-                    LogErrorAnalyzingCredits(ex, episode.Name, TimeoutHint(ex));
+                    var hint = TimeoutHint(ex);
+                    LogErrorAnalyzingCredits(ex, episode.Name, hint);
                 }
             }
         }
@@ -407,7 +411,8 @@ internal sealed partial class CreditsPass(
         {
             if (_logger.IsEnabled(LogLevel.Warning))
             {
-                LogBlackBeforeProbeFailed(ex, episode.Name, TimeoutHint(ex));
+                var hint = TimeoutHint(ex);
+                LogBlackBeforeProbeFailed(ex, episode.Name, hint);
             }
 
             return candidate;
