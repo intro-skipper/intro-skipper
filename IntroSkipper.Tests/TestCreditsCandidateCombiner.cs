@@ -53,29 +53,34 @@ public class TestCreditsCandidateCombiner
         Assert.Equal((200, 450, SegmentSource.Combined), Shape(Assert.Single(blackFirst)));
     }
 
-    // A lettered black scene at 10-30 s and a black roll from 30 s plus the gap. A mid-credits
-    // scene's worth of story between them keeps both; over 180 s the earlier is a text screen inside
-    // the episode, unless a chapter or shared audio from 5 s vouches for it, which shows as a
-    // Combined first segment. Only keyframe candidates go; the chapter's end caps the black at 25 s.
+    // Candidates as "start-end Source" separated by ";", and the first stored segment. A part made
+    // only of keyframe candidates with more than 180 s of story before the next part that stays
+    // goes, however many pieces it arrived in; a part that merged with a chapter or shared audio
+    // stays, and the latest part always does. A chapter's end caps the black after it.
     [Theory]
-    [InlineData(170, SegmentSource.BlackFrame, null, 10, 30, SegmentSource.BlackFrame)]
-    [InlineData(190, SegmentSource.BlackFrame, null, 220, 260, SegmentSource.BlackFrame)]
-    [InlineData(190, SegmentSource.KeyframeVisuals, null, 220, 260, SegmentSource.BlackFrame)]
-    [InlineData(190, SegmentSource.BlackFrame, SegmentSource.Chapter, 5, 25, SegmentSource.Combined)]
-    [InlineData(190, SegmentSource.BlackFrame, SegmentSource.Chromaprint, 5, 30, SegmentSource.Combined)]
-    [InlineData(190, SegmentSource.Chromaprint, null, 10, 30, SegmentSource.Chromaprint)]
-    public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(double gap, SegmentSource earlierSource, SegmentSource? support, double firstStart, double firstEnd, SegmentSource firstSource)
+    [InlineData("10-30 BlackFrame; 200-240 BlackFrame", "10-30 BlackFrame")]                                   // 170 s of story, a mid-credits scene
+    [InlineData("10-30 BlackFrame; 220-260 BlackFrame", "220-260 BlackFrame")]                                 // 190 s: a text screen inside the episode
+    [InlineData("10-30 KeyframeVisuals; 220-260 BlackFrame", "220-260 BlackFrame")]                            // a card run goes the same way
+    [InlineData("6-30 KeyframeVisuals; 10-30 BlackFrame; 220-260 BlackFrame", "220-260 BlackFrame")]           // a screen in two pieces goes whole
+    [InlineData("10-30 BlackFrame; 100-120 BlackFrame; 310-350 BlackFrame", "310-350 BlackFrame")]             // so do two screens before a far roll
+    [InlineData("5-25 Chapter; 10-30 BlackFrame; 220-260 BlackFrame", "5-25 Combined")]                         // a chapter vouches for the black
+    [InlineData("5-25 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "5-30 Combined")]                     // so does shared audio over it
+    [InlineData("0-5 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "0-30 Combined")]                      // or just before it
+    [InlineData("10-30 BlackFrame; 100-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]              // shared audio 70 s later is the next part
+    [InlineData("10-30 Chromaprint; 220-260 BlackFrame", "10-30 Chromaprint")]                                 // only keyframe parts go
+    public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(string candidates, string first)
     {
-        List<AttributedSegment> candidates = [Candidate(10, 30, earlierSource), Candidate(30 + gap, 30 + gap + 40, SegmentSource.BlackFrame)];
-        if (support is { } source)
+        var result = Combine([.. candidates.Split(';').Select(Parse)]);
+
+        Assert.Equal(Shape(Parse(first)), Shape(result[0]));
+        Assert.Equal(Parse(candidates.Split(';')[^1]).Segment.Start, result[^1].Segment.Start);
+
+        static AttributedSegment Parse(string text)
         {
-            candidates.Add(Candidate(5, 25, source));
+            var parts = text.Trim().Split(' ');
+            var range = parts[0].Split('-').Select(double.Parse).ToArray();
+            return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
         }
-
-        var result = Combine([.. candidates]);
-
-        Assert.Equal((firstStart, firstEnd, firstSource), Shape(result[0]));
-        Assert.Equal(30 + gap, result[^1].Segment.Start);
     }
 
     [Fact]

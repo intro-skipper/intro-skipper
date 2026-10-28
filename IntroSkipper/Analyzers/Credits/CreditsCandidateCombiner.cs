@@ -15,7 +15,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// within <see cref="CreditSceneBuilder.MaximumSceneMergeGapSeconds"/> of each other
 /// merge into one segment from the earliest start to the latest end under
 /// <see cref="SegmentSource.Combined"/>. Candidates farther apart are emitted separately
-/// under their own source. Order carries no information: shared audio before, inside or
+/// under their own source, except a part made only of keyframe candidates with minutes of story
+/// after it (see <see cref="Combine"/>). Order carries no information: shared audio before, inside or
 /// after a black run merges the same way, and a union only grows, so a chapter range is
 /// never shortened.
 /// </remarks>
@@ -35,11 +36,12 @@ internal static class CreditsCandidateCombiner
     /// The end of a chapter credits candidate is an authored credits-to-content boundary: the
     /// next chapter, such as a named preview, starts there. No candidate extends or merges
     /// across it, and a black-frame or chromaprint candidate reaching past it is capped
-    /// there. Later chapter markers carry no such meaning. A keyframe candidate that ends more than
-    /// <see cref="MaximumStoryBetweenPartsSeconds"/> before the next candidate starts, and that no
-    /// chapter or chromaprint candidate overlaps, is dropped: a lettered black scene inside the
-    /// episode, such as a text screen, reads as credits to the keyframe analyzer, but minutes of story
-    /// follow it, more than any mid-credits scene leaves between two parts.
+    /// there. Later chapter markers carry no such meaning. After merging, a part made only of
+    /// keyframe candidates that ends more than <see cref="MaximumStoryBetweenPartsSeconds"/> before
+    /// the next part that stays starts is dropped: a lettered black scene inside the episode, such as
+    /// a text screen, reads as credits to the keyframe analyzer, but minutes of story follow it, more
+    /// than any mid-credits scene leaves between two parts. A part that merged with a chapter or
+    /// chromaprint candidate stays, and so does the latest part.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
@@ -52,14 +54,15 @@ internal static class CreditsCandidateCombiner
     {
         var boundaries = HardBoundaries(candidates, windowEnd);
 
-        List<AttributedSegment> bounded = [.. candidates
+        List<AttributedSegment> ordered = [.. candidates
             .Where(c => c.Segment.Valid)
             .Select(c => Bound(c, boundaries, windowEnd, minimumDuration))
             .OfType<AttributedSegment>()
             .OrderBy(c => c.Segment.Start)];
-        List<AttributedSegment> ordered = [.. bounded.Where(c => !IsUnsupportedFarBeforeTheNext(c, bounded))];
 
+        // Each part remembers whether it holds only keyframe candidates.
         var result = new List<AttributedSegment>(ordered.Count);
+        var keyframeOnly = new List<bool>(ordered.Count);
         foreach (var candidate in ordered)
         {
             if (result.Count > 0 &&
@@ -70,13 +73,30 @@ internal static class CreditsCandidateCombiner
                 result[^1] = new AttributedSegment(
                     new Segment(current.Segment.EpisodeId, new TimeRange(current.Segment.Start, Math.Max(current.Segment.End, candidate.Segment.End))),
                     SegmentSource.Combined);
+                keyframeOnly[^1] &= IsKeyframe(candidate);
                 continue;
             }
 
             result.Add(candidate);
+            keyframeOnly.Add(IsKeyframe(candidate));
         }
 
-        return result;
+        // Latest first, so each part is measured against the nearest part that stays.
+        var kept = new List<AttributedSegment>(result.Count);
+        double? nextStart = null;
+        for (var i = result.Count - 1; i >= 0; i--)
+        {
+            if (keyframeOnly[i] && nextStart is { } next && next - result[i].Segment.End > MaximumStoryBetweenPartsSeconds)
+            {
+                continue;
+            }
+
+            kept.Add(result[i]);
+            nextStart = result[i].Segment.Start;
+        }
+
+        kept.Reverse();
+        return kept;
     }
 
     /// <summary>
@@ -89,21 +109,8 @@ internal static class CreditsCandidateCombiner
     public static bool ReachesWindowEnd(double candidateEnd, double windowEnd, int minimumDuration)
         => candidateEnd > windowEnd - minimumDuration;
 
-    // A keyframe candidate with more story after it than a mid-credits scene leaves before the next
-    // candidate, and no chapter or chromaprint evidence of its own. The latest candidate always stays.
-    private static bool IsUnsupportedFarBeforeTheNext(AttributedSegment candidate, IReadOnlyList<AttributedSegment> candidates)
-    {
-        if (candidate.Source is not (SegmentSource.BlackFrame or SegmentSource.KeyframeVisuals)
-            || candidates.Any(other => other.Source is SegmentSource.Chapter or SegmentSource.Chromaprint
-                && other.Segment.Start < candidate.Segment.End
-                && other.Segment.End > candidate.Segment.Start))
-        {
-            return false;
-        }
-
-        var later = candidates.Where(other => other.Segment.Start > candidate.Segment.Start).Select(other => other.Segment.Start).DefaultIfEmpty().Min();
-        return later > candidate.Segment.Start && later - candidate.Segment.End > MaximumStoryBetweenPartsSeconds;
-    }
+    private static bool IsKeyframe(AttributedSegment candidate)
+        => candidate.Source is SegmentSource.BlackFrame or SegmentSource.KeyframeVisuals;
 
     /// <summary>
     /// Whether one of the hard boundaries caps a non-chapter candidate that starts at
