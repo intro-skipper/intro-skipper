@@ -226,7 +226,13 @@ internal sealed partial class CreditsPass(
                 // After the keyframe scan, so a scan that keeps the standing credits costs no probe.
                 if (hasChromaprintCandidate)
                 {
-                    candidates.Add(new AttributedSegment(await StartOnBlackBeforeAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false), SegmentSource.Chromaprint));
+                    var moved = await StartOnBlackBeforeAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false);
+
+                    // A start moved across a chapter's end would be capped there and could drop the
+                    // credits after it, so it stays on its side of every boundary.
+                    candidates.Add(new AttributedSegment(
+                        CreditsCandidateCombiner.HasBoundaryBetween(candidates, windowEnd, moved.Start, chromaprintCandidate!.Start) ? chromaprintCandidate : moved,
+                        SegmentSource.Chromaprint));
                 }
 
                 var state = await StoreCandidatesAsync(

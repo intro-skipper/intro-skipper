@@ -129,10 +129,14 @@ public class TestTimeRanges
     // The same roll with several regions of other alignments, each given as (lhs start, lhs end,
     // rhs start, rhs end) in list order. The result must not depend on that order.
     [Theory]
-    [InlineData(new double[] { 60, 100, 55, 95, 105, 125, 100, 120 }, 60, 290, 55, 295)]  // the far region joins once the near one has
-    [InlineData(new double[] { 112, 120, 117, 125, 40, 118, 45, 123 }, 40, 290, 45, 295)] // a fragment first does not shut out the region it overlaps
-    [InlineData(new double[] { 40, 118, 45, 123, 112, 120, 117, 125 }, 40, 290, 45, 295)] // the same regions the other way round
-    public void SelectSharedRegion_JoinsCreditsRegionsWhateverTheirOrder(double[] others, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
+    [InlineData(new double[] { 60, 100, 55, 95, 105, 125, 100, 120 }, 1000, 60, 290, 55, 295)]  // the far region joins once the near one has
+    [InlineData(new double[] { 112, 120, 117, 125, 40, 118, 45, 123 }, 1000, 40, 290, 45, 295)] // a fragment first does not shut out the region it overlaps
+    [InlineData(new double[] { 40, 118, 45, 123, 112, 120, 117, 125 }, 1000, 40, 290, 45, 295)] // the same regions the other way round
+    [InlineData(new double[] { 110, 180, 120, 190, 120, 190, 110, 180 }, 1000, 110, 290, 110, 295)] // starts that cross between the episodes both join
+    [InlineData(new double[] { 120, 190, 110, 180, 110, 180, 120, 190 }, 1000, 110, 290, 110, 295)] // the same the other way round
+    [InlineData(new double[] { 295, 320, 300, 325, 60, 125, 65, 130 }, 240, 60, 290, 65, 295)]  // two joins that fit apart but not together: the longer region
+    [InlineData(new double[] { 60, 125, 65, 130, 295, 320, 300, 325 }, 240, 60, 290, 65, 295)]  // the same the other way round
+    public void SelectSharedRegion_JoinsCreditsRegionsWhateverTheirOrder(double[] others, double maximumDuration, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
     {
         var regions = others.Chunk(4).ToArray();
         var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
@@ -141,7 +145,7 @@ public class TestTimeRanges
             Guid.NewGuid(),
             [new TimeRange(135, 295), .. regions.Select(region => new TimeRange(region[2], region[3]))],
             AnalysisMode.Credits,
-            1000);
+            maximumDuration);
 
         Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
         Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));

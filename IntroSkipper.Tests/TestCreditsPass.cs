@@ -631,6 +631,31 @@ public sealed class TestCreditsPass
         }
     }
 
+    // A credits chapter ends 1 s before the shared audio and a black runs across that end. Moved
+    // onto the black, the candidate would be capped at the chapter's end and dropped as too short,
+    // leaving only the roll at 950. Kept, it starts at the chapter's end, where the time adjustment
+    // snaps it.
+    [Fact]
+    public async Task ChromaprintCredits_KeepTheirStartWhenTheBlackCrossesAChapterEnd()
+    {
+        using var scope = Scope();
+        var start = PointTime(SharedAudioFirstPoint);
+        var (episodes, ffmpeg, database) = CreateSeason(
+            chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", start - 1)],
+            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4 - WindowStart, start - 0.2 - WindowStart)] : []);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            Assert.Contains(segments, segment => segment.Source != SegmentSource.Chapter
+                && segment.ToSegment().Start >= start - 1 - 0.001
+                && segment.ToSegment().Start <= start
+                && segment.ToSegment().End == Duration);
+        }
+    }
+
     [Fact]
     public async Task ChromaprintCredits_KeepTheirStartWhenTheBlackProbeFails()
     {
