@@ -20,7 +20,8 @@ public sealed class TestKeyframeAnalyzerFallback
     // The middle scene never has visuals. A scene without visuals before a verified one is not a
     // candidate, every one after the last verified scene is, and with no verified scene only the
     // latest is. Missing visuals after the last verified scene stand in for scenes past the end of
-    // the credits window, where the scan keeps no visuals.
+    // the credits window, where the scan keeps no visuals. The final scene starts 170 s after the
+    // earlier one ends, inside the most story the combiner allows between two parts.
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -40,7 +41,7 @@ public sealed class TestKeyframeAnalyzerFallback
             var time = index * 2.0;
             var earlierScene = time >= 150 && time <= 210;
             var middleScene = time >= 270 && time <= 300;
-            var finalScene = time >= 400;
+            var finalScene = time >= 380;
             var visual = middleScene || (earlierScene && !earlierSceneHasVisuals) || (finalScene && !finalSceneHasVisuals)
                 ? null
                 : earlierScene || finalScene
@@ -62,9 +63,9 @@ public sealed class TestKeyframeAnalyzerFallback
 
         (double Start, double End)[] expected = (earlierSceneHasVisuals, finalSceneHasVisuals) switch
         {
-            (true, true) => [(700, 760), (950, 1000)],
-            (true, false) => [(700, 760), (820, 850), (950, 1000)],
-            _ => [(950, 1000)],
+            (true, true) => [(700, 760), (930, 1000)],
+            (true, false) => [(700, 760), (820, 850), (930, 1000)],
+            _ => [(930, 1000)],
         };
         Assert.Equal(expected, combined.Select(candidate => (candidate.Segment.Start, candidate.Segment.End)));
 

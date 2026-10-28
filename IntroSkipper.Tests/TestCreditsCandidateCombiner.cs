@@ -53,6 +53,36 @@ public class TestCreditsCandidateCombiner
         Assert.Equal((200, 450, SegmentSource.Combined), Shape(Assert.Single(blackFirst)));
     }
 
+    // Candidates as "start-end Source" separated by ";", and the first stored segment. A part made
+    // only of keyframe candidates with more than 180 s of story before the next part that stays
+    // goes, however many pieces it arrived in; a part that merged with a chapter or shared audio
+    // stays, and the latest part always does. A chapter's end caps the black after it.
+    [Theory]
+    [InlineData("10-30 BlackFrame; 200-240 BlackFrame", "10-30 BlackFrame")]                                   // 170 s of story, a mid-credits scene
+    [InlineData("10-30 BlackFrame; 220-260 BlackFrame", "220-260 BlackFrame")]                                 // 190 s: a text screen inside the episode
+    [InlineData("10-30 KeyframeVisuals; 220-260 BlackFrame", "220-260 BlackFrame")]                            // a card run goes the same way
+    [InlineData("6-30 KeyframeVisuals; 10-30 BlackFrame; 220-260 BlackFrame", "220-260 BlackFrame")]           // a screen in two pieces goes whole
+    [InlineData("10-30 BlackFrame; 100-120 BlackFrame; 310-350 BlackFrame", "310-350 BlackFrame")]             // so do two screens before a far roll
+    [InlineData("5-25 Chapter; 10-30 BlackFrame; 220-260 BlackFrame", "5-25 Combined")]                         // a chapter vouches for the black
+    [InlineData("5-25 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "5-30 Combined")]                     // so does shared audio over it
+    [InlineData("0-5 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "0-30 Combined")]                      // or just before it
+    [InlineData("10-30 BlackFrame; 100-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]              // shared audio 70 s later is the next part
+    [InlineData("10-30 Chromaprint; 220-260 BlackFrame", "10-30 Chromaprint")]                                 // only keyframe parts go
+    public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(string candidates, string first)
+    {
+        var result = Combine([.. candidates.Split(';').Select(Parse)]);
+
+        Assert.Equal(Shape(Parse(first)), Shape(result[0]));
+        Assert.Equal(Parse(candidates.Split(';')[^1]).Segment.Start, result[^1].Segment.Start);
+
+        static AttributedSegment Parse(string text)
+        {
+            var parts = text.Trim().Split(' ');
+            var range = parts[0].Split('-').Select(double.Parse).ToArray();
+            return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
+        }
+    }
+
     [Fact]
     public void CandidatesSeparatedByContent_StayApartUnderTheirOwnSources()
     {
