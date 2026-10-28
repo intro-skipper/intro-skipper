@@ -373,8 +373,9 @@ internal sealed partial class CreditsPass(
     /// shared audio, and the match, starts only as the black ends. One blackdetect probe covers
     /// <see cref="BlackBeforeLookBackSeconds"/> before the start; the start moves to the beginning of
     /// the black that ends within <see cref="BlackBeforeToleranceSeconds"/> of it, counting intervals
-    /// within that tolerance of each other as one black. A black that begins where the probe begins
-    /// may have begun earlier, so it moves nothing, and neither does a failed probe.
+    /// within that tolerance of each other as one black. A black that begins within that tolerance of
+    /// where the probe begins may have begun earlier, so it moves nothing, and neither does a failed
+    /// probe. The probe uses the configured black threshold and minimum.
     /// </summary>
     private async Task<Segment> StartOnBlackBeforeAsync(QueuedEpisode episode, Segment candidate, CancellationToken cancellationToken)
     {
@@ -412,7 +413,9 @@ internal sealed partial class CreditsPass(
             reach = start.Value - BlackBeforeToleranceSeconds;
         }
 
-        return start is not { } blackStart || blackStart <= probe.Start
+        // A seek lands blackdetect's first frame up to a frame or more after the probe start, so a
+        // black reported that close to it was already running when the probe began.
+        return start is not { } blackStart || blackStart < probe.Start + BlackBeforeToleranceSeconds
             ? candidate
             : new Segment(candidate.EpisodeId) { Start = blackStart, End = candidate.End };
     }

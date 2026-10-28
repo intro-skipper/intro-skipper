@@ -692,17 +692,20 @@ internal sealed partial class ChromaprintAnalyzer(
 
         // An end-title sequence whose styled part runs a few seconds longer in one episode matches
         // on one alignment and the roll after it on another, so the longest region holds only the
-        // roll. A region of another alignment joins it when it lies before it in both episodes, or
-        // after it in both, within the gap the credits combiner merges across: the combiner would
-        // merge the two were both its candidates. A longer gap in either episode is a scene that
-        // plays between them. Strictly before or after, so a region that joined never joins again.
+        // roll. A region of another alignment joins it when it reaches past the same edge of it in
+        // both episodes, before the start or after the end, within the gap the credits combiner
+        // merges across: the combiner would merge the two were both its candidates. A longer gap in
+        // either episode is a scene that plays between them. A region may overlap the joined one,
+        // so a fragment that joins first never shuts out a longer region behind it, and the result
+        // does not depend on the order of the alignments. Every join moves an edge outward, and a
+        // region inside the joined one reaches past neither edge, so the passes end.
         for (var joined = mode == AnalysisMode.Credits; joined;)
         {
             joined = false;
             for (var i = 0; i < pairCount; i++)
             {
                 var (otherLhs, otherRhs) = (lhsRanges[i], rhsRanges[i]);
-                if (!(Precedes(lhs, otherLhs) && Precedes(rhs, otherRhs)) && !(Precedes(otherLhs, lhs) && Precedes(otherRhs, rhs)))
+                if (!(ExtendsAfter(lhs, otherLhs) && ExtendsAfter(rhs, otherRhs)) && !(ExtendsBefore(lhs, otherLhs) && ExtendsBefore(rhs, otherRhs)))
                 {
                     continue;
                 }
@@ -969,8 +972,13 @@ internal sealed partial class ChromaprintAnalyzer(
     private static double SnappedDuration(double start, double end)
         => end - (start <= StartSnapSeconds ? 0 : start);
 
-    private static bool Precedes(TimeRange first, TimeRange second)
-        => second.Start > first.End && second.Start - first.End <= CreditSceneBuilder.MaximumSceneMergeGapSeconds;
+    // Whether the other region reaches past the region's end, starting at most the merge gap after it.
+    private static bool ExtendsAfter(TimeRange region, TimeRange other)
+        => other.End > region.End && other.Start - region.End <= CreditSceneBuilder.MaximumSceneMergeGapSeconds;
+
+    // Whether the other region reaches before the region's start, ending at most the merge gap before it.
+    private static bool ExtendsBefore(TimeRange region, TimeRange other)
+        => other.Start < region.Start && region.Start - other.End <= CreditSceneBuilder.MaximumSceneMergeGapSeconds;
 
     private static bool Bridges((int Start, int End) left, (int Start, int End) right)
     {

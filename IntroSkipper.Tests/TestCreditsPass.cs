@@ -613,6 +613,9 @@ public sealed class TestCreditsPass
     [InlineData(new[] { -4.0, -1.5 }, 0.0)]              // a black ending over 1 s before moves nothing
     [InlineData(new[] { -20.0, -0.5 }, 0.0)]             // a black from the probe's start may have begun earlier
     [InlineData(new[] { -6.0, -2.5, -0.5, 0.1 }, -0.5)] // a piece over 1 s before the next one is apart
+    [InlineData(new[] { -5.0, -1.3, -1.2, 0.0 }, -5.0)] // a piece ending over 1 s before the start joins through the next one
+    [InlineData(new[] { -19.96, -0.5 }, 0.0)]            // a black a frame after the probe's start may have begun earlier too
+    [InlineData(new[] { 0.3, 0.9 }, 0.0)]                // a black after the start moves nothing
     public async Task ChromaprintCredits_StartOnTheBlackTheyOpenOn(double[] blacks, double expectedOffset)
     {
         using var scope = Scope();

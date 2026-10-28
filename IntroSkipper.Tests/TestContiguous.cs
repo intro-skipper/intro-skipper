@@ -126,6 +126,27 @@ public class TestTimeRanges
         Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
     }
 
+    // The same roll with several regions of other alignments, each given as (lhs start, lhs end,
+    // rhs start, rhs end) in list order. The result must not depend on that order.
+    [Theory]
+    [InlineData(new double[] { 60, 100, 55, 95, 105, 125, 100, 120 }, 60, 290, 55, 295)]  // the far region joins once the near one has
+    [InlineData(new double[] { 112, 120, 117, 125, 40, 118, 45, 123 }, 40, 290, 45, 295)] // a fragment first does not shut out the region it overlaps
+    [InlineData(new double[] { 40, 118, 45, 123, 112, 120, 117, 125 }, 40, 290, 45, 295)] // the same regions the other way round
+    public void SelectSharedRegion_JoinsCreditsRegionsWhateverTheirOrder(double[] others, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
+    {
+        var regions = others.Chunk(4).ToArray();
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), .. regions.Select(region => new TimeRange(region[0], region[1]))],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), .. regions.Select(region => new TimeRange(region[2], region[3]))],
+            AnalysisMode.Credits,
+            1000);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
     /// <summary>
     /// Tests that TimeRange intersections are detected correctly.
     /// Tests each time range against a range of 5 to 10 seconds.
