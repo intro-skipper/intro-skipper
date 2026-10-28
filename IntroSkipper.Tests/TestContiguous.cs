@@ -151,6 +151,30 @@ public class TestTimeRanges
         Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
     }
 
+    // The roll of the theory above with a region before it, 5 s and 15 s away, and a hard boundary in
+    // one episode (-1 for none). A start moved back across a boundary would lose what lies after it;
+    // a region after the roll may still reach past one.
+    [Theory]
+    [InlineData(20, 125, 15, 120, 127, -1, 130, 290, 135, 295)]   // a boundary in the first episode refuses the join
+    [InlineData(20, 125, 15, 120, -1, 128, 130, 290, 135, 295)]   // so does one in the second
+    [InlineData(20, 125, 15, 120, 10, -1, 20, 290, 15, 295)]      // a boundary before the joined region's start is not crossed
+    [InlineData(300, 340, 310, 350, 295, 297, 130, 340, 135, 350)] // a region after the roll joins across one
+    public void SelectSharedRegion_NeverMovesACreditsStartBackAcrossAHardBoundary(double otherLhsStart, double otherLhsEnd, double otherRhsStart, double otherRhsEnd, double lhsBoundary, double rhsBoundary, double expectedLhsStart, double expectedLhsEnd, double expectedRhsStart, double expectedRhsEnd)
+    {
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), new TimeRange(otherLhsStart, otherLhsEnd)],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), new TimeRange(otherRhsStart, otherRhsEnd)],
+            AnalysisMode.Credits,
+            1000,
+            lhsBoundary < 0 ? [] : [lhsBoundary],
+            rhsBoundary < 0 ? [] : [rhsBoundary]);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
     // A longest region of 130-260 s and 131-261 s, leading titles at 0-125 s and a short trailing
     // match at 265-299.8 s and 264.5-299.3 s. Either join fits the 299 s maximum, both together do
     // not, and the leading titles, the longer region, join whichever order the alignments came in.

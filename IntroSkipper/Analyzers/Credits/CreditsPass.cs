@@ -128,7 +128,15 @@ internal sealed partial class CreditsPass(
         {
             try
             {
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus)
+                // A Chromaprint region that joins one before a chapter's end would be capped there
+                // and lose what lies after it, so the comparison gets each episode's hard boundaries,
+                // relative to its credits window, as the combiner will draw them.
+                var hardBoundaries = chapter is null
+                    ? null
+                    : items.ToDictionary(
+                        episode => episode.EpisodeId,
+                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(ChapterCandidates(chapter, episode), episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -183,7 +191,7 @@ internal sealed partial class CreditsPass(
                         continue;
                     }
 
-                    candidates.AddRange(chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter)));
+                    candidates.AddRange(ChapterCandidates(chapter, episode));
                 }
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
@@ -231,7 +239,7 @@ internal sealed partial class CreditsPass(
                     // A start moved across a chapter's end would be capped there and could drop the
                     // credits after it, so it stays on its side of every boundary.
                     candidates.Add(new AttributedSegment(
-                        CreditsCandidateCombiner.HasBoundaryBetween(candidates, windowEnd, moved.Start, chromaprintCandidate!.Start) ? chromaprintCandidate : moved,
+                        CreditsCandidateCombiner.HasBoundaryBetween(CreditsCandidateCombiner.HardBoundaries(candidates, windowEnd), moved.Start, chromaprintCandidate!.Start) ? chromaprintCandidate : moved,
                         SegmentSource.Chromaprint));
                 }
 
@@ -372,6 +380,9 @@ internal sealed partial class CreditsPass(
         ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
             ? ". " + FFmpegProcessRunner.ScanTimeoutHint
             : string.Empty;
+
+    private static List<AttributedSegment> ChapterCandidates(ChapterAnalyzer chapter, QueuedEpisode episode)
+        => [.. chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter))];
 
     /// <summary>
     /// Moves a Chromaprint credits candidate's start back to the black it opens on. Shared end

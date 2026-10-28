@@ -81,20 +81,26 @@ internal static class CreditsCandidateCombiner
         => candidateEnd > windowEnd - minimumDuration;
 
     /// <summary>
-    /// Whether a hard boundary caps a non-chapter candidate that starts at <paramref name="start"/>
-    /// but not one that starts at <paramref name="laterStart"/>, as <see cref="Combine"/> caps them.
+    /// Whether one of the hard boundaries caps a non-chapter candidate that starts at
+    /// <paramref name="start"/> but not one that starts at <paramref name="laterStart"/>, as
+    /// <see cref="Combine"/> caps them.
     /// </summary>
-    /// <param name="candidates">The candidates whose chapter candidates set the hard boundaries.</param>
-    /// <param name="windowEnd">The credits window end, which is never a hard boundary.</param>
+    /// <param name="boundaries">Hard boundaries from <see cref="HardBoundaries"/>, on the same clock as the starts.</param>
     /// <param name="start">The earlier start.</param>
     /// <param name="laterStart">The later start.</param>
     /// <returns><see langword="true"/> when moving a start from <paramref name="laterStart"/> back to <paramref name="start"/> brings a hard boundary inside it.</returns>
-    public static bool HasBoundaryBetween(IReadOnlyList<AttributedSegment> candidates, double windowEnd, double start, double laterStart)
-        => HardBoundaries(candidates, windowEnd).Any(b => b > start + BoundaryTolerance && b <= laterStart + BoundaryTolerance);
+    public static bool HasBoundaryBetween(IReadOnlyList<double> boundaries, double start, double laterStart)
+        => boundaries.Any(b => b > start + BoundaryTolerance && b <= laterStart + BoundaryTolerance);
 
-    // A chapter candidate's end that is not inside another chapter candidate (two adjacent
-    // credits chapters share a boundary that is not a boundary to content) and not the window end.
-    private static List<double> HardBoundaries(IReadOnlyList<AttributedSegment> candidates, double windowEnd)
+    /// <summary>
+    /// The authored credits-to-content boundaries <see cref="Combine"/> caps at: each chapter
+    /// candidate's end that is not inside another chapter candidate (two adjacent credits chapters
+    /// share a boundary that is not a boundary to content) and not the window end.
+    /// </summary>
+    /// <param name="candidates">The candidates; only chapter candidates set boundaries.</param>
+    /// <param name="windowEnd">The credits window end, which is never a hard boundary.</param>
+    /// <returns>The boundaries, in ascending order.</returns>
+    public static List<double> HardBoundaries(IReadOnlyList<AttributedSegment> candidates, double windowEnd)
     {
         List<Segment> chapters = [.. candidates.Where(c => c.Source == SegmentSource.Chapter && c.Segment.Valid).Select(c => c.Segment)];
         return [.. chapters

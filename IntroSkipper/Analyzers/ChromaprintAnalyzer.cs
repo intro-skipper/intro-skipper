@@ -24,13 +24,15 @@ namespace IntroSkipper.Analyzers;
 /// <param name="database">Segment database facade.</param>
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
+/// <param name="hardBoundaries">Per episode, the credits chapter boundaries the credits combiner caps at, relative to the episode's credits window; a cross-alignment join never moves a credits region's start back across one.</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration? configuration = null,
-    bool applyLocalConsensus = false) : IMediaFileAnalyzer
+    bool applyLocalConsensus = false,
+    IReadOnlyDictionary<Guid, IReadOnlyList<double>>? hardBoundaries = null) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
@@ -59,6 +61,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly IntroSkipperDatabase _database = database;
     private readonly bool _applyLocalConsensus = applyLocalConsensus;
+    private readonly IReadOnlyDictionary<Guid, IReadOnlyList<double>>? _hardBoundaries = hardBoundaries;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -624,7 +627,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         if (lhsRanges.Count > 0)
         {
-            return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode, MaximumRegionDuration(Math.Min(lhsPoints.Length, rhsPoints.Length)));
+            return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode, MaximumRegionDuration(Math.Min(lhsPoints.Length, rhsPoints.Length)), HardBoundaries(lhsId), HardBoundaries(rhsId));
         }
 
         LogSharedIntroNotFound(lhsId, rhsId);
@@ -658,6 +661,8 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="rhsRanges">Second episode shared timecodes, index-aligned with <paramref name="lhsRanges"/>.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="maximumDuration">The longest a credits region may grow to by joining, in seconds, measured from its snapped start.</param>
+    /// <param name="lhsBoundaries">The first episode's hard boundaries on the ranges' clock; a join never moves its start back across one.</param>
+    /// <param name="rhsBoundaries">The second episode's, likewise.</param>
     /// <returns>Segments for the first and second episodes; invalid segments when there is no pair.</returns>
     internal static (Segment Lhs, Segment Rhs) SelectSharedRegion(
         Guid lhsId,
@@ -665,7 +670,9 @@ internal sealed partial class ChromaprintAnalyzer(
         Guid rhsId,
         List<TimeRange> rhsRanges,
         AnalysisMode mode,
-        double maximumDuration)
+        double maximumDuration,
+        IReadOnlyList<double>? lhsBoundaries = null,
+        IReadOnlyList<double>? rhsBoundaries = null)
     {
         var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
         if (pairCount == 0)
@@ -717,7 +724,11 @@ internal sealed partial class ChromaprintAnalyzer(
 
                 var joinedLhs = new TimeRange(Math.Min(lhs.Start, otherLhs.Start), Math.Max(lhs.End, otherLhs.End));
                 var joinedRhs = new TimeRange(Math.Min(rhs.Start, otherRhs.Start), Math.Max(rhs.End, otherRhs.End));
-                if (Math.Max(SnappedDuration(joinedLhs.Start, joinedLhs.End), SnappedDuration(joinedRhs.Start, joinedRhs.End)) <= maximumDuration)
+                // The combiner caps a region at a chapter's end after its start, so a start moved
+                // back across one would lose everything after it.
+                if (Math.Max(SnappedDuration(joinedLhs.Start, joinedLhs.End), SnappedDuration(joinedRhs.Start, joinedRhs.End)) <= maximumDuration
+                    && !CreditsCandidateCombiner.HasBoundaryBetween(lhsBoundaries ?? [], joinedLhs.Start, lhs.Start)
+                    && !CreditsCandidateCombiner.HasBoundaryBetween(rhsBoundaries ?? [], joinedRhs.Start, rhs.Start))
                 {
                     (lhs, rhs) = (joinedLhs, joinedRhs);
                     others.Remove(i);
@@ -966,6 +977,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     // The bound GetMaximumSegmentDuration later applies to a match. A credits fingerprint covers
     // the credits window, whose length stands in for the episode's window minus 1 s.
+    private IReadOnlyList<double> HardBoundaries(Guid episodeId)
+        => _hardBoundaries?.GetValueOrDefault(episodeId) ?? [];
+
     private double MaximumRegionDuration(int fingerprintLength)
         => _analysisMode switch
         {

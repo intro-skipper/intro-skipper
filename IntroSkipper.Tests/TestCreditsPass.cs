@@ -39,6 +39,7 @@ public sealed class TestCreditsPass
     private const double WindowStart = Duration - 450;
     private const double BlackStart = 950;
     private const int SharedAudioFirstPoint = 1600;
+    private const int TitlesFirstPoint = 1300;
     private const int DefaultSharedAudioLastPoint = 3499;
 
     // The cut decode of the default roll, over the gap from the keyframe before it.
@@ -656,6 +657,42 @@ public sealed class TestCreditsPass
         }
     }
 
+    // The titles match on another alignment than the roll, 12 s and 17 s before it, and join it.
+    [Fact]
+    public async Task TitlesOnAnotherAlignment_JoinTheRoll()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(fingerprints: TitlesThenRoll);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(PointTime(TitlesFirstPoint), Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).ToSegment().Start, 0.5);
+        Assert.Equal(PointTime(TitlesFirstPoint - 40), Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).ToSegment().Start, 0.5);
+    }
+
+    // The same titles, with a credits chapter ending between them and the roll. Joined, the region
+    // would start before the chapter's end, be capped there and lose the roll; it keeps the roll.
+    [Fact]
+    public async Task TitlesOnAnotherAlignment_NeverJoinTheRollAcrossAChapterEnd()
+    {
+        using var scope = Scope();
+        var boundary = PointTime(1550);
+        var (episodes, ffmpeg, database) = CreateSeason(
+            fingerprints: TitlesThenRoll,
+            chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", boundary)]);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            Assert.Contains(segments, segment => segment.Source != SegmentSource.Chapter
+                && segment.ToSegment().Start >= boundary - 0.001
+                && segment.ToSegment().Start <= PointTime(SharedAudioFirstPoint) + 0.001
+                && segment.ToSegment().End == Duration);
+        }
+    }
+
     [Fact]
     public async Task ChromaprintCredits_KeepTheirStartWhenTheBlackProbeFails()
     {
@@ -1212,7 +1249,8 @@ public sealed class TestCreditsPass
         Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? cutDecode = null,
         Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? keyFrames = null,
         ChapterInfo[]? chapters = null,
-        Func<TimeRange, BlackInterval[]>? blackIntervals = null)
+        Func<TimeRange, BlackInterval[]>? blackIntervals = null,
+        Func<QueuedEpisode, uint[]>? fingerprints = null)
     {
         var seasonId = Guid.NewGuid();
         var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
@@ -1223,7 +1261,7 @@ public sealed class TestCreditsPass
         {
             Fingerprints = (episode, _) => fingerprintFailure?.Invoke(episode) is { } failure
                 ? throw failure
-                : SharedAudioFingerprint(episode, sharedAudioLastPoint),
+                : fingerprints?.Invoke(episode) ?? SharedAudioFingerprint(episode, sharedAudioLastPoint),
             KeyframeScan = (episode, _) => scanFailure?.Invoke(episode) is { } failure
                 ? throw failure
                 : ScanOf(episode, scanSpans),
@@ -1266,6 +1304,20 @@ public sealed class TestCreditsPass
     /// Fingerprints that share one region so the chromaprint comparison finds exactly one
     /// shift; everything outside it differs in at least eight bits between any two episodes.
     /// </summary>
+    // Styled titles shared at points 1300-1499 in episode 1 and 1260-1459 in episode 2, a second
+    // alignment, and the default roll from SharedAudioFirstPoint on the first.
+    private static uint[] TitlesThenRoll(QueuedEpisode episode)
+    {
+        var points = SharedAudioFingerprint(episode, DefaultSharedAudioLastPoint);
+        var titlesStart = episode.EpisodeNumber == 1 ? TitlesFirstPoint : TitlesFirstPoint - 40;
+        for (var k = 0; k < 200; k++)
+        {
+            points[titlesStart + k] = 0x50000000u + ((uint)k * 104729u);
+        }
+
+        return points;
+    }
+
     private static uint[] SharedAudioFingerprint(QueuedEpisode episode, int sharedAudioLastPoint)
     {
         var mask = 0x11111111u * (uint)episode.EpisodeNumber;
