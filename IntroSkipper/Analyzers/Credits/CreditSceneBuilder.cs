@@ -77,10 +77,10 @@ internal static class CreditSceneBuilder
                 continue;
             }
 
-            var span = new CreditScene(first.StartFrame, last.EndFrame, first.StartTime, last.EndTime);
+            var span = new CreditScene(first.StartIndex, last.EndIndex, first.StartTime, last.EndTime);
             scenes.Add(new CreditScene(
-                FindStartFrame(frames, span, startTime, minimum),
-                FindEndFrame(frames, span, endTime, minimum),
+                FindStartIndex(frames, span, startTime, minimum),
+                FindEndIndex(frames, span, endTime, minimum),
                 startTime,
                 endTime));
         }
@@ -100,38 +100,32 @@ internal static class CreditSceneBuilder
     public static List<CreditScene> FindRawScenes(List<BlackFrame> frames, int minimum)
     {
         var scenes = new List<CreditScene>();
-        BlackFrame? sceneStart = null;
-        BlackFrame? lastBlack = null;
+        var sceneStart = -1;
+        var lastBlack = -1;
 
         for (var i = 0; i < frames.Count; i++)
         {
-            var frame = frames[i];
-            var isBlack = frame.Percentage >= minimum;
-
-            if (!isBlack)
+            if (frames[i].Percentage < minimum)
             {
                 continue;
             }
 
-            if (sceneStart is null || lastBlack is null)
+            if (sceneStart < 0)
             {
-                sceneStart = frame;
-                lastBlack = frame;
-                continue;
+                sceneStart = i;
+            }
+            else if (frames[i].Time - frames[lastBlack].Time > MaximumSceneMergeGapSeconds)
+            {
+                scenes.Add(new CreditScene(sceneStart, lastBlack, frames[sceneStart].Time, frames[lastBlack].Time));
+                sceneStart = i;
             }
 
-            if (frame.Time - lastBlack.Time > MaximumSceneMergeGapSeconds)
-            {
-                scenes.Add(new CreditScene(sceneStart.Frame, lastBlack.Frame, sceneStart.Time, lastBlack.Time));
-                sceneStart = frame;
-            }
-
-            lastBlack = frame;
+            lastBlack = i;
         }
 
-        if (sceneStart is not null && lastBlack is not null)
+        if (sceneStart >= 0)
         {
-            scenes.Add(new CreditScene(sceneStart.Frame, lastBlack.Frame, sceneStart.Time, lastBlack.Time));
+            scenes.Add(new CreditScene(sceneStart, lastBlack, frames[sceneStart].Time, frames[lastBlack].Time));
         }
 
         return scenes;
@@ -142,26 +136,17 @@ internal static class CreditSceneBuilder
         var finalScenes = new List<CreditScene>(scenes.Count);
         foreach (var scene in scenes)
         {
-            var startFrame = scene.StartFrame;
-            var startTime = scene.StartTime;
-
-            for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
+            var shifted = scene;
+            for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
             {
-                var frame = frames[i];
-                if (frame.Frame > scene.EndFrame)
+                if (frames[i].Percentage >= sceneChange)
                 {
-                    break;
-                }
-
-                if (frame.Percentage >= sceneChange)
-                {
-                    startFrame = frame.Frame;
-                    startTime = frame.Time;
+                    shifted = scene with { StartIndex = i, StartTime = frames[i].Time };
                     break;
                 }
             }
 
-            finalScenes.Add(new CreditScene(startFrame, scene.EndFrame, startTime, scene.EndTime));
+            finalScenes.Add(shifted);
         }
 
         return finalScenes;
@@ -173,43 +158,31 @@ internal static class CreditSceneBuilder
     private static bool HasMinimumDuration(double startTime, double endTime, int minimumDuration)
         => endTime - startTime >= minimumDuration;
 
-    private static int FindStartFrame(List<BlackFrame> frames, CreditScene scene, double startTime, int minimum)
+    private static int FindStartIndex(List<BlackFrame> frames, CreditScene scene, double startTime, int minimum)
     {
-        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
+        for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
         {
-            var frame = frames[i];
-            if (frame.Frame > scene.EndFrame)
+            if (frames[i].Time >= startTime && frames[i].Percentage >= minimum)
             {
-                break;
-            }
-
-            if (frame.Time >= startTime && frame.Percentage >= minimum)
-            {
-                return frame.Frame;
+                return i;
             }
         }
 
-        return scene.EndFrame;
+        return scene.EndIndex;
     }
 
-    private static int FindEndFrame(List<BlackFrame> frames, CreditScene scene, double endTime, int minimum)
+    private static int FindEndIndex(List<BlackFrame> frames, CreditScene scene, double endTime, int minimum)
     {
-        var endFrame = scene.StartFrame;
-        for (var i = CreditSceneMetricsCalculator.FirstIndexAtOrAfterFrame(frames, scene.StartFrame); i < frames.Count; i++)
+        var endIndex = scene.StartIndex;
+        for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
         {
-            var frame = frames[i];
-            if (frame.Frame > scene.EndFrame)
+            if (frames[i].Time <= endTime && frames[i].Percentage >= minimum)
             {
-                break;
-            }
-
-            if (frame.Time <= endTime && frame.Percentage >= minimum)
-            {
-                endFrame = frame.Frame;
+                endIndex = i;
             }
         }
 
-        return endFrame;
+        return endIndex;
     }
 
     private static BlackInterval? FindSupportingInterval(
