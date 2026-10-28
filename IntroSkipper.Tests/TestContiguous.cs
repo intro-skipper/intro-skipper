@@ -151,6 +151,30 @@ public class TestTimeRanges
         Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
     }
 
+    // A longest region of 130-260 s and 131-261 s, leading titles at 0-125 s and a short trailing
+    // match at 265-299.8 s and 264.5-299.3 s. Either join fits the 299 s maximum, both together do
+    // not, and the leading titles, the longer region, join whichever order the alignments came in.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SelectSharedRegion_PrefersTheLongerOfTwoJoinsThatOnlyFitApart(bool leadingFirst)
+    {
+        (TimeRange Lhs, TimeRange Rhs) leading = (new TimeRange(0, 125), new TimeRange(0, 125));
+        (TimeRange Lhs, TimeRange Rhs) trailing = (new TimeRange(265, 299.8), new TimeRange(264.5, 299.3));
+        var others = leadingFirst ? new[] { leading, trailing } : [trailing, leading];
+
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 260), .. others.Select(other => other.Lhs)],
+            Guid.NewGuid(),
+            [new TimeRange(131, 261), .. others.Select(other => other.Rhs)],
+            AnalysisMode.Credits,
+            299);
+
+        Assert.Equal((0.0, 260.0), (left.Start, left.End));
+        Assert.Equal((0.0, 261.0), (right.Start, right.End));
+    }
+
     /// <summary>
     /// Tests that TimeRange intersections are detected correctly.
     /// Tests each time range against a range of 5 to 10 seconds.
