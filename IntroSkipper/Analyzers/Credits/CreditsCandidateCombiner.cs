@@ -15,7 +15,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// within <see cref="CreditSceneBuilder.MaximumSceneMergeGapSeconds"/> of each other
 /// merge into one segment from the earliest start to the latest end under
 /// <see cref="SegmentSource.Combined"/>. Candidates farther apart are emitted separately
-/// under their own source. Order carries no information: shared audio before, inside or
+/// under their own source, except a part made only of keyframe candidates with minutes of story
+/// after it (see <see cref="Combine"/>). Order carries no information: shared audio before, inside or
 /// after a black run merges the same way, and a union only grows, so a chapter range is
 /// never shortened.
 /// </remarks>
@@ -24,6 +25,10 @@ internal static class CreditsCandidateCombiner
     // Chapter starts are rounded to ticks; half a second absorbs that and keyframe jitter.
     private const double BoundaryTolerance = 0.5;
 
+    // The most story a mid-credits or post-credits scene leaves between two credits parts. The widest
+    // in the measured corpus is 132 s.
+    private const double MaximumStoryBetweenPartsSeconds = 180;
+
     /// <summary>
     /// Combines the candidates of one episode.
     /// </summary>
@@ -31,7 +36,12 @@ internal static class CreditsCandidateCombiner
     /// The end of a chapter credits candidate is an authored credits-to-content boundary: the
     /// next chapter, such as a named preview, starts there. No candidate extends or merges
     /// across it, and a black-frame or chromaprint candidate reaching past it is capped
-    /// there. Later chapter markers carry no such meaning.
+    /// there. Later chapter markers carry no such meaning. After merging, a part made only of
+    /// keyframe candidates that ends more than <see cref="MaximumStoryBetweenPartsSeconds"/> before
+    /// the next part that stays starts is dropped: a lettered black scene inside the episode, such as
+    /// a text screen, reads as credits to the keyframe analyzer, but minutes of story follow it, more
+    /// than any mid-credits scene leaves between two parts. A part that merged with a chapter or
+    /// chromaprint candidate stays, and so does the latest part.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
@@ -50,7 +60,9 @@ internal static class CreditsCandidateCombiner
             .OfType<AttributedSegment>()
             .OrderBy(c => c.Segment.Start)];
 
+        // Each part remembers whether it holds only keyframe candidates.
         var result = new List<AttributedSegment>(ordered.Count);
+        var keyframeOnly = new List<bool>(ordered.Count);
         foreach (var candidate in ordered)
         {
             if (result.Count > 0 &&
@@ -61,13 +73,30 @@ internal static class CreditsCandidateCombiner
                 result[^1] = new AttributedSegment(
                     new Segment(current.Segment.EpisodeId, new TimeRange(current.Segment.Start, Math.Max(current.Segment.End, candidate.Segment.End))),
                     SegmentSource.Combined);
+                keyframeOnly[^1] &= IsKeyframe(candidate);
                 continue;
             }
 
             result.Add(candidate);
+            keyframeOnly.Add(IsKeyframe(candidate));
         }
 
-        return result;
+        // Latest first, so each part is measured against the nearest part that stays.
+        var kept = new List<AttributedSegment>(result.Count);
+        double? nextStart = null;
+        for (var i = result.Count - 1; i >= 0; i--)
+        {
+            if (keyframeOnly[i] && nextStart is { } next && next - result[i].Segment.End > MaximumStoryBetweenPartsSeconds)
+            {
+                continue;
+            }
+
+            kept.Add(result[i]);
+            nextStart = result[i].Segment.Start;
+        }
+
+        kept.Reverse();
+        return kept;
     }
 
     /// <summary>
@@ -79,6 +108,9 @@ internal static class CreditsCandidateCombiner
     /// <returns><see langword="true"/> if the candidate reaches the window end for combination purposes; otherwise, <see langword="false"/>.</returns>
     public static bool ReachesWindowEnd(double candidateEnd, double windowEnd, int minimumDuration)
         => candidateEnd > windowEnd - minimumDuration;
+
+    private static bool IsKeyframe(AttributedSegment candidate)
+        => candidate.Source is SegmentSource.BlackFrame or SegmentSource.KeyframeVisuals;
 
     /// <summary>
     /// Whether one of the hard boundaries caps a non-chapter candidate that starts at
