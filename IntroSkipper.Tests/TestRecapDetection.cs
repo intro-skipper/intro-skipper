@@ -28,7 +28,8 @@ public class TestRecapDetection
             lhs,
             Guid.NewGuid(),
             rhs,
-            AnalysisMode.Introduction);
+            AnalysisMode.Introduction,
+            double.MaxValue);
 
         Assert.Equal(40, lhsSegment.Start);
         Assert.Equal(65, lhsSegment.End);
@@ -44,7 +45,8 @@ public class TestRecapDetection
             lhs,
             Guid.NewGuid(),
             rhs,
-            AnalysisMode.Recap);
+            AnalysisMode.Recap,
+            double.MaxValue);
 
         Assert.Equal(10, lhsSegment.Start);
         Assert.Equal(16, lhsSegment.End);
@@ -63,7 +65,8 @@ public class TestRecapDetection
             [],
             rhsId,
             [],
-            AnalysisMode.Recap);
+            AnalysisMode.Recap,
+            double.MaxValue);
 
         Assert.Equal(lhsId, lhsSegment.EpisodeId);
         Assert.Equal(rhsId, rhsSegment.EpisodeId);

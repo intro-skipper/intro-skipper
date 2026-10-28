@@ -91,6 +91,41 @@ public class TestTimeRanges
         Assert.Equal((expectedEndSample + shift) * ChromaprintConstants.SampleDuration, right.End);
     }
 
+    // The longest region, a roll, sits at 130-290 s in one episode and 135-295 s in the other.
+    // The second region matched on another alignment, as a styled end-title sequence of a
+    // different length per episode does before the roll.
+    [Theory]
+    [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 1000, 20, 290, 15, 295)]     // 5 s and 15 s gaps before: joined
+    [InlineData(AnalysisMode.Credits, 300, 340, 310, 350, 1000, 130, 340, 135, 350)] // 10 s and 15 s gaps after: joined
+    [InlineData(AnalysisMode.Credits, 20, 125, 5, 110, 1000, 130, 290, 135, 295)]    // 25 s gap in one episode: a scene between, kept apart
+    [InlineData(AnalysisMode.Credits, 20, 125, 300, 405, 1000, 130, 290, 135, 295)]  // before the roll in one episode, after it in the other
+    [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 250, 130, 290, 135, 295)]    // the joined region would pass the maximum
+    [InlineData(AnalysisMode.Credits, 6, 125, 2, 120, 294, 130, 290, 135, 295)]      // 293 s, but 295 s once its 2 s start snaps to 0
+    [InlineData(AnalysisMode.Introduction, 20, 125, 15, 120, 1000, 130, 290, 135, 295)] // only credits join across alignments
+    public void SelectSharedRegion_JoinsCreditsRegionsOfTwoAlignmentsWithinTheMergeGap(
+        AnalysisMode mode,
+        double otherLhsStart,
+        double otherLhsEnd,
+        double otherRhsStart,
+        double otherRhsEnd,
+        double maximumDuration,
+        double expectedLhsStart,
+        double expectedLhsEnd,
+        double expectedRhsStart,
+        double expectedRhsEnd)
+    {
+        var (left, right) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            [new TimeRange(130, 290), new TimeRange(otherLhsStart, otherLhsEnd)],
+            Guid.NewGuid(),
+            [new TimeRange(135, 295), new TimeRange(otherRhsStart, otherRhsEnd)],
+            mode,
+            maximumDuration);
+
+        Assert.Equal((expectedLhsStart, expectedLhsEnd), (left.Start, left.End));
+        Assert.Equal((expectedRhsStart, expectedRhsEnd), (right.Start, right.End));
+    }
+
     /// <summary>
     /// Tests that TimeRange intersections are detected correctly.
     /// Tests each time range against a range of 5 to 10 seconds.
