@@ -419,6 +419,29 @@ public class TestFFmpegService
         Assert.True(capture.Stderr.Length <= 10_000);
     }
 
+    [FactSkipFFmpegTests]
+    public async Task ProbeAudioDurationAsync_ReadsANineDigitMatroskaDurationTag()
+    {
+        // ffmpeg's Matroska muxer, like mkvmerge, writes no stream duration and a DURATION tag
+        // such as 00:00:03.500000000.
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-audio.mkv");
+        try
+        {
+            await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+                "ffmpeg",
+                ["-y", "-v", "error", "-f", "lavfi", "-i", "sine=d=3.5", "-c:a", "flac", path]);
+
+            var duration = await CreateFFmpegService().ProbeAudioDurationAsync(path);
+
+            Assert.NotNull(duration);
+            Assert.Equal(3.5, duration.Value, 0.01);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>>? versionProbe = null, TimeSpan? versionProbeTimeout = null)
         => FfmpegTestHelpers.CreateFFmpegService(versionProbe, versionProbeTimeout);
 }
