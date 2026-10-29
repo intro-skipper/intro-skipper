@@ -85,15 +85,13 @@ internal sealed partial class KeyframeAnalyzer(
         // keyframes inert.
         var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
 
-        // Scene building reads the pages' rows through this list, index-aligned with the pages.
-        List<BlackFrame> sceneFrames = [.. pages.Select(page => page.Frame)];
-        var (blackMinimum, sceneChange) = sceneFrames.Count > 0
-            ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, _config.BlackFrameMinimumPercentage)
-            : (_config.BlackFrameMinimumPercentage, _config.BlackFrameMinimumPercentage);
-        var scan = new KeyframeScan(pages, blackMinimum);
-        var (credits, scenes, rejected) = sceneFrames.Count > 0
-            ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, scan, sceneChange, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, cancellationToken).ConfigureAwait(false)
-            : ([], [], []);
+        if (pages.Length == 0)
+        {
+            return [];
+        }
+
+        var scan = KeyframeScan.Normalize(pages, _config.BlackFrameMinimumPercentage);
+        var (credits, scenes, rejected) = await DetectBlackFrameCreditsAsync(episode, scan, cancellationToken).ConfigureAwait(false);
 
         List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
         if (_config.DetectNonBlackCredits)
@@ -146,7 +144,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// visuals alone decide, as the old fallback did, so black cards the black-frame rules could
     /// not confirm still count unless they were rejected.
     /// </remarks>
-    /// <param name="scan">The keyframe scan, whose pages are ordered by time and whose black minimum says which are black. A page without a visual gets no kind.</param>
+    /// <param name="scan">The keyframe scan. A page without a visual gets no kind.</param>
     /// <param name="accepted">Every black scene the black-frame rules accepted, from its refined start to its roll end, relative to the credits fingerprint start; empty when no scene met the minimum duration.</param>
     /// <param name="rejected">The lead-ins and the scenes the lettering gate rejected as gaps, relative to the credits fingerprint start.</param>
     /// <returns>One card page for each page that has a visual, in page order.</returns>
@@ -179,50 +177,15 @@ internal sealed partial class KeyframeAnalyzer(
     /// Detects credits from black-frame keyframe evidence, with optional blackdetect interval recovery and cut starts.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="blackFrames">The keyframe scan's black-frame rows, index-aligned with its pages.</param>
     /// <param name="scan">The keyframe scan.</param>
-    /// <param name="sceneChange">The black percentage that marks the transition into credits, normalized against the scan.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
-    /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>The black-frame candidates in file time, one for each probed scene whose range from its start before the cut start to its roll end meets the minimum duration, starting at its refined start; every probed scene, which is each verified scene and every scene after the last of them, or with none verified the scenes walked latest first down to the candidate, relative to the credits fingerprint start and each with its refined start and roll end, or an empty list when no scene met the minimum duration; and the lead-ins and the scenes the lettering gate rejected as gaps.</returns>
-    private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, KeyframeScan scan, int sceneChange, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    private async Task<(List<Segment> Credits, List<TimeRange> Scenes, List<TimeRange> Rejected)> DetectBlackFrameCreditsAsync(QueuedEpisode episode, KeyframeScan scan, CancellationToken cancellationToken)
     {
-        var minimum = scan.BlackMinimum;
-        var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
-        if (scenes.Count == 0)
-        {
-            var candidates = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
-            if (candidates.Count == 0)
-            {
-                return ([], [], []);
-            }
-
-            var blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
-            scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, candidates, blackIntervals, minimum, minimumDuration);
-            if (scenes.Count == 0)
-            {
-                return ([], [], []);
-            }
-        }
-        else if (scenes.Any(scene => CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration)))
-        {
-            // Run the blackdetect interval probe over every scene. When it confirms any run, keep
-            // dense scenes unchanged and add the scenes the intervals make of the runs outside them.
-            // If it confirms none, keep the scenes as they are.
-            var blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, scenes, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
-            var runs = CreditSceneBuilder.FindRawScenes(blackFrames, minimum);
-            if (CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, runs, blackIntervals, minimum, minimumDuration).Count > 0)
-            {
-                var denseScenes = scenes
-                    .Where(scene => !CreditSceneMetricsCalculator.Calculate(blackFrames, scene, minimum).IsSparse(scene, minimumDuration))
-                    .ToList();
-                List<CreditScene> runsOutsideDenseScenes = [.. runs.Where(run => !denseScenes.Any(dense => run.StartIndex <= dense.EndIndex && run.EndIndex >= dense.StartIndex))];
-                scenes = [.. denseScenes
-                    .Concat(CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, runsOutsideDenseScenes, blackIntervals, minimum, minimumDuration))
-                    .OrderBy(scene => scene.StartIndex)];
-            }
-        }
+        var minimumDuration = _config.MinimumCreditsDuration;
+        var scenes = await scan.ScenesAsync(
+            minimumDuration,
+            candidates => DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, scan.BlackMinimum, cancellationToken)).ConfigureAwait(false);
 
         // A dim last shot before the cut to the roll is black to the blackframe filter, and by the
         // statistics the scan keeps it is the same shape as a credit page on a lifted black. The
@@ -470,30 +433,27 @@ internal sealed partial class KeyframeAnalyzer(
     }
 
     /// <summary>
-    /// Runs targeted blackdetect scans for candidate ranges and converts failures into an empty result.
+    /// Runs targeted blackdetect scans at the configured threshold for candidate ranges and converts
+    /// failures into an empty result.
     /// </summary>
     /// <param name="episode">The episode being analyzed.</param>
     /// <param name="candidates">The candidate scenes that bound interval probes.</param>
-    /// <param name="threshold">The FFmpeg blackdetect threshold.</param>
     /// <param name="minimum">The black-frame percentage threshold, passed through to blackdetect pic_th so interval confirmation uses the same definition of "black" as the keyframe pass.</param>
-    /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <param name="cancellationToken">The token used to cancel FFmpeg probing.</param>
     /// <returns>The detected black intervals, or an empty array when interval detection is unavailable.</returns>
     private async Task<BlackInterval[]> DetectBlackIntervalsForCandidatesOrEmptyAsync(
         QueuedEpisode episode,
         IReadOnlyList<CreditScene> candidates,
-        int threshold,
         int minimum,
-        int minimumDuration,
         CancellationToken cancellationToken)
     {
         try
         {
             var intervals = new List<BlackInterval>();
             var (fingerprintStart, fingerprintEnd) = episode.GetFingerprintRange(AnalysisMode.Credits);
-            foreach (var range in BuildIntervalProbeRanges(candidates, minimumDuration, fingerprintStart, fingerprintEnd))
+            foreach (var range in BuildIntervalProbeRanges(candidates, _config.MinimumCreditsDuration, fingerprintStart, fingerprintEnd))
             {
-                intervals.AddRange(await _ffmpegService.DetectBlackIntervalsAsync(episode, range, threshold, minimum, cancellationToken).ConfigureAwait(false));
+                intervals.AddRange(await _ffmpegService.DetectBlackIntervalsAsync(episode, range, _config.BlackFrameThreshold, minimum, cancellationToken).ConfigureAwait(false));
             }
 
             return [.. intervals];

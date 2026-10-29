@@ -995,7 +995,7 @@ internal sealed partial class ChromaprintAnalyzer(
     // Whether something ending at the first time and something starting at the second lie at most
     // the merge gap apart; an overlap reaches too.
     private static bool Reaches(double end, double start)
-        => start - end <= CreditSceneBuilder.MaximumSceneMergeGapSeconds;
+        => start - end <= KeyframeScan.MaximumSceneMergeGapSeconds;
 
     private static bool Bridges((int Start, int End) left, (int Start, int End) right)
     {
