@@ -212,8 +212,6 @@ internal sealed partial class ChapterAnalyzer(
 
     /// <summary>
     /// Finds the episode's chapter matches for the mode without adjusting times or writing.
-    /// The credits pass trusts credits matches that no story follows unless chapter enhancement
-    /// is enabled (see <c>CreditsPass.AuthoritativeChapterMatches</c>).
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
