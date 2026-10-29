@@ -42,7 +42,7 @@ internal sealed partial class CreditsPass(
 
     // How far before a Chromaprint start the black it opens on may begin, and how far from the
     // start that black may end (see StartOnBlackBeforeAsync).
-    private const double BlackBeforeLookBackSeconds = KeyframeScan.MaximumSceneMergeGapSeconds;
+    private const double BlackBeforeLookBackSeconds = 20;
     private const double BlackBeforeToleranceSeconds = 1;
 
     private readonly ILogger<CreditsPass> _logger = loggerFactory.CreateLogger<CreditsPass>();
@@ -145,12 +145,12 @@ internal sealed partial class CreditsPass(
             {
                 // A Chromaprint region that joins one before a chapter's end would be capped there
                 // and lose what lies after it, so the comparison gets each episode's hard boundaries,
-                // relative to its credits window, as the combiner will draw them.
+                // shifted onto its fingerprint clock.
                 var hardBoundaries = chapter is null
                     ? null
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
-                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(ChapterCreditsOf(chapter, episode).Candidates, episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
+                        episode => (IReadOnlyList<double>)[.. ChapterCreditsOf(chapter, episode).HardBoundaries.Select(boundary => boundary - episode.CreditsFingerprintStart)]);
                 (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
@@ -197,6 +197,7 @@ internal sealed partial class CreditsPass(
             try
             {
                 var candidates = new List<AttributedSegment>();
+                IReadOnlyList<double> boundaries = [];
                 if (chapter is not null)
                 {
                     var credits = ChapterCreditsOf(chapter, episode);
@@ -209,6 +210,7 @@ internal sealed partial class CreditsPass(
                     }
 
                     candidates.AddRange(credits.Candidates);
+                    boundaries = credits.HardBoundaries;
                 }
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
@@ -252,12 +254,8 @@ internal sealed partial class CreditsPass(
                 // After the keyframe scan, so a scan that keeps the standing credits costs no probe.
                 if (hasChromaprintCandidate)
                 {
-                    var moved = await StartOnBlackBeforeAsync(episode, chromaprintCandidate!, cancellationToken).ConfigureAwait(false);
-
-                    // A start moved across a chapter's end would be capped there and could drop the
-                    // credits after it, so it stays on its side of every boundary.
                     candidates.Add(new AttributedSegment(
-                        CreditsCandidateCombiner.HasBoundaryBetween(CreditsCandidateCombiner.HardBoundaries(candidates, windowEnd), moved.Start, chromaprintCandidate!.Start) ? chromaprintCandidate : moved,
+                        await StartOnBlackBeforeAsync(episode, chromaprintCandidate!, boundaries, cancellationToken).ConfigureAwait(false),
                         SegmentSource.Chromaprint));
                 }
 
@@ -326,8 +324,8 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Finds the episode's credits chapter matches and whether they settle it without combined
-    /// detection: enhancement is off, a chapter matched and no story follows it.
+    /// Finds the episode's credits chapter matches, the hard boundaries they draw, and whether they
+    /// settle it without combined detection: enhancement is off, a chapter matched and no story follows it.
     /// </summary>
     /// <remarks>
     /// Story follows when at least the minimum credits duration runs from the end of the matches
@@ -340,15 +338,16 @@ internal sealed partial class CreditsPass(
     private ChapterCredits FindChapterCredits(ChapterAnalyzer chapter, QueuedEpisode episode)
     {
         var matches = chapter.FindChapterCandidates(episode, Mode);
+        var windowEnd = episode.GetFingerprintRange(Mode).End;
+        var hardBoundaries = CreditsCandidateCombiner.HardBoundaries(matches, windowEnd);
         if (_config.EnhanceChapterCredits || matches.Count == 0)
         {
-            return new ChapterCredits(matches, Settles: false);
+            return new ChapterCredits(matches, Settles: false, hardBoundaries);
         }
 
         var end = matches.Max(m => m.End);
-        var windowEnd = episode.GetFingerprintRange(Mode).End;
         var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
-        return new ChapterCredits(matches, Settles: storyEnd - end < _config.MinimumCreditsDuration);
+        return new ChapterCredits(matches, Settles: storyEnd - end < _config.MinimumCreditsDuration, hardBoundaries);
     }
 
     /// <summary>
@@ -407,9 +406,11 @@ internal sealed partial class CreditsPass(
     /// the black that ends within <see cref="BlackBeforeToleranceSeconds"/> of it, counting intervals
     /// within that tolerance of each other as one black. A black that begins within that tolerance of
     /// where the probe begins may have begun earlier, so it moves nothing, and neither does a failed
-    /// probe. The probe uses the configured black threshold and minimum.
+    /// probe or a black that crosses one of the episode's hard <paramref name="boundaries"/>, where the
+    /// combiner would cap the moved candidate and could drop it. The probe uses the configured black
+    /// threshold and minimum.
     /// </summary>
-    private async Task<Segment> StartOnBlackBeforeAsync(QueuedEpisode episode, Segment candidate, CancellationToken cancellationToken)
+    private async Task<Segment> StartOnBlackBeforeAsync(QueuedEpisode episode, Segment candidate, IReadOnlyList<double> boundaries, CancellationToken cancellationToken)
     {
         var (windowStart, _) = episode.GetFingerprintRange(Mode);
         var probe = new TimeRange(Math.Max(windowStart, candidate.Start - BlackBeforeLookBackSeconds), candidate.Start + BlackBeforeToleranceSeconds);
@@ -449,6 +450,7 @@ internal sealed partial class CreditsPass(
         // A seek lands blackdetect's first frame up to a frame or more after the probe start, so a
         // black reported that close to it was already running when the probe began.
         return start is not { } blackStart || blackStart < probe.Start + BlackBeforeToleranceSeconds
+            || !CreditsCandidateCombiner.SameCap(boundaries, blackStart, candidate.Start)
             ? candidate
             : new Segment(candidate.EpisodeId) { Start = blackStart, End = candidate.End };
     }
@@ -471,7 +473,7 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
     private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 
-    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, bool Settles)
+    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, bool Settles, IReadOnlyList<double> HardBoundaries)
     {
         public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
     }

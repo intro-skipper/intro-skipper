@@ -655,6 +655,27 @@ public sealed class TestCreditsPass
         }
     }
 
+    // The chapter end sits inside the black probe's look-back; a black after it still moves the start.
+    [Fact]
+    public async Task ChromaprintCredits_StartOnTheBlackAfterAChapterEnd()
+    {
+        using var scope = Scope();
+        var start = PointTime(SharedAudioFirstPoint);
+        var (episodes, ffmpeg, database) = CreateSeason(
+            chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", start - 15)],
+            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4 - WindowStart, start - 0.2 - WindowStart)] : []);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segments = await database.GetSegmentsAsync(episode.EpisodeId);
+            Assert.Contains(segments, segment => segment.Source != SegmentSource.Chapter
+                && Math.Abs(segment.ToSegment().Start - (start - 4)) < 0.001
+                && segment.ToSegment().End == Duration);
+        }
+    }
+
     // A credits chapter ends 1 s before the shared audio and a black runs across that end. Moved
     // onto the black, the candidate would be capped at the chapter's end and dropped as too short,
     // leaving only the roll at 950. Kept, it starts at the chapter's end, where the time adjustment
