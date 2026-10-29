@@ -45,12 +45,12 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache, for the cut start.</param>
-/// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+/// <param name="configuration">Plugin configuration: the black-frame thresholds, the minimum duration and the toggles the analyzer reads.</param>
 internal sealed partial class KeyframeAnalyzer(
     ILogger<KeyframeAnalyzer> logger,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
-    PluginConfiguration? configuration = null)
+    PluginConfiguration configuration)
 {
     // Black sits at 16 on a limited-range source and lower on a full-range one, so 16 is the floor;
     // a scene whose black keyframes typically sit higher has lifted blacks and sets its own level. A
@@ -67,7 +67,7 @@ internal sealed partial class KeyframeAnalyzer(
     private const double DarkPictureSaturationMaximum = 8;
     private const double DarkPictureLumaMaximum = 200;
 
-    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration;
     private readonly ILogger<KeyframeAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly DetectionCacheService _cacheService = cacheService;
@@ -79,38 +79,25 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or cut decode is logged and falls back.</returns>
-    internal Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => DetectCreditsAsync(episode, _config.BlackFrameMinimumPercentage, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, _config.DetectNonBlackCredits, cancellationToken);
-
-    /// <summary>
-    /// Detects the credits from FFmpeg keyframe evidence with explicit thresholds.
-    /// </summary>
-    /// <param name="episode">Media file to analyze.</param>
-    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
-    /// <param name="minimumDuration">Minimum duration of the credits.</param>
-    /// <param name="detectCardCredits">Whether to look for a card run in the keyframe visuals as well.</param>
-    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>.</returns>
-    internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, bool detectCardCredits, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
         // keyframes inert.
-        var pages = await _ffmpegService.ScanKeyframesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
+        var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
 
         // The black-frame rules read the pages' rows through this list, index-aligned with the pages.
         List<BlackFrame> sceneFrames = [.. pages.Select(page => page.Frame)];
         var (blackMinimum, sceneChange) = sceneFrames.Count > 0
-            ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, minimumPercentage)
-            : (minimumPercentage, minimumPercentage);
+            ? BlackFrameThresholdHelper.NormalizeThreshold(sceneFrames, _config.BlackFrameMinimumPercentage)
+            : (_config.BlackFrameMinimumPercentage, _config.BlackFrameMinimumPercentage);
         var (credits, scenes, rejected) = sceneFrames.Count > 0
-            ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, pages, blackMinimum, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
+            ? await DetectBlackFrameCreditsAsync(episode, sceneFrames, pages, blackMinimum, sceneChange, _config.BlackFrameThreshold, _config.MinimumCreditsDuration, cancellationToken).ConfigureAwait(false)
             : ([], [], []);
 
         List<AttributedSegment> candidates = [.. credits.Select(segment => new AttributedSegment(segment, SegmentSource.BlackFrame))];
-        if (detectCardCredits)
+        if (_config.DetectNonBlackCredits)
         {
-            var range = CardRunFinder.FindCreditRange(StampCardKinds(pages, blackMinimum, scenes, rejected), minimumDuration);
+            var range = CardRunFinder.FindCreditRange(StampCardKinds(pages, blackMinimum, scenes, rejected), _config.MinimumCreditsDuration);
             if (range is not null)
             {
                 // The run starts on one of the pages, so its first page is found by time.

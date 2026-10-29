@@ -454,7 +454,7 @@ public class TestBlackFrames
         // into the dark band read as dim content, so a roll that opens on them starts after them
         // and a roll of nothing else is rejected. No frames are decoded here, so every lead-in
         // takes the policy's keyframe start; the cut start's own tests cover the frame it moves
-        // to. A page whose 90th percentile reaches the threshold of 32 is at most nine tenths
+        // to. A page whose 90th percentile reaches the threshold of 28 is at most nine tenths
         // black, so dense and large lettering and the pages behind bars sit at 89. That is still
         // black here: a scan of the roll alone has no zero rows, so its floor stays at 30, its
         // black minimum at 89 and its scene-change threshold at 96, above the roll's 95, so the
@@ -746,7 +746,7 @@ public class TestBlackFrames
 
         var firstBlackPage = page == "content" ? 50 : 39.995;
         Assert.Equal(Expected(39.995), candidates);
-        Assert.Equal([new IntervalScan(firstBlackPage - 15, 95, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(firstBlackPage - 15, 95, 28, 85)], ffmpeg.Calls);
 
         // The twin puts the page at blackdetect's start, where it is the start frame.
         var twinFfmpeg = PageBeforeTheRoll(page, 40);
@@ -754,7 +754,7 @@ public class TestBlackFrames
         var twinCandidates = await KeyframeCandidates(twin, CreateQueuedCreditsEpisode());
 
         Assert.Equal(Expected(40), twinCandidates);
-        Assert.Equal([new IntervalScan(page == "content" ? 35 : 25, 95, 32, 85)], twinFfmpeg.Calls);
+        Assert.Equal([new IntervalScan(page == "content" ? 35 : 25, 95, 28, 85)], twinFfmpeg.Calls);
 
         (SegmentSource Source, double Start, double End)[] Expected(double pageTime) =>
             [(SegmentSource.BlackFrame, blackFrameStart, 80), (SegmentSource.KeyframeVisuals, pageIsBlackCard ? pageTime : 50, 120)];
@@ -856,7 +856,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 45, 28, 86), new IntervalScan(95, 145, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -878,7 +878,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 55.0, 75.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 90, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 90, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -901,7 +901,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 100.0, 130.0), (SegmentSource.KeyframeVisuals, 90.0, 130.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 85), new IntervalScan(85, 145, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 45, 28, 85), new IntervalScan(85, 145, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -957,7 +957,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(0, 25, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 25, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -972,7 +972,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 1.0, 49.5)], candidates);
-        Assert.Equal([new IntervalScan(0, 64.5, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 64.5, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -985,7 +985,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(0, 64.5, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 64.5, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1029,7 +1029,7 @@ public class TestBlackFrames
         Assert.Equal((SegmentSource.BlackFrame, Math.Round(2356.27 + expectedStart, 6), 2356.27 + 406.49), (candidate.Source, Math.Round(candidate.Start, 6), candidate.End));
         Assert.Equal(
             [
-                new IntervalScan(2356.27 + 376.46 - 15, 2356.27 + 406.49 + 15, 32, 87),
+                new IntervalScan(2356.27 + 376.46 - 15, 2356.27 + 406.49 + 15, 28, 87),
                 new CutDecode(2356.27 + 366.45, 2356.27 + 376.46),
             ],
             ffmpeg.Calls);
@@ -1051,7 +1051,7 @@ public class TestBlackFrames
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 40.0)], candidates);
 
         // The opportunistic interval probe ran but returned nothing; the keyframe scene survives the miss.
-        Assert.Equal([new IntervalScan(0, 55, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 55, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1066,7 +1066,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 105.0, 120.0)], candidates);
-        Assert.Equal([new IntervalScan(100, 135, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(100, 135, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1085,7 +1085,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 100.0, 150.0)], candidates);
-        Assert.Equal([new IntervalScan(25, 165, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(25, 165, 28, 85)], ffmpeg.Calls);
     }
 
     [Theory]
@@ -1114,7 +1114,7 @@ public class TestBlackFrames
             ? [(SegmentSource.BlackFrame, 20, 40), (SegmentSource.BlackFrame, 19, 90)]
             : [(SegmentSource.BlackFrame, 20, 40), (SegmentSource.BlackFrame, 65, 90)];
         Assert.Equal(expected, candidates);
-        Assert.Equal([new IntervalScan(5, 105, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(5, 105, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1256,7 +1256,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 108.0, 124.0)], candidates);
-        Assert.Equal([new IntervalScan(100, 139, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(100, 139, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1288,7 +1288,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(127, 169, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(127, 169, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1307,7 +1307,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(25, 95, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(25, 95, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1917,12 +1917,12 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// Every candidate the keyframe analyzer returns, by source, with a configured black minimum of 85,
-    /// the blackframe threshold of 32, a 15 s minimum duration and card detection on, so a stray card
-    /// run fails a test as a wrong black-frame candidate does.
+    /// Every candidate the keyframe analyzer returns, by source. The analyzers here run on the default
+    /// black minimum of 85, blackframe threshold of 28, 15 s minimum duration and card detection, so a
+    /// stray card run fails a test as a wrong black-frame candidate does.
     /// </summary>
     private static async Task<List<(SegmentSource Source, double Start, double End)>> KeyframeCandidates(KeyframeAnalyzer analyzer, QueuedEpisode episode)
-        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
+        => [.. (await analyzer.DetectCreditsAsync(episode, CancellationToken.None)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
 
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {
