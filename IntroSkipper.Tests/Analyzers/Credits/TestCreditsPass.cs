@@ -214,6 +214,25 @@ public sealed class TestCreditsPass
         Assert.Equal(Duration, combined.ToSegment().End);
     }
 
+    // Under enhancement a credits chapter never settles an episode, so a settled sibling whose new
+    // shared audio reaches outside its stored chapter range is recombined, roll included.
+    [Fact]
+    public async Task EnhancedChapter_SettledSiblingIsRecombined()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason();
+        var cache = DatabaseTestHelpers.CreateTempCacheService();
+        episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)];
+        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits, [new Segment(episodes[0].EpisodeId, new TimeRange(900, 950))], SegmentSource.Chapter);
+        episodes[0].SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
+        await CacheFingerprintsAsync(cache, ffmpeg, [episodes[0]]);
+
+        await CreatePass(ffmpeg, database, cache, new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(2, ffmpeg.KeyframeScanCalls);
+        Assert.Contains(await database.GetSegmentsAsync(episodes[0].EpisodeId), row => row.ToSegment().End == Duration);
+    }
+
     [Theory]
     [InlineData(AnalyzerAction.BlackFrame, SegmentSource.BlackFrame)]
     [InlineData(AnalyzerAction.Chromaprint, SegmentSource.Chromaprint)]
@@ -691,6 +710,25 @@ public sealed class TestCreditsPass
                 && segment.ToSegment().Start <= PointTime(SharedAudioFirstPoint) + 0.001
                 && segment.ToSegment().End == Duration);
         }
+    }
+
+    // Only the settled sibling has the chapter. Its chapter end still keeps the titles from joining
+    // the roll, so the pending episode's credits start on the roll.
+    [Fact]
+    public async Task TitlesOnAnotherAlignment_NeverJoinAcrossASettledSiblingsChapterEnd()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason(fingerprints: TitlesThenRoll);
+        var cache = DatabaseTestHelpers.CreateTempCacheService();
+        var boundary = PointTime(1550);
+        episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", boundary)];
+        await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits, [new Segment(episodes[0].EpisodeId, new TimeRange(700, boundary))], SegmentSource.Chapter);
+        episodes[0].SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
+        await CacheFingerprintsAsync(cache, ffmpeg, [episodes[0]]);
+
+        await CreatePass(ffmpeg, database, cache, new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(PointTime(SharedAudioFirstPoint), Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).ToSegment().Start, 0.5);
     }
 
     [Fact]
