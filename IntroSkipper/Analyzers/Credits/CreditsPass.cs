@@ -86,7 +86,19 @@ internal sealed partial class CreditsPass(
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
-        Dictionary<Guid, ChapterCredits> chapters = chapter is null ? [] : items.ToDictionary(episode => episode.EpisodeId, episode => FindChapterCredits(chapter, episode));
+
+        // Found the first time a step needs them, inside that step's error handling, then reused.
+        Dictionary<Guid, ChapterCredits> chapterCredits = [];
+        ChapterCredits ChapterCreditsOf(ChapterAnalyzer analyzer, QueuedEpisode episode)
+        {
+            if (!chapterCredits.TryGetValue(episode.EpisodeId, out var credits))
+            {
+                credits = FindChapterCredits(analyzer, episode);
+                chapterCredits[episode.EpisodeId] = credits;
+            }
+
+            return credits;
+        }
 
         // A chapter match owns the episode even if admission rejects its write: falling through
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
@@ -99,7 +111,7 @@ internal sealed partial class CreditsPass(
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var credits = chapters[episode.EpisodeId];
+                    var credits = ChapterCreditsOf(chapter, episode);
                     if (!credits.Settles)
                     {
                         continue;
@@ -138,7 +150,7 @@ internal sealed partial class CreditsPass(
                     ? null
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
-                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(chapters[episode.EpisodeId].Candidates, episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
+                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(ChapterCreditsOf(chapter, episode).Candidates, episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
                 (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
@@ -185,8 +197,9 @@ internal sealed partial class CreditsPass(
             try
             {
                 var candidates = new List<AttributedSegment>();
-                if (chapters.TryGetValue(episode.EpisodeId, out var credits))
+                if (chapter is not null)
                 {
+                    var credits = ChapterCreditsOf(chapter, episode);
                     if (!episode.NeedsAnalysis(Mode) && credits.Settles)
                     {
                         // A settled sibling's authoritative chapter stays over the re-derived

@@ -228,7 +228,13 @@ public sealed class TestCreditsPass
         await CreatePass(ffmpeg, database, cache, new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
         Assert.Equal(2, ffmpeg.KeyframeScanCalls);
-        Assert.Contains(await database.GetSegmentsAsync(episodes[0].EpisodeId), row => row.ToSegment().End == Duration);
+        var rows = (await database.GetSegmentsAsync(episodes[0].EpisodeId)).OrderBy(row => row.StartTicks).Select(row => (row.ToSegment().Start, row.ToSegment().End, row.Source)).ToList();
+        Assert.Equal(2, rows.Count);
+
+        // The shared audio joins the chapter and stops at its end; the roll after it stays apart.
+        Assert.Equal(PointTime(SharedAudioFirstPoint), rows[0].Start, 0.5);
+        Assert.Equal((950, SegmentSource.Combined), (rows[0].End, rows[0].Source));
+        Assert.Equal((BlackStart, Duration, SegmentSource.BlackFrame), rows[1]);
     }
 
     [Theory]
