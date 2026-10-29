@@ -655,8 +655,7 @@ public sealed class TestCreditsPass
         }
     }
 
-    // A credits chapter ends 15 s before the shared audio, inside the black probe's look-back, and the
-    // black starts after that end. The start moves onto the black.
+    // The chapter end sits inside the black probe's look-back; a black after it still moves the start.
     [Fact]
     public async Task ChromaprintCredits_StartOnTheBlackAfterAChapterEnd()
     {

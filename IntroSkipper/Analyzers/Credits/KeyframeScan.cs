@@ -20,11 +20,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="sceneChange">The black percentage that marks the transition into credits.</param>
 internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackMinimum, int sceneChange)
 {
-    /// <summary>
-    /// The longest gap, in seconds, that still joins two black keyframes into one run or two
-    /// credits candidates into one.
-    /// </summary>
-    internal const double MaximumSceneMergeGapSeconds = 20;
+    private const double MaximumBlackRunGapSeconds = 20;
 
     private const double DefaultMinimumBlackFrameDensity = 0.50;
     private const double MaximumIntervalToKeyframeGapSeconds = 2.0;
@@ -199,7 +195,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     }
 
     // Runs of black pages, before density and duration filtering. Two black pages more than
-    // MaximumSceneMergeGapSeconds apart break a run; pages that are not black between them do not.
+    // MaximumBlackRunGapSeconds apart break a run; pages that are not black between them do not.
     private List<CreditScene> FindRawScenes()
     {
         var scenes = new List<CreditScene>();
@@ -217,7 +213,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
             {
                 sceneStart = i;
             }
-            else if (Pages[i].Frame.Time - Pages[lastBlack].Frame.Time > MaximumSceneMergeGapSeconds)
+            else if (Pages[i].Frame.Time - Pages[lastBlack].Frame.Time > MaximumBlackRunGapSeconds)
             {
                 scenes.Add(new CreditScene(sceneStart, lastBlack, Pages[sceneStart].Frame.Time, Pages[lastBlack].Frame.Time));
                 sceneStart = i;
