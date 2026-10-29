@@ -740,21 +740,21 @@ public class TestBlackFrames
         // The card run covers the roll and the grey cards after it, and starts on the page when the
         // scene keeps it as a black card.
         var ffmpeg = PageBeforeTheRoll(page, 39.995);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true, BlackFrameThreshold = 32 });
 
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         var firstBlackPage = page == "content" ? 50 : 39.995;
         Assert.Equal(Expected(39.995), candidates);
-        Assert.Equal([new IntervalScan(firstBlackPage - 15, 95, 28, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(firstBlackPage - 15, 95, 32, 85)], ffmpeg.Calls);
 
         // The twin puts the page at blackdetect's start, where it is the start frame.
         var twinFfmpeg = PageBeforeTheRoll(page, 40);
-        var twin = CreateKeyframeAnalyzer(twinFfmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var twin = CreateKeyframeAnalyzer(twinFfmpeg, new PluginConfiguration { RefineCreditsBoundary = true, BlackFrameThreshold = 32 });
         var twinCandidates = await KeyframeCandidates(twin, CreateQueuedCreditsEpisode());
 
         Assert.Equal(Expected(40), twinCandidates);
-        Assert.Equal([new IntervalScan(page == "content" ? 35 : 25, 95, 28, 85)], twinFfmpeg.Calls);
+        Assert.Equal([new IntervalScan(page == "content" ? 35 : 25, 95, 32, 85)], twinFfmpeg.Calls);
 
         (SegmentSource Source, double Start, double End)[] Expected(double pageTime) =>
             [(SegmentSource.BlackFrame, blackFrameStart, 80), (SegmentSource.KeyframeVisuals, pageIsBlackCard ? pageTime : 50, 120)];
