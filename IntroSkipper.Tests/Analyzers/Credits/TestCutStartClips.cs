@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
@@ -64,9 +65,13 @@ public class TestCutStartClips
         episode.Duration = 39;
         episode.CreditsFingerprintStart = fingerprintStart;
         episode.CreditsFingerprintEnd = 39;
-        var analyzer = new KeyframeAnalyzer(NullLogger<KeyframeAnalyzer>.Instance, FfmpegTestHelpers.CreateFFmpegService(), DatabaseTestHelpers.CreateTempCacheService(), new PluginConfiguration { RefineCreditsBoundary = true });
+        var analyzer = new KeyframeAnalyzer(
+            NullLogger<KeyframeAnalyzer>.Instance,
+            FfmpegTestHelpers.CreateFFmpegService(),
+            DatabaseTestHelpers.CreateTempCacheService(),
+            new PluginConfiguration { RefineCreditsBoundary = true, BlackFrameThreshold = 32, DetectNonBlackCredits = false });
 
-        var candidates = await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: false);
+        var candidates = await analyzer.DetectCreditsAsync(episode, CancellationToken.None);
 
         return [.. candidates.Where(c => c.Source == SegmentSource.BlackFrame).Select(c => c.Segment)];
     }

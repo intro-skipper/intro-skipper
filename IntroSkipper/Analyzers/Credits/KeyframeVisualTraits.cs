@@ -10,7 +10,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// neither lettered nor card-like. The other two vary independently: a roll page is lettered and
 /// card-like, dense text is lettered and not card-like, and a blank page is neither.
 /// Black is not among them. It is the black-frame row's percentage against a threshold the
-/// black-frame rules normalize over the scan.
+/// black-frame rules normalize over the scan (see <see cref="KeyframeScan.IsBlack"/>).
 /// </summary>
 internal static class KeyframeVisualTraits
 {

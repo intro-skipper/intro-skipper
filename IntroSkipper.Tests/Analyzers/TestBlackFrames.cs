@@ -337,7 +337,7 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestMergeScenesAcross20SecondGap()
+    public async Task TestMergeScenesAcross20SecondGap()
     {
         // Two dense black parts whose black keyframes lie exactly 20 s apart, 9.5 to 29.5, are one
         // run. The gap holds 10 widely spaced frames so the run's density (40/50 = 80%) stays well
@@ -352,7 +352,7 @@ public class TestBlackFrames
         frames.AddRange(CreateDenseFrames(startTime: 29.5, endTime: 39.0, percentage: 95, startFrame: 30));
 
         // minimum=85, sceneChange=96 (with floor=0 these are direct values)
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(15, ProbeFinding());
 
         Assert.Single(scenes);
 
@@ -363,7 +363,7 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestDoesNotMergeScenesAcross20Point5SecondGap()
+    public async Task TestDoesNotMergeScenesAcross20Point5SecondGap()
     {
         // Two dense black parts whose black keyframes lie 20.5 s apart, 9.5 to 30, are two runs.
         List<BlackFrame> frames =
@@ -373,13 +373,13 @@ public class TestBlackFrames
             .. CreateDenseFrames(startTime: 30, endTime: 39.5, percentage: 95),
         ];
 
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(5, ProbeFinding());
 
         Assert.Equal(2, scenes.Count);
     }
 
     [Fact]
-    public void TestRunAcrossSparseGap_IsGatedOnDensityAsAWhole()
+    public async Task TestRunAcrossSparseGap_IsGatedOnDensityAsAWhole()
     {
         // Two dense black parts whose black keyframes lie 19.5 s apart, 7.5 to 27, are one run
         // however few of the frames between them are black. The run is 32 black frames of 70, under
@@ -391,7 +391,7 @@ public class TestBlackFrames
             .. CreateDenseFrames(startTime: 27, endTime: 34.5, percentage: 95),
         ];
 
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(5, ProbeFinding());
 
         Assert.Empty(scenes);
     }
@@ -454,7 +454,7 @@ public class TestBlackFrames
         // into the dark band read as dim content, so a roll that opens on them starts after them
         // and a roll of nothing else is rejected. No frames are decoded here, so every lead-in
         // takes the policy's keyframe start; the cut start's own tests cover the frame it moves
-        // to. A page whose 90th percentile reaches the threshold of 32 is at most nine tenths
+        // to. A page whose 90th percentile reaches the threshold of 28 is at most nine tenths
         // black, so dense and large lettering and the pages behind bars sit at 89. That is still
         // black here: a scan of the roll alone has no zero rows, so its floor stays at 30, its
         // black minimum at 89 and its scene-change threshold at 96, above the roll's 95, so the
@@ -740,7 +740,7 @@ public class TestBlackFrames
         // The card run covers the roll and the grey cards after it, and starts on the page when the
         // scene keeps it as a black card.
         var ffmpeg = PageBeforeTheRoll(page, 39.995);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true, BlackFrameThreshold = 32 });
 
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
@@ -750,7 +750,7 @@ public class TestBlackFrames
 
         // The twin puts the page at blackdetect's start, where it is the start frame.
         var twinFfmpeg = PageBeforeTheRoll(page, 40);
-        var twin = CreateKeyframeAnalyzer(twinFfmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
+        var twin = CreateKeyframeAnalyzer(twinFfmpeg, new PluginConfiguration { RefineCreditsBoundary = true, BlackFrameThreshold = 32 });
         var twinCandidates = await KeyframeCandidates(twin, CreateQueuedCreditsEpisode());
 
         Assert.Equal(Expected(40), twinCandidates);
@@ -856,7 +856,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 86), new IntervalScan(95, 145, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 45, 28, 86), new IntervalScan(95, 145, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -878,7 +878,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 55.0, 75.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 90, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 90, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -901,7 +901,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 30.0), (SegmentSource.BlackFrame, 100.0, 130.0), (SegmentSource.KeyframeVisuals, 90.0, 130.0)], candidates);
-        Assert.Equal([new IntervalScan(0, 45, 32, 85), new IntervalScan(85, 145, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 45, 28, 85), new IntervalScan(85, 145, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -957,7 +957,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(0, 25, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 25, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -972,7 +972,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 1.0, 49.5)], candidates);
-        Assert.Equal([new IntervalScan(0, 64.5, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 64.5, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -985,7 +985,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(0, 64.5, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 64.5, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1029,7 +1029,7 @@ public class TestBlackFrames
         Assert.Equal((SegmentSource.BlackFrame, Math.Round(2356.27 + expectedStart, 6), 2356.27 + 406.49), (candidate.Source, Math.Round(candidate.Start, 6), candidate.End));
         Assert.Equal(
             [
-                new IntervalScan(2356.27 + 376.46 - 15, 2356.27 + 406.49 + 15, 32, 87),
+                new IntervalScan(2356.27 + 376.46 - 15, 2356.27 + 406.49 + 15, 28, 87),
                 new CutDecode(2356.27 + 366.45, 2356.27 + 376.46),
             ],
             ffmpeg.Calls);
@@ -1051,7 +1051,7 @@ public class TestBlackFrames
         Assert.Equal([(SegmentSource.BlackFrame, 10.0, 40.0)], candidates);
 
         // The opportunistic interval probe ran but returned nothing; the keyframe scene survives the miss.
-        Assert.Equal([new IntervalScan(0, 55, 32, 86)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(0, 55, 28, 86)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1066,7 +1066,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 105.0, 120.0)], candidates);
-        Assert.Equal([new IntervalScan(100, 135, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(100, 135, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1085,7 +1085,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Equal([(SegmentSource.BlackFrame, 100.0, 150.0)], candidates);
-        Assert.Equal([new IntervalScan(25, 165, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(25, 165, 28, 85)], ffmpeg.Calls);
     }
 
     [Theory]
@@ -1114,11 +1114,11 @@ public class TestBlackFrames
             ? [(SegmentSource.BlackFrame, 20, 40), (SegmentSource.BlackFrame, 19, 90)]
             : [(SegmentSource.BlackFrame, 20, 40), (SegmentSource.BlackFrame, 65, 90)];
         Assert.Equal(expected, candidates);
-        Assert.Equal([new IntervalScan(5, 105, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(5, 105, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
-    public void TestDetectIntervalSupportedCreditScenes_UsesIntervalEndForDurationAndBounds()
+    public async Task TestDetectIntervalSupportedCreditScenes_UsesIntervalEndForDurationAndBounds()
     {
         BlackFrame[] frames =
         [
@@ -1126,12 +1126,7 @@ public class TestBlackFrames
             new(96, 12, 12),
         ];
 
-        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
-            [.. frames],
-            CreditSceneBuilder.FindRawScenes([.. frames], 85),
-            [new BlackInterval(5, 25)],
-            minimum: 85,
-            minimumDuration: 15);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(15, ProbeFinding(new BlackInterval(5, 25)));
 
         var scene = Assert.Single(scenes);
         Assert.Equal(5, scene.StartTime);
@@ -1139,7 +1134,7 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestDetectIntervalSupportedCreditScenes_AnchorsTailSupportToInterval()
+    public async Task TestDetectIntervalSupportedCreditScenes_AnchorsTailSupportToInterval()
     {
         var frames = new List<BlackFrame>();
         for (var time = 0; time <= 100; time += 10)
@@ -1147,12 +1142,7 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(96, time, time));
         }
 
-        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
-            frames,
-            CreditSceneBuilder.FindRawScenes(frames, 85),
-            [new BlackInterval(90, 120)],
-            minimum: 85,
-            minimumDuration: 15);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(15, ProbeFinding(new BlackInterval(90, 120)));
 
         var scene = Assert.Single(scenes);
         Assert.Equal(90, scene.StartTime);
@@ -1162,7 +1152,7 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestDetectIntervalSupportedCreditScenes_PrefersLongerOverlappingInterval()
+    public async Task TestDetectIntervalSupportedCreditScenes_PrefersLongerOverlappingInterval()
     {
         BlackFrame[] frames =
         [
@@ -1172,12 +1162,7 @@ public class TestBlackFrames
 
         // The first overlapping interval is too short to satisfy the minimum duration; a later, longer
         // overlapping interval must still be used instead of rejecting the candidate.
-        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
-            [.. frames],
-            CreditSceneBuilder.FindRawScenes([.. frames], 85),
-            [new BlackInterval(9, 13), new BlackInterval(9, 40)],
-            minimum: 85,
-            minimumDuration: 15);
+        var scenes = await ScanOf(frames, blackMinimum: 85, sceneChange: 96).ScenesAsync(15, ProbeFinding(new BlackInterval(9, 13), new BlackInterval(9, 40)));
 
         var scene = Assert.Single(scenes);
         Assert.Equal(9, scene.StartTime);
@@ -1256,7 +1241,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 108.0, 124.0)], candidates);
-        Assert.Equal([new IntervalScan(100, 139, 32, 89)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(100, 139, 28, 89)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1288,7 +1273,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(127, 169, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(127, 169, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1307,7 +1292,7 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode());
 
         Assert.Empty(candidates);
-        Assert.Equal([new IntervalScan(25, 95, 32, 85)], ffmpeg.Calls);
+        Assert.Equal([new IntervalScan(25, 95, 28, 85)], ffmpeg.Calls);
     }
 
     [Fact]
@@ -1639,7 +1624,7 @@ public class TestBlackFrames
     [MemberData(nameof(CardCreditsCases))]
     public void TestCardRunFinder_FindCreditRange(KeyframePage[] pages, int minimumDuration, (double Start, double End)? expected)
     {
-        var range = CardRunFinder.FindCreditRange(KeyframeAnalyzer.StampCardKinds(pages, blackMinimum: 85, accepted: [], rejected: []), minimumDuration);
+        var range = CardRunFinder.FindCreditRange(KeyframeAnalyzer.StampCardKinds(new KeyframeScan(pages, blackMinimum: 85, sceneChange: 96), accepted: [], rejected: []), minimumDuration);
 
         if (expected is null)
         {
@@ -1798,7 +1783,7 @@ public class TestBlackFrames
     [MemberData(nameof(BlackKeyframeCases))]
     public void TestCardRunFinder_BlackKeyframes(KeyframePage[] pages, (double Start, double End)[] accepted, (double Start, double End)[] rejected, (double Start, double End)? expected)
     {
-        var kinds = KeyframeAnalyzer.StampCardKinds(pages, blackMinimum: 85, Ranges(accepted), Ranges(rejected));
+        var kinds = KeyframeAnalyzer.StampCardKinds(new KeyframeScan(pages, blackMinimum: 85, sceneChange: 96), Ranges(accepted), Ranges(rejected));
         var range = CardRunFinder.FindCreditRange(kinds, minimumDuration: 15);
 
         if (expected is null)
@@ -1817,13 +1802,13 @@ public class TestBlackFrames
     // ── Fingerprint-based integration tests ──────────────────────────────
 
     [Fact]
-    public void TestFingerprint_Alt3_CleanCredits_SingleScene()
+    public async Task TestFingerprint_Alt3_CleanCredits_SingleScene()
     {
         // alt-3: fewest frames (211), clean credits, no transition-frame shift.
         var frames = ParseFingerprintFile("blackframe-alt-3");
         var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(frames, 85);
 
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
+        var scenes = await ScanOf(frames, minimum, sceneChange).ScenesAsync(15, ProbeFinding());
 
         // Single credit block, no transition-frame shift (no frame reaches sceneChange=95)
         Assert.Single(scenes);
@@ -1832,14 +1817,14 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestFingerprint_Alt4_DarkShow_TransitionFrameShift()
+    public async Task TestFingerprint_Alt4_DarkShow_TransitionFrameShift()
     {
         // alt-4: dark show where 31% of frames are >=85% pblack.
         // Transition-frame search shifts the last scene's start forward to skip dark-but-not-credits content.
         var frames = ParseFingerprintFile("blackframe-alt-4");
         var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(frames, 85);
 
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
+        var scenes = await ScanOf(frames, minimum, sceneChange).ScenesAsync(15, ProbeFinding());
 
         Assert.True(scenes.Count >= 4);
 
@@ -1852,14 +1837,14 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestFingerprint_Alt5_MidCreditScene_TwoSeparateBlocks()
+    public async Task TestFingerprint_Alt5_MidCreditScene_TwoSeparateBlocks()
     {
         // alt-5: mid-credit stinger creates two separate credit blocks. The non-zero
         // 1st-percentile floor (25) scales the thresholds to minimum=88, sceneChange=96.
         var frames = ParseFingerprintFile("blackframe-alt-5");
         var (minimum, sceneChange) = BlackFrameThresholdHelper.NormalizeThreshold(frames, 85);
 
-        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
+        var scenes = await ScanOf(frames, minimum, sceneChange).ScenesAsync(15, ProbeFinding());
 
         // Two blocks separated by 88s stinger gap (725.12 - 637.12 = 88 >> MaximumTimeSkip of 20).
         // They must NOT merge.
@@ -1917,12 +1902,18 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// Every candidate the keyframe analyzer returns, by source, with a configured black minimum of 85,
-    /// the blackframe threshold of 32, a 15 s minimum duration and card detection on, so a stray card
-    /// run fails a test as a wrong black-frame candidate does.
+    /// Every candidate the keyframe analyzer returns, by source. The analyzers here run on the default
+    /// black minimum of 85, blackframe threshold of 28, 15 s minimum duration and card detection, so a
+    /// stray card run fails a test as a wrong black-frame candidate does.
     /// </summary>
     private static async Task<List<(SegmentSource Source, double Start, double End)>> KeyframeCandidates(KeyframeAnalyzer analyzer, QueuedEpisode episode)
-        => [.. (await analyzer.DetectCreditsAsync(episode, 85, 32, 15, detectCardCredits: true)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
+        => [.. (await analyzer.DetectCreditsAsync(episode, CancellationToken.None)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
+
+    private static KeyframeScan ScanOf(IEnumerable<BlackFrame> frames, int blackMinimum, int sceneChange)
+        => new([.. frames.Select(frame => new KeyframePage(frame, null))], blackMinimum, sceneChange);
+
+    private static Func<IReadOnlyList<CreditScene>, Task<BlackInterval[]>> ProbeFinding(params BlackInterval[] intervals)
+        => _ => Task.FromResult(intervals);
 
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {

@@ -42,7 +42,7 @@ internal sealed partial class CreditsPass(
 
     // How far before a Chromaprint start the black it opens on may begin, and how far from the
     // start that black may end (see StartOnBlackBeforeAsync).
-    private const double BlackBeforeLookBackSeconds = CreditSceneBuilder.MaximumSceneMergeGapSeconds;
+    private const double BlackBeforeLookBackSeconds = KeyframeScan.MaximumSceneMergeGapSeconds;
     private const double BlackBeforeToleranceSeconds = 1;
 
     private readonly ILogger<CreditsPass> _logger = loggerFactory.CreateLogger<CreditsPass>();
