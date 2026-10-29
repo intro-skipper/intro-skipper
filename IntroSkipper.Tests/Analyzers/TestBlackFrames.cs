@@ -1639,7 +1639,7 @@ public class TestBlackFrames
     [MemberData(nameof(CardCreditsCases))]
     public void TestCardRunFinder_FindCreditRange(KeyframePage[] pages, int minimumDuration, (double Start, double End)? expected)
     {
-        var range = CardRunFinder.FindCreditRange(KeyframeAnalyzer.StampCardKinds(pages, blackMinimum: 85, accepted: [], rejected: []), minimumDuration);
+        var range = CardRunFinder.FindCreditRange(KeyframeAnalyzer.StampCardKinds(new KeyframeScan(pages, blackMinimum: 85), accepted: [], rejected: []), minimumDuration);
 
         if (expected is null)
         {
@@ -1798,7 +1798,7 @@ public class TestBlackFrames
     [MemberData(nameof(BlackKeyframeCases))]
     public void TestCardRunFinder_BlackKeyframes(KeyframePage[] pages, (double Start, double End)[] accepted, (double Start, double End)[] rejected, (double Start, double End)? expected)
     {
-        var kinds = KeyframeAnalyzer.StampCardKinds(pages, blackMinimum: 85, Ranges(accepted), Ranges(rejected));
+        var kinds = KeyframeAnalyzer.StampCardKinds(new KeyframeScan(pages, blackMinimum: 85), Ranges(accepted), Ranges(rejected));
         var range = CardRunFinder.FindCreditRange(kinds, minimumDuration: 15);
 
         if (expected is null)

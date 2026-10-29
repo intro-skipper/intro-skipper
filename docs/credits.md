@@ -60,7 +60,7 @@ The join matches times, not the frame counter both filters print, and no rule be
 - **Card-like.** A dominant background within `BackgroundSpreadMaximum` levels between the 10th and 90th percentile, something at least `TextContrastMinimum` away from it, and low saturation. Text on a black, white, grey or muted card looks like that; busy content does not.
 - **Solid white.** Every percentile at limited-range white. It is neither lettered nor card-like, and always content.
 
-Black is not a trait. It is the black-frame percentage against a threshold normalized over the scan.
+Black is not a trait. It is the black-frame percentage against a threshold normalized over the scan (`KeyframeScan.IsBlack`).
 
 ### Scene rules
 
