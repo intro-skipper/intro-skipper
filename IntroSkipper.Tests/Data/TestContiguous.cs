@@ -98,6 +98,7 @@ public class TestTimeRanges
     [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 1000, 20, 290, 15, 295)]     // 5 s and 15 s gaps before: joined
     [InlineData(AnalysisMode.Credits, 300, 340, 310, 350, 1000, 130, 340, 135, 350)] // 10 s and 15 s gaps after: joined
     [InlineData(AnalysisMode.Credits, 20, 125, 5, 110, 1000, 130, 290, 135, 295)]    // 25 s gap in one episode: a scene between, kept apart
+    [InlineData(AnalysisMode.Credits, 315, 340, 320, 345, 1000, 130, 290, 135, 295)] // 25 s gaps after the roll: kept apart
     [InlineData(AnalysisMode.Credits, 20, 125, 300, 405, 1000, 130, 290, 135, 295)]  // before the roll in one episode, after it in the other
     [InlineData(AnalysisMode.Credits, 20, 125, 15, 120, 250, 130, 290, 135, 295)]    // the joined region would pass the maximum
     [InlineData(AnalysisMode.Credits, 6, 125, 2, 120, 294, 130, 290, 135, 295)]      // 293 s, but 295 s once its 2 s start snaps to 0
