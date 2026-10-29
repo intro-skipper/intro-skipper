@@ -214,8 +214,6 @@ public sealed class TestCreditsPass
         Assert.Equal(Duration, combined.ToSegment().End);
     }
 
-    // Under enhancement a credits chapter never settles an episode, so a settled sibling whose new
-    // shared audio reaches outside its stored chapter range is recombined, roll included.
     [Fact]
     public async Task EnhancedChapter_SettledSiblingIsRecombined()
     {
@@ -712,8 +710,6 @@ public sealed class TestCreditsPass
         }
     }
 
-    // Only the settled sibling has the chapter. Its chapter end still keeps the titles from joining
-    // the roll, so the pending episode's credits start on the roll.
     [Fact]
     public async Task TitlesOnAnotherAlignment_NeverJoinAcrossASettledSiblingsChapterEnd()
     {

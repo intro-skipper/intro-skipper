@@ -86,6 +86,8 @@ internal sealed partial class CreditsPass(
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
         var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        Dictionary<Guid, ChapterCredits> chapters = chapter is null ? [] : items.ToDictionary(episode => episode.EpisodeId, episode => FindChapterCredits(chapter, episode));
+
         // A chapter match owns the episode even if admission rejects its write: falling through
         // to an empty combined result could otherwise clear standing Credits rows. Offset-
         // consumed, rejected, and failed episodes remain unsettled according to their state.
@@ -97,13 +99,13 @@ internal sealed partial class CreditsPass(
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var matches = AuthoritativeChapterMatches(chapter, episode);
-                    if (matches.Count == 0)
+                    var credits = chapters[episode.EpisodeId];
+                    if (!credits.Settles)
                     {
                         continue;
                     }
 
-                    var chapterState = await chapter.StoreMatchesAsync(episode, Mode, matches, timeAdjustmentHelper, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
+                    var chapterState = await chapter.StoreMatchesAsync(episode, Mode, credits.Matches, timeAdjustmentHelper, SegmentSource.Chapter, cancellationToken).ConfigureAwait(false);
                     episode.SetAnalyzed(Mode, chapterState);
                     chapterHandled.Add(episode.EpisodeId);
                 }
@@ -136,7 +138,7 @@ internal sealed partial class CreditsPass(
                     ? null
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
-                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(ChapterCandidates(chapter, episode), episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
+                        episode => (IReadOnlyList<double>)[.. CreditsCandidateCombiner.HardBoundaries(chapters[episode.EpisodeId].Candidates, episode.GetFingerprintRange(Mode).End).Select(boundary => boundary - episode.CreditsFingerprintStart)]);
                 (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
@@ -183,9 +185,9 @@ internal sealed partial class CreditsPass(
             try
             {
                 var candidates = new List<AttributedSegment>();
-                if (chapter is not null)
+                if (chapters.TryGetValue(episode.EpisodeId, out var credits))
                 {
-                    if (!episode.NeedsAnalysis(Mode) && AuthoritativeChapterMatches(chapter, episode).Count > 0)
+                    if (!episode.NeedsAnalysis(Mode) && credits.Settles)
                     {
                         // A settled sibling's authoritative chapter stays over the re-derived
                         // candidate. Pending episodes reached here only because the pre-pass found
@@ -193,7 +195,7 @@ internal sealed partial class CreditsPass(
                         continue;
                     }
 
-                    candidates.AddRange(ChapterCandidates(chapter, episode));
+                    candidates.AddRange(credits.Candidates);
                 }
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
@@ -311,9 +313,8 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// The episode's credits chapter matches when they settle it without combined detection:
-    /// enhancement is off and no story follows them. Empty otherwise, and then any matches are
-    /// combined with the other candidates.
+    /// Finds the episode's credits chapter matches and whether they settle it without combined
+    /// detection: enhancement is off, a chapter matched and no story follows it.
     /// </summary>
     /// <remarks>
     /// Story follows when at least the minimum credits duration runs from the end of the matches
@@ -323,18 +324,18 @@ internal sealed partial class CreditsPass(
     /// runtimes padded past the audio, so room past it is not counted as story, though the
     /// keyframe scan would still read black frames there.
     /// </remarks>
-    private IReadOnlyList<Segment> AuthoritativeChapterMatches(ChapterAnalyzer chapter, QueuedEpisode episode)
+    private ChapterCredits FindChapterCredits(ChapterAnalyzer chapter, QueuedEpisode episode)
     {
         var matches = chapter.FindChapterCandidates(episode, Mode);
         if (_config.EnhanceChapterCredits || matches.Count == 0)
         {
-            return [];
+            return new ChapterCredits(matches, Settles: false);
         }
 
         var end = matches.Max(m => m.End);
         var windowEnd = episode.GetFingerprintRange(Mode).End;
         var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
-        return storyEnd - end < _config.MinimumCreditsDuration ? matches : [];
+        return new ChapterCredits(matches, Settles: storyEnd - end < _config.MinimumCreditsDuration);
     }
 
     /// <summary>
@@ -384,9 +385,6 @@ internal sealed partial class CreditsPass(
         ex is TimeoutException or FingerprintException { InnerException: TimeoutException }
             ? ". " + FFmpegProcessRunner.ScanTimeoutHint
             : string.Empty;
-
-    private static List<AttributedSegment> ChapterCandidates(ChapterAnalyzer chapter, QueuedEpisode episode)
-        => [.. chapter.FindChapterCandidates(episode, Mode).Select(c => new AttributedSegment(c, SegmentSource.Chapter))];
 
     /// <summary>
     /// Moves a Chromaprint credits candidate's start back to the black it opens on. Shared end
@@ -459,4 +457,9 @@ internal sealed partial class CreditsPass(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
     private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
+
+    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, bool Settles)
+    {
+        public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
+    }
 }
