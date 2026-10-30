@@ -29,12 +29,12 @@ public sealed class TestFileHash : IDisposable
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(500_000)]
-    [InlineData(999_999)]
-    public async Task ByteChangedInASample_ChangesTheHash(int offset)
+    [InlineData(1_000_000, 1_000_000 - FileHash.SampleLength)]
+    [InlineData(1_000_000, 999_999)]
+    [InlineData(10, 0)]
+    public async Task ByteChangedInTheTail_ChangesTheHash(int length, int offset)
     {
-        var bytes = new byte[1_000_000];
+        var bytes = new byte[length];
         var before = await HashAsync(Write("a.mkv", bytes));
 
         bytes[offset] = 1;
@@ -43,10 +43,22 @@ public sealed class TestFileHash : IDisposable
     }
 
     [Fact]
+    public async Task ByteChangedBeforeTheTail_KeepsTheHash()
+    {
+        // An in-place header edit moves no timing, so the file keeps its identity.
+        var bytes = new byte[1_000_000];
+        var before = await HashAsync(Write("a.mkv", bytes));
+
+        bytes[0] = 1;
+
+        Assert.Equal(before, await HashAsync(Write("a.mkv", bytes)));
+    }
+
+    [Fact]
     public async Task FilesThatDifferOnlyInLength_HashDifferently()
     {
-        // Every sample of both files is zeros, so only the length tells them apart.
-        var length = (3 * FileHash.SampleLength) + 1;
+        // Both tails are zeros, so only the length tells the files apart.
+        var length = FileHash.SampleLength + 1;
         Assert.NotEqual(await HashAsync(Write("a.mkv", new byte[length])), await HashAsync(Write("b.mkv", new byte[length + 1])));
     }
 

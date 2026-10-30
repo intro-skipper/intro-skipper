@@ -65,7 +65,7 @@ The last write time Jellyfin observed for an item's media file, recorded with ea
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
 
 **File hash**:
-A hash of an item's media file size and bytes sampled from its head, middle and tail. Two items with the same file hash hold the same file, so times stored for one apply to the other. A remux changes it.
+A hash of an item's media file size and the bytes at its end. Two items with the same file hash hold the same file, so times stored for one apply to the other. A remux changes it.
 _Avoid_: fingerprint (Chromaprint owns that word), checksum, file version (that is the write time)
 
 **Orphan**:
