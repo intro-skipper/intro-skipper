@@ -109,8 +109,10 @@ internal static class Scorer
             Subtract(predicted, credits),
             Length(Subtract(Subtract(Union([.. parts.Select(part => part.Inner)]), ignore), predicted)));
 
-        // A prediction shared with a neighbouring part is measured only inside the block, so
-        // story before or after the block counts once, on its first or last part.
+        // A boundary facing a neighbour matched by the same prediction is measured to that
+        // neighbour's band, so story before or after the block counts once, on its first or last
+        // part, and the story between the two, at most Slack, counts on both. A neighbour matched
+        // by another prediction or by none clamps nothing.
         PartScore ScorePart(int i, Interval span, bool sharedWithPrevious, bool sharedWithNext)
         {
             var (start, end) = (parts[i].Start, parts[i].End);

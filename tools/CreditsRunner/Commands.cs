@@ -101,7 +101,7 @@ internal static class Commands
     {
         var options = Options.Parse(args, ["results", "labels"]);
         var results = Json.Read<RunResults>(options.Required("results"));
-        var labels = Labels(options);
+        var labels = Labels(options, output);
         output.WriteLine($"{results.Commit} | {results.Ffmpeg} | {results.Cpu}");
 
         List<EpisodeScore> scores = [];
@@ -150,7 +150,7 @@ internal static class Commands
         var options = Options.Parse(args, ["baseline", "candidate", "labels"]);
         var baseline = Json.Read<RunResults>(options.Required("baseline"));
         var candidate = Json.Read<RunResults>(options.Required("candidate"));
-        var labels = Labels(options);
+        var labels = Labels(options, output);
         if (baseline.Mode != candidate.Mode)
         {
             throw new ArgumentException($"the runs detected different segments: {baseline.Mode} and {candidate.Mode}");
@@ -249,8 +249,47 @@ internal static class Commands
         return 2;
     }
 
-    private static Dictionary<string, Label> Labels(Options options)
-        => Json.Read<LabelSet>(options.Required("labels")).Files.ToDictionary(label => label.Id);
+    /// <summary>
+    /// Reads the labels and refuses any the scorer cannot read: parts out of time order or
+    /// overlapping, bands included, or a part with no required credits left once its bands and
+    /// ignore ranges are taken out. Warns for each trap that overlaps an ignore range.
+    /// </summary>
+    private static Dictionary<string, Label> Labels(Options options, TextWriter output)
+    {
+        var path = options.Required("labels");
+        var labels = Json.Read<LabelSet>(path).Files;
+        foreach (var label in labels)
+        {
+            var ignore = Scorer.Union(label.Ignore ?? []);
+            for (var i = 0; i < label.Parts.Count; i++)
+            {
+                var part = label.Parts[i];
+                if (i > 0 && label.Parts[i - 1].End.Latest > part.Start.Earliest)
+                {
+                    throw new InvalidDataException(Invariant($"{path}: {label.Id}: part {i + 1} starts at {part.Start.Earliest} before part {i} ends at {label.Parts[i - 1].End.Latest}; parts must be in time order with no overlap, bands included"));
+                }
+
+                if (Scorer.Length(Scorer.Subtract([part.Inner], ignore)) == 0)
+                {
+                    throw new InvalidDataException(Invariant($"{path}: {label.Id}: part {i + 1} has no required credits: nothing between its start band's end at {part.Start.Latest} and its end band's start at {part.End.Earliest} lies outside ignore ranges"));
+                }
+            }
+
+            foreach (var trap in label.Traps ?? [])
+            {
+                foreach (var range in label.Ignore ?? [])
+                {
+                    var overlap = Math.Min(trap.End, range.End) - Math.Max(trap.Start, range.Start);
+                    if (overlap > 0)
+                    {
+                        output.WriteLine(Invariant($"warning: {label.Id}: trap {trap.Start}-{trap.End} overlaps ignore {range.Start}-{range.End} by {overlap:F2} s"));
+                    }
+                }
+            }
+        }
+
+        return labels.ToDictionary(label => label.Id);
+    }
 
     private static void WriteSummaries(TextWriter output, IReadOnlyList<EpisodeScore> scores, RunMode mode)
     {
