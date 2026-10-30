@@ -25,14 +25,7 @@ internal sealed record Manifest(IReadOnlyList<CorpusFile> Files);
 /// as <c>[earliest, latest]</c>.
 /// </summary>
 [JsonConverter(typeof(BoundaryConverter))]
-internal readonly record struct Boundary(double Earliest, double Latest)
-{
-    /// <summary>
-    /// The signed distance from the band to a predicted time: negative before it, positive
-    /// after it, zero inside it.
-    /// </summary>
-    public double ErrorOf(double time) => time < Earliest ? time - Earliest : time > Latest ? time - Latest : 0;
-}
+internal readonly record struct Boundary(double Earliest, double Latest);
 
 /// <summary>
 /// One in-scope credits part: roll credits or card credits.

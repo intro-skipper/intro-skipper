@@ -45,14 +45,96 @@ public class TestCreditsRunner
     public void Score_OnePredictionOverTwoParts_MatchesOnlyOne()
     {
         // One candidate across both parts of split credits skips the scene between them, and
-        // the second part counts as missed, although its credits are covered.
+        // the second part counts as missed, although its credits are covered. The first part's
+        // end error is the scene alone: the second part's credits are not story.
         var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(210, 210), new Boundary(300, 300))]);
 
         var score = Scorer.Score(label, Result("episode", new Candidate(100, 300, "Combined")));
 
-        Assert.Equal([new PartScore(0, 100), new PartScore(null, null)], score.Parts);
+        Assert.Equal([new PartScore(0, 10), new PartScore(null, null)], score.Parts);
         Assert.Equal(10, score.StorySkipped, 6);
         Assert.Equal(0, score.CreditsMissed, 6);
+    }
+
+    [Fact]
+    public void Score_StartInsideAnIgnoreRangeThatMeetsThePart_ScoresZero()
+    {
+        // Styled credits run straight into a short card part, and the prediction starts partway
+        // into them: it skips no story and misses no required credits.
+        var label = new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(106, 106))], Ignore: [new Interval(86, 100)]);
+
+        var score = Scorer.Score(label, Result("episode", new Candidate(90, 106, "KeyframeVisuals")));
+
+        Assert.Equal([new PartScore(0, 0)], score.Parts);
+        Assert.Equal(0, score.StorySkipped);
+    }
+
+    [Fact]
+    public void Score_EarlyStartThroughAnIgnoreRange_CountsOnlyTheStory()
+    {
+        // 5 s of story, an ED the label ignores, then a 6 s next-episode card before the part:
+        // the start costs the 11 s of story and nothing for the ED.
+        var label = new Label("episode", [new LabeledPart(new Boundary(106, 106), new Boundary(166, 166))], Ignore: [new Interval(10, 100)]);
+
+        var score = Scorer.Score(label, Result("episode", new Candidate(5, 166, "Combined")));
+
+        Assert.Equal([new PartScore(-11, 0)], score.Parts);
+        Assert.Equal(11, score.StorySkipped, 6);
+    }
+
+    [Fact]
+    public void Score_LateStart_CountsOnlyTheRequiredCreditsMissed()
+    {
+        // The start band ends at 102 and the prediction starts at 170, past 10 s the label
+        // ignores inside the part, so 58 s of required credits are missed.
+        var label = new Label("episode", [new LabeledPart(new Boundary(100, 102), new Boundary(200, 200))], Ignore: [new Interval(150, 160)]);
+
+        var score = Scorer.Score(label, Result("episode", new Candidate(170, 200, "BlackFrame")));
+
+        Assert.Equal([new PartScore(58, 0)], score.Parts);
+        Assert.Equal(58, score.CreditsMissed, 6);
+    }
+
+    [Fact]
+    public void Score_PredictionOverOnlyABandAndIgnoredTitles_MatchesNoPart()
+    {
+        // A card part, styled titles the label ignores, then a roll. The prediction covers the
+        // titles and the last 0.1 s of the card's end band, which holds no required credit.
+        var label = new Label("episode", CardTitlesRoll(new Boundary(106.8, 107)), Ignore: [new Interval(107, 227)]);
+
+        var score = Scorer.Score(label, Result("episode", new Candidate(106.9, 226.9, "Chromaprint")));
+
+        Assert.Equal([new PartScore(null, null), new PartScore(null, null)], score.Parts);
+        Assert.Empty(score.FalseParts);
+    }
+
+    [Fact]
+    public void Score_OnePredictionAcrossCardTitlesAndRoll_MatchesBothAndCountsOuterStoryOnce()
+    {
+        // The ignored titles join the card and the roll into one block, so one prediction can
+        // match both. Story before the block counts on the card and story after it on the roll.
+        var label = new Label("episode", CardTitlesRoll(new Boundary(106.5, 107)), Ignore: [new Interval(106.5, 227)]);
+
+        Assert.Equal(
+            [new PartScore(0, 0), new PartScore(0, 0)],
+            Scorer.Score(label, Result("episode", new Candidate(100, 327, "Combined"))).Parts);
+        Assert.Equal(
+            [new PartScore(-10, 0), new PartScore(0, 3)],
+            Scorer.Score(label, Result("episode", new Candidate(90, 330, "Combined"))).Parts);
+    }
+
+    [Fact]
+    public void Regressions_FlagACardLostFromAPredictionAcrossTheBlock()
+    {
+        // The prediction now starts inside the ignored titles: the roll still scores 0/0, and
+        // the card is missed.
+        var label = new Label("episode", CardTitlesRoll(new Boundary(106.5, 107)), Ignore: [new Interval(106.5, 227)]);
+        var baseline = Scorer.Score(label, Result("episode", new Candidate(100, 327, "Combined")));
+
+        var candidate = Scorer.Score(label, Result("episode", new Candidate(106.8, 327, "Combined")));
+
+        Assert.Equal([new PartScore(null, null), new PartScore(0, 0)], candidate.Parts);
+        Assert.Equal(["part 1 is now missed"], Differ.Regressions(baseline, candidate));
     }
 
     [Fact]
@@ -358,6 +440,13 @@ public class TestCreditsRunner
         => new Runner(new PluginConfiguration(), repeats: 1, TextWriter.Null, mode).RunAsync(
             [new CorpusFile("intro", "../../../audio/big_buck_bunny_intro.mp3", 25, Season: introSeason), new CorpusFile("clip", "../../../audio/big_buck_bunny_clip.mp3", 60, Season: clipSeason)],
             CancellationToken.None);
+
+    /// <summary>
+    /// A 7 s card part from 100 to its end band, then a roll from 227 to 327, with the titles
+    /// between them left for the caller to ignore.
+    /// </summary>
+    private static LabeledPart[] CardTitlesRoll(Boundary cardEnd)
+        => [new LabeledPart(new Boundary(100, 103), cardEnd), new LabeledPart(new Boundary(227, 227.5), new Boundary(327, 327))];
 
     private static EpisodeResult Result(string id, params Candidate[] combined)
         => new(id, 0, 450, combined, combined, null, false, 0, null, 0, []);

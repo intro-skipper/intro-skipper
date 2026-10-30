@@ -5,7 +5,9 @@ namespace CreditsRunner;
 
 /// <summary>
 /// How one labeled part came out: signed errors, negative when the prediction starts or ends
-/// early, or both <see langword="null"/> when no prediction matched the part.
+/// early, or both <see langword="null"/> when no prediction matched the part. An error is the
+/// seconds the boundary costs: story for an early start or a late end, required credits for a
+/// late start or an early end. Ignore ranges and other parts cost nothing.
 /// </summary>
 internal sealed record PartScore(double? StartError, double? EndError)
 {
@@ -62,39 +64,66 @@ internal static class Scorer
     private static readonly double[] _tolerances = [0.5, 1, 2, 5];
 
     /// <summary>
-    /// Scores one file. Each labeled part matches at most one prediction and each prediction at
-    /// most one part, taking the pairs with the largest overlap with the part's widest span first.
+    /// Scores one file. Pairs are taken by their overlap with the seconds the part always covers
+    /// outside ignore ranges, largest first, so a prediction over only band or ignore time
+    /// matches nothing. Each part matches at most one prediction, and a prediction matches one
+    /// part or several of one block: neighbouring parts with at most <see cref="Slack"/> of story
+    /// between them.
     /// </summary>
     public static EpisodeScore Score(Label label, EpisodeResult result)
     {
         var parts = label.Parts;
         var predictions = result.Combined;
-        var matchOfPart = new Candidate?[parts.Count];
-        var matched = new bool[predictions.Count];
+        var ignore = Union(label.Ignore ?? []);
+        var credits = Union([.. parts.Select(part => part.Outer), .. ignore]);
+        var block = new int[parts.Count];
+        for (var i = 1; i < parts.Count; i++)
+        {
+            var story = Length(Subtract([new Interval(parts[i - 1].End.Latest, parts[i].Start.Earliest)], credits));
+            block[i] = block[i - 1] + (story > Slack ? 1 : 0);
+        }
+
+        var matchOfPart = new int?[parts.Count];
+        var blockOfPrediction = new int?[predictions.Count];
         var pairs = parts
-            .SelectMany((part, i) => predictions.Select((prediction, j) => (Part: i, Prediction: j, Overlap: Overlap(part.Outer, prediction.Span))))
+            .SelectMany((part, i) => predictions.Select((prediction, j) => (Part: i, Prediction: j, Overlap: Overlap(Subtract([part.Inner], ignore), prediction.Span))))
             .Where(pair => pair.Overlap > 0)
             .OrderByDescending(pair => pair.Overlap);
         foreach (var (part, prediction, _) in pairs)
         {
-            if (matchOfPart[part] is null && !matched[prediction])
+            if (matchOfPart[part] is null && (blockOfPrediction[prediction] ?? block[part]) == block[part])
             {
-                matchOfPart[part] = predictions[prediction];
-                matched[prediction] = true;
+                matchOfPart[part] = prediction;
+                blockOfPrediction[prediction] = block[part];
             }
         }
 
-        var credits = Union([.. parts.Select(part => part.Outer), .. label.Ignore ?? []]);
         var predicted = Union([.. predictions.Select(prediction => prediction.Span)]);
         return new EpisodeScore(
             label.Holdout,
             result.Failure is not null,
-            [.. parts.Select((part, i) => matchOfPart[i] is { } prediction
-                ? new PartScore(part.Start.ErrorOf(prediction.Start), part.End.ErrorOf(prediction.End))
+            [.. parts.Select((part, i) => matchOfPart[i] is { } j
+                ? ScorePart(i, predictions[j].Span, i > 0 && matchOfPart[i - 1] == j, i + 1 < parts.Count && matchOfPart[i + 1] == j)
                 : new PartScore(null, null))],
-            [.. predictions.Where((prediction, j) => !matched[j] && Length(Subtract([prediction.Span], credits)) > Slack)],
+            [.. predictions.Where((prediction, j) => blockOfPrediction[j] is null && Length(Subtract([prediction.Span], credits)) > Slack)],
             Subtract(predicted, credits),
-            Length(Subtract(Subtract(Union([.. parts.Select(part => part.Inner)]), Union(label.Ignore ?? [])), predicted)));
+            Length(Subtract(Subtract(Union([.. parts.Select(part => part.Inner)]), ignore), predicted)));
+
+        // A prediction shared with a neighbouring part is measured only inside the block, so
+        // story before or after the block counts once, on its first or last part.
+        PartScore ScorePart(int i, Interval span, bool sharedWithPrevious, bool sharedWithNext)
+        {
+            var (start, end) = (parts[i].Start, parts[i].End);
+            var predictedStart = sharedWithPrevious ? Math.Max(span.Start, parts[i - 1].End.Latest) : span.Start;
+            var predictedEnd = sharedWithNext ? Math.Min(span.End, parts[i + 1].Start.Earliest) : span.End;
+            return new PartScore(
+                predictedStart < start.Earliest ? -Length(Subtract([new Interval(predictedStart, start.Earliest)], credits))
+                    : predictedStart > start.Latest ? Length(Subtract([new Interval(start.Latest, predictedStart)], ignore))
+                    : 0,
+                predictedEnd > end.Latest ? Length(Subtract([new Interval(end.Latest, predictedEnd)], credits))
+                    : predictedEnd < end.Earliest ? -Length(Subtract([new Interval(predictedEnd, end.Earliest)], ignore))
+                    : 0);
+        }
     }
 
     public static Summary Summarize(IReadOnlyList<EpisodeScore> scores)
@@ -170,7 +199,7 @@ internal static class Scorer
 
     public static double Length(IEnumerable<Interval> spans) => spans.Sum(span => span.Length);
 
-    private static double Overlap(Interval a, Interval b) => new Interval(Math.Max(a.Start, b.Start), Math.Min(a.End, b.End)).Length;
+    private static double Overlap(IEnumerable<Interval> spans, Interval span) => spans.Sum(piece => new Interval(Math.Max(piece.Start, span.Start), Math.Min(piece.End, span.End)).Length);
 
     private static double Mean(IEnumerable<double> values)
     {
