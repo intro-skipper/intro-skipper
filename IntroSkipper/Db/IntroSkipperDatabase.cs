@@ -23,6 +23,7 @@ namespace IntroSkipper.Db;
 /// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes and the queue-verification snapshot.</description></item>
 /// <item><description><c>IntroSkipperDatabase.AnalyzedItems.cs</c> — <see cref="DbAnalyzedItem"/> reads and writes.</description></item>
 /// <item><description><c>IntroSkipperDatabase.DisabledItems.cs</c> — <see cref="DbDisabledItem"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.FileHashes.cs</c>: <see cref="DbFileHash"/> reads and writes and the rebind of orphans.</description></item>
 /// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning several tables.</description></item>
 /// </list>
 /// The facade is stateless apart from the retryable initialization gate: every operation
@@ -70,7 +71,7 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>
     /// Rebuilds the database while attempting to preserve segments, season state,
-    /// analysis records, disabled items and the legacy-import marker. Runs even when
+    /// analysis records, disabled items, file hashes and the legacy-import marker. Runs even when
     /// initialization fails (it recreates the schema itself), so a database whose
     /// migrations no longer apply can still be recovered.
     /// </summary>

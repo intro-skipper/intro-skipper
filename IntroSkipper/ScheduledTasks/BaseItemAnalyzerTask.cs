@@ -43,6 +43,8 @@ public partial class BaseItemAnalyzerTask(
 {
     private static readonly AnalysisMode[] AllModes = Enum.GetValues<AnalysisMode>();
 
+    private static readonly Progress<double> NoProgress = new();
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<BaseItemAnalyzerTask>();
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
@@ -50,6 +52,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IntroSkipperDatabase _database = database;
+    private readonly ItemRebinder _rebinder = new(database, id => Plugin.Instance!.GetItem(id) is null, loggerFactory.CreateLogger<ItemRebinder>());
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
@@ -119,6 +122,21 @@ public partial class BaseItemAnalyzerTask(
         if (failures is { IsEmpty: false })
         {
             throw new AggregateException(failures);
+        }
+    }
+
+    /// <summary>
+    /// Rebinds orphans into the seasons holding these items.
+    /// </summary>
+    /// <param name="itemIds">Ids of the seasons, movies or episodes the scan covers.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    internal async Task RebindAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        var scope = itemIds.ToHashSet();
+        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, failures: null, NoProgress))
+        {
+            await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -198,7 +216,8 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Verifies one season against the stored analysis state, reopens what a replaced file
+    /// Rebinds the orphans whose files the season's items hold, then verifies the season
+    /// against the stored analysis state, reopens what a replaced file
     /// or a settled-season reanalysis invalidates, reads each episode's chapters, and runs
     /// every mode over the episodes whose chapters could be read. An opted-out Season 0 runs
     /// no mode unless a manual scan requested it.
@@ -208,6 +227,7 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyList<AnalysisMode> settledResetModes = [];
         HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
 
+        await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
         foreach (var episode in season.Episodes)
         {

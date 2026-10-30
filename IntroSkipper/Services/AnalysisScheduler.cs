@@ -480,6 +480,9 @@ public sealed partial class AnalysisScheduler(
         }
 
         var itemIds = season.Episodes.Select(episode => episode.EpisodeId).ToHashSet();
+
+        // Rebind before the erase, so a renamed file's rows are erased too.
+        await _analyzer.RebindAsync(itemIds, cancellationToken).ConfigureAwait(false);
         await _eraser.EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken: cancellationToken).ConfigureAwait(false);
         await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds, manualScan: true).ConfigureAwait(false);
     }

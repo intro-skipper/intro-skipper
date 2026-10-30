@@ -296,7 +296,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Gets the item IDs holding per-item state (disable flags or analysis records) that
+    /// Gets the item IDs holding per-item state (disable flags, analysis records or file hashes) that
     /// are not part of <paramref name="retainedItemIds"/>, so cleanup can decide per item
     /// whether it is gone or merely missing from an enumeration that skipped its library.
     /// </summary>
@@ -317,6 +317,9 @@ public sealed partial class IntroSkipperDatabase
             .Union(db.AnalyzedItems
                 .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
                 .Select(a => a.ItemId))
+            .Union(db.FileHashes
+                .Where(h => !EF.Parameter(retainedIds).Contains(h.ItemId))
+                .Select(h => h.ItemId))
             .ToArrayAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -347,7 +350,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <summary>
-    /// Removes per-item state (disable flags and analysis records) of items that no
+    /// Removes per-item state (disable flags, analysis records and file hashes) of items that no
     /// longer exist in enabled libraries.
     /// </summary>
     /// <param name="retainedItemIds">Item IDs that still exist.</param>
@@ -368,6 +371,10 @@ public sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
         await db.AnalyzedItems
             .Where(a => !EF.Parameter(retainedIds).Contains(a.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.FileHashes
+            .Where(h => !EF.Parameter(retainedIds).Contains(h.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
