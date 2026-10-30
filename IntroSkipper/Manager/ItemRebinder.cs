@@ -116,13 +116,8 @@ internal sealed partial class ItemRebinder(IntroSkipperDatabase database, Func<G
             return;
         }
 
-        Guid? previousSeasonId = rebinds.Count == episodes.Count
-            && rebinds.Select(r => r.Orphan.SeasonId).Distinct().ToList() is [var previous]
-            && previous != season.Key
-            && isGone(previous)
-                ? previous
-                : null;
-        await database.RebindItemsAsync(rebinds, season.Key, previousSeasonId, cancellationToken).ConfigureAwait(false);
+        var goneSeasonIds = rebinds.Select(r => r.Orphan.SeasonId).Distinct().Where(id => id != season.Key && isGone(id)).ToList();
+        await database.RebindItemsAsync(rebinds, season.Key, goneSeasonIds, coversSeason: rebinds.Count == episodes.Count, cancellationToken).ConfigureAwait(false);
         LogRebound(logger, rebinds.Count, season.Key);
     }
 

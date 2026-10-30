@@ -129,12 +129,13 @@ public sealed class TestItemRebinder : IDisposable
         var path = WriteFile("episode.mkv", 1);
         var otherPath = WriteFile("other.mkv", 2);
         var other = Guid.NewGuid();
+        var splitSeason = Guid.NewGuid();
         await RebindAsync(seasonCase == SeasonCase.OldSeasonSplit
             ? Season(_oldSeason, (_orphan, path, 100), (other, otherPath, 100))
             : Season(_oldSeason, (_orphan, path, 100)));
         await database.SetAnalysisOverridesAsync(_oldSeason, 40, null, null, null, null);
         await SeedOrphanAsync(database);
-        _gone.Add(_orphan);
+        _gone.UnionWith([_orphan, other]);
         if (seasonCase != SeasonCase.OldSeasonStillExists)
         {
             _gone.Add(_oldSeason);
@@ -148,10 +149,16 @@ public sealed class TestItemRebinder : IDisposable
         await RebindAsync(seasonCase == SeasonCase.NewSeasonHasAnotherItem
             ? Season(_newSeason, (_item, path, 200), (Guid.NewGuid(), otherPath, 200))
             : Season(_newSeason, (_item, path, 200)));
+        if (seasonCase == SeasonCase.OldSeasonSplit)
+        {
+            // The other half lands in a season of its own: it must not take the old state either.
+            await RebindAsync(Season(splitSeason, (Guid.NewGuid(), otherPath, 200)));
+        }
 
         Assert.Equal(3, (await database.GetSegmentsAsync(_item, includeSuppressed: true)).Count);
-        Assert.Equal(40, (await database.GetAnalysisOverridesAsync(_oldSeason)).AnalysisPercent);
+        Assert.Equal(seasonCase == SeasonCase.OldSeasonStillExists ? 40 : null, (await database.GetAnalysisOverridesAsync(_oldSeason)).AnalysisPercent);
         Assert.Equal(seasonCase == SeasonCase.NewSeasonHasState ? 70 : null, (await database.GetAnalysisOverridesAsync(_newSeason)).AnalysisPercent);
+        Assert.Null((await database.GetAnalysisOverridesAsync(splitSeason)).AnalysisPercent);
     }
 
     [Theory]
@@ -206,7 +213,7 @@ public sealed class TestItemRebinder : IDisposable
         /// <summary>The new season also holds an item that was not rebound (a merge).</summary>
         NewSeasonHasAnotherItem,
 
-        /// <summary>The old season had another hashed item that went elsewhere (a split).</summary>
+        /// <summary>The old season's two items land in two new seasons (a split).</summary>
         OldSeasonSplit,
     }
 
