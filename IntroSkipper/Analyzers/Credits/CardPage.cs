@@ -10,8 +10,7 @@ namespace IntroSkipper.Analyzers.Credits;
 internal enum CardKind
 {
     /// <summary>
-    /// Not a card: counts against a run's density, and splits a run between two pages more than the
-    /// bridge apart.
+    /// Not a card: counts against a run's density.
     /// </summary>
     Content,
 

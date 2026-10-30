@@ -1580,15 +1580,18 @@ public class TestBlackFrames
         // Uniform sparse long-GOP credits (12s cadence) -> kept as one run.
         { Pages(Seq(48, 12, (0, 48))), 15, (0, 48) },
 
-        // All-card run whose 21s cadence exceeds the fixed bridge, with nothing non-card between
-        // -> stays one run instead of splitting into one-frame runs that each miss the minimum.
-        { Pages(Seq(63, 21, (0, 63))), 60, (0, 63) },
+        // All-card run whose 21s cadence exceeds the run gap: it breaks there as a black run would,
+        // into one-page runs that each miss the minimum.
+        { Pages(Seq(63, 21, (0, 63))), 60, null },
+
+        // A 20 s cadence is exactly the run gap and does not break the run.
+        { Pages(Seq(60, 20, (0, 60))), 60, (0, 60) },
 
         // Two real runs separated by a long gap -> latest selected.
         { Pages(Seq(80, 2, (0, 20), (60, 80))), 15, (60, 80) },
 
         // An earlier dense run (0-20) must not capture or extend into a later long-GOP credit run
-        // (60-96, 12s cadence): real content separates the groups, so the latest run is returned.
+        // (60-96, 12s cadence): the 40 s gap between them breaks the run, so the latest is returned.
         { Pages(NotBlack([.. Cards(0, 20, 2), .. Busy(22, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
 
         // Dense non-card content, then static cards on a 12s-keyframe source: grouping must key off the
@@ -1684,13 +1687,13 @@ public class TestBlackFrames
                 [],
                 null);
 
-            // Pages without a visual are invisible to the card finder: between two card spans 24 s
-            // apart they neither break the run nor count against its density.
+            // Pages without a visual are invisible to the card finder: they do not join two card spans
+            // 24 s apart, which break at the run gap, and the later span is the run.
             data.Add(
                 Pages([.. Keyframes(0, 20, 2, (0, 20, 0, KeyframeVisuals.Card)), .. Keyframes(22, 42, 2, (22, 42, 0, _ => null)), .. Keyframes(44, 64, 2, (44, 64, 0, KeyframeVisuals.Card))]),
                 [],
                 [],
-                (0, 64));
+                (44, 64));
 
             // Grey, black, grey: one run.
             data.Add(Pages(Keyframes(0, 80, 2, (0, 20, 0, KeyframeVisuals.Card), (22, 60, 100, KeyframeVisuals.Black), (62, 80, 0, KeyframeVisuals.Card))), [(22, 60)], [], (0, 80));
@@ -1717,9 +1720,9 @@ public class TestBlackFrames
             // Short grey cards then a short roll, each below the minimum on its own, qualify together.
             data.Add(Pages(Keyframes(0, 24, 2, (0, 10, 0, KeyframeVisuals.Card), (12, 24, 100, KeyframeVisuals.Black))), [], [], (0, 24));
 
-            // Sparse black cards on a 21 s cadence that the black-frame rules could not confirm:
-            // recovered as the old fallback did.
-            data.Add(Pages(Keyframes(0, 63, 21, (0, 63, 100, KeyframeVisuals.Black))), [], [], (0, 63));
+            // Sparse black cards on a 21 s cadence that the black-frame rules could not confirm: they
+            // break at the run gap as the black run does, so no run meets the minimum.
+            data.Add(Pages(Keyframes(0, 63, 21, (0, 63, 100, KeyframeVisuals.Black))), [], [], null);
 
             // A dark grey lead-in at 90 percent black before a full-black roll. Its pages are black and
             // pass the card test, but the accepted black scene starts at the roll, so the lead-in is

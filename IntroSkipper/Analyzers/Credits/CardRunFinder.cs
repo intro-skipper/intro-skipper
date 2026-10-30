@@ -29,34 +29,22 @@ internal static class CardRunFinder
             return null;
         }
 
-        // A run breaks only when real content separates two cards: a time gap beyond the fixed bridge
-        // AND at least one non-card keyframe between them. The fixed bridge (not a cadence estimate)
-        // keeps runs independent of an earlier dense run, while the non-card-evidence requirement keeps
-        // a sparse all-card source (keyframes farther apart than the bridge but with nothing non-card
-        // between) as a single run regardless of GOP length.
-        const double maximumInRunGap = 20;
         TimeRange? best = null;
         var runCards = new List<CardPage>();
-        var nonCardSinceLastCard = false;
-
         foreach (var page in pages)
         {
             if (page.Kind == CardKind.Content)
             {
-                nonCardSinceLastCard = true;
                 continue;
             }
 
-            if (runCards.Count > 0 &&
-                page.Time - runCards[^1].Time > maximumInRunGap &&
-                nonCardSinceLastCard)
+            if (runCards.Count > 0 && page.Time - runCards[^1].Time > KeyframeScan.MaximumRunGapSeconds)
             {
                 best = SelectLatestQualifyingRun(best, runCards, pages, minimumDuration);
                 runCards.Clear();
             }
 
             runCards.Add(page);
-            nonCardSinceLastCard = false;
         }
 
         return SelectLatestQualifyingRun(best, runCards, pages, minimumDuration);
@@ -80,11 +68,6 @@ internal static class CardRunFinder
             return currentBest;
         }
 
-        // Cards must dominate the keyframes within the span. The grouping step skips non-card
-        // keyframes, so two isolated cards bridged across busy content (non-card keyframes between
-        // them) would otherwise masquerade as a sustained card sequence. A genuinely sparse credit
-        // run from a long-GOP source has no non-card keyframes between its cards, so its density
-        // stays high and it is kept; only sparse cards interspersed with busy content are rejected.
         if (!HasSufficientCardDensity(pages, runStart.Time, lastCard.Time))
         {
             return currentBest;
