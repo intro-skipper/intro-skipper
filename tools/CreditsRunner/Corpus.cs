@@ -25,14 +25,7 @@ internal sealed record Manifest(IReadOnlyList<CorpusFile> Files);
 /// as <c>[earliest, latest]</c>.
 /// </summary>
 [JsonConverter(typeof(BoundaryConverter))]
-internal readonly record struct Boundary(double Earliest, double Latest)
-{
-    /// <summary>
-    /// The signed distance from the band to a predicted time: negative before it, positive
-    /// after it, zero inside it.
-    /// </summary>
-    public double ErrorOf(double time) => time < Earliest ? time - Earliest : time > Latest ? time - Latest : 0;
-}
+internal readonly record struct Boundary(double Earliest, double Latest);
 
 /// <summary>
 /// One in-scope credits part: roll credits or card credits.
@@ -65,10 +58,11 @@ internal readonly record struct Interval(double Start, double End)
 /// The ground truth for one corpus file. A file without credits has no parts.
 /// </summary>
 /// <param name="Id">The id shared with the manifest.</param>
-/// <param name="Parts">The in-scope credits parts, in order.</param>
+/// <param name="Parts">The in-scope credits parts, in time order with no overlap, bands included. The scorer relies on it and <c>score</c> and <c>diff</c> refuse a label that breaks it.</param>
 /// <param name="Holdout">Whether the file is held out: no prototype tunes on it, and the scorer reports it apart.</param>
 /// <param name="Ignore">Out-of-scope credits, such as styled credits or credits over footage: never required, never penalized.</param>
-internal sealed record Label(string Id, IReadOnlyList<LabeledPart> Parts, bool Holdout = false, IReadOnlyList<Interval>? Ignore = null);
+/// <param name="Traps">Story that could fool a detector. The scorer reads them only to warn when one overlaps an ignore range, where its time could never count as story.</param>
+internal sealed record Label(string Id, IReadOnlyList<LabeledPart> Parts, bool Holdout = false, IReadOnlyList<Interval>? Ignore = null, IReadOnlyList<Interval>? Traps = null);
 
 internal sealed record LabelSet(IReadOnlyList<Label> Files);
 
