@@ -191,13 +191,16 @@ public class TestCreditsRunner
     public void Score_PartsWithAtMostHalfASecondOfStoryBetween_FormOneBlock()
     {
         // One prediction over both parts. With 0.4 s of story between them it matches both, and
-        // that story counts on each; with 0.6 s the second part is a block of its own and missed.
+        // that story counts on each; 0.5 s is still one block; with 0.6 s the second part is a block
+        // of its own and missed.
         static PartScore[] Score(double gap) => [.. Scorer.Score(
             new Label("episode", [new LabeledPart(new Boundary(100, 100), new Boundary(200, 200)), new LabeledPart(new Boundary(200 + gap, 200 + gap), new Boundary(300, 300))]),
             Result("episode", new Candidate(100, 300, "Combined"))).Parts];
 
         var block = Score(0.4);
         Assert.Equal((0, 0.4, -0.4, 0), (block[0].StartError!.Value, Math.Round(block[0].EndError!.Value, 6), Math.Round(block[1].StartError!.Value, 6), block[1].EndError!.Value));
+
+        Assert.False(Score(0.5)[1].Missed);
 
         var apart = Score(0.6);
         Assert.Equal(0.6, apart[0].EndError!.Value, 6);
@@ -449,6 +452,7 @@ public class TestCreditsRunner
     [Theory]
     [InlineData("""[{ "start": 300, "end": 400 }, { "start": 100, "end": 200 }]""", "[]", "e: part 2 starts at 100 before part 1 ends at 400")]
     [InlineData("""[{ "start": 50, "end": [100, 110] }, { "start": 105, "end": 200 }]""", "[]", "e: part 2 starts at 105 before part 1 ends at 110")]
+    [InlineData("""[{ "start": 50, "end": 100 }, { "start": [95, 105], "end": 200 }]""", "[]", "e: part 2 starts at 95 before part 1 ends at 100")]
     [InlineData("""[{ "start": [100, 101], "end": [101, 102] }]""", "[]", "e: part 1 has no required credits")]
     [InlineData("""[{ "start": 50, "end": 60 }, { "start": [100, 102], "end": [101, 103] }]""", "[]", "e: part 2 has no required credits")]
     [InlineData("""[{ "start": 100, "end": 200 }]""", """[{ "start": 90, "end": 150 }, { "start": 150, "end": 210 }]""", "e: part 1 has no required credits")]
