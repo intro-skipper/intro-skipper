@@ -279,7 +279,17 @@ public class IntroSkipperDbContext : DbContext
                 disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
-                fileHashes = await db.FileHashes.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+
+                // File hashes only offer later rebinds, so an unreadable table, or one a
+                // failed migration never created, must not cost the salvage above.
+                try
+                {
+                    fileHashes = await db.FileHashes.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is SqliteException or FormatException or InvalidCastException)
+                {
+                    fileHashes = [];
+                }
             }
             finally
             {

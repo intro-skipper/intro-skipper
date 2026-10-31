@@ -929,6 +929,24 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task RebuildDatabaseAsync_MissingFileHashesTable_StillSalvagesTheOtherRows()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
+
+        // A database whose AddFileHashes migration never applied.
+        await using (var db = _db.Context())
+        {
+            await db.Database.ExecuteSqlRawAsync("DROP TABLE \"FileHashes\"");
+        }
+
+        await database.RebuildDatabaseAsync();
+
+        Assert.Single(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
     public async Task RebuildDatabaseAsync_BackupFailure_RebuildsClean_WhenForceCleanRequested()
     {
         var itemId = Guid.NewGuid();
