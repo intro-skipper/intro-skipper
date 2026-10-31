@@ -81,13 +81,16 @@ public sealed class TestItemRebinder : IDisposable
         await database.ReplaceAutoSegmentsAsync(_item, AnalysisMode.Credits, [new Segment(_item, new TimeRange(1300, 1400))], SegmentSource.Combined, "h");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Introduction, [(_item, 200L)], "h");
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [(_item, 200L)], "h");
+        await database.ReplaceAutoSegmentsAsync(_item, AnalysisMode.Preview, [new Segment(_item, new TimeRange(1400, 1420))], SegmentSource.CreditsDerived, "h");
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [(_item, 200L)], "h");
         _gone.Add(_orphan);
 
         await RebindAsync(Season(_newSeason, (_item, path, 200)));
 
+        // The preview derived from the item's own credits stays until Preview derives again.
         var segments = await database.GetSegmentsAsync(_item, includeSuppressed: true);
         Assert.Equivalent(
-            new[] { (AnalysisMode.Introduction, SegmentSource.Chromaprint), (AnalysisMode.Credits, SegmentSource.User), (AnalysisMode.Recap, SegmentSource.Chromaprint) },
+            new[] { (AnalysisMode.Introduction, SegmentSource.Chromaprint), (AnalysisMode.Credits, SegmentSource.User), (AnalysisMode.Recap, SegmentSource.Chromaprint), (AnalysisMode.Preview, SegmentSource.CreditsDerived) },
             segments.Select(s => (s.Type, s.Source)));
         Assert.Equal([AnalysisMode.Introduction], await AnalyzedModesAsync(_item));
 

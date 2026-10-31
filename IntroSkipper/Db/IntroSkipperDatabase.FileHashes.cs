@@ -121,7 +121,8 @@ public sealed partial class IntroSkipperDatabase
     /// disable flag move. Its automatic segments and analysis records move too when the
     /// item has no analysis; when it has, the modes the moved rows cover lose the item's
     /// automatic rows and records, because that analysis was never admitted against
-    /// them. A moved record that carried the orphan's media version takes the item's,
+    /// them, and moved Credits intent clears the item's Preview record, as a Credits edit
+    /// does. A moved record that carried the orphan's media version takes the item's,
     /// since an equal file hash proves the file is the same; a subtitle-versioned record
     /// keeps its value. Whatever stays behind is the orphan's until the cleanup task
     /// forgets it.</para>
@@ -217,6 +218,13 @@ public sealed partial class IntroSkipperDatabase
                 .Where(a => a.ItemId == item && modes.Contains(a.Type))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            // As after a user Credits edit: a preview derived from the item's old credits
+            // end must derive again.
+            if (modes.Contains(AnalysisMode.Credits))
+            {
+                await ClearItemAnalysisCoreAsync(db, item, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await intent
