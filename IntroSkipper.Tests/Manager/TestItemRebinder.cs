@@ -123,14 +123,16 @@ public sealed class TestItemRebinder : IDisposable
     [InlineData(SeasonCase.NewSeasonHasState)]
     [InlineData(SeasonCase.NewSeasonHasAnotherItem)]
     [InlineData(SeasonCase.OldSeasonSplit)]
-    public async Task SeasonState_MovesOnlyWithAWholeGoneSeason(SeasonCase seasonCase)
+    [InlineData(SeasonCase.OldSeasonMovedOverTwoPasses)]
+    public async Task SeasonState_MovesToTheFirstSeasonAGoneSeasonIsRebound(SeasonCase seasonCase)
     {
         var database = _db.Database;
         var path = WriteFile("episode.mkv", 1);
         var otherPath = WriteFile("other.mkv", 2);
         var other = Guid.NewGuid();
         var splitSeason = Guid.NewGuid();
-        await RebindAsync(seasonCase == SeasonCase.OldSeasonSplit
+        var halves = seasonCase is SeasonCase.OldSeasonSplit or SeasonCase.OldSeasonMovedOverTwoPasses;
+        await RebindAsync(halves
             ? Season(_oldSeason, (_orphan, path, 100), (other, otherPath, 100))
             : Season(_oldSeason, (_orphan, path, 100)));
         await database.SetAnalysisOverridesAsync(_oldSeason, 40, null, null, null, null);
@@ -151,13 +153,24 @@ public sealed class TestItemRebinder : IDisposable
             : Season(_newSeason, (_item, path, 200)));
         if (seasonCase == SeasonCase.OldSeasonSplit)
         {
-            // The other half lands in a season of its own: it must not take the old state either.
+            // The other half lands in a season of its own, after the first half took the state.
             await RebindAsync(Season(splitSeason, (Guid.NewGuid(), otherPath, 200)));
+        }
+        else if (seasonCase == SeasonCase.OldSeasonMovedOverTwoPasses)
+        {
+            // Jellyfin probed the other episode for a later pass.
+            await RebindAsync(Season(_newSeason, (_item, path, 200), (Guid.NewGuid(), otherPath, 200)));
         }
 
         Assert.Equal(3, (await database.GetSegmentsAsync(_item, includeSuppressed: true)).Count);
         Assert.Equal(seasonCase == SeasonCase.OldSeasonStillExists ? 40 : null, (await database.GetAnalysisOverridesAsync(_oldSeason)).AnalysisPercent);
-        Assert.Equal(seasonCase == SeasonCase.NewSeasonHasState ? 70 : null, (await database.GetAnalysisOverridesAsync(_newSeason)).AnalysisPercent);
+        int? newSeasonPercent = seasonCase switch
+        {
+            SeasonCase.NewSeasonHasState => 70,
+            SeasonCase.OldSeasonSplit or SeasonCase.OldSeasonMovedOverTwoPasses => 40,
+            _ => null,
+        };
+        Assert.Equal(newSeasonPercent, (await database.GetAnalysisOverridesAsync(_newSeason)).AnalysisPercent);
         Assert.Null((await database.GetAnalysisOverridesAsync(splitSeason)).AnalysisPercent);
     }
 
@@ -215,6 +228,9 @@ public sealed class TestItemRebinder : IDisposable
 
         /// <summary>The old season's two items land in two new seasons (a split).</summary>
         OldSeasonSplit,
+
+        /// <summary>The old season's two items land in the new season one pass apart, as Jellyfin probes them.</summary>
+        OldSeasonMovedOverTwoPasses,
     }
 
     public void Dispose()

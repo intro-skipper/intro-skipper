@@ -126,12 +126,12 @@ public sealed partial class IntroSkipperDatabase
     /// keeps its value. Whatever stays behind is the orphan's until the cleanup task
     /// forgets it.</para>
     /// <para>Settled-season episode sets name the item instead of the orphan. When the
-    /// rebinds cover <paramref name="seasonId"/> and are every hashed item of one gone
-    /// season key, that key's analyzer actions, overrides and episode sets move to
-    /// <paramref name="seasonId"/>, unless it has state of its own. Otherwise the state
-    /// of every gone season key goes: a split or merged season fits no one season, and a
-    /// later destination must not take it. The orphans lose their file hash rows, and
-    /// both ids journal their projections.</para>
+    /// rebinds cover <paramref name="seasonId"/> and come from one gone season key, that
+    /// key's analyzer actions, overrides and episode sets move to <paramref name="seasonId"/>,
+    /// unless it has state of its own. A season Jellyfin probes over several passes keeps
+    /// its state that way, and in a split the first half rebound takes it. Otherwise the
+    /// state of every gone season key goes, so no later destination takes it. The orphans
+    /// lose their file hash rows, and both ids journal their projections.</para>
     /// </remarks>
     /// <param name="rebinds">The orphans and the items taking over their rows, one pair per orphan and per item.</param>
     /// <param name="seasonId">The season key the items are analyzed under.</param>
@@ -146,11 +146,8 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            // Counted before the orphans' hash rows go: a previous season with more hashed
-            // items than these rebinds was split or merged.
             var previous = coversSeason && goneSeasonIds is [var only] && rebinds.All(r => r.Orphan.SeasonId == only) ? only : (Guid?)null;
-            var moveState = previous is { } whole
-                && await db.FileHashes.CountAsync(h => h.SeasonId == whole, cancellationToken).ConfigureAwait(false) == rebinds.Count
+            var moveState = previous is not null
                 && !await db.SeasonStates.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false)
                 && !await db.SeasonAnalysisOverrides.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false);
             foreach (var rebind in rebinds)
