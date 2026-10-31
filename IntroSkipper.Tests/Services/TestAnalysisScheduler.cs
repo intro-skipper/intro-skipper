@@ -564,7 +564,7 @@ public sealed class TestAnalysisScheduler
                 },
             };
             Queue = EntrypointTestHelpers.CreateQueue(resolver, Ffmpeg, Segments.Database, _scope.CacheDbPath, Eraser, Time);
-            Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database, Eraser);
+            Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database);
         }
 
         public Guid SeriesId { get; } = Guid.NewGuid();

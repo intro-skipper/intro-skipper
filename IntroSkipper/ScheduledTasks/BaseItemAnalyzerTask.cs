@@ -115,7 +115,7 @@ public partial class BaseItemAnalyzerTask(
         // free up. A series' episodes are in memory only while its seasons run, and the
         // slots share the seasons of one large series.
         await Parallel.ForEachAsync(
-            SeasonsInScope(owners, scope, failures, progress),
+            SeasonsInScope(owners, scope, includeExcluded: false, failures, progress),
             options,
             (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, failures, ct))).ConfigureAwait(false);
         progress.Report(100);
@@ -126,7 +126,8 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Rebinds orphans into the seasons holding these items.
+    /// Rebinds orphans into the seasons holding these items, their excluded items included,
+    /// as the cleanup task rebinds them.
     /// </summary>
     /// <param name="itemIds">Ids of the seasons, movies or episodes the scan covers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -134,7 +135,7 @@ public partial class BaseItemAnalyzerTask(
     internal async Task RebindAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
         var scope = itemIds.ToHashSet();
-        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, failures: null, NoProgress))
+        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, includeExcluded: true, failures: null, NoProgress))
         {
             await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
         }
@@ -166,13 +167,13 @@ public partial class BaseItemAnalyzerTask(
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
     // keyed by or holding a requested item. An owner that fails to resolve is skipped and,
     // when failures is given, recorded there. Progress counts the owners reached.
-    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, ConcurrentQueue<Exception>? failures, IProgress<double> progress)
+    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, bool includeExcluded, ConcurrentQueue<Exception>? failures, IProgress<double> progress)
     {
         var yielded = 0;
         for (var i = 0; i < owners.Count; i++)
         {
             progress.Report(100.0 * i / owners.Count);
-            if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
+            if (!_seasonResolver.TryResolve(owners[i], includeExcluded, out var seasons))
             {
                 failures?.Enqueue(new InvalidOperationException($"Could not resolve {owners[i].Name} ({owners[i].Id})"));
                 continue;
