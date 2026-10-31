@@ -177,12 +177,25 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        await RecordSettleReanalysisCoreAsync(db, seasonId, modes, episodeIds, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Upserts the settled-season episode set of each mode on a caller-owned context,
+    /// keeping a row's analyzer action.
+    /// </summary>
+    private static async Task RecordSettleReanalysisCoreAsync(
+        IntroSkipperDbContext db,
+        Guid seasonId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<Guid> episodeIds,
+        CancellationToken cancellationToken)
+    {
         // Same JSON shape EF writes for the primitive collection, so the raw upsert and
         // tracked reads agree.
         var settledEpisodeIds = JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
         foreach (var mode in modes)
         {
             await db.Database.ExecuteSqlAsync(

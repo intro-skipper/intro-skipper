@@ -115,6 +115,18 @@ public partial class CleanCacheTask(
             return !exists;
         }
 
+        // Rebind before forgetting, so an orphan whose file a library item holds keeps its
+        // rows under the item's id. Skipped while no orphan holds a file hash to match.
+        var hashedOutsideIds = await _database.GetHashedItemIdsOutsideAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        if (hashedOutsideIds.Any(IsGone))
+        {
+            var rebinder = new ItemRebinder(_database, IsGone, _logger);
+            foreach (var season in seasons)
+            {
+                await rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         var staleTimestampEpisodeIds = (await _database
             .GetStaleTimestampEpisodeIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
             .ConfigureAwait(false))
@@ -149,7 +161,7 @@ public partial class CleanCacheTask(
         var retainedSeasonIds = seasonKeys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
         await _database.CleanSeasonStateAsync(retainedSeasonIds, cancellationToken).ConfigureAwait(false);
 
-        // Per-item state (disable flags, analysis records) follows the item, not a season
+        // Per-item state (disable flags, analysis records, file hashes) follows the item, not a season
         // key, so it is pruned against the retained item IDs instead.
         var staleItemStateIds = await _database.GetStaleItemStateIdsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
         var retainedItemIds = enabledLibraryEpisodeIds.Concat(staleItemStateIds.Where(id => !IsGone(id))).ToList();

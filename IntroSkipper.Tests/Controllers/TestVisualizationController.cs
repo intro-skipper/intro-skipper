@@ -12,6 +12,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
@@ -125,6 +126,43 @@ public sealed class TestVisualizationController : IDisposable
         // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
         Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
         Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Erase_TakesTheRowsARenamedFileBringsAlong(bool excluded)
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        using var pluginScope = CreateScope(new PluginConfiguration { SeriesExclusions = { excluded ? "Show" : "Other Show" } });
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, "episode");
+        var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Shows")],
+            JellyfinItems.WithParents(JellyfinItems.Episode(episodeId, seriesId, seasonId, "Show", path: mediaPath)));
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+
+        // The episode's file was renamed from an item the server no longer knows. Unbound,
+        // the orphan's intro would outlive the erase and the next rebind would move it back.
+        var orphanId = Guid.NewGuid();
+        await _h.Database.SaveFileHashesAsync([new DbFileHash(orphanId, Guid.NewGuid(), await FileHash.ComputeAsync(mediaPath, CancellationToken.None), null)]);
+        await _h.Database.ReplaceAutoSegmentsAsync(orphanId, AnalysisMode.Introduction, [new Segment(orphanId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
+
+        if (excluded)
+        {
+            await controller.ClearExcludedTimestampsAsync(cancellationToken: CancellationToken.None);
+        }
+        else
+        {
+            await controller.EraseSeasonAsync(seriesId, seasonId, cancellationToken: CancellationToken.None);
+        }
+
+        File.Delete(mediaPath);
+        Assert.Empty(await _h.Database.GetSegmentsAsync(orphanId, includeSuppressed: true));
+        Assert.Empty(await _h.Database.GetSegmentsAsync(episodeId, includeSuppressed: true));
     }
 
     [Theory]
@@ -683,14 +721,19 @@ public sealed class TestVisualizationController : IDisposable
             _h.Change,
             queue ?? CreateQueue(cacheDbPath, libraryManager),
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
-            _h.Database,
-            new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change));
+            _h.Database);
     }
 
     // An analysis queue over the harness database that is never started: nothing it is
-    // handed runs, so its status shows exactly what the controller queued.
+    // handed runs, so its status shows exactly what the controller queued. Its erases are
+    // real.
     private AnalysisScheduler CreateQueue(string cacheDbPath, ILibraryManager? libraryManager)
-        => EntrypointTestHelpers.CreateQueue(EntrypointTestHelpers.CreateSeasonResolver(libraryManager), new StubFFmpegService(), _h.Database, cacheDbPath);
+        => EntrypointTestHelpers.CreateQueue(
+            EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+            new StubFFmpegService(),
+            _h.Database,
+            cacheDbPath,
+            new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change));
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(bool updateMediaSegments)
         => CreateScope(new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });

@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
@@ -165,6 +167,25 @@ public sealed class TestAnalysisScheduler
         // Introduction, the only mode the harness scans, so the pass records no analysis.
         Assert.Equal(user.Id, Assert.Single(await database.GetSegmentsAsync(h.EpisodeId, includeSuppressed: true)).Id);
         Assert.False(await h.IsAnalyzedAsync(h.EpisodeId));
+    }
+
+    [Fact]
+    public async Task ManualScan_ErasesTheRowsARenamedFileBringsAlong()
+    {
+        await using var h = await QueueHarness.StartAsync();
+        var database = h.Segments.Database;
+
+        // The episode's file was renamed from an item the server no longer knows.
+        var orphanId = Guid.NewGuid();
+        await database.SaveFileHashesAsync([new DbFileHash(orphanId, Guid.NewGuid(), await FileHash.ComputeAsync(h.MediaPath, CancellationToken.None), null)]);
+        await database.ReplaceAutoSegmentsAsync(orphanId, AnalysisMode.Introduction, [new Segment(orphanId, new TimeRange(10, 20))], SegmentSource.Chapter);
+
+        await h.Scan().WaitAsync(Timeout);
+
+        // The scan rebound the orphan's intro to the episode before erasing it, then analyzed.
+        Assert.Empty(await database.GetSegmentsAsync(h.EpisodeId, includeSuppressed: true));
+        Assert.Empty(await database.GetSegmentsAsync(orphanId, includeSuppressed: true));
+        Assert.True(await h.IsAnalyzedAsync(h.EpisodeId));
     }
 
     [Fact]
@@ -543,7 +564,7 @@ public sealed class TestAnalysisScheduler
                 },
             };
             Queue = EntrypointTestHelpers.CreateQueue(resolver, Ffmpeg, Segments.Database, _scope.CacheDbPath, Eraser, Time);
-            Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database, Eraser);
+            Controller = new VisualizationController(NullLogger<VisualizationController>.Instance, Segments.Change, Queue, resolver, Segments.Database);
         }
 
         public Guid SeriesId { get; } = Guid.NewGuid();

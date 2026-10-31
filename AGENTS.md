@@ -7,7 +7,7 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
 - `IntroSkipper/` plugin project
   - `Analyzers/` ChromaprintAnalyzer (cross-episode audio fingerprints), ChapterAnalyzer, BlackFrameAnalyzer (legacy, behind `UseLegacyBlackFrameAnalyzer`), Credits/KeyframeAnalyzer (black roll and card credits from one keyframe scan), AnimePreviewDeriver, SubtitleAnalyzer (recaps and previews from text subtitle cues)
   - `ScheduledTasks/` DetectSegmentsTask, BaseItemAnalyzerTask (runs analyzers per mode)
-  - `Manager/` SeasonResolver (library items into seasons, one series at a time; the season key function) and QueueVerifier (analysis state per episode), MediaSegmentMirror
+  - `Manager/` SeasonResolver (library items into seasons, one series at a time; the season key function) and QueueVerifier (analysis state per episode), ItemRebinder (file hashes, and the rebind of a renamed file's rows), MediaSegmentMirror
   - `FFmpeg/` FFmpegService (composes FFmpegProcessRunner, FFmpegVersionGate and EpisodeProbeMemo), the only media probing path
   - `Db/` database facades, entities, admission policy, legacy importer
   - `Migrations/` EF migrations for `introskipper-v2.db`

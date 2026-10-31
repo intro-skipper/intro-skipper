@@ -43,6 +43,8 @@ public partial class BaseItemAnalyzerTask(
 {
     private static readonly AnalysisMode[] AllModes = Enum.GetValues<AnalysisMode>();
 
+    private static readonly Progress<double> NoProgress = new();
+
     private readonly ILogger _logger = loggerFactory.CreateLogger<BaseItemAnalyzerTask>();
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
@@ -50,6 +52,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly DetectionCacheService _cacheService = cacheService;
     private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IntroSkipperDatabase _database = database;
+    private readonly ItemRebinder _rebinder = new(database, id => Plugin.Instance!.GetItem(id) is null, loggerFactory.CreateLogger<ItemRebinder>());
 
     /// <summary>
     /// Gets the live plugin configuration. Jellyfin replaces the configuration object on save, so
@@ -112,13 +115,29 @@ public partial class BaseItemAnalyzerTask(
         // free up. A series' episodes are in memory only while its seasons run, and the
         // slots share the seasons of one large series.
         await Parallel.ForEachAsync(
-            SeasonsInScope(owners, scope, failures, progress),
+            SeasonsInScope(owners, scope, includeExcluded: false, failures, progress),
             options,
             (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, failures, ct))).ConfigureAwait(false);
         progress.Report(100);
         if (failures is { IsEmpty: false })
         {
             throw new AggregateException(failures);
+        }
+    }
+
+    /// <summary>
+    /// Rebinds orphans into the seasons holding these items, their excluded items included,
+    /// as the cleanup task rebinds them.
+    /// </summary>
+    /// <param name="itemIds">Ids of the seasons, movies or episodes the scan covers.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    internal async Task RebindAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
+    {
+        var scope = itemIds.ToHashSet();
+        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, includeExcluded: true, failures: null, NoProgress))
+        {
+            await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -148,13 +167,13 @@ public partial class BaseItemAnalyzerTask(
     // Resolves the owners in order, yielding the seasons in scope: every season, or those
     // keyed by or holding a requested item. An owner that fails to resolve is skipped and,
     // when failures is given, recorded there. Progress counts the owners reached.
-    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, ConcurrentQueue<Exception>? failures, IProgress<double> progress)
+    private IEnumerable<ResolvedSeason> SeasonsInScope(IReadOnlyList<BaseItem> owners, HashSet<Guid>? scope, bool includeExcluded, ConcurrentQueue<Exception>? failures, IProgress<double> progress)
     {
         var yielded = 0;
         for (var i = 0; i < owners.Count; i++)
         {
             progress.Report(100.0 * i / owners.Count);
-            if (!_seasonResolver.TryResolve(owners[i], includeExcluded: false, out var seasons))
+            if (!_seasonResolver.TryResolve(owners[i], includeExcluded, out var seasons))
             {
                 failures?.Enqueue(new InvalidOperationException($"Could not resolve {owners[i].Name} ({owners[i].Id})"));
                 continue;
@@ -198,7 +217,8 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Verifies one season against the stored analysis state, reopens what a replaced file
+    /// Rebinds the orphans whose files the season's items hold, then verifies the season
+    /// against the stored analysis state, reopens what a replaced file
     /// or a settled-season reanalysis invalidates, reads each episode's chapters, and runs
     /// every mode over the episodes whose chapters could be read. An opted-out Season 0 runs
     /// no mode unless a manual scan requested it.
@@ -208,6 +228,7 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyList<AnalysisMode> settledResetModes = [];
         HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
 
+        await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
         foreach (var episode in season.Episodes)
         {

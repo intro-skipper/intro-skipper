@@ -29,22 +29,20 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="segmentChange">Durable segment-change coordinator; owns the visibility mutation and converges journaled projections.</param>
-/// <param name="queue">Analysis queue a manual scan is handed to, and whose status the scan status endpoint reports.</param>
+/// <param name="queue">Analysis queue a manual scan is handed to, whose status the scan status endpoint reports, and through which the erase endpoints erase.</param>
 /// <param name="seasonResolver">Resolver of season keys into the episodes the dashboard shows, so every endpoint answers from the live library.</param>
 /// <param name="database">Segment database facade.</param>
-/// <param name="eraser">Erases seasons' automatic segments, analysis state and cache rows, and converges their mirrors.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IntroSkipperDatabase database, ISegmentEraser eraser) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, SegmentChange segmentChange, AnalysisScheduler queue, SeasonResolver seasonResolver, IntroSkipperDatabase database) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly SegmentChange _segmentChange = segmentChange;
     private readonly AnalysisScheduler _queue = queue;
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IntroSkipperDatabase _database = database;
-    private readonly ISegmentEraser _eraser = eraser;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -112,7 +110,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         if (season.Episodes.Count > 0)
         {
             LogErasingTimestamps(_logger, seriesId, seasonId);
-            await _eraser.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
+            await _queue.EraseItemsAsync(season.Episodes.Select(e => e.EpisodeId).ToHashSet(), eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -139,7 +137,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return Ok(new ClearExcludedTimestampsResponse(0, 0, 0));
         }
 
-        var (removedSegments, removedCacheEntries) = await _eraser.EraseItemsAsync(
+        var (removedSegments, removedCacheEntries) = await _queue.EraseItemsAsync(
             excludedIds,
             eraseCache: true,
             eraseTombstones: eraseTombstones,

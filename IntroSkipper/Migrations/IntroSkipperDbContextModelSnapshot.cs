@@ -47,6 +47,28 @@ namespace IntroSkipper.Migrations
                     b.ToTable("DisabledItems", (string)null);
                 });
 
+            modelBuilder.Entity("IntroSkipper.Db.DbFileHash", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("FileVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ItemId");
+
+                    b.HasIndex("Hash");
+
+                    b.ToTable("FileHashes", (string)null);
+                });
+
             modelBuilder.Entity("IntroSkipper.Db.DbImportRecord", b =>
                 {
                     b.Property<int>("Id")
@@ -132,6 +154,7 @@ namespace IntroSkipper.Migrations
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonAnalysisOverride", b =>
                 {
                     b.Property<Guid>("SeasonId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("AnalysisLengthLimit")
