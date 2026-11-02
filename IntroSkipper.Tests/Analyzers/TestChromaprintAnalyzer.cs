@@ -14,7 +14,7 @@ using Xunit;
 
 namespace IntroSkipper.Tests;
 
-public class TestTimeRanges
+public class TestChromaprintAnalyzer
 {
     // Two fingerprints of 200 samples (25 s) that differ over [gapStart, gapEnd) (shift 0). Starts
     // are past the 5 s snap-to-zero window unless a run begins at sample 0. Runs under 8 s
@@ -51,7 +51,8 @@ public class TestTimeRanges
 
     // Two fingerprints of 600 samples (74 s) that differ over each [start, end) pair in gaps; the
     // second starts with `shift` unrelated samples. A sample is about 0.124 s, so 8 s is about 65
-    // samples, and a gap runs from the last similar sample before it to the first after it.
+    // samples, and a gap runs from the last similar sample before it to the first after it. The
+    // comparison with the episodes swapped, a negative shift, mirrors it.
     [Theory]
     [InlineData(new[] { 100, 140 }, 120, 0, 0, 599)]   // 5.1 s gap after a 12.3 s run: joined
     [InlineData(new[] { 100, 160 }, 120, 0, 160, 599)] // 7.6 s gap, over half the 12.3 s run: the longer run wins
@@ -61,7 +62,7 @@ public class TestTimeRanges
     [InlineData(new[] { 380, 430, 500, 530 }, 120, 0, 0, 599)] // the same runs in reverse order join the same way
     [InlineData(new[] { 100, 140 }, 60, 0, 140, 599)]  // the joined run would pass MaximumIntroDuration: no join
     [InlineData(new[] { 0, 30, 130, 170 }, 72, 0, 170, 599)] // 70.5 s, but 74.2 s once its 3.7 s start snaps to 0: no join
-    [InlineData(new[] { 0, 50, 150, 190 }, 120, 7, 50, 592)] // joined on a shifted alignment, which compares the first 593 samples
+    [InlineData(new[] { 0, 50, 150, 190 }, 120, 7, 50, 599)] // joined on a shifted alignment, which compares all 600 overlapping samples
     public void CompareEpisodes_JoinsALongGapOnlyBetweenTwoLongRuns(int[] gaps, int maximumIntroDuration, int shift, int expectedStartSample, int expectedEndSample)
     {
         var lhs = Enumerable.Range(0, 600).Select(i => (uint)(0x1000 + (i * 0x100))).ToArray();
@@ -89,6 +90,38 @@ public class TestTimeRanges
         Assert.Equal(expectedEndSample * ChromaprintConstants.SampleDuration, left.End);
         Assert.Equal((expectedStartSample + shift) * ChromaprintConstants.SampleDuration, right.Start);
         Assert.Equal((expectedEndSample + shift) * ChromaprintConstants.SampleDuration, right.End);
+
+        var (swappedLeft, swappedRight) = analyzer.CompareEpisodes(Guid.NewGuid(), rhs, Guid.NewGuid(), lhs);
+
+        Assert.Equal((right.Start, right.End), (swappedLeft.Start, swappedLeft.End));
+        Assert.Equal((left.Start, left.End), (swappedRight.Start, swappedRight.End));
+    }
+
+    // Equal lengths on a shifted alignment: the shift costs the offset side its last samples,
+    // so the comparison must stop at the end of the shorter overlap rather than read past it.
+    [Fact]
+    public void CompareEpisodes_ShiftedAlignmentOfEqualLengths_StopsAtTheEndOfTheOverlap()
+    {
+        const int Shift = 7;
+        var lhs = Enumerable.Range(0, 600).Select(i => (uint)(0x1000 + (i * 0x100))).ToArray();
+        var rhs = Enumerable.Range(0, Shift).Select(i => 0xF0000000u + (uint)i).Concat(lhs.Take(lhs.Length - Shift)).ToArray();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            null!,
+            null!,
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            new PluginConfiguration
+            {
+                MinimumIntroDuration = 1,
+                MaximumIntroDuration = 120,
+                MaximumFingerprintPointDifferences = 0,
+                InvertedIndexShift = 0,
+            });
+
+        var (left, right) = analyzer.CompareEpisodes(Guid.NewGuid(), lhs, Guid.NewGuid(), rhs);
+
+        Assert.Equal((lhs.Length - Shift - 1) * ChromaprintConstants.SampleDuration, left.End);
+        Assert.Equal((rhs.Length - 1) * ChromaprintConstants.SampleDuration, right.End);
     }
 
     // The longest region, a roll, sits at 130-290 s in one episode and 135-295 s in the other.
@@ -198,28 +231,5 @@ public class TestTimeRanges
 
         Assert.Equal((0.0, 260.0), (left.Start, left.End));
         Assert.Equal((0.0, 261.0), (right.Start, right.End));
-    }
-
-    /// <summary>
-    /// Tests that TimeRange intersections are detected correctly.
-    /// Tests each time range against a range of 5 to 10 seconds.
-    /// </summary>
-    [Theory]
-    [InlineData(1, 4, false)]   // too early
-    [InlineData(4, 6, true)]    // intersects on the left
-    [InlineData(7, 8, true)]    // in the middle
-    [InlineData(9, 12, true)]   // intersects on the right
-    [InlineData(13, 15, false)] // too late
-    [InlineData(6, 8, true)]    // fully inside
-    [InlineData(3, 12, true)]   // fully contains the range
-    [InlineData(5, 10, true)]   // identical range
-    [InlineData(0, 5, false)]   // touches the start boundary only
-    [InlineData(10, 15, false)] // touches the end boundary only
-    public void TestTimeRangeIntersection(int start, int end, bool expected)
-    {
-        var large = new TimeRange(5, 10);
-        var testRange = new TimeRange(start, end);
-
-        Assert.Equal(expected, large.Intersects(testRange));
     }
 }

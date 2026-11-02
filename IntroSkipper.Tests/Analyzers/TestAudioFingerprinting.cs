@@ -80,14 +80,16 @@ public class TestAudioFingerprinting
             rhsEpisode.EpisodeId,
             rhsFingerprint);
 
+        // The whole intro (180 samples) plays in the clip 40 samples (4.95 s) in. Shifts 38 to 41
+        // all match it to the intro's last sample, and the first one found, 41, wins the tie, so
+        // the clip's match starts at 5.08 s, past the 5 s snap to 0.
         Assert.True(lhs.Valid);
         Assert.Equal(0, lhs.Start);
-        Assert.Equal(17.214, lhs.End, 3);
+        Assert.Equal(22.1673, lhs.End, 3);
 
         Assert.True(rhs.Valid);
-        // because we changed for 0.128 to 0.1238 its 4,952 now but that's too early (<= 5)
-        Assert.Equal(0, rhs.Start);
-        Assert.Equal(22.1673, rhs.End, 3);
+        Assert.Equal(5.0774, rhs.Start, 3);
+        Assert.Equal(27.2448, rhs.End, 3);
     }
 
     /// <summary>
