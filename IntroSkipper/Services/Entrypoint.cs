@@ -9,7 +9,6 @@ using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
 using IntroSkipper.Db;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -27,19 +26,16 @@ namespace IntroSkipper.Services;
 /// </summary>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
-/// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="queue">Analysis queue the changed items are handed to.</param>
 public sealed partial class Entrypoint(
     ILibraryManager libraryManager,
     DetectionCacheDatabase cacheDatabase,
-    IFFmpegService ffmpegService,
     ILogger<Entrypoint> logger,
     AnalysisScheduler queue) : IHostedService
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly DetectionCacheDatabase _cacheDatabase = cacheDatabase;
-    private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly ILogger<Entrypoint> _logger = logger;
     private readonly AnalysisScheduler _queue = queue;
 
@@ -48,19 +44,19 @@ public sealed partial class Entrypoint(
     private static PluginConfiguration Config => Plugin.Instance!.Configuration;
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded += OnItemChanged;
         _libraryManager.ItemUpdated += OnItemChanged;
         _libraryManager.ItemRemoved += OnItemRemoved;
-
-        await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
         // Initialize web injector for skip button timeout modification
         if (Config.FileTransformationPluginEnabled)
         {
             InitializeWebInjector();
         }
+
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />

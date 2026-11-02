@@ -17,13 +17,11 @@ public sealed class TestEntrypointLifecycle
     [Fact]
     public async Task StartAsync_SubscribesHandlersUntilStopAsync()
     {
-        var ffmpegService = new StubFFmpegService { VersionCheck = () => true };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { AutoDetectIntros = true });
-        var (entrypoint, _, library) = EntrypointTestHelpers.CreateEntrypoint(ffmpegService);
+        var (entrypoint, _, library) = EntrypointTestHelpers.CreateEntrypoint();
 
         await entrypoint.StartAsync(CancellationToken.None);
 
-        Assert.Equal(1, ffmpegService.VersionCheckCalls);
         Assert.Equal(1, library.ItemAddedSubscriberCount);
         Assert.Equal(1, library.ItemUpdatedSubscriberCount);
         Assert.Equal(1, library.ItemRemovedSubscriberCount);
@@ -39,9 +37,8 @@ public sealed class TestEntrypointLifecycle
     public async Task StartAsync_CompletesWhenFileTransformationRegistrationThrows()
     {
         var pluginInterface = DefineThrowingFileTransformationPlugin();
-        var ffmpegService = new StubFFmpegService { VersionCheck = () => true };
         using var pluginScope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { FileTransformationPluginEnabled = true });
-        var (entrypoint, _, _) = EntrypointTestHelpers.CreateEntrypoint(ffmpegService);
+        var (entrypoint, _, _) = EntrypointTestHelpers.CreateEntrypoint();
 
         await entrypoint.StartAsync(CancellationToken.None);
 

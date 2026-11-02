@@ -1231,7 +1231,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
             return new AudioStreamSelection(selectedStream.Index, cacheVariant, selectsDefaultStream);
         }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is JsonException || IsProcessFailure(ex))
         {
             LogPreferredAudioLanguageProbeFailed(_logger, ex, filePath, preferredLanguage);
         }
