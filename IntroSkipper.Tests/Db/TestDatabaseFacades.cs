@@ -931,6 +931,7 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
         command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Segments_ItemId_Type_StartTicks_EndTicks'";
         Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+        Assert.Equal("wal", GetJournalMode(_db.Path));
     }
 
     [Fact]
@@ -1007,6 +1008,7 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         Assert.Empty(await db.ProjectionExternalOperations.AsNoTracking().ToListAsync());
         Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal("wal", GetJournalMode(_db.Path));
     }
 
     [Fact]

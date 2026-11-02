@@ -77,7 +77,7 @@ public sealed partial class IntroSkipperDatabase
     /// changes nothing.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
-    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>true</c> and the backup read fails, the file is recreated with only the tables read before the failure.
     /// When <c>false</c>, the rebuild aborts to avoid data loss.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>

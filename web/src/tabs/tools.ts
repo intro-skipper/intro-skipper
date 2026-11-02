@@ -95,10 +95,10 @@ export const toolsTab: Tab = {
             let response = await api.rebuildDatabase();
             if (response.status === 409) {
                 // The server refused because the existing database cannot be read
-                // for backup; rebuilding means starting empty.
+                // for backup; rebuilding keeps only what it could read.
                 const discard = await confirmDialog({
                     title: "Database Unreadable",
-                    body: "The existing database could not be read for backup. Rebuilding will discard all stored timestamps and start empty. Continue?",
+                    body: "The existing database could not be read for backup. Rebuilding keeps only the data read before the failure, which may be none. Continue?",
                     confirmLabel: "Discard and Rebuild",
                 });
                 if (!discard) return;
