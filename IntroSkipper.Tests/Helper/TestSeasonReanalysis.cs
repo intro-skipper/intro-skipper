@@ -1555,6 +1555,37 @@ public sealed class TestSeasonReanalysisReset : IDisposable
     }
 
     [Fact]
+    public async Task VerifyQueueAsync_FileReplacedAfterResolution_TakesTheNewRuntime()
+    {
+        using var fixture = new VerifyQueueFixture(new PluginConfiguration());
+
+        // Resolved as the fixture's 4-minute episode, then verified after the server took
+        // in a 24-minute replacement.
+        var replaced = JellyfinItems.Episode(fixture.EpisodeId, Guid.NewGuid(), fixture.SeasonId, path: fixture.MediaPath);
+        replaced.RunTimeTicks = TimeSpan.FromMinutes(24).Ticks;
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(replaced));
+
+        var episode = Assert.Single(await fixture.VerifyAsync(ffmpegValid: false));
+
+        Assert.Equal(1440, episode.Duration);
+        Assert.Equal(360, episode.IntroFingerprintEnd);
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsAnEpisodeJellyfinHasNotProbedSinceResolution()
+    {
+        using var fixture = new VerifyQueueFixture(new PluginConfiguration());
+
+        // A refresh of a replaced file can save the item before its probe sets a runtime.
+        // Analyzed then, every mode would record nothing found under the new file version.
+        var replaced = JellyfinItems.Episode(fixture.EpisodeId, Guid.NewGuid(), fixture.SeasonId, path: fixture.MediaPath);
+        replaced.RunTimeTicks = null;
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(replaced));
+
+        Assert.Empty(await fixture.VerifyAsync(ffmpegValid: false));
+    }
+
+    [Fact]
     public async Task VerifyQueueAsync_StillAnalyzesDisabledItem()
     {
         using var fixture = new VerifyQueueFixture(new PluginConfiguration());
