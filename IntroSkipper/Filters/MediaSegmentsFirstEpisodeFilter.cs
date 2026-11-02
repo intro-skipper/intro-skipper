@@ -88,11 +88,13 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             return false;
         }
 
+        // An episode's ancestors include the season its SeasonId names, so this also finds the
+        // premiere of a series without season folders, whose episodes are stored under the series.
         var query = new InternalItemsQuery
         {
-            ParentId = episode.SeasonId,
+            AncestorIds = [episode.SeasonId],
             IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = false,
+            Recursive = true,
             IsVirtualItem = false,
             OrderBy = [(ItemSortBy.IndexNumber, SortOrder.Ascending)],
             Limit = 1
