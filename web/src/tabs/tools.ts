@@ -4,7 +4,6 @@ import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { confirmDialog, eraseCheckboxes } from "../components/confirm-dialog.ts";
 import { MODE_OPTIONS } from "../components/segment-editor.ts";
-import { tabWarning } from "../components/tab-warning.ts";
 
 // The Global Timestamp Type value that erases every mode. The other values are
 // the modes' SegmentType names.
@@ -89,7 +88,7 @@ export const toolsTab: Tab = {
         rebuildBtn.addEventListener("click", async () => {
             const result = await confirmDialog({
                 title: "Confirm Database Rebuild",
-                body: "Are you sure you want to rebuild the database? This requires a full Jellyfin restart to complete.",
+                body: "Are you sure you want to rebuild the database?",
                 confirmLabel: "Rebuild",
             });
             if (!result) return;
@@ -109,9 +108,7 @@ export const toolsTab: Tab = {
                 window.Dashboard.alert("Failed to rebuild database");
                 return;
             }
-            window.Dashboard.alert(
-                "Database rebuild initiated. A full Jellyfin restart is required.",
-            );
+            window.Dashboard.alert("Database rebuilt");
         });
 
         const resetBtn = el(
@@ -141,9 +138,6 @@ export const toolsTab: Tab = {
             globalSelectGroup,
             globalEraseBtn,
             rebuildBtn,
-            tabWarning(
-                "Rebuilding the database requires a full Jellyfin restart to complete, not just a dashboard restart.",
-            ),
             resetBtn,
         );
     },

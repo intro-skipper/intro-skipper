@@ -72,7 +72,9 @@ public sealed partial class IntroSkipperDatabase
     /// Rebuilds the database while attempting to preserve segments, season state,
     /// analysis records, disabled items and the legacy-import marker. Runs even when
     /// initialization fails (it recreates the schema itself), so a database whose
-    /// migrations no longer apply can still be recovered.
+    /// migrations no longer apply can still be recovered. A readable file is replaced in one
+    /// SQLite transaction, so open connections are never cut off and a failed rebuild
+    /// changes nothing.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
@@ -97,7 +99,7 @@ public sealed partial class IntroSkipperDatabase
         }
 
         using var db = _contextFactory.CreateDbContext();
-        await db.RebuildDatabaseAsync(_contextFactory.CreateDbContext, forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
+        await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task InitializeCoreAsync()
