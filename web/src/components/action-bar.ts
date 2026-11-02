@@ -393,6 +393,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     async function eraseTimestamps(): Promise<void> {
         const isSeriesErase = !currentIsMovie && fullSeriesCheckbox.checked;
         const label = currentIsMovie ? "movie" : isSeriesErase ? "series" : "season";
+        const operation = panel;
         const showId = currentShowId;
         const seasonIds = targetSeasonIds();
         const result = await abortable(
@@ -414,14 +415,19 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 // the user leaves the tab.
                 const response = await api.eraseSeasonTimestamps(showId, seasonId, result);
                 if (!response.ok) {
+                    if (operation.aborted) return;
+                    // The seasons before this one are erased, so show them as they are now.
+                    await Promise.resolve(onScanComplete());
                     statusMessage.show("Failed to erase timestamps.", "error");
                     return;
                 }
             }
+            // Only the report and the refresh belong to the season that asked.
+            if (operation.aborted) return;
             statusMessage.show("Timestamps erased.", "success");
             await Promise.resolve(onScanComplete());
         } catch (err) {
-            if (isAbortError(err)) return;
+            if (isAbortError(err) || operation.aborted) return;
             statusMessage.show("Failed to erase timestamps.", "error");
         } finally {
             eraseBtn.disabled = false;
