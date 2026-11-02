@@ -644,7 +644,7 @@ public sealed class TestCreditsPass
     {
         using var scope = Scope();
         var start = PointTime(SharedAudioFirstPoint);
-        BlackInterval[] intervals = [.. blacks.Chunk(2).Select(black => new BlackInterval(start + black[0] - WindowStart, start + black[1] - WindowStart))];
+        BlackInterval[] intervals = [.. blacks.Chunk(2).Select(black => new BlackInterval(start + black[0], start + black[1]))];
         var (episodes, ffmpeg, database) = CreateSeason(blackIntervals: range => range.End > start ? intervals : []);
 
         await CreatePass(ffmpeg, database, config: new PluginConfiguration()).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
@@ -663,7 +663,7 @@ public sealed class TestCreditsPass
         var start = PointTime(SharedAudioFirstPoint);
         var (episodes, ffmpeg, database) = CreateSeason(
             chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", start - 15)],
-            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4 - WindowStart, start - 0.2 - WindowStart)] : []);
+            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4, start - 0.2)] : []);
 
         await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
@@ -687,7 +687,7 @@ public sealed class TestCreditsPass
         var start = PointTime(SharedAudioFirstPoint);
         var (episodes, ffmpeg, database) = CreateSeason(
             chapters: [Chapter("Main", 0), Chapter("Ending", 700), Chapter("Preview", start - 1)],
-            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4 - WindowStart, start - 0.2 - WindowStart)] : []);
+            blackIntervals: range => range.End > start ? [new BlackInterval(start - 4, start - 0.2)] : []);
 
         await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true }).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
@@ -1402,7 +1402,7 @@ public sealed class TestCreditsPass
         foreach (var episode in episodes)
         {
             var points = await ffmpeg.FingerprintAsync(episode, AnalysisMode.Credits);
-            cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, WindowStart, Duration, points);
+            cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, WindowStart, Duration, new PluginConfiguration(), points);
         }
     }
 

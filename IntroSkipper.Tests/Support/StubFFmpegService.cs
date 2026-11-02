@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
@@ -82,38 +83,38 @@ internal class StubFFmpegService : IFFmpegService
         return Task.FromResult(Hook(Fingerprints)(episode, mode));
     }
 
-    public virtual Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public virtual Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(Silence)(episode, range, mode));
 
     public virtual Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold,
         AnalysisMode mode,
+        PluginConfiguration config,
         CancellationToken cancellationToken = default)
     {
-        _calls.Enqueue(new RangeScan(range.Start, range.End, minimum, threshold, mode));
+        _calls.Enqueue(new RangeScan(range.Start, range.End, minimum, config.BlackFrameThreshold, mode));
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(RangeBlackFrames)(episode, range, minimum, threshold, mode));
+        return Task.FromResult(Hook(RangeBlackFrames)(episode, range, minimum, config.BlackFrameThreshold, mode));
     }
 
-    public virtual Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public virtual Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _keyframeScanCalls);
         LastKeyframeScanStart = episode.CreditsFingerprintStart;
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(KeyframeScan)(episode, threshold));
+        return Task.FromResult(Hook(KeyframeScan)(episode, config.BlackFrameThreshold));
     }
 
-    public virtual Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+    public virtual Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
-        _calls.Enqueue(new IntervalScan(range.Start, range.End, threshold, minimum));
+        _calls.Enqueue(new IntervalScan(range.Start, range.End, config.BlackFrameThreshold, minimum));
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Hook(BlackIntervals)(episode, range, threshold, minimum));
+        return Task.FromResult(Hook(BlackIntervals)(episode, range, config.BlackFrameThreshold, minimum));
     }
 
-    public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
     public virtual Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)

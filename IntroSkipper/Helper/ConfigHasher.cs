@@ -246,8 +246,10 @@ internal static class ConfigHasher
 
         var input = type switch
         {
+            // silencedetect always runs at duration=0.1 and the minimum duration filters its output
+            // afterwards, so only the noise floor is baked into the row.
             CacheEntryType.Silence => Invariant(
-                $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
+                $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}"),
 
             // Credits v2: VP9 black-frame scans select packet keyframes.
             CacheEntryType.BlackFrame => Invariant(
@@ -255,8 +257,10 @@ internal static class ConfigHasher
 
             // v2: blackdetect's pic_th is the minimum normalized over the scan, which this key does
             // not carry, and tinted keyframes stopped counting as zero in that normalization.
+            // v3: intervals are absolute media times; v2 rows held times relative to the credits
+            // window start, which the key does not carry.
             CacheEntryType.BlackInterval => Invariant(
-                $"cache|v2|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
+                $"cache|v3|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
 
             // v2: VP9 keyframe listings select packet keyframes.
             CacheEntryType.Keyframe => $"cache|v2|{type}",

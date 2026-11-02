@@ -83,7 +83,7 @@ internal sealed partial class KeyframeAnalyzer(
     {
         // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
         // keyframes inert.
-        var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
+        var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config, cancellationToken).ConfigureAwait(false);
 
         if (pages.Length == 0)
         {
@@ -349,7 +349,7 @@ internal sealed partial class KeyframeAnalyzer(
         var offset = episode.CreditsFingerprintStart;
         var window = new TimeRange(gap.Start + offset, gap.End + offset);
         double? start = null;
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, window.Start, window.End, out double[] cached))
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, window.Start, window.End, _config, out double[] cached))
         {
             start = cached.Length > 0 ? cached[0] : null;
         }
@@ -357,7 +357,7 @@ internal sealed partial class KeyframeAnalyzer(
         {
             start = CutStart.Locate(frames, window, visual.FrameDifference);
             double[] located = start is { } time ? [time] : [];
-            _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, window.Start, window.End, located);
+            _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, window.Start, window.End, _config, located);
         }
 
         LogCutStart(episode.Name, window.Start, window.End, start ?? window.End);
@@ -440,7 +440,7 @@ internal sealed partial class KeyframeAnalyzer(
     /// <param name="candidates">The candidate scenes that bound interval probes.</param>
     /// <param name="minimum">The black-frame percentage threshold, passed through to blackdetect pic_th so interval confirmation uses the same definition of "black" as the keyframe pass.</param>
     /// <param name="cancellationToken">The token used to cancel FFmpeg probing.</param>
-    /// <returns>The detected black intervals, or an empty array when interval detection is unavailable.</returns>
+    /// <returns>The detected black intervals, relative to the credits fingerprint start, or an empty array when interval detection is unavailable.</returns>
     private async Task<BlackInterval[]> DetectBlackIntervalsForCandidatesOrEmptyAsync(
         QueuedEpisode episode,
         IReadOnlyList<CreditScene> candidates,
@@ -453,7 +453,8 @@ internal sealed partial class KeyframeAnalyzer(
             var (fingerprintStart, fingerprintEnd) = episode.GetFingerprintRange(AnalysisMode.Credits);
             foreach (var range in BuildIntervalProbeRanges(candidates, _config.MinimumCreditsDuration, fingerprintStart, fingerprintEnd))
             {
-                intervals.AddRange(await _ffmpegService.DetectBlackIntervalsAsync(episode, range, _config.BlackFrameThreshold, minimum, cancellationToken).ConfigureAwait(false));
+                var absolute = await _ffmpegService.DetectBlackIntervalsAsync(episode, range, minimum, _config, cancellationToken).ConfigureAwait(false);
+                intervals.AddRange(absolute.Select(interval => new BlackInterval(interval.Start - fingerprintStart, interval.End - fingerprintStart)));
             }
 
             return [.. intervals];
