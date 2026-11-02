@@ -135,11 +135,12 @@ internal sealed partial class CreditsPass(
             }
         }
 
-        // The whole season goes to the comparison. Open episodes are fingerprinted, including the
-        // ones the chapter step left open (offset-consumed, refused or failed); settled ones, a
-        // chapter-settled one included, take part only with a cached fingerprint, and a lone open
-        // episode is compared with its numbered neighbours, so a two-episode season still has a
-        // reference.
+        // Runs only when an episode is pending without a chapter decision, since chapter-handled
+        // results are never replaced. The whole season then goes to the comparison. Open episodes
+        // are fingerprinted, including the ones the chapter step left open (offset-consumed,
+        // refused or failed); settled ones, a chapter-settled one included, take part only with a
+        // cached fingerprint, and a lone open episode is compared with its numbered neighbours, so
+        // a two-episode season still has a reference.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
