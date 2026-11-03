@@ -126,9 +126,16 @@ public partial class CleanCacheTask(
         {
             var rebinder = new ItemRebinder(_database, IsGone, _logger);
             var allHashed = true;
-            foreach (var season in seasons)
+
+            // A season matched before a later season refreshed its stale hashes may have
+            // seen an orphan's hash held twice, so a second round matches against the
+            // refreshed inventory. It reads no file the first round hashed.
+            for (var round = 0; round < 2; round++)
             {
-                allHashed &= await rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
+                foreach (var season in seasons)
+                {
+                    allHashed &= await rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             if (!allHashed)
