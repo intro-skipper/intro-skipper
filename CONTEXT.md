@@ -64,6 +64,18 @@ _Avoid_: Dense page, text page
 The last write time Jellyfin observed for an item's media file, recorded with each analysis record. A mode with active subtitle detection records a version that also covers the text subtitle files it reads next to the media file or in the item's internal metadata folder. An analysis whose file version differs from the item's current one no longer describes the files it read.
 _Avoid_: mtime, fingerprint (Chromaprint owns that word), stamp, ETag
 
+**File hash**:
+A hash of an item's media file size and the bytes at its end. Two items with the same file hash hold the same file, so times stored for one apply to the other. A remux changes it.
+_Avoid_: fingerprint (Chromaprint owns that word), checksum, file version (that is the write time)
+
+**Orphan**:
+An item id that still has plugin rows but that the server no longer knows, as after a rename, a move or a changed library path.
+_Avoid_: stale item, gone item
+
+**Rebind**:
+Moving an orphan's rows to the one live item with the same file hash, so its segments, tombstones and analysis survive the new id.
+_Avoid_: migrate, relink, remap
+
 **Season key**:
 The id a group of items is analyzed and stored under. A movie's key is its own id. An episode's key is its season's id, except for an in-season special, whose key is its host season's id when that season resolves with episodes of its own.
 _Avoid_: Queue key, season-state key, group id

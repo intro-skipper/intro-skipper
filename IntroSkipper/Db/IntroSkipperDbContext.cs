@@ -83,6 +83,11 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public DbSet<DbProjectionExternalOperation> ProjectionExternalOperations => Set<DbProjectionExternalOperation>();
 
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the items' file hashes.
+    /// </summary>
+    public DbSet<DbFileHash> FileHashes => Set<DbFileHash>();
+
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -193,6 +198,19 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.ItemId);
         });
 
+        modelBuilder.Entity<DbFileHash>(entity =>
+        {
+            entity.ToTable("FileHashes");
+            entity.HasKey(e => e.ItemId);
+            entity.Property(e => e.ItemId)
+                  .ValueGeneratedNever();
+            entity.Property(e => e.Hash)
+                  .IsRequired();
+
+            // Serves the rebind's lookup of other items holding a season's hashes.
+            entity.HasIndex(e => e.Hash);
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 
@@ -212,7 +230,7 @@ public class IntroSkipperDbContext : DbContext
 
     /// <summary>
     /// Asynchronously rebuilds the database while attempting to preserve segments,
-    /// season state, analysis records, disabled items and the legacy-import marker. When no marker exists
+    /// season state, analysis records, disabled items, file hashes and the legacy-import marker. When no marker exists
     /// (the legacy import never succeeded) none is written, so the next start retries the
     /// import; the importer skips rows the restored data already holds.
     /// </summary>
@@ -239,6 +257,7 @@ public class IntroSkipperDbContext : DbContext
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
+        var fileHashes = new List<DbFileHash>();
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
         try
@@ -257,6 +276,17 @@ public class IntroSkipperDbContext : DbContext
             disabledItems = await DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             projectionQueue = await ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             projectionExternalOperations = await ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+
+            // File hashes only offer later rebinds, so an unreadable table, or one a
+            // failed migration never created, must not cost the salvage above.
+            try
+            {
+                fileHashes = await FileHashes.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is SqliteException or FormatException or InvalidCastException)
+            {
+                fileHashes = [];
+            }
         }
         catch (OperationCanceledException)
         {
@@ -295,6 +325,7 @@ public class IntroSkipperDbContext : DbContext
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
+        fileHashes = [.. fileHashes.DistinctBy(h => h.ItemId)];
 
         // Auto-increment keys must not be restored verbatim into the fresh table. The
         // external operations were read ordered by Id, so re-insertion in list order
@@ -317,15 +348,22 @@ public class IntroSkipperDbContext : DbContext
 
             // Restore in bounded batches with a cleared tracker (the importer's pattern)
             // so a large library's snapshot is not also held in the change tracker all at
-            // once.
-            await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
-            await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+            // once; the explicit transaction keeps the restore all-or-nothing.
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
+            {
+                await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.FileHashes, fileHashes, cancellationToken).ConfigureAwait(false);
+
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // The copy is one SQLite write transaction on the live file, so a failure before it

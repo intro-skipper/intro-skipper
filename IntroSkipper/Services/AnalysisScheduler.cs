@@ -33,7 +33,7 @@ namespace IntroSkipper.Services;
 /// </remarks>
 /// <param name="analyzer">Analyzer run by every pass.</param>
 /// <param name="seasonResolver">Resolver of the season a manual scan erases and analyzes.</param>
-/// <param name="eraser">Erases a manual scan's season before its analysis.</param>
+/// <param name="eraser">Erases a manual scan's season before its analysis, and the items handed to <see cref="AnalysisScheduler.EraseItemsAsync"/>.</param>
 /// <param name="timeProvider">Clock for the quiet period.</param>
 /// <param name="logger">Logger.</param>
 public sealed partial class AnalysisScheduler(
@@ -467,6 +467,23 @@ public sealed partial class AnalysisScheduler(
         }
     }
 
+    /// <summary>
+    /// Rebinds the orphans whose files these items hold, then erases the items through
+    /// <see cref="ISegmentEraser.EraseItemsAsync"/>. A renamed file's rows are erased with
+    /// its item, where an erase alone would leave them on the orphan for the next rebind to
+    /// move back. Runs on the caller, not the queue's worker.
+    /// </summary>
+    /// <param name="itemIds">The items to erase.</param>
+    /// <param name="eraseCache"><see langword="true"/> to delete the items' detection cache rows too; otherwise, <see langword="false"/>.</param>
+    /// <param name="eraseTombstones"><see langword="true"/> to delete the items' tombstones too; otherwise, <see langword="false"/>.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The eraser's counts of removed segment rows and cache rows.</returns>
+    internal async Task<(int RemovedSegments, int RemovedCacheEntries)> EraseItemsAsync(IReadOnlyCollection<Guid> itemIds, bool eraseCache, bool eraseTombstones, CancellationToken cancellationToken)
+    {
+        await _analyzer.RebindAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        return await _eraser.EraseItemsAsync(itemIds, eraseCache, eraseTombstones, cancellationToken).ConfigureAwait(false);
+    }
+
     // The season is resolved now, not when the scan was requested, so a season that
     // changed while the scan waited is erased and analyzed as it is. A failed erase
     // propagates: with the analysis records still in place the analyzer would find
@@ -480,7 +497,7 @@ public sealed partial class AnalysisScheduler(
         }
 
         var itemIds = season.Episodes.Select(episode => episode.EpisodeId).ToHashSet();
-        await _eraser.EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await EraseItemsAsync(itemIds, eraseCache: true, eraseTombstones: true, cancellationToken).ConfigureAwait(false);
         await _analyzer.AnalyzeItemsAsync(NoProgress, cancellationToken, itemIds, manualScan: true).ConfigureAwait(false);
     }
 

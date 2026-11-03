@@ -6,7 +6,9 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -128,6 +130,111 @@ public sealed class TestCleanCacheTask : IDisposable
             db.AnalyzedItems, a => a.ItemId == movieId));
         Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
             db.AnalyzedItems, a => a.ItemId == staleEpisodeId));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RebindsAnOrphan_BeforeForgettingIt()
+    {
+        var orphanId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = false }, _cache.Path);
+        using var dir = new TempDirectory();
+        var path = dir.Join("feature.mkv");
+        await File.WriteAllBytesAsync(path, RandomNumberGenerator.GetBytes(300_000));
+
+        // The file was hashed under its old id, which held a user segment, then renamed.
+        var database = _db.Database;
+        await database.SaveFileHashesAsync([new DbFileHash(orphanId, orphanId, await FileHash.ComputeAsync(path, CancellationToken.None), null)]);
+        await database.SeedUserSegmentAsync(orphanId, AnalysisMode.Introduction, 0, DatabaseTestHelpers.Ticks(30));
+        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], _ => [JellyfinItems.Movie(movieId, path: path)]);
+
+        await CreateTask(libraryManager, database, _cache.CreateDatabase()).ExecuteAsync(new RecordingProgress(), CancellationToken.None);
+
+        Assert.Empty(await database.GetSegmentsAsync(orphanId));
+        Assert.Equal(SegmentSource.User, Assert.Single(await database.GetSegmentsAsync(movieId)).Source);
+        Assert.Equal([movieId], (await database.GetFileHashesAsync([orphanId, movieId])).Keys);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RebindsAnOrphan_WhoseHashALaterItemHeldUntilItsFileChanged()
+    {
+        var orphanId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        var replacedId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = false }, _cache.Path);
+        using var dir = new TempDirectory();
+        var path = dir.Join("feature.mkv");
+        var replacedPath = dir.Join("other.mkv");
+        await File.WriteAllBytesAsync(path, RandomNumberGenerator.GetBytes(300_000));
+        await File.WriteAllBytesAsync(replacedPath, RandomNumberGenerator.GetBytes(300_000));
+
+        // The other movie was a copy of the orphan's file until it was replaced. Its stale
+        // row makes the hash look held twice until its own season hashes it again.
+        var database = _db.Database;
+        var hash = await FileHash.ComputeAsync(path, CancellationToken.None);
+        await database.SaveFileHashesAsync([new DbFileHash(orphanId, orphanId, hash, null), new DbFileHash(replacedId, replacedId, hash, 1)]);
+        await database.SeedUserSegmentAsync(orphanId, AnalysisMode.Introduction, 0, DatabaseTestHelpers.Ticks(30));
+        var libraryManager = FakeLibraryManager.Create(
+            [JellyfinItems.Folder("Movies")],
+            _ => [JellyfinItems.Movie(movieId, path: path), JellyfinItems.Movie(replacedId, name: "Other", path: replacedPath)]);
+
+        await CreateTask(libraryManager, database, _cache.CreateDatabase()).ExecuteAsync(new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(SegmentSource.User, Assert.Single(await database.GetSegmentsAsync(movieId)).Source);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExecuteAsync_KeepsAnUnmatchedOrphan_OnlyWhileAFileCannotBeHashed(bool fileReadable)
+    {
+        var orphanId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = false }, _cache.Path);
+        using var dir = new TempDirectory();
+        var path = dir.Join("feature.mkv");
+        if (fileReadable)
+        {
+            await File.WriteAllBytesAsync(path, RandomNumberGenerator.GetBytes(300_000));
+        }
+
+        // The orphan may be the unreadable file's, so it cannot be ruled out yet, and its
+        // season's state waits for the rebind that may move it.
+        var database = _db.Database;
+        var orphanSeasonId = Guid.NewGuid();
+        await database.SaveFileHashesAsync([new DbFileHash(orphanId, orphanSeasonId, "another file", null)]);
+        await database.SeedUserSegmentAsync(orphanId, AnalysisMode.Introduction, 0, DatabaseTestHelpers.Ticks(30));
+        await database.SetAnalysisOverridesAsync(orphanSeasonId, 40, null, null, null, null);
+        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], _ => [JellyfinItems.Movie(movieId, path: path)]);
+
+        await CreateTask(libraryManager, database, _cache.CreateDatabase()).ExecuteAsync(new RecordingProgress(), CancellationToken.None);
+
+        var kept = fileReadable ? 0 : 1;
+        Assert.Equal(kept, (await database.GetSegmentsAsync(orphanId)).Count);
+        Assert.Equal(kept, (await database.GetFileHashesAsync([orphanId])).Count);
+        Assert.Equal(fileReadable ? null : 40, (await database.GetAnalysisOverridesAsync(orphanSeasonId)).AnalysisPercent);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HashesNothing_WhenNoOrphanHoldsAHash()
+    {
+        var movieId = Guid.NewGuid();
+        var goneId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = false }, _cache.Path);
+        using var dir = new TempDirectory();
+        var path = dir.Join("feature.mkv");
+        await File.WriteAllBytesAsync(path, RandomNumberGenerator.GetBytes(300_000));
+
+        // An item removed before file hashes existed: there is nothing to match it against.
+        var database = _db.Database;
+        await database.SeedUserSegmentAsync(goneId, AnalysisMode.Introduction, 0, DatabaseTestHelpers.Ticks(30));
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [goneId], "hash");
+        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], _ => [JellyfinItems.Movie(movieId, path: path)]);
+
+        await CreateTask(libraryManager, database, _cache.CreateDatabase()).ExecuteAsync(new RecordingProgress(), CancellationToken.None);
+
+        Assert.Empty(await database.GetSegmentsAsync(goneId));
+        Assert.Empty(await database.GetFileHashesAsync([movieId]));
     }
 
     [Fact]
