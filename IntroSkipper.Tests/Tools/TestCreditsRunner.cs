@@ -401,16 +401,18 @@ public class TestCreditsRunner
     [FactSkipFFmpegTests]
     public async Task Run_IntroMode_ComparesTheFilesOfOneSeason()
     {
-        // The two clips share their first 17 s of audio; only a season pass compares them.
+        // The intro file's 22 s play in the clip from about 5 s; only a season pass compares them.
         var results = await RunSeasonAsync(RunMode.Introduction, "s1", "s1");
         var apart = await RunSeasonAsync(RunMode.Introduction, null, null);
 
-        Assert.All(results.Episodes, episode =>
-        {
-            Assert.Null(episode.Failure);
-            var intro = Assert.Single(episode.Combined);
-            Assert.Equal(("Chromaprint", 0.0), (intro.Source, intro.Start));
-        });
+        Assert.All(results.Episodes, episode => Assert.Null(episode.Failure));
+        Assert.Equal(
+            new[] { ("intro", "Chromaprint", 0.0), ("clip", "Chromaprint", 5.077) },
+            results.Episodes.Select(episode =>
+            {
+                var intro = Assert.Single(episode.Combined);
+                return (episode.Id, intro.Source, Math.Round(intro.Start, 3));
+            }));
         Assert.All(apart.Episodes, episode => Assert.Empty(episode.Combined));
     }
 
