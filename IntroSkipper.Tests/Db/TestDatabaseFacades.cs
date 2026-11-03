@@ -906,6 +906,35 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task RebuildDatabaseAsync_OpenConnection_SeesTheRebuiltFile()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.InitializeAsync();
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
+        await using (var db = _db.Context())
+        {
+            await db.Database.ExecuteSqlRawAsync("DROP INDEX \"IX_Segments_ItemId_Type_StartTicks_EndTicks\"");
+        }
+
+        // A connection held across the rebuild, as a concurrent request would hold one.
+        // Deleting or swapping the file fails under it on Windows and strands it on the
+        // old inode on Linux; only an in-place copy shows it the repaired schema.
+        await using var held = new SqliteConnection($"Data Source={_db.Path}");
+        await held.OpenAsync();
+        await using var command = held.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM \"Segments\"";
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+
+        await database.RebuildDatabaseAsync();
+
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Segments_ItemId_Type_StartTicks_EndTicks'";
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+        Assert.Equal("wal", GetJournalMode(_db.Path));
+    }
+
+    [Fact]
     public async Task RebuildDatabaseAsync_BackupFailure_AbortsAndPreservesFile_WithoutForceClean()
     {
         var itemId = Guid.NewGuid();
@@ -954,6 +983,32 @@ public sealed class TestDatabaseFacades : IDisposable
         // The facade stays operational over the recreated database.
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(0, 10))], SegmentSource.Chapter);
         Assert.Single(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_ForceClean_KeepsTheTablesReadBeforeTheFailure()
+    {
+        var itemId = Guid.NewGuid();
+        var database = _db.Database;
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
+
+        // The salvage reads Segments first and this table last, so only the last read fails.
+        SqliteConnection.ClearAllPools();
+        await using (var connection = new SqliteConnection($"Data Source={_db.Path}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE \"ProjectionExternalOperations\"";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
+
+        await using var db = _db.Context();
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        Assert.Empty(await db.ProjectionExternalOperations.AsNoTracking().ToListAsync());
+        Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal("wal", GetJournalMode(_db.Path));
     }
 
     [Fact]
