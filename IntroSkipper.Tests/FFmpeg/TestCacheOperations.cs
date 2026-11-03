@@ -73,13 +73,36 @@ public sealed class TestCacheOperations
         scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheService.CompressBrotli(Array.Empty<TimeRange>()), range.Start, range.End);
 
         // If the empty-array bug were present this would throw FingerprintException (file not found).
-        var result = await scope.CreateFFmpegService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
+        var result = await scope.CreateFFmpegService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction, scope.Config);
 
         Assert.Empty(result);
     }
 
+    /// <summary>
+    /// The cache reads and writes a row under the configuration the caller passes, not the live
+    /// one, so a settings save during a pass never files a scan under settings it did not use.
+    /// </summary>
     [Fact]
-    public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
+    public void WriteAndTryRead_HashUnderTheGivenConfigurationNotTheLiveOne()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = new CachingPluginScope();
+        var scanConfig = new PluginConfiguration { BlackFrameThreshold = 64 };
+
+        scope.CacheService.Write<BlackFrame>(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scanConfig, [new(100, 1, 0)]);
+
+        Assert.True(scope.CacheService.TryRead(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scanConfig, out BlackFrame[] hit));
+        Assert.Equal([new BlackFrame(100, 1, 0)], hit);
+        Assert.False(scope.CacheService.TryRead(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scope.Config, out BlackFrame[] _));
+    }
+
+    /// <summary>
+    /// A cached interval scan is read under the caller's configuration, and its rows are returned
+    /// as stored: absolute media times, not shifted by the credits window or the probed range. The
+    /// path does not exist, so a miss would run ffmpeg and throw.
+    /// </summary>
+    [Fact]
+    public async Task DetectBlackIntervalsAsync_ServesRowsHashedUnderTheCallersConfiguration()
     {
         var episode = new QueuedEpisode
         {
@@ -89,13 +112,60 @@ public sealed class TestCacheOperations
             CreditsFingerprintEnd = 1800,
             Duration = 2400,
         };
-        var intervals = new BlackInterval[] { new(10, 20), new(30.5, 35) };
+        var config = new PluginConfiguration { BlackFrameThreshold = 64 };
+        var intervals = new BlackInterval[] { new(1610, 1620), new(1630.5, 1635) };
         using var scope = new CachingPluginScope();
-        scope.SeedRow(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, DetectionCacheService.CompressBrotli(intervals), 1560, 1800);
+        var hash = ConfigHasher.DetectionCache(config, CacheEntryType.BlackInterval, AnalysisMode.Credits);
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, DetectionCacheService.CompressBrotli(intervals), 1600, 1700, hash);
 
-        var result = await scope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(1560, 1800), 32, 85);
+        var result = await scope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(1600, 1700), 85, config);
 
         Assert.Equal(intervals, result);
+    }
+
+    /// <summary>
+    /// A cached silence scan is read under the caller's noise floor, not the live one. The path
+    /// does not exist, so a miss would run ffmpeg and throw.
+    /// </summary>
+    [Fact]
+    public async Task DetectSilenceAsync_ServesRowsHashedUnderTheCallersConfiguration()
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = "/does/not/exist.mkv" };
+        var config = new PluginConfiguration { SilenceDetectionMaximumNoise = -40 };
+        var silence = new TimeRange[] { new(12, 14.5) };
+        using var scope = new CachingPluginScope();
+        var hash = ConfigHasher.DetectionCache(config, CacheEntryType.Silence, AnalysisMode.Introduction);
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheService.CompressBrotli(silence), 0, 30, hash);
+
+        var result = await scope.CreateFFmpegService().DetectSilenceAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction, config);
+
+        Assert.Equal([(12.0, 14.5)], result.Select(range => (range.Start, range.End)));
+    }
+
+    /// <summary>
+    /// blackdetect prints times relative to its seek; the scan returns and caches them as absolute
+    /// media times. rainbow.mp4 is black at 2-3, 5-6 and 8-9.96 s, and the probe starts inside the
+    /// credits window, so a time left relative to the seek (near 1 and 4) or to the window (near 2
+    /// and 5) misses.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectBlackIntervalsAsync_ReturnsAbsoluteMediaTimes()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = FfmpegTestHelpers.QueueFile("video/rainbow.mp4");
+        episode.CreditsFingerprintStart = 3;
+        episode.CreditsFingerprintEnd = 10;
+        var config = new PluginConfiguration { BlackFrameThreshold = 32 };
+
+        var intervals = await scope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(4, 10), 85, config);
+
+        Assert.Collection(
+            intervals,
+            first => Assert.InRange(first.Start, 4.9, 5.1),
+            second => Assert.InRange(second.Start, 7.9, 8.1));
+        var row = scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, 4, 10);
+        Assert.NotNull(row);
+        Assert.Equal(intervals, DetectionCacheService.DecompressBrotli<BlackInterval[]>(row.Data));
     }
 
     [Fact]
@@ -234,6 +304,7 @@ public sealed class TestCacheOperations
             CacheEntryType.Chromaprint,
             0,
             600,
+            scope.Config,
             out _,
             MostChannelsStreamCacheVariant));
     }
@@ -478,14 +549,14 @@ public sealed class TestCacheOperations
         var path = episode.Path;
         var service = scope.CreateFFmpegService();
 
-        var blackFrames = await service.DetectBlackFramesAsync(episode, 32);
+        var blackFrames = await service.DetectBlackFramesAsync(episode, scope.Config);
 
         Assert.NotEmpty(blackFrames);
         Assert.Contains(blackFrames, frame => frame.Percentage == 100);
         Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
 
         episode.Path = "/does/not/exist.mkv";
-        var shared = await service.DetectKeyframeVisualsAsync(episode);
+        var shared = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
 
         Assert.Equal([5.0, 15.0, 25.0], shared.Select(visual => visual.Time));
         AssertEachVisualPairsWithOneRow(shared);
@@ -493,14 +564,14 @@ public sealed class TestCacheOperations
         episode.Path = path;
         scope.CacheDatabase.DeleteForItem(episode.EpisodeId);
         Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
-        var separate = await service.DetectKeyframeVisualsAsync(episode);
+        var separate = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
 
         Assert.Equal([5.0, 15.0, 25.0], separate.Select(visual => visual.Time));
         AssertEachVisualPairsWithOneRow(separate);
 
         // The service pairs the two rows into pages: one per black-frame row, the window's three with
         // visuals, each on the row of its own keyframe.
-        var pages = await service.ScanKeyframesAsync(episode, 32);
+        var pages = await service.ScanKeyframesAsync(episode, scope.Config);
 
         Assert.Equal(blackFrames, pages.Select(page => page.Frame));
         Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
@@ -525,7 +596,7 @@ public sealed class TestCacheOperations
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
 
-        var pages = await service.ScanKeyframesAsync(episode, 32);
+        var pages = await service.ScanKeyframesAsync(episode, scope.Config);
 
         Assert.Equal($"BlackFrame scan [5, 0] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
         Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
@@ -539,20 +610,20 @@ public sealed class TestCacheOperations
         episode.Duration = 330;
         episode.CreditsFingerprintStart = 5;
         episode.CreditsFingerprintEnd = 35;
-        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, []);
+        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scope.Config, []);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
 
-        await service.DetectBlackFramesAsync(episode, 32);
+        await service.DetectBlackFramesAsync(episode, scope.Config);
         Assert.Empty(logger.Messages);
 
-        var visuals = await service.DetectKeyframeVisualsAsync(episode);
+        var visuals = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
 
         Assert.NotEmpty(visuals);
         Assert.Equal($"KeyframeVisual scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
 
         episode.Path = "/does/not/exist.mkv";
-        await service.DetectKeyframeVisualsAsync(episode);
+        await service.DetectKeyframeVisualsAsync(episode, scope.Config);
 
         Assert.Single(logger.Messages);
     }
@@ -573,14 +644,14 @@ public sealed class TestCacheOperations
             CreditsFingerprintStart = 5,
             CreditsFingerprintEnd = 35,
         };
-        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, [new(100, 0, 0)]);
-        scope.CacheService.Write<KeyframeVisual>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35, [new(0, 16, 16, 16, 16, 0, 0)]);
-        scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, [10]);
+        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scope.Config, [new(100, 0, 0)]);
+        scope.CacheService.Write<KeyframeVisual>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35, scope.Config, [new(0, 16, 16, 16, 16, 0, 0)]);
+        scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, scope.Config, [10]);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
 
-        await service.ScanKeyframesAsync(episode, 32);
-        await service.DetectKeyFramesAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction);
+        await service.ScanKeyframesAsync(episode, scope.Config);
+        await service.DetectKeyFramesAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction, scope.Config);
 
         Assert.Empty(logger.Processes);
     }
@@ -607,7 +678,7 @@ public sealed class TestCacheOperations
                 var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 2, CreditsFingerprintStart = 0, CreditsFingerprintEnd = 2 };
                 var logger = new ScanLogger();
 
-                await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, 32);
+                await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, scope.Config);
 
                 return Assert.Single(logger.Processes, process => process.Contains("-skip_frame", StringComparison.Ordinal));
             }
@@ -632,7 +703,7 @@ public sealed class TestCacheOperations
             using var scope = new CachingPluginScope();
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 6 };
 
-            await Assert.ThrowsAsync<InvalidDataException>(() => scope.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction));
+            await Assert.ThrowsAsync<InvalidDataException>(() => scope.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction, scope.Config));
 
             Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 6));
         }
@@ -655,7 +726,7 @@ public sealed class TestCacheOperations
         {
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 6 };
 
-            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction);
+            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction, new PluginConfiguration());
 
             Assert.Equal([0, 2, 4], actual);
         }
@@ -683,7 +754,7 @@ public sealed class TestCacheOperations
         episode.CreditsFingerprintEnd = 1;
         var logger = new ScanLogger();
 
-        var frames = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, 32);
+        var frames = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, scope.Config);
 
         Assert.NotEmpty(frames);
         Assert.All(frames, frame => Assert.Equal(0, frame.Percentage));
@@ -761,10 +832,13 @@ public sealed class TestCacheOperations
 
         public CachingPluginScope()
         {
-            _inner = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration());
+            _inner = EntrypointTestHelpers.CreatePluginScope(Config);
             CacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(_inner.CacheDbPath);
             CacheService = new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, CacheDatabase);
         }
+
+        /// <summary>Gets the configuration the scope installs as the live one, for tests that seed and scan under one hash.</summary>
+        public PluginConfiguration Config { get; } = new();
 
         public DetectionCacheDatabase CacheDatabase { get; }
 

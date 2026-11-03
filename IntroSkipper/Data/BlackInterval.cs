@@ -6,8 +6,8 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// A continuous interval detected by FFmpeg's blackdetect filter.
 /// </summary>
-/// <param name="Start">Interval start time relative to the credits fingerprint start.</param>
-/// <param name="End">Interval end time relative to the credits fingerprint start.</param>
+/// <param name="Start">Interval start time in seconds: absolute media time from <c>IFFmpegService.DetectBlackIntervalsAsync</c>, relative to the credits fingerprint start once <c>KeyframeAnalyzer</c> hands it to <c>KeyframeScan</c>.</param>
+/// <param name="End">Interval end time in seconds, in the same time base as <paramref name="Start"/>.</param>
 public sealed record BlackInterval(double Start, double End)
 {
     /// <summary>

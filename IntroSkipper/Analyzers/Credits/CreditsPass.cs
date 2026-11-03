@@ -421,7 +421,7 @@ internal sealed partial class CreditsPass(
         BlackInterval[] intervals;
         try
         {
-            intervals = await _ffmpegService.DetectBlackIntervalsAsync(episode, probe, _config.BlackFrameThreshold, _config.BlackFrameMinimumPercentage, cancellationToken).ConfigureAwait(false);
+            intervals = await _ffmpegService.DetectBlackIntervalsAsync(episode, probe, _config.BlackFrameMinimumPercentage, _config, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -434,20 +434,18 @@ internal sealed partial class CreditsPass(
             return candidate;
         }
 
-        // The intervals are relative to the credits fingerprint start. A title fading in can split
-        // one black into pieces a few frames apart, so pieces within the tolerance of each other are
-        // walked back as one black.
-        var offset = episode.CreditsFingerprintStart;
+        // A title fading in can split one black into pieces a few frames apart, so pieces within
+        // the tolerance of each other are walked back as one black.
         var reach = candidate.Start - BlackBeforeToleranceSeconds;
         double? start = null;
-        foreach (var interval in intervals.Where(interval => interval.Start + offset < candidate.Start).OrderByDescending(interval => interval.Start))
+        foreach (var interval in intervals.Where(interval => interval.Start < candidate.Start).OrderByDescending(interval => interval.Start))
         {
-            if (interval.End + offset < reach)
+            if (interval.End < reach)
             {
                 break;
             }
 
-            start = interval.Start + offset;
+            start = interval.Start;
             reach = start.Value - BlackBeforeToleranceSeconds;
         }
 

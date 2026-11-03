@@ -87,6 +87,13 @@ public sealed class TestConfigHasher
         Case("Credits KeyframeVisual cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "587D32B8BFB41219", false);
         Case("Credits KeyframeVisual cache invalidates rows without the frame difference", Cache(defaults, CacheEntryType.KeyframeVisual, AnalysisMode.Credits), "0F5DAFC545AB413F", false);
         Case("Credits BlackInterval cache invalidates rows probed under tinted-zeroed thresholds", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "3BB44B93C34D3451", false);
+        Case("Credits BlackInterval cache invalidates window-relative rows", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "AF78C247AC1C8ED0", false);
+
+        // silencedetect runs at a fixed duration and the minimum filters its output afterwards,
+        // so only the noise floor is baked into a Silence row.
+        Case("Silence cache changes with the noise floor", Cache(defaults, CacheEntryType.Silence, AnalysisMode.Introduction), Cache(new PluginConfiguration { SilenceDetectionMaximumNoise = -40 }, CacheEntryType.Silence, AnalysisMode.Introduction), false);
+        Case("Silence cache ignores the minimum duration", Cache(defaults, CacheEntryType.Silence, AnalysisMode.Introduction), Cache(new PluginConfiguration { SilenceDetectionMinimumDuration = 1 }, CacheEntryType.Silence, AnalysisMode.Introduction), true);
+        Case("Introduction analysis changes with the silence minimum duration", Analysis(defaults, AnalysisMode.Introduction), Analysis(new PluginConfiguration { SilenceDetectionMinimumDuration = 1 }, AnalysisMode.Introduction), false);
 
         // BlackFrameMinimumPercentage is passed to blackdetect as pic_th and is baked into the
         // cached intervals, so changing it must invalidate the BlackInterval detection cache.

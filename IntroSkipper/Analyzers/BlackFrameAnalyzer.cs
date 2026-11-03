@@ -55,11 +55,10 @@ internal sealed partial class BlackFrameAnalyzer(
     internal async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         var percentage = _config.BlackFrameMinimumPercentage;
-        var threshold = _config.BlackFrameThreshold;
 
         // First try to use chapter markers if available
         var credit = _config.UseChapterMarkersBlackFrame
-            ? await TryAnalyzeChaptersAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false)
+            ? await TryAnalyzeChaptersAsync(episode, percentage, cancellationToken).ConfigureAwait(false)
             : null;
 
         if (credit is null)
@@ -76,14 +75,13 @@ internal sealed partial class BlackFrameAnalyzer(
             // If no suitable chapters found, use black frame detection
             if (_searchStart < _config.MinimumCreditsDuration)
             {
-                _searchStart = await FindSearchStartAsync(episode, percentage, threshold, cancellationToken).ConfigureAwait(false);
+                _searchStart = await FindSearchStartAsync(episode, percentage, cancellationToken).ConfigureAwait(false);
             }
 
             credit = await AnalyzeMediaFileAsync(
                 episode,
                 _searchStart,
                 percentage,
-                threshold,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -103,10 +101,9 @@ internal sealed partial class BlackFrameAnalyzer(
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="initialStart">Initial search position from the end of the file.</param>
     /// <param name="minimumBlackPercentage">Minimum percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Credits segment if found; otherwise null. Probe failures propagate to the caller.</returns>
-    internal async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold, CancellationToken cancellationToken = default)
+    internal async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, CancellationToken cancellationToken = default)
     {
         // Calculate search boundaries
         var searchDistance = 2 * _config.MinimumCreditsDuration;
@@ -128,7 +125,7 @@ internal sealed partial class BlackFrameAnalyzer(
             var timeRange = new TimeRange(scanTime, scanTime + 2);
 
             // Detect black frames in the current time range
-            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, AnalysisMode.Credits, _config, cancellationToken).ConfigureAwait(false);
 
             LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
 
@@ -181,10 +178,9 @@ internal sealed partial class BlackFrameAnalyzer(
     /// </summary>
     /// <param name="episode">Episode to analyze.</param>
     /// <param name="percentage">Minimum percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Credits segment if found using chapters; otherwise null.</returns>
-    internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
+    internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, CancellationToken cancellationToken)
     {
         // Get chapters that fall within the valid credits duration range
         var suitableChapters = episode.Chapters
@@ -221,8 +217,8 @@ internal sealed partial class BlackFrameAnalyzer(
             episode,
             startRange,
             percentage,
-            threshold,
             AnalysisMode.Credits,
+            _config,
             cancellationToken).ConfigureAwait(false)).Length > 0;
 
         if (!hasBlackFramesAtStart)
@@ -245,8 +241,8 @@ internal sealed partial class BlackFrameAnalyzer(
                 episode,
                 beforeRange,
                 percentage,
-                threshold,
                 AnalysisMode.Credits,
+                _config,
                 cancellationToken).ConfigureAwait(false)).Length > 0;
 
             if (!hasBlackFramesBefore)
@@ -270,10 +266,9 @@ internal sealed partial class BlackFrameAnalyzer(
     /// </summary>
     /// <param name="episode">Episode to analyze.</param>
     /// <param name="percentage">Minimum percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Search start position in seconds from the end of the file.</returns>
-    private async Task<double> FindSearchStartAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
+    private async Task<double> FindSearchStartAsync(QueuedEpisode episode, int percentage, CancellationToken cancellationToken)
     {
         // Initial search parameters
         var searchStart = 3d * _config.MinimumCreditsDuration;
@@ -287,7 +282,7 @@ internal sealed partial class BlackFrameAnalyzer(
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, percentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+            var blackFrames = await _ffmpegService.DetectBlackFramesAsync(episode, timeRange, percentage, AnalysisMode.Credits, _config, cancellationToken).ConfigureAwait(false);
 
             LogSearchScanning(_logger, scanTime, searchStart, blackFrames.Length);
 

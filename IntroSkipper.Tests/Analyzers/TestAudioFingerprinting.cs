@@ -213,7 +213,7 @@ public class TestAudioFingerprinting
         };
 
         var range = new TimeRange(0, 60);
-        var actual = await CreateFFmpegService().DetectSilenceAsync(clip, range, AnalysisMode.Introduction);
+        var actual = await CreateFFmpegService().DetectSilenceAsync(clip, range, AnalysisMode.Introduction, new PluginConfiguration());
 
         // ffmpeg's silencedetect timestamps vary slightly between versions (e.g. 6.1.1
         // reports 44.631 where 7.x reports 44.631042), so compare with a tolerance.
