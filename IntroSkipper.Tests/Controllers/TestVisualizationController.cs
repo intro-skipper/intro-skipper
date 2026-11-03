@@ -128,15 +128,13 @@ public sealed class TestVisualizationController : IDisposable
         Assert.False(await db.AnalyzedItems.AnyAsync(a => episodeIds.Contains(a.ItemId)));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Erase_TakesTheRowsARenamedFileBringsAlong(bool excluded)
+    [Fact]
+    public async Task EraseSeasonAsync_TakesTheRowsARenamedFileBringsAlong()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
-        using var pluginScope = CreateScope(new PluginConfiguration { SeriesExclusions = { excluded ? "Show" : "Other Show" } });
+        using var pluginScope = CreateScope(new PluginConfiguration());
         var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
         await File.WriteAllTextAsync(mediaPath, "episode");
         var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create(
@@ -151,14 +149,7 @@ public sealed class TestVisualizationController : IDisposable
         await _h.Database.ReplaceAutoSegmentsAsync(orphanId, AnalysisMode.Introduction, [new Segment(orphanId, new TimeRange(10, 20))], SegmentSource.Chapter);
         var controller = CreateController(pluginScope.CacheDbPath, libraryManager);
 
-        if (excluded)
-        {
-            await controller.ClearExcludedTimestampsAsync(cancellationToken: CancellationToken.None);
-        }
-        else
-        {
-            await controller.EraseSeasonAsync(seriesId, seasonId, cancellationToken: CancellationToken.None);
-        }
+        await controller.EraseSeasonAsync(seriesId, seasonId, cancellationToken: CancellationToken.None);
 
         File.Delete(mediaPath);
         Assert.Empty(await _h.Database.GetSegmentsAsync(orphanId, includeSuppressed: true));
@@ -721,7 +712,8 @@ public sealed class TestVisualizationController : IDisposable
             _h.Change,
             queue ?? CreateQueue(cacheDbPath, libraryManager),
             EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
-            _h.Database);
+            _h.Database,
+            new SegmentEraser(_h.Database, DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath), _h.Change));
     }
 
     // An analysis queue over the harness database that is never started: nothing it is

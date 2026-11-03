@@ -126,29 +126,25 @@ public sealed partial class IntroSkipperDatabase
     /// since an equal file hash proves the file is the same; a subtitle-versioned record
     /// keeps its value. Whatever stays behind is the orphan's until the cleanup task
     /// forgets it.</para>
-    /// <para>Settled-season episode sets name the item instead of the orphan. When the
-    /// rebinds cover <paramref name="seasonId"/> and come from one gone season key, that
-    /// key's analyzer actions, overrides and episode sets move to <paramref name="seasonId"/>,
-    /// unless it has state of its own. A season Jellyfin probes over several passes keeps
-    /// its state that way, and in a split the first half rebound takes it. Otherwise the
-    /// state of every gone season key goes, so no later destination takes it. The orphans
-    /// lose their file hash rows, and both ids journal their projections.</para>
+    /// <para>Settled-season episode sets name the item instead of the orphan. The analyzer
+    /// actions, overrides and episode sets of <paramref name="previousSeasonId"/> move to
+    /// <paramref name="seasonId"/>, unless it has state of its own; otherwise they stay
+    /// until the cleanup task forgets the key. The orphans lose their file hash rows, and
+    /// both ids journal their projections.</para>
     /// </remarks>
     /// <param name="rebinds">The orphans and the items taking over their rows, one pair per orphan and per item.</param>
     /// <param name="seasonId">The season key the items are analyzed under.</param>
-    /// <param name="goneSeasonIds">The season keys the orphans were analyzed under that the server no longer knows, other than <paramref name="seasonId"/>.</param>
-    /// <param name="coversSeason"><see langword="true"/> when the rebinds are every item of <paramref name="seasonId"/>; otherwise, <see langword="false"/>.</param>
+    /// <param name="previousSeasonId">The gone season key whose state <paramref name="seasonId"/> takes over, or <see langword="null"/> to move no season state.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task RebindItemsAsync(IReadOnlyCollection<ItemRebind> rebinds, Guid seasonId, IReadOnlyList<Guid> goneSeasonIds, bool coversSeason, CancellationToken cancellationToken = default)
+    public async Task RebindItemsAsync(IReadOnlyCollection<ItemRebind> rebinds, Guid seasonId, Guid? previousSeasonId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var previous = coversSeason && goneSeasonIds is [var only] && rebinds.All(r => r.Orphan.SeasonId == only) ? only : (Guid?)null;
-            var moveState = previous is not null
+            var moveState = previousSeasonId is not null
                 && !await db.SeasonStates.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false)
                 && !await db.SeasonAnalysisOverrides.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false);
             foreach (var rebind in rebinds)
@@ -158,14 +154,8 @@ public sealed partial class IntroSkipperDatabase
 
             if (moveState)
             {
-                await db.Database.ExecuteSqlAsync($"""UPDATE "SeasonStates" SET "SeasonId" = {seasonId} WHERE "SeasonId" = {previous}""", cancellationToken).ConfigureAwait(false);
-                await db.Database.ExecuteSqlAsync($"""UPDATE "SeasonAnalysisOverrides" SET "SeasonId" = {seasonId} WHERE "SeasonId" = {previous}""", cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                var gone = goneSeasonIds.ToArray();
-                await db.SeasonStates.Where(s => EF.Parameter(gone).Contains(s.SeasonId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-                await db.SeasonAnalysisOverrides.Where(s => EF.Parameter(gone).Contains(s.SeasonId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                await db.Database.ExecuteSqlAsync($"""UPDATE "SeasonStates" SET "SeasonId" = {seasonId} WHERE "SeasonId" = {previousSeasonId}""", cancellationToken).ConfigureAwait(false);
+                await db.Database.ExecuteSqlAsync($"""UPDATE "SeasonAnalysisOverrides" SET "SeasonId" = {seasonId} WHERE "SeasonId" = {previousSeasonId}""", cancellationToken).ConfigureAwait(false);
             }
 
             await RenameSettledEpisodesAsync(db, rebinds, seasonId, cancellationToken).ConfigureAwait(false);

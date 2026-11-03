@@ -23,40 +23,28 @@ internal sealed partial class ItemRebinder(IntroSkipperDatabase database, Func<G
     /// then moves to each item the rows of the one orphan holding the same hash.
     /// </summary>
     /// <remarks>
-    /// A hash that two of the season's items share, or that any other item still in the
-    /// library holds too, rebinds nothing. A failure is logged, not thrown, and the season
-    /// analyzes as it would without the rebind. <see cref="IntroSkipperDatabase.RebindItemsAsync"/>
+    /// Excluded items are never hashed and never rebind, as the analysis pass never sees
+    /// them. A hash that two of the season's items share, or that any other item still in
+    /// the library holds too, rebinds nothing. A file that cannot be read only misses its
+    /// rebind; a database failure throws. <see cref="IntroSkipperDatabase.RebindItemsAsync"/>
     /// has the rules for what moves.
     /// </remarks>
     /// <param name="season">The resolved season.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task RebindAsync(ResolvedSeason season, CancellationToken cancellationToken)
+    /// <returns><see langword="true"/> when every item that needed a hash got one; <see langword="false"/> when a file could not be read, so an orphan may have gone unmatched.</returns>
+    public async Task<bool> RebindAsync(ResolvedSeason season, CancellationToken cancellationToken)
     {
-        try
-        {
-            await RebindCoreAsync(season, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            // A missed rebind costs a reanalysis; a thrown one would cost the season its
-            // pass and the cleanup task its forgetting, on every run until someone erases.
-            LogRebindFailed(logger, ex, season.Key);
-        }
-    }
-
-    private async Task RebindCoreAsync(ResolvedSeason season, CancellationToken cancellationToken)
-    {
-        var episodes = season.Episodes.Where(e => e.Path.Length > 0).ToList();
+        var episodes = season.Episodes.Where(e => e.Path.Length > 0 && !e.IsExcluded).ToList();
         if (episodes.Count == 0)
         {
-            return;
+            return true;
         }
 
         var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
         var stored = await database.GetFileHashesAsync(episodeIds, cancellationToken).ConfigureAwait(false);
         var hashes = new Dictionary<Guid, string>();
         var changed = new List<DbFileHash>();
+        var allHashed = true;
         foreach (var episode in episodes)
         {
             if (stored.TryGetValue(episode.EpisodeId, out var row) && row.FileVersion == episode.FileVersion)
@@ -85,6 +73,7 @@ internal sealed partial class ItemRebinder(IntroSkipperDatabase database, Func<G
             {
                 // Not a season failure: the item only misses the chance of a rebind.
                 LogHashFailed(logger, episode.Name, episode.EpisodeId, ex);
+                allHashed = false;
                 continue;
             }
 
@@ -113,20 +102,23 @@ internal sealed partial class ItemRebinder(IntroSkipperDatabase database, Func<G
 
         if (rebinds.Count == 0)
         {
-            return;
+            return allHashed;
         }
 
-        var goneSeasonIds = rebinds.Select(r => r.Orphan.SeasonId).Distinct().Where(id => id != season.Key && isGone(id)).ToList();
-        await database.RebindItemsAsync(rebinds, season.Key, goneSeasonIds, coversSeason: rebinds.Count == episodes.Count, cancellationToken).ConfigureAwait(false);
+        // Only a season made wholly of one gone season's files takes that season's state: a
+        // stray file moved into an established season must not change how it analyzes.
+        Guid? previousSeasonId = rebinds.Count == episodes.Count
+            && rebinds.Select(r => r.Orphan.SeasonId).Distinct().ToList() is [var only]
+            && only != season.Key
+            && isGone(only) ? only : null;
+        await database.RebindItemsAsync(rebinds, season.Key, previousSeasonId, cancellationToken).ConfigureAwait(false);
         LogRebound(logger, rebinds.Count, season.Key);
+        return allHashed;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Could not hash the file of {Name} ({ItemId})")]
     private static partial void LogHashFailed(ILogger logger, string name, Guid itemId, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not move the rows of renamed or moved files in season {SeasonKey}; their new items analyze from scratch")]
-    private static partial void LogRebindFailed(ILogger logger, Exception exception, Guid seasonKey);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Moved the segments and analysis of {Count} renamed or moved files to their new items in season {SeasonKey}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Matched {Count} renamed or moved files to their new items in season {SeasonKey}")]
     private static partial void LogRebound(ILogger logger, int count, Guid seasonKey);
 }

@@ -166,11 +166,14 @@ public sealed class TestItemRebinder : IDisposable
         }
 
         Assert.Equal(3, (await database.GetSegmentsAsync(_item, includeSuppressed: true)).Count);
-        Assert.Equal(seasonCase == SeasonCase.OldSeasonStillExists ? 40 : null, (await database.GetAnalysisOverridesAsync(_oldSeason)).AnalysisPercent);
+
+        // State that does not move stays on the old key, for the cleanup task to forget once the key is gone.
+        var moved = seasonCase is SeasonCase.OldSeasonSplit or SeasonCase.OldSeasonMovedOverTwoPasses;
+        Assert.Equal(moved ? null : 40, (await database.GetAnalysisOverridesAsync(_oldSeason)).AnalysisPercent);
         int? newSeasonPercent = seasonCase switch
         {
             SeasonCase.NewSeasonHasState => 70,
-            SeasonCase.OldSeasonSplit or SeasonCase.OldSeasonMovedOverTwoPasses => 40,
+            _ when moved => 40,
             _ => null,
         };
         Assert.Equal(newSeasonPercent, (await database.GetAnalysisOverridesAsync(_newSeason)).AnalysisPercent);
@@ -198,6 +201,24 @@ public sealed class TestItemRebinder : IDisposable
 
         Assert.Empty(await database.GetSegmentsAsync(_item, includeSuppressed: true));
         Assert.Equal(3, (await database.GetSegmentsAsync(_orphan, includeSuppressed: true)).Count);
+    }
+
+    [Fact]
+    public async Task ExcludedItem_TakesNothing()
+    {
+        var database = _db.Database;
+        var path = WriteFile("episode.mkv", 1);
+        await RebindAsync(Season(_oldSeason, (_orphan, path, 100)));
+        await SeedOrphanAsync(database);
+        _gone.Add(_orphan);
+
+        var season = Season(_newSeason, (_item, path, 200));
+        season.Episodes[0].IsExcluded = true;
+        await RebindAsync(season);
+
+        Assert.Empty(await database.GetSegmentsAsync(_item, includeSuppressed: true));
+        Assert.Equal(3, (await database.GetSegmentsAsync(_orphan, includeSuppressed: true)).Count);
+        Assert.Equal([_orphan], (await database.GetFileHashesAsync([_orphan, _item])).Keys);
     }
 
     [Fact]

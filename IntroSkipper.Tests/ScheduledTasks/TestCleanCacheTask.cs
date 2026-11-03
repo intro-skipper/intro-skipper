@@ -155,6 +155,38 @@ public sealed class TestCleanCacheTask : IDisposable
         Assert.Equal([movieId], (await database.GetFileHashesAsync([orphanId, movieId])).Keys);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExecuteAsync_KeepsAnUnmatchedOrphan_OnlyWhileAFileCannotBeHashed(bool fileReadable)
+    {
+        var orphanId = Guid.NewGuid();
+        var movieId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(new PluginConfiguration { UpdateMediaSegments = false }, _cache.Path);
+        using var dir = new TempDirectory();
+        var path = dir.Join("feature.mkv");
+        if (fileReadable)
+        {
+            await File.WriteAllBytesAsync(path, RandomNumberGenerator.GetBytes(300_000));
+        }
+
+        // The orphan may be the unreadable file's, so it cannot be ruled out yet, and its
+        // season's state waits for the rebind that may move it.
+        var database = _db.Database;
+        var orphanSeasonId = Guid.NewGuid();
+        await database.SaveFileHashesAsync([new DbFileHash(orphanId, orphanSeasonId, "another file", null)]);
+        await database.SeedUserSegmentAsync(orphanId, AnalysisMode.Introduction, 0, DatabaseTestHelpers.Ticks(30));
+        await database.SetAnalysisOverridesAsync(orphanSeasonId, 40, null, null, null, null);
+        var libraryManager = FakeLibraryManager.Create([JellyfinItems.Folder("Movies")], _ => [JellyfinItems.Movie(movieId, path: path)]);
+
+        await CreateTask(libraryManager, database, _cache.CreateDatabase()).ExecuteAsync(new RecordingProgress(), CancellationToken.None);
+
+        var kept = fileReadable ? 0 : 1;
+        Assert.Equal(kept, (await database.GetSegmentsAsync(orphanId)).Count);
+        Assert.Equal(kept, (await database.GetFileHashesAsync([orphanId])).Count);
+        Assert.Equal(fileReadable ? null : 40, (await database.GetAnalysisOverridesAsync(orphanSeasonId)).AnalysisPercent);
+    }
+
     [Fact]
     public async Task ExecuteAsync_HashesNothing_WhenNoOrphanHoldsAHash()
     {
