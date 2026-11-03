@@ -58,11 +58,11 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     container: HTMLElement;
     toggle: (open: boolean) => void;
     /**
-     * Forgets the previous season the moment a show is opened, so nothing can
-     * scan or erase it while the new show's seasons and episodes load.
+     * Points Scan and Erase at the season before the first await, so a caller can
+     * start it as the season starts loading without awaiting it. The season's
+     * overrides and scan state load after that. `panel` is the season panel's
+     * lifetime; the promise rejects with an AbortError once it aborts.
      */
-    prepareForShow: (showId: string) => void;
-    /** Loads the season's overrides and scan state. `panel` is the season panel's lifetime. */
     loadForSeason: (
         showId: string,
         seasonId: string,
@@ -201,8 +201,8 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     // False until the season's saved overrides arrive, and again after a failed
     // read, so Save cannot turn a transient failure into a destructive reset.
     let overridesLoaded = false;
-    // The season panel the bar currently serves. Requests for it take this signal,
-    // so a load or save abandoned by navigation stops at its next await.
+    // The season panel the bar currently serves. Its loads and the watched scan
+    // take this signal, so a load abandoned by navigation stops at its next await.
     let panel: AbortSignal = signal;
     // The scan being watched, if any. A new scan or a new season load ends it.
     let scanScope: AbortController | null = null;
@@ -273,26 +273,25 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
 
         statusMessage.show("Saving overrides…");
 
+        // The saves finish across navigation, so a series save reaches every
+        // season. Only the report belongs to the season that asked.
         try {
             await withDashboardLoading(async () => {
                 for (const seasonId of seasonIds) {
-                    const response = await api.updateAnalyzerActions(seasonId, actions, operation);
+                    const response = await api.updateAnalyzerActions(seasonId, actions);
                     if (!response.ok) {
                         throw new Error("Failed to update analyzer overrides");
                     }
-                    const windowResponse = await api.updateAnalysisOverrides(
-                        seasonId,
-                        values,
-                        operation,
-                    );
+                    const windowResponse = await api.updateAnalysisOverrides(seasonId, values);
                     if (!windowResponse.ok) {
                         throw new Error("Failed to update analysis window");
                     }
                 }
             });
+            if (operation.aborted) return;
             statusMessage.show("Overrides updated.", "success");
-        } catch (err) {
-            if (isAbortError(err)) return;
+        } catch {
+            if (operation.aborted) return;
             statusMessage.show("Failed to update overrides.", "error");
         }
     }
@@ -351,22 +350,26 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         const isSeriesScan = !currentIsMovie && fullSeriesCheckbox.checked;
         statusMessage.show("Starting scan…");
         try {
+            // Every season is queued before any is watched, so leaving the view
+            // cannot drop the seasons not yet queued.
+            const started = await withDashboardLoading(async () => {
+                for (const seasonId of seasonIds) {
+                    if (!(await api.scanSeason(showId, seasonId)).ok) return false;
+                }
+                return true;
+            });
+            if (scan.aborted) return;
+            if (!started) {
+                resetScanButton();
+                statusMessage.show("Unable to start the scan.", "error");
+                return;
+            }
+
+            scanBtn.textContent = "Scan in progress…";
             for (let index = 0; index < seasonIds.length; index++) {
                 const progress = isSeriesScan
                     ? " (" + String(index + 1) + "/" + String(seasonIds.length) + ")"
                     : "";
-                statusMessage.show("Starting scan" + progress + "…");
-                const response = await withDashboardLoading(() =>
-                    api.scanSeason(showId, seasonIds[index], scan),
-                );
-
-                if (!response.ok) {
-                    resetScanButton();
-                    statusMessage.show("Unable to start the scan.", "error");
-                    return;
-                }
-
-                scanBtn.textContent = "Scan in progress…";
                 statusMessage.show(
                     (isSeriesScan ? "Scanning series" + progress : "Scan queued") +
                         "… This can take several minutes.",
@@ -390,6 +393,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     async function eraseTimestamps(): Promise<void> {
         const isSeriesErase = !currentIsMovie && fullSeriesCheckbox.checked;
         const label = currentIsMovie ? "movie" : isSeriesErase ? "series" : "season";
+        const operation = panel;
         const showId = currentShowId;
         const seasonIds = targetSeasonIds();
         const result = await abortable(
@@ -407,20 +411,23 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         statusMessage.show("Erasing timestamps…");
         try {
             for (const seasonId of seasonIds) {
-                const response = await api.eraseSeasonTimestamps(showId, seasonId, result, signal);
+                // Not signalled: a confirmed erase reaches every season even if
+                // the user leaves the tab.
+                const response = await api.eraseSeasonTimestamps(showId, seasonId, result);
                 if (!response.ok) {
-                    // Jellyfin can list seasons with no queued episodes. The
-                    // season erase endpoint reports those as 404, which is a
-                    // successful no-op for a full-series erase.
-                    if (isSeriesErase && response.status === 404) continue;
+                    if (operation.aborted) return;
+                    // The seasons before this one are erased, so show them as they are now.
+                    await Promise.resolve(onScanComplete());
                     statusMessage.show("Failed to erase timestamps.", "error");
                     return;
                 }
             }
+            // Only the report and the refresh belong to the season that asked.
+            if (operation.aborted) return;
             statusMessage.show("Timestamps erased.", "success");
             await Promise.resolve(onScanComplete());
         } catch (err) {
-            if (isAbortError(err)) return;
+            if (isAbortError(err) || operation.aborted) return;
             statusMessage.show("Failed to erase timestamps.", "error");
         } finally {
             eraseBtn.disabled = false;
@@ -446,24 +453,6 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
 
         toggle(open: boolean) {
             container.classList.toggle("open", open);
-        },
-
-        prepareForShow(showId) {
-            scanScope?.abort();
-            scanScope = null;
-            currentShowId = showId;
-            currentSeasonId = "";
-            currentIsMovie = false;
-            currentSeriesSeasons = [];
-            fullSeriesCheckbox.checked = false;
-            overridesLoaded = false;
-            // No season yet: Scan and Erase stay off until loadForSeason.
-            scanBtn.disabled = true;
-            eraseBtn.disabled = true;
-            fullSeriesCheckbox.disabled = false;
-            updateActionLabels();
-            updateApplyAvailability();
-            statusMessage.clear();
         },
 
         async loadForSeason(showId, seasonId, isMovie, panelSignal, seriesSeasons) {
