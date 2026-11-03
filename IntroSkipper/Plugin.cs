@@ -39,6 +39,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
     private readonly ILocalizationManager _localization;
+    private readonly IServerConfigurationManager _serverConfiguration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -66,8 +67,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
         _localization = localization;
+        _serverConfiguration = serverConfiguration;
 
-        FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
         TempDirectory = applicationPaths.TempDirectory;
 
         // Creates the plugin data directory when missing.
@@ -83,9 +84,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the full path to FFmpeg.
+    /// Gets the ffmpeg path from Jellyfin's encoding configuration. Read on every use: Jellyfin
+    /// validates and stores the path only after plugins and hosted services start, so until then
+    /// this is the previous run's path, or <see langword="null"/> on a fresh configuration.
     /// </summary>
-    internal string FFmpegPath { get; }
+    internal string? FFmpegPath => _serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
     /// <summary>
     /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.

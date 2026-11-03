@@ -20,6 +20,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -46,15 +47,15 @@ internal static class EntrypointTestHelpers
     /// entrypoint reads its configuration from <see cref="Plugin.Instance"/>, so tests
     /// scope one via <see cref="CreatePluginScope"/>.
     /// </summary>
-    internal static EntrypointHarness CreateEntrypoint(IFFmpegService? ffmpegService = null, string? cacheDbPath = null)
+    internal static EntrypointHarness CreateEntrypoint(string? cacheDbPath = null)
     {
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
-        var ffmpeg = ffmpegService ?? new StubFFmpegService { VersionCheck = () => true };
+        var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
         var library = FakeLibraryEvents.Create(out var libraryManager);
         var queue = CreateQueue(CreateSeasonResolver(null), ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase(), resolvedCacheDbPath);
 
-        return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, ffmpeg, NullLogger<Entrypoint>.Instance, queue), queue, library);
+        return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, NullLogger<Entrypoint>.Instance, queue), queue, library);
     }
 
     internal sealed record EntrypointHarness(Entrypoint Entrypoint, AnalysisScheduler Queue, FakeLibraryEvents Library);
@@ -198,8 +199,10 @@ internal static class EntrypointTestHelpers
         }
     }
 
-    // IServerConfigurationManager stub that answers the given configuration and application
-    // paths whose internal metadata folder is InternalMetadataRoot, and nothing else.
+    // IServerConfigurationManager stub that answers the given configuration, application
+    // paths whose internal metadata folder is InternalMetadataRoot, and the "encoding"
+    // configuration as default EncodingOptions, whose null ffmpeg path sends ffmpeg to PATH.
+    // Anything else throws.
     private class ServerConfigurationProxy : DispatchProxy
     {
         private ServerConfiguration _configuration = new();
@@ -215,6 +218,7 @@ internal static class EntrypointTestHelpers
         {
             "get_" + nameof(IServerConfigurationManager.Configuration) => _configuration,
             "get_" + nameof(IServerConfigurationManager.ApplicationPaths) => ApplicationPathsProxy.Create(),
+            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => new EncodingOptions(),
             _ => throw new NotImplementedException(targetMethod?.Name),
         };
     }
@@ -445,6 +449,7 @@ internal static class EntrypointTestHelpers
             // lazy loader; tests overwrite it for specific flag values.
             SetPropertyOrField(plugin, "Configuration", new Configuration.PluginConfiguration());
             SetPrivateField(plugin, "_localization", LocalizationManagerStub.Create());
+            SetPrivateField(plugin, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration()));
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
