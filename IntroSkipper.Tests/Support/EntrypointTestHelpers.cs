@@ -244,15 +244,16 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
-    /// ILibraryManager stub for the season resolver. Returns the configured virtual folders
-    /// and answers GetItemList either from a per-query delegate (which may throw to simulate
-    /// a failed enumeration; ids then resolve through the given resolver, null by default:
-    /// "the server does not know this item") or from a fixed item list filtered the way the
-    /// resolver queries it: by item kind, by series ancestor, by explicit ids, by virtual
-    /// flag. The ancestor model puts seasons and episodes under their series and nothing
-    /// under a season, so an episode is found through its series whether or not it sits in
-    /// a season folder. Every item is in one library with the given options, or default
-    /// options.
+    /// ILibraryManager stub for the season resolver and the first-episode filter. Returns the
+    /// configured virtual folders and answers GetItemList either from a per-query delegate
+    /// (which may throw to simulate a failed enumeration; ids then resolve through the given
+    /// resolver, null by default: "the server does not know this item") or from a fixed item
+    /// list filtered the way they query it: by item kind, by ancestor, by parent, by explicit
+    /// ids, by virtual flag. As in Jellyfin, seasons and episodes are under their series, an
+    /// episode is also under the season its SeasonId names, and a ParentId that names an item
+    /// in the list matches the stored ParentId, recursive or not. Any other ParentId, such as
+    /// a library folder id, is ignored. Every item is in one library with the given options,
+    /// or default options.
     /// </summary>
     internal class FakeLibraryManager : DispatchProxy
     {
@@ -306,7 +307,12 @@ internal static class EntrypointTestHelpers
 
             if (query.AncestorIds is { Length: > 0 })
             {
-                result = result.Where(item => query.AncestorIds.Contains(SeriesIdOf(item)));
+                result = result.Where(item => AncestorsOf(item).Any(query.AncestorIds.Contains));
+            }
+
+            if (query.ParentId != Guid.Empty && items.Any(item => item.Id == query.ParentId))
+            {
+                result = result.Where(item => item.ParentId == query.ParentId);
             }
 
             if (query.ItemIds is { Length: > 0 })
@@ -322,11 +328,12 @@ internal static class EntrypointTestHelpers
             return [.. result];
         }
 
-        private static Guid SeriesIdOf(BaseItem item) => item switch
+        // Mirrors Episode.GetAncestorIds, which appends SeasonId to the parent chain.
+        private static Guid[] AncestorsOf(BaseItem item) => item switch
         {
-            Episode episode => episode.SeriesId,
-            Season season => season.SeriesId,
-            _ => Guid.Empty,
+            Episode episode => [episode.SeriesId, episode.SeasonId],
+            Season season => [season.SeriesId],
+            _ => [],
         };
     }
 
