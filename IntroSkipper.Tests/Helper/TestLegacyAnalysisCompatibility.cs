@@ -352,10 +352,12 @@ public sealed class TestLegacyAnalysisCompatibility
                 [new(seasonId, (int)AnalysisMode.Preview, (int)AnalyzerAction.Default, ids, previewHash, ids), new(seasonId, (int)AnalysisMode.Credits, (int)AnalyzerAction.Default, ids, creditsHash, ids)]);
             var database = DatabaseTestHelpers.CreateSegmentDatabase(databasePath);
             await database.InitializeAsync();
-            var library = EntrypointTestHelpers.CreateLibraryManager(JellyfinItems.Episode(id, Guid.NewGuid(), seasonId, path: mediaPath));
+            var item = JellyfinItems.Episode(id, Guid.NewGuid(), seasonId, path: mediaPath);
+            item.RunTimeTicks = TimeSpan.FromSeconds(1320).Ticks;
+            var library = EntrypointTestHelpers.CreateLibraryManager(item);
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", library);
             var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
-            var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Path = mediaPath, Duration = 1320, Category = QueuedMediaCategory.AnimeEpisode };
+            var candidate = new QueuedEpisode { EpisodeId = id, SeasonId = seasonId, SeasonNumber = 1, Path = mediaPath, Category = QueuedMediaCategory.AnimeEpisode };
             var task = new BaseItemAnalyzerTask(NullLoggerFactory.Instance, EntrypointTestHelpers.CreateSeasonResolver(library), ffmpeg, null!, null!, database);
 
             Assert.Single(await task.VerifyQueueAsync([candidate], [AnalysisMode.Preview], ffmpegValid: true));

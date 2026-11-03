@@ -285,13 +285,20 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     internal static long? FileVersion(BaseItem item)
         => item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
 
+    /// <summary>
+    /// Returns the runtime Jellyfin holds for an item, in seconds, or 0 when it holds none.
+    /// </summary>
+    /// <param name="item">An episode or movie.</param>
+    /// <returns>The runtime in seconds.</returns>
+    internal static double Duration(BaseItem item) => TimeSpan.FromTicks(item.RunTimeTicks ?? 0).TotalSeconds;
+
     // Whether Jellyfin has probed the item's file. A library scan creates an item, and
     // raises ItemAdded, before the metadata refresh that probes its runtime and chapters,
     // and on a large library that refresh can come minutes later. Analyzed in between, the
     // item has no duration to fingerprint and no chapters to match, and a mode that fails
     // nothing records it as analyzed with nothing found. The refresh saves the item, which
     // queues it again.
-    private static bool IsProbed(BaseItem item) => item.RunTimeTicks is > 0;
+    internal static bool IsProbed(BaseItem item) => item.RunTimeTicks is > 0;
 
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
@@ -414,13 +421,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     private static List<QueuedEpisode> QueueEpisodes(Series series, IEnumerable<PlacedEpisode> placed)
     {
         var category = SeriesHelper.IsAnime(series) ? QueuedMediaCategory.AnimeEpisode : QueuedMediaCategory.Episode;
-        var config = Config;
-        var analysisPercent = config.AnalysisPercent / 100.0;
-
         List<QueuedEpisode> queued = [];
         foreach (var (episode, decision, key, seasonNumber) in placed)
         {
-            var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
             queued.Add(new QueuedEpisode
             {
                 SeriesName = series.Name,
@@ -433,9 +436,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 Category = category,
                 IsExcluded = decision.IsExcluded,
                 Path = episode.Path,
-                Duration = duration,
+                Duration = Duration(episode),
                 DateAdded = EpisodeAvailabilityDate(episode),
-                IntroFingerprintEnd = Math.Min(duration >= 5 * 60 ? duration * analysisPercent : duration, 60 * config.AnalysisLengthLimit),
                 FileVersion = FileVersion(episode),
             });
         }
@@ -474,7 +476,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             Category = QueuedMediaCategory.Movie,
             IsExcluded = decision.IsExcluded,
             Path = movie.Path,
-            Duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds,
+            Duration = Duration(movie),
             FileVersion = FileVersion(movie),
         };
         return new ResolvedSeason(movie.Id, movie.Id, [queued]);
