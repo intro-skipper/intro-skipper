@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 
@@ -39,9 +40,10 @@ public interface IFFmpegService
     /// <param name="episode">Queued episode.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns TimeRange objects that are silent in the queued episode.</returns>
-    Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
+    Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds the location of all black frames in a media file within a time range.
@@ -49,16 +51,16 @@ public interface IFFmpegService
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns frames that are mostly black.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold,
         AnalysisMode mode,
+        PluginConfiguration config,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -74,21 +76,21 @@ public interface IFFmpegService
     /// signalstats filter missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and both cache rows are hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns one page per keyframe, in time order, relative to the credits fingerprint start.</returns>
-    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
+    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds continuous black intervals in a bounded credits range.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Absolute media time range to search.</param>
-    /// <param name="threshold">Pixel threshold for black interval detection.</param>
     /// <param name="minimum">Minimum percentage of a frame that must be black for it to count as black (blackdetect pic_th); tie this to the keyframe density threshold so both definitions of "black" agree.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns continuous black intervals relative to the credits fingerprint start.</returns>
-    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default);
+    /// <returns>A task that returns continuous black intervals, in absolute media seconds.</returns>
+    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Decodes every frame of a keyframe gap and reports each frame's visual, for the credits cut start.
@@ -112,9 +114,10 @@ public interface IFFmpegService
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns timestamps of key frames.</returns>
-    Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
+    Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Probes the first audio stream's actual duration with ffprobe.

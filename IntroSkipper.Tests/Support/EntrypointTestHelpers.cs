@@ -20,6 +20,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -46,15 +47,15 @@ internal static class EntrypointTestHelpers
     /// entrypoint reads its configuration from <see cref="Plugin.Instance"/>, so tests
     /// scope one via <see cref="CreatePluginScope"/>.
     /// </summary>
-    internal static EntrypointHarness CreateEntrypoint(IFFmpegService? ffmpegService = null, string? cacheDbPath = null)
+    internal static EntrypointHarness CreateEntrypoint(string? cacheDbPath = null)
     {
         var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
         var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath);
-        var ffmpeg = ffmpegService ?? new StubFFmpegService { VersionCheck = () => true };
+        var ffmpeg = new StubFFmpegService { VersionCheck = () => true };
         var library = FakeLibraryEvents.Create(out var libraryManager);
         var queue = CreateQueue(CreateSeasonResolver(null), ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase(), resolvedCacheDbPath);
 
-        return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, ffmpeg, NullLogger<Entrypoint>.Instance, queue), queue, library);
+        return new EntrypointHarness(new Entrypoint(libraryManager, cacheDatabase, NullLogger<Entrypoint>.Instance, queue), queue, library);
     }
 
     internal sealed record EntrypointHarness(Entrypoint Entrypoint, AnalysisScheduler Queue, FakeLibraryEvents Library);
@@ -198,8 +199,10 @@ internal static class EntrypointTestHelpers
         }
     }
 
-    // IServerConfigurationManager stub that answers the given configuration and application
-    // paths whose internal metadata folder is InternalMetadataRoot, and nothing else.
+    // IServerConfigurationManager stub that answers the given configuration, application
+    // paths whose internal metadata folder is InternalMetadataRoot, and the "encoding"
+    // configuration as default EncodingOptions, whose null ffmpeg path sends ffmpeg to PATH.
+    // Anything else throws.
     private class ServerConfigurationProxy : DispatchProxy
     {
         private ServerConfiguration _configuration = new();
@@ -215,6 +218,7 @@ internal static class EntrypointTestHelpers
         {
             "get_" + nameof(IServerConfigurationManager.Configuration) => _configuration,
             "get_" + nameof(IServerConfigurationManager.ApplicationPaths) => ApplicationPathsProxy.Create(),
+            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => new EncodingOptions(),
             _ => throw new NotImplementedException(targetMethod?.Name),
         };
     }
@@ -240,15 +244,16 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
-    /// ILibraryManager stub for the season resolver. Returns the configured virtual folders
-    /// and answers GetItemList either from a per-query delegate (which may throw to simulate
-    /// a failed enumeration; ids then resolve through the given resolver, null by default:
-    /// "the server does not know this item") or from a fixed item list filtered the way the
-    /// resolver queries it: by item kind, by series ancestor, by explicit ids, by virtual
-    /// flag. The ancestor model puts seasons and episodes under their series and nothing
-    /// under a season, so an episode is found through its series whether or not it sits in
-    /// a season folder. Every item is in one library with the given options, or default
-    /// options.
+    /// ILibraryManager stub for the season resolver and the first-episode filter. Returns the
+    /// configured virtual folders and answers GetItemList either from a per-query delegate
+    /// (which may throw to simulate a failed enumeration; ids then resolve through the given
+    /// resolver, null by default: "the server does not know this item") or from a fixed item
+    /// list filtered the way they query it: by item kind, by ancestor, by parent, by explicit
+    /// ids, by virtual flag. As in Jellyfin, seasons and episodes are under their series, an
+    /// episode is also under the season its SeasonId names, and a ParentId that names an item
+    /// in the list matches the stored ParentId, recursive or not. Any other ParentId, such as
+    /// a library folder id, is ignored. Every item is in one library with the given options,
+    /// or default options.
     /// </summary>
     internal class FakeLibraryManager : DispatchProxy
     {
@@ -302,7 +307,12 @@ internal static class EntrypointTestHelpers
 
             if (query.AncestorIds is { Length: > 0 })
             {
-                result = result.Where(item => query.AncestorIds.Contains(SeriesIdOf(item)));
+                result = result.Where(item => AncestorsOf(item).Any(query.AncestorIds.Contains));
+            }
+
+            if (query.ParentId != Guid.Empty && items.Any(item => item.Id == query.ParentId))
+            {
+                result = result.Where(item => item.ParentId == query.ParentId);
             }
 
             if (query.ItemIds is { Length: > 0 })
@@ -318,11 +328,12 @@ internal static class EntrypointTestHelpers
             return [.. result];
         }
 
-        private static Guid SeriesIdOf(BaseItem item) => item switch
+        // Mirrors Episode.GetAncestorIds, which appends SeasonId to the parent chain.
+        private static Guid[] AncestorsOf(BaseItem item) => item switch
         {
-            Episode episode => episode.SeriesId,
-            Season season => season.SeriesId,
-            _ => Guid.Empty,
+            Episode episode => [episode.SeriesId, episode.SeasonId],
+            Season season => [season.SeriesId],
+            _ => [],
         };
     }
 
@@ -445,6 +456,7 @@ internal static class EntrypointTestHelpers
             // lazy loader; tests overwrite it for specific flag values.
             SetPropertyOrField(plugin, "Configuration", new Configuration.PluginConfiguration());
             SetPrivateField(plugin, "_localization", LocalizationManagerStub.Create());
+            SetPrivateField(plugin, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration()));
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);

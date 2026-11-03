@@ -174,7 +174,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     {
         try
         {
-            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, _config, cancellationToken).ConfigureAwait(false);
             foreach (var currentRange in silence)
             {
                 if (
@@ -205,7 +205,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     /// </summary>
     private async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
     {
-        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, _config, cancellationToken).ConfigureAwait(false);
         return SelectNearest(keyframes, time);
     }
 

@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using MediaBrowser.Model.Entities;
@@ -208,10 +209,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
-        var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
+        var noise = config.SilenceDetectionMaximumNoise.ToString(CultureInfo.InvariantCulture);
         string[] args =
         [
             "-vn", "-sn", "-dn",
@@ -228,7 +229,7 @@ internal sealed partial class FFmpegService : IFFmpegService
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, config, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -236,8 +237,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold,
         AnalysisMode mode,
+        PluginConfiguration config,
         CancellationToken cancellationToken = default)
     {
         // Recap scans report every frame (amount=0) so adaptive threshold normalization can
@@ -250,21 +251,21 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount={amount}:threshold={threshold}",
+            "-vf", $"blackframe=amount={amount}:threshold={config.BlackFrameThreshold}",
             "-f", "null", "-",
         ];
 
-        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
     /// <inheritdoc/>
-    public async Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public async Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         // The black-frame scan goes first: on a cache miss its decode also writes the visuals row,
         // so the visuals read after it is a cache hit. Run concurrently, a miss would decode twice.
-        var rows = await DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false);
-        var visuals = await DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+        var rows = await DetectBlackFramesAsync(episode, config, cancellationToken).ConfigureAwait(false);
+        var visuals = await DetectKeyframeVisualsAsync(episode, config, cancellationToken).ConfigureAwait(false);
         return KeyframeJoin.Pages(rows, visuals);
     }
 
@@ -277,10 +278,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// that row instead of decoding again.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and both cache rows are hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns the black percentage of each keyframe.</returns>
-    internal async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    internal async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
         var window = new TimeRange(start, end);
@@ -294,6 +295,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             CacheEntryType.BlackFrame,
             start,
             0,
+            config,
             async () =>
             {
                 // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps
@@ -303,7 +305,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 return
                 [
                     .. KeyframeInput(codec, start, episode.Path),
-                    .. OutputArgs(KeyframeFilters(codec, $"blackframe=amount=0:threshold={threshold}")),
+                    .. OutputArgs(KeyframeFilters(codec, $"blackframe=amount=0:threshold={config.BlackFrameThreshold}")),
                     .. withVisuals ? OutputArgs(KeyframeFilters(codec, KeyframeVisualFilters)) : [],
                 ];
             },
@@ -311,7 +313,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             {
                 if (withVisuals)
                 {
-                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, ParseKeyframeVisualsInWindow(raw, window));
+                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, config, ParseKeyframeVisualsInWindow(raw, window));
                 }
 
                 return FFmpegOutputParser.ParseBlackFrames(raw);
@@ -325,14 +327,15 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <remarks>
     /// Normally served from the row the keyframe scan in
-    /// <see cref="DetectBlackFramesAsync(QueuedEpisode, int, CancellationToken)"/> wrote. Decodes on
+    /// <see cref="DetectBlackFramesAsync(QueuedEpisode, PluginConfiguration, CancellationToken)"/> wrote. Decodes on
     /// its own when that row is missing or unreadable, such as for an episode whose black-frame row
     /// predates that shared write. Empty when the ffmpeg check found the visuals filters missing.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
+    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns per-keyframe visual statistics relative to the credits fingerprint start.</returns>
-    internal async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    internal async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         if (!_versionGate.CheckResult.KeyframeVisualsSupported)
         {
@@ -351,6 +354,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             CacheEntryType.KeyframeVisual,
             range.Start,
             range.End,
+            config,
             async () =>
             {
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -434,9 +438,9 @@ internal sealed partial class FFmpegService : IFFmpegService
         => [.. FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= window.Duration)];
 
     /// <inheritdoc/>
-    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
-        var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
+        var pixelThreshold = FormatBlackDetectPixelThreshold(config.BlackFrameThreshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
         string[] args =
@@ -450,21 +454,17 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        var offset = range.Start - episode.CreditsFingerprintStart;
+        // blackdetect prints times relative to the seek. The row holds absolute media times, the
+        // time base of its key, so where the credits window starts never shifts them.
         return RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.BlackInterval,
             range.Start,
             range.End,
+            config,
             args,
-            raw =>
-            {
-                var intervals = FFmpegOutputParser.ParseBlackIntervals(raw);
-                return offset == 0
-                    ? intervals
-                    : [.. intervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
-            },
+            raw => FFmpegOutputParser.ParseBlackIntervals(raw).Select(interval => new BlackInterval(interval.Start + range.Start, interval.End + range.Start)).ToArray(),
             cancellationToken);
     }
 
@@ -490,7 +490,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     }
 
     /// <inheritdoc/>
-    public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         // -to runs after showinfo, so the parser clips keyframes logged past the requested window.
         var keyframes = await RunCachedScanAsync(
@@ -499,6 +499,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             CacheEntryType.Keyframe,
             range.Start,
             range.End,
+            config,
             async () =>
             {
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -523,10 +524,11 @@ internal sealed partial class FFmpegService : IFFmpegService
         CacheEntryType entryType,
         double start,
         double end,
+        PluginConfiguration config,
         IReadOnlyList<string> args,
         Func<string, T[]> parse,
         CancellationToken cancellationToken)
-        => RunCachedScanAsync(episode, mode, entryType, start, end, () => Task.FromResult(args), parse, cancellationToken);
+        => RunCachedScanAsync(episode, mode, entryType, start, end, config, () => Task.FromResult(args), parse, cancellationToken);
 
     /// <summary>
     /// Serves a detection scan from the cache or runs ffmpeg, parses its stderr and caches the result.
@@ -537,6 +539,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="entryType">Cache entry type.</param>
     /// <param name="start">Cache key start; must be the exact value used when the row was written.</param>
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
+    /// <param name="config">The configuration the arguments were built from; the row is read and written under its hash.</param>
     /// <param name="args">Builds the ffmpeg arguments. Runs only on a cache miss, so it may probe the file first.</param>
     /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
@@ -547,13 +550,14 @@ internal sealed partial class FFmpegService : IFFmpegService
         CacheEntryType entryType,
         double start,
         double end,
+        PluginConfiguration config,
         Func<Task<IReadOnlyList<string>>> args,
         Func<string, T[]> parse,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, out T[] cached))
+        if (_cacheService.TryRead(episode.EpisodeId, mode, entryType, start, end, config, out T[] cached))
         {
             return cached;
         }
@@ -571,7 +575,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         var result = parse(raw);
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, result);
+        _cacheService.Write(episode.EpisodeId, mode, entryType, start, end, config, result);
 
         return result;
 
@@ -1231,7 +1235,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
             return new AudioStreamSelection(selectedStream.Index, cacheVariant, selectsDefaultStream);
         }
-        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is JsonException || IsProcessFailure(ex))
         {
             LogPreferredAudioLanguageProbeFailed(_logger, ex, filePath, preferredLanguage);
         }
@@ -1246,24 +1250,24 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         var cacheMode = QueuedEpisode.FingerprintCacheMode(mode);
         var (start, end) = episode.GetFingerprintRange(cacheMode);
-        var configuration = Plugin.Instance?.Configuration;
-        var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration?.PreferredAudioLanguage);
+        var configuration = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var preferredLanguage = ConfigHasher.NormalizeAudioLanguage(configuration.PreferredAudioLanguage);
         var streamSelection = await GetAudioStreamSelectionAsync(
             episode,
             preferredLanguage,
-            configuration?.PreferAudioStreamWithMostChannels ?? true,
+            configuration.PreferAudioStreamWithMostChannels,
             cancellationToken).ConfigureAwait(false);
         var cacheVariant = streamSelection?.CacheVariant;
 
         // Rows written before stream selection existed came from FFmpeg's default stream, so
         // they are only reusable when that is still the effective stream.
         string? LegacyConfigHash(AnalysisMode rowMode) => streamSelection?.SelectsDefaultStream == true
-            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration ?? new(), rowMode)
+            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration, rowMode)
             : null;
 
         // Resolve the stream before reading the cache so a language preference can reuse a fingerprint
         // generated with the same effective stream under the default selection.
-        if (_cacheService.TryRead(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, out uint[] cachedFingerprint, cacheVariant, LegacyConfigHash(cacheMode)))
+        if (_cacheService.TryRead(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, configuration, out uint[] cachedFingerprint, cacheVariant, LegacyConfigHash(cacheMode)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return cachedFingerprint;
@@ -1272,10 +1276,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         // A row under the mode's own key was written before the row was shared. Copy it under
         // the shared key so the next read is one lookup; the old row stays until its item is deleted.
         if (cacheMode != mode
-            && _cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out cachedFingerprint, cacheVariant, LegacyConfigHash(mode)))
+            && _cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, configuration, out cachedFingerprint, cacheVariant, LegacyConfigHash(mode)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, cachedFingerprint, cacheVariant);
+            _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, configuration, cachedFingerprint, cacheVariant);
             return cachedFingerprint;
         }
 
@@ -1323,7 +1327,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // Try to cache this fingerprint.
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, results, cacheVariant);
+        _cacheService.Write(episode.EpisodeId, cacheMode, CacheEntryType.Chromaprint, start, end, configuration, results, cacheVariant);
 
         return results;
     }

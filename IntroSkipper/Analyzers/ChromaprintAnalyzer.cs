@@ -172,8 +172,9 @@ internal sealed partial class ChromaprintAnalyzer(
     /// </summary>
     /// <remarks>
     /// Compares the episodes that need analysis plus the already-analyzed ones that still
-    /// have a cached fingerprint, so a newly added episode re-derives its siblings'
-    /// candidates from the full season. Episode state is left to the caller: an episode whose
+    /// have a cached fingerprint, so a newly added episode re-derives its fingerprinted
+    /// siblings' candidates; a lone open episode is compared with the episodes numbered next
+    /// to it, cached or not. Episode state is left to the caller: an episode whose
     /// fingerprint fails gets no candidate and, when it still needed analysis, is reported in
     /// the result's failures.
     /// </remarks>
@@ -905,7 +906,7 @@ internal sealed partial class ChromaprintAnalyzer(
     {
         var leftOffset = shiftAmount < 0 ? -shiftAmount : 0;
         var rightOffset = shiftAmount > 0 ? shiftAmount : 0;
-        var upperLimit = Math.Min(lhs.Length, rhs.Length) - Math.Abs(shiftAmount);
+        var upperLimit = Math.Min(lhs.Length - leftOffset, rhs.Length - rightOffset);
 
         // Sample positions on the LHS.
         List<(int Start, int End)> runs = [];

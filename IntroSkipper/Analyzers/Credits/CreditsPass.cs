@@ -20,8 +20,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// visuals, over one keyframe scan) and the season-wide chromaprint comparison each contribute
 /// candidates; <see cref="CreditsCandidateCombiner"/> merges the ones that overlap or nearly
 /// touch and keeps the rest apart. Otherwise chapter matches settle an episode first. Episodes the
-/// chapter pre-pass decided, whatever the outcome, still take part in the comparison as
-/// references for siblings without an authoritative chapter, but their results are not replaced.
+/// chapter pre-pass decided keep their results, whatever the outcome. Those it left open are
+/// fingerprinted as references for their siblings; one it settled is a reference only when its
+/// fingerprint is already cached.
 /// Times are adjusted once per stored segment and every episode is written once.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory for the analyzers.</param>
@@ -134,9 +135,12 @@ internal sealed partial class CreditsPass(
             }
         }
 
-        // The whole season takes part in the comparison. A chapter-handled episode's audio is
-        // a valid reference whatever its outcome, and dropping one can leave a two-episode
-        // season with nothing to compare against.
+        // Runs only when an episode is pending without a chapter decision, since chapter-handled
+        // results are never replaced. The whole season then goes to the comparison. Open episodes
+        // are fingerprinted, including the ones the chapter step left open (offset-consumed,
+        // refused or failed); settled ones, a chapter-settled one included, take part only with a
+        // cached fingerprint, and a lone open episode is compared with its numbered neighbours, so
+        // a two-episode season still has a reference.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
@@ -417,7 +421,7 @@ internal sealed partial class CreditsPass(
         BlackInterval[] intervals;
         try
         {
-            intervals = await _ffmpegService.DetectBlackIntervalsAsync(episode, probe, _config.BlackFrameThreshold, _config.BlackFrameMinimumPercentage, cancellationToken).ConfigureAwait(false);
+            intervals = await _ffmpegService.DetectBlackIntervalsAsync(episode, probe, _config.BlackFrameMinimumPercentage, _config, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -430,20 +434,18 @@ internal sealed partial class CreditsPass(
             return candidate;
         }
 
-        // The intervals are relative to the credits fingerprint start. A title fading in can split
-        // one black into pieces a few frames apart, so pieces within the tolerance of each other are
-        // walked back as one black.
-        var offset = episode.CreditsFingerprintStart;
+        // A title fading in can split one black into pieces a few frames apart, so pieces within
+        // the tolerance of each other are walked back as one black.
         var reach = candidate.Start - BlackBeforeToleranceSeconds;
         double? start = null;
-        foreach (var interval in intervals.Where(interval => interval.Start + offset < candidate.Start).OrderByDescending(interval => interval.Start))
+        foreach (var interval in intervals.Where(interval => interval.Start < candidate.Start).OrderByDescending(interval => interval.Start))
         {
-            if (interval.End + offset < reach)
+            if (interval.End < reach)
             {
                 break;
             }
 
-            start = interval.Start + offset;
+            start = interval.Start;
             reach = start.Value - BlackBeforeToleranceSeconds;
         }
 

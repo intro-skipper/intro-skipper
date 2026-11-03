@@ -237,14 +237,6 @@ public partial class BaseItemAnalyzerTask(
             episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd;
             episode.SubtitleRecapDetectionOverride = overrides.SubtitleRecapDetection;
             episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
-
-            var config = Config;
-            var duration = episode.Duration;
-            var analysisPercent = (overrides.AnalysisPercent ?? config.AnalysisPercent) / 100.0;
-            var analysisLengthLimit = overrides.AnalysisLengthLimit ?? config.AnalysisLengthLimit;
-            episode.IntroFingerprintEnd = Math.Min(
-                duration >= 5 * 60 ? duration * analysisPercent : duration,
-                60 * analysisLengthLimit);
         }
 
         var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
@@ -610,7 +602,9 @@ public partial class BaseItemAnalyzerTask(
     /// are not excluded, then classifies each against the stored analysis state. Fetches
     /// each episode from the server again, because a season can wait behind the rest of
     /// its series after resolution, and one removed or re-imported meanwhile must not be
-    /// analyzed under a stale id, path or file version.
+    /// analyzed under a stale id, path, runtime or file version. Skips an episode Jellyfin
+    /// has not probed, and sets the Introduction and Recap fingerprint window from the
+    /// current runtime and the season overrides, which must already be on the candidates.
     /// </summary>
     /// <param name="candidates">One season's resolved episodes.</param>
     /// <param name="modes">Analysis modes of the run.</param>
@@ -661,9 +655,9 @@ public partial class BaseItemAnalyzerTask(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var item = Plugin.Instance!.GetItem(candidate.EpisodeId);
-                if (item is not { Path: { Length: > 0 } path } || !File.Exists(path))
+                if (item is not { Path: { Length: > 0 } path } || !SeasonResolver.IsProbed(item) || !File.Exists(path))
                 {
-                    LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
+                    LogSkippingUnavailableFile(_logger, candidate.Name, candidate.EpisodeId);
                     continue;
                 }
 
@@ -678,6 +672,10 @@ public partial class BaseItemAnalyzerTask(
 
                 candidate.Path = path;
                 candidate.FileVersion = SeasonResolver.FileVersion(item);
+                candidate.Duration = SeasonResolver.Duration(item);
+                candidate.IntroFingerprintEnd = Math.Min(
+                    candidate.Duration >= 5 * 60 ? candidate.Duration * ((candidate.AnalysisPercentOverride ?? config.AnalysisPercent) / 100.0) : candidate.Duration,
+                    60 * (candidate.AnalysisLengthLimitOverride ?? config.AnalysisLengthLimit));
                 if (config.ActiveSubtitlePattern(candidate, AnalysisMode.Recap) is not null
                     || config.ActiveSubtitlePattern(candidate, AnalysisMode.Preview) is not null)
                 {
@@ -1209,8 +1207,8 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Information, Message = "Chapter source check for {Series} season {Season}: {Kept} episodes hold the same chapters in both sources and keep their analysis, {Reopened} are analyzed again")]
     private static partial void LogChapterSourceChecked(ILogger logger, string series, int season, int kept, int reopened);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
-    private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found or not probed yet")]
+    private static partial void LogSkippingUnavailableFile(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded item {Name}: matched {RuleLabel}")]
     private static partial void LogSkippingExcludedItem(ILogger logger, string name, string ruleLabel);

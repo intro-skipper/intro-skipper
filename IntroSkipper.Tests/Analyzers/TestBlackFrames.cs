@@ -35,7 +35,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectBlackFramesAsync(FfmpegTestHelpers.QueueFile("video/rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
+        var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectBlackFramesAsync(FfmpegTestHelpers.QueueFile("video/rainbow.mp4"), new(0, 10), 85, AnalysisMode.Introduction, new PluginConfiguration { BlackFrameThreshold = 32 });
 
         for (var i = 0; i < expected.Count; i++)
         {
@@ -62,7 +62,7 @@ public class TestBlackFrames
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "gray10", Path = path, Duration = 3 };
             var ffmpegService = FfmpegTestHelpers.CreateFFmpegService();
 
-            var frames = await ffmpegService.DetectBlackFramesAsync(episode, 28);
+            var frames = await ffmpegService.DetectBlackFramesAsync(episode, new PluginConfiguration());
 
             Assert.InRange(frames.Length, 2, 3);
             Assert.All(frames, frame => Assert.Equal(100, frame.Percentage));
@@ -79,7 +79,8 @@ public class TestBlackFrames
         var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(
             FfmpegTestHelpers.QueueFile("video/seek-sample.mp4"),
             new(0, 8),
-            AnalysisMode.Introduction);
+            AnalysisMode.Introduction,
+            new PluginConfiguration());
 
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
     }
@@ -109,7 +110,7 @@ public class TestBlackFrames
         {
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "vp9", Path = path, Duration = 6 };
 
-            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction);
+            var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(episode, new(0, 6), AnalysisMode.Introduction, new PluginConfiguration());
 
             Assert.Equal([0, 2, 4], actual);
         }
@@ -172,7 +173,8 @@ public class TestBlackFrames
         var actual = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyFramesAsync(
             FfmpegTestHelpers.QueueFile("video/credits.mp4"),
             new(95, 102),
-            AnalysisMode.Introduction);
+            AnalysisMode.Introduction,
+            new PluginConfiguration());
 
         Assert.Equal([100], actual);
     }
@@ -190,7 +192,7 @@ public class TestBlackFrames
         episode.CreditsFingerprintStart = 5;
         episode.CreditsFingerprintEnd = 35;
 
-        var visuals = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyframeVisualsAsync(episode);
+        var visuals = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyframeVisualsAsync(episode, new PluginConfiguration());
 
         Assert.NotEmpty(visuals);
         Assert.All(visuals, v => Assert.InRange(v.Time, 0, 30)); // clipped to range.Duration, no leak
@@ -237,12 +239,12 @@ public class TestBlackFrames
         var analyzer = new BlackFrameAnalyzer(
             NullLogger<BlackFrameAnalyzer>.Instance,
             FfmpegTestHelpers.CreateFFmpegService(),
-            new PluginConfiguration());
+            new PluginConfiguration { BlackFrameThreshold = 32 });
 
         var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
         episode.Duration = (int)new TimeSpan(0, 5, 30).TotalSeconds;
 
-        var result = await analyzer.AnalyzeMediaFileAsync(episode, 240, 85, 32);
+        var result = await analyzer.AnalyzeMediaFileAsync(episode, 240, 85);
         Assert.NotNull(result);
         Assert.InRange(result.Start, 300 - range, 300 + range);
     }
@@ -595,7 +597,7 @@ public class TestBlackFrames
         var ffmpeg = KeyframeScan(CutAfterDarkGreyLeadIn().Select(keyframe => keyframe with { Time = keyframe.Time + 0.0004 }));
         var cache = DatabaseTestHelpers.CreateTempCacheService();
         var episode = CreateQueuedCreditsEpisode();
-        cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, 28.0004, 30.0004, [29.0]);
+        cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, 28.0004, 30.0004, new PluginConfiguration(), [29.0]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true }, cache);
 
         var candidates = await KeyframeCandidates(analyzer, episode);
@@ -1901,7 +1903,7 @@ public class TestBlackFrames
             Chapters = [.. chapterStarts.Select(start => new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(start).Ticks })],
         };
 
-        return (await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None), ffmpeg.Calls);
+        return (await analyzer.TryAnalyzeChaptersAsync(episode, 85, CancellationToken.None), ffmpeg.Calls);
     }
 
     /// <summary>
@@ -1950,7 +1952,8 @@ public class TestBlackFrames
         return new()
         {
             KeyframeScan = (_, _) => pages,
-            BlackIntervals = (_, _, _, _) => intervals ?? [],
+            // The service returns absolute media times; the fixtures are in window time.
+            BlackIntervals = (episode, _, _, _) => [.. (intervals ?? []).Select(i => new BlackInterval(i.Start + episode.CreditsFingerprintStart, i.End + episode.CreditsFingerprintStart))],
             CutWindows = cutWindows ?? ((_, _) => null),
         };
     }
