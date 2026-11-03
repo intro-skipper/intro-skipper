@@ -189,6 +189,20 @@ public sealed class TestAnalysisScheduler
     }
 
     [Fact]
+    public async Task EraseItemsAsync_DoesNotErase_WhenTheRebindCannotResolveTheSeries()
+    {
+        await using var h = await QueueHarness.StartAsync();
+
+        // Erasing without the rebind would leave a renamed file's rows on its orphan, for
+        // the next pass to move back.
+        h.SeriesQueryFails = true;
+
+        await Assert.ThrowsAsync<AggregateException>(() => h.Queue.EraseItemsAsync([h.EpisodeId], eraseCache: true, eraseTombstones: true, CancellationToken.None));
+
+        Assert.Equal(0, h.Eraser.Erases);
+    }
+
+    [Fact]
     public async Task ManualScan_AnalyzesOptedOutSpecials_ThatALibraryPassSkips()
     {
         await using var h = await QueueHarness.StartAsync(seasonNumber: 0);

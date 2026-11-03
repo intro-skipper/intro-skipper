@@ -130,12 +130,19 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="itemIds">Ids of the seasons, movies or episodes the scan covers.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
+    /// <exception cref="AggregateException">A series or movie failed to resolve, so its orphans could not rebind; the caller must not erase.</exception>
     internal async Task RebindAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken)
     {
         var scope = itemIds.ToHashSet();
-        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, failures: null, progress: null))
+        var failures = new ConcurrentQueue<Exception>();
+        foreach (var season in SeasonsInScope(_seasonResolver.OwnersOf(scope), scope, failures, progress: null))
         {
             await _rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!failures.IsEmpty)
+        {
+            throw new AggregateException(failures);
         }
     }
 

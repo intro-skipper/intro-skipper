@@ -111,8 +111,11 @@ internal sealed partial class ItemRebinder(IntroSkipperDatabase database, Func<G
             && rebinds.Select(r => r.Orphan.SeasonId).Distinct().ToList() is [var only]
             && only != season.Key
             && isGone(only) ? only : null;
-        await database.RebindItemsAsync(rebinds, season.Key, previousSeasonId, cancellationToken).ConfigureAwait(false);
-        LogRebound(logger, rebinds.Count, season.Key);
+        if (await database.RebindItemsAsync(rebinds, season.Key, previousSeasonId, cancellationToken).ConfigureAwait(false))
+        {
+            LogRebound(logger, rebinds.Count, season.Key);
+        }
+
         return allHashed;
     }
 

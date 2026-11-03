@@ -131,19 +131,32 @@ public sealed partial class IntroSkipperDatabase
     /// <paramref name="seasonId"/>, unless it has state of its own; otherwise they stay
     /// until the cleanup task forgets the key. The orphans lose their file hash rows, and
     /// both ids journal their projections.</para>
+    /// <para>The batch was matched before the transaction, so a rebind or erase running
+    /// beside it may already have spent an orphan's claim. When any orphan no longer holds
+    /// the hash it was matched by, nothing changes; the next pass matches afresh.</para>
     /// </remarks>
     /// <param name="rebinds">The orphans and the items taking over their rows, one pair per orphan and per item.</param>
     /// <param name="seasonId">The season key the items are analyzed under.</param>
     /// <param name="previousSeasonId">The gone season key whose state <paramref name="seasonId"/> takes over, or <see langword="null"/> to move no season state.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task RebindItemsAsync(IReadOnlyCollection<ItemRebind> rebinds, Guid seasonId, Guid? previousSeasonId, CancellationToken cancellationToken = default)
+    /// <returns><see langword="true"/> if the rebind committed; <see langword="false"/> if a claim was spent and nothing changed.</returns>
+    public async Task<bool> RebindItemsAsync(IReadOnlyCollection<ItemRebind> rebinds, Guid seasonId, Guid? previousSeasonId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
+            var orphanIds = rebinds.Select(r => r.Orphan.ItemId).ToArray();
+            var claims = await db.FileHashes.AsNoTracking()
+                .Where(h => EF.Parameter(orphanIds).Contains(h.ItemId))
+                .ToDictionaryAsync(h => h.ItemId, h => h.Hash, cancellationToken)
+                .ConfigureAwait(false);
+            if (rebinds.Any(r => claims.GetValueOrDefault(r.Orphan.ItemId) != r.Orphan.Hash))
+            {
+                return false;
+            }
+
             var moveState = previousSeasonId is not null
                 && !await db.SeasonStates.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false)
                 && !await db.SeasonAnalysisOverrides.AnyAsync(s => s.SeasonId == seasonId, cancellationToken).ConfigureAwait(false);
@@ -160,13 +173,13 @@ public sealed partial class IntroSkipperDatabase
 
             await RenameSettledEpisodesAsync(db, rebinds, seasonId, cancellationToken).ConfigureAwait(false);
 
-            var orphanIds = rebinds.Select(r => r.Orphan.ItemId).ToArray();
             await db.FileHashes
                 .Where(h => EF.Parameter(orphanIds).Contains(h.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await EnqueueProjectionsAsync(db, [.. orphanIds, .. rebinds.Select(r => r.ItemId)], cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return true;
         }
     }
 

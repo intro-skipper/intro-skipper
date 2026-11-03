@@ -204,6 +204,22 @@ public sealed class TestItemRebinder : IDisposable
     }
 
     [Fact]
+    public async Task SpentClaim_RebindsNothing()
+    {
+        var database = _db.Database;
+        var path = WriteFile("episode.mkv", 1);
+        await RebindAsync(Season(_oldSeason, (_orphan, path, 100)));
+        await SeedOrphanAsync(database);
+        var claim = (await database.GetFileHashesAsync([_orphan]))[_orphan];
+
+        // An erase beside the pass rebound the orphan to another item and spent its claim.
+        await database.RebindItemsAsync([new ItemRebind(claim, Guid.NewGuid(), 200)], _newSeason, previousSeasonId: null);
+
+        Assert.False(await database.RebindItemsAsync([new ItemRebind(claim, _item, 200)], _newSeason, previousSeasonId: null));
+        Assert.Empty(await database.GetSegmentsAsync(_item, includeSuppressed: true));
+    }
+
+    [Fact]
     public async Task ExcludedItem_TakesNothing()
     {
         var database = _db.Database;
