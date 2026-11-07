@@ -11,6 +11,7 @@ using System.Text.Unicode;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using UtfUnknown;
@@ -77,6 +78,14 @@ internal sealed partial class FFmpegService : IFFmpegService
     // (RunCachedScanAsync). "Independent slice segment missing." is not among them: healthy
     // streams with dependent slices log it on every skipped frame.
     private static readonly string[] SliceStructureErrors = ["entry_point_offset table is corrupted", "WPP ctb addresses are wrong", "Previous slice segment missing"];
+
+    // What ffmpeg logs when -hwaccel cannot open its device: a missing driver, no device node in
+    // the container, or a codec the decoder does not support. ffmpeg then exits without decoding a
+    // frame, so a scan that logs one is decoded again in software (RunCachedScanAsync).
+    private static readonly string[] HardwareDecodeErrors = ["Device creation failed", "Hardware device setup failed", "No device available for decoder"];
+
+    // The options HardwareDecodeInput adds, each with its value.
+    private static readonly string[] HardwareDecodeOptions = ["-hwaccel", "-hwaccel_device", "-qsv_device"];
 
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
@@ -247,6 +256,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
         string[] args =
         [
+            .. HardwareDecodeInput(config),
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
@@ -304,7 +314,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
-                    .. KeyframeInput(codec, start, episode.Path),
+                    .. KeyframeInput(codec, start, episode.Path, config),
                     .. OutputArgs(KeyframeFilters(codec, $"blackframe=amount=0:threshold={config.BlackFrameThreshold}")),
                     .. withVisuals ? OutputArgs(KeyframeFilters(codec, KeyframeVisualFilters)) : [],
                 ];
@@ -360,7 +370,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
-                    .. KeyframeInput(codec, range.Start, episode.Path),
+                    .. KeyframeInput(codec, range.Start, episode.Path, config),
                     "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
                     .. OutputArgs(KeyframeFilters(codec, KeyframeVisualFilters)),
                 ];
@@ -374,10 +384,11 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // The input of a keyframe-only decode of path from start, for a file whose mapped video
     // stream (the one ffmpeg decodes, GetVideoCodecAsync) has the given codec.
-    private static string[] KeyframeInput(string? codec, double start, string path) =>
+    private static string[] KeyframeInput(string? codec, double start, string path, PluginConfiguration config) =>
     [
         "-skip_frame", "nokey",
         .. codec == "hevc" ? HevcKeyframeThreads : [],
+        .. HardwareDecodeInput(config),
         "-ss", start.ToString(CultureInfo.InvariantCulture),
         "-i", path,
     ];
@@ -390,9 +401,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     {
         // Every frame, at source resolution with the keyframe scan's filters, so a frame's
         // difference is on the scale of the page's. Seeking to the earlier keyframe starts the
-        // decode on it.
+        // decode on it. The cut window takes no configuration of its own, so it decodes under the
+        // live one.
         string[] args =
         [
+            .. HardwareDecodeInput(Plugin.Instance?.Configuration ?? new PluginConfiguration()),
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
             "-i", episode.Path,
@@ -403,6 +416,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         try
         {
             capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), CutWindowMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            if (capture.ExitCode != 0
+                && WithoutHardwareDecoding(args) is { } software
+                && HardwareDecodeErrors.Any(error => capture.Stderr.Contains(error, StringComparison.Ordinal)))
+            {
+                LogHardwareDecodeFallback(_logger, episode.Path, episode.EpisodeId);
+                capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(software, "info"), CutWindowMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when (IsProcessFailure(ex))
         {
@@ -445,6 +465,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
         string[] args =
         [
+            .. HardwareDecodeInput(config),
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-skip_frame", "noref",
             "-i", episode.Path,
@@ -505,7 +526,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
                 return
                 [
-                    .. KeyframeInput(codec, range.Start, episode.Path),
+                    .. KeyframeInput(codec, range.Start, episode.Path, config),
                     "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
                     "-an", "-dn", "-sn",
                     "-vf", KeyframeFilters(codec, "showinfo"),
@@ -566,6 +587,14 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         var arguments = await args().ConfigureAwait(false);
         var raw = await RunScanAsync(arguments).ConfigureAwait(false);
+        if (WithoutHardwareDecoding(arguments) is { } software
+            && HardwareDecodeErrors.Any(error => raw.Contains(error, StringComparison.Ordinal)))
+        {
+            LogHardwareDecodeFallback(_logger, episode.Path, episode.EpisodeId);
+            arguments = software;
+            raw = await RunScanAsync(arguments).ConfigureAwait(false);
+        }
+
         if (WithoutSliceThreads(arguments) is { } frameThreaded
             && SliceStructureErrors.Any(error => raw.Contains(error, StringComparison.Ordinal)))
         {
@@ -581,6 +610,66 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         async Task<string> RunScanAsync(IReadOnlyList<string> scanArguments)
             => Encoding.UTF8.GetString(await GetOutputAsync(scanArguments, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+    }
+
+    // The arguments with the hardware decoding options taken out, or null when they hold none.
+    private static string[]? WithoutHardwareDecoding(IReadOnlyList<string> arguments)
+    {
+        var software = new List<string>(arguments.Count);
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            if (i + 1 < arguments.Count && HardwareDecodeOptions.Contains(arguments[i]))
+            {
+                i++;
+                continue;
+            }
+
+            software.Add(arguments[i]);
+        }
+
+        return software.Count == arguments.Count ? null : [.. software];
+    }
+
+    /// <summary>
+    /// The input options that move a video decode to the hardware decoder Jellyfin is configured
+    /// for, on the device Jellyfin uses for VAAPI and QSV, or none when hardware decoding is off or
+    /// the type has no ffmpeg hwaccel. No output format is set, so ffmpeg copies each frame back to
+    /// system memory and the software filters see the same pixels.
+    /// </summary>
+    /// <param name="enabled">Whether the scan's configuration asks for hardware decoding.</param>
+    /// <param name="type">Jellyfin's hardware acceleration type.</param>
+    /// <param name="vaapiDevice">Jellyfin's VAAPI device, or empty for ffmpeg's default.</param>
+    /// <param name="qsvDevice">Jellyfin's QSV device, or empty for ffmpeg's default.</param>
+    /// <returns>The options to place before <c>-i</c>.</returns>
+    internal static string[] HardwareDecodeInput(bool enabled, HardwareAccelerationType type, string? vaapiDevice, string? qsvDevice)
+    {
+        if (!enabled)
+        {
+            return [];
+        }
+
+        return type switch
+        {
+            HardwareAccelerationType.nvenc => ["-hwaccel", "cuda"],
+            HardwareAccelerationType.vaapi when !string.IsNullOrWhiteSpace(vaapiDevice) => ["-hwaccel", "vaapi", "-hwaccel_device", vaapiDevice],
+            HardwareAccelerationType.vaapi => ["-hwaccel", "vaapi"],
+            HardwareAccelerationType.qsv when !string.IsNullOrWhiteSpace(qsvDevice) => ["-qsv_device", qsvDevice, "-hwaccel", "qsv"],
+            HardwareAccelerationType.qsv => ["-hwaccel", "qsv"],
+            HardwareAccelerationType.videotoolbox => ["-hwaccel", "videotoolbox"],
+            _ => [],
+        };
+    }
+
+    // The hardware decoding options for a scan built from config, on the server's current
+    // acceleration settings.
+    private static string[] HardwareDecodeInput(PluginConfiguration config)
+    {
+        if (!config.UseHardwareDecoding || Plugin.Instance?.EncodingOptions is not { } encoding)
+        {
+            return [];
+        }
+
+        return HardwareDecodeInput(true, encoding.HardwareAccelerationType, encoding.VaapiDevice, encoding.QsvDevice);
     }
 
     // The arguments with HevcKeyframeThreads taken out, or null when they don't hold it.
@@ -1357,6 +1446,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Hardware decoder unavailable for \"{File}\" (id {Id}), decoding again in software")]
+    private static partial void LogHardwareDecodeFallback(ILogger logger, string file, Guid id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
