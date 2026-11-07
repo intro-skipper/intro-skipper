@@ -109,11 +109,11 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
-    /// Makes the scoped plugin instance's server report the given hardware acceleration type
-    /// in its encoding options.
+    /// Makes the scoped plugin instance's server report the given hardware acceleration type, and
+    /// optionally a VAAPI device, in its encoding options.
     /// </summary>
-    internal static void SetHardwareAcceleration(HardwareAccelerationType type)
-        => SetPrivateField(Plugin.Instance!, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration(), new EncodingOptions { HardwareAccelerationType = type }));
+    internal static void SetHardwareAcceleration(HardwareAccelerationType type, string vaapiDevice = "")
+        => SetPrivateField(Plugin.Instance!, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration(), new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = vaapiDevice }));
 
     /// <summary>
     /// Scopes a plugin instance carrying the given configuration whose chapter repository

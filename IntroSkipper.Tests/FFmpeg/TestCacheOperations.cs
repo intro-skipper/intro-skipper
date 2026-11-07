@@ -766,19 +766,41 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// The setting maps Jellyfin's acceleration type to an ffmpeg hwaccel, and adds nothing while
-    /// it is off or the type has no hwaccel ffmpeg can decode with.
+    /// The setting maps Jellyfin's acceleration type to an ffmpeg hwaccel on Jellyfin's VAAPI or
+    /// QSV device, and adds nothing while it is off or the type has no hwaccel ffmpeg can decode with.
     /// </summary>
     [Theory]
-    [InlineData(true, HardwareAccelerationType.nvenc, "-hwaccel cuda")]
-    [InlineData(true, HardwareAccelerationType.vaapi, "-hwaccel vaapi")]
-    [InlineData(true, HardwareAccelerationType.qsv, "-hwaccel qsv")]
-    [InlineData(true, HardwareAccelerationType.videotoolbox, "-hwaccel videotoolbox")]
-    [InlineData(true, HardwareAccelerationType.none, "")]
-    [InlineData(true, HardwareAccelerationType.amf, "")]
-    [InlineData(false, HardwareAccelerationType.nvenc, "")]
-    public void HardwareDecodeInput_MapsJellyfinAccelerationType(bool enabled, HardwareAccelerationType type, string expected)
-        => Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeInput(enabled, type)));
+    [InlineData(true, HardwareAccelerationType.nvenc, "", "", "-hwaccel cuda")]
+    [InlineData(true, HardwareAccelerationType.vaapi, "", "", "-hwaccel vaapi")]
+    [InlineData(true, HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "", "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129")]
+    [InlineData(true, HardwareAccelerationType.qsv, "", "", "-hwaccel qsv")]
+    [InlineData(true, HardwareAccelerationType.qsv, "", "/dev/dri/renderD129", "-qsv_device /dev/dri/renderD129 -hwaccel qsv")]
+    [InlineData(true, HardwareAccelerationType.videotoolbox, "", "", "-hwaccel videotoolbox")]
+    [InlineData(true, HardwareAccelerationType.none, "", "", "")]
+    [InlineData(true, HardwareAccelerationType.amf, "", "", "")]
+    [InlineData(false, HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "", "")]
+    public void HardwareDecodeInput_MapsJellyfinAccelerationType(bool enabled, HardwareAccelerationType type, string vaapiDevice, string qsvDevice, string expected)
+        => Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeInput(enabled, type, vaapiDevice, qsvDevice)));
+
+    /// <summary>
+    /// A scan decodes under the configuration it is given, not the live one, so a scan built from
+    /// a configuration with hardware decoding off never adds -hwaccel.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task BlackFrameScan_FollowsTheScanConfiguration()
+    {
+        using var scope = new CachingPluginScope();
+        Plugin.Instance!.Configuration.UseHardwareDecoding = true;
+        EntrypointTestHelpers.SetHardwareAcceleration(HardwareAccelerationType.vaapi);
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        var logger = new ScanLogger();
+
+        await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, new TimeRange(0, 4), 0, AnalysisMode.Recap, new PluginConfiguration());
+
+        Assert.All(
+            logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
+            process => Assert.DoesNotContain("-hwaccel", process, StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// A hardware decode whose device cannot be opened exits before the first frame. The scan
@@ -800,7 +822,7 @@ public sealed class TestCacheOperations
             scope.Config.UseHardwareDecoding = true;
 
             // No test host has a VAAPI device at this path, so device setup always fails.
-            EntrypointTestHelpers.SetHardwareAcceleration(HardwareAccelerationType.vaapi);
+            EntrypointTestHelpers.SetHardwareAcceleration(HardwareAccelerationType.vaapi, "/dev/dri/renderD199");
             var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
             var logger = new ScanLogger();
 
@@ -809,7 +831,7 @@ public sealed class TestCacheOperations
             Assert.Equal(software, hardware);
             Assert.Collection(
                 logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
-                first => Assert.Contains("-hwaccel vaapi", first, StringComparison.Ordinal),
+                first => Assert.Contains("-hwaccel vaapi -hwaccel_device /dev/dri/renderD199", first, StringComparison.Ordinal),
                 retry => Assert.DoesNotContain("-hwaccel", retry, StringComparison.Ordinal));
         }
     }

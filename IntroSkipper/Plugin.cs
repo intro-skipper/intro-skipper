@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Plugins;
@@ -91,10 +92,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal string? FFmpegPath => _serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
     /// <summary>
-    /// Gets the hardware acceleration type configured in Jellyfin's playback settings. Read on
-    /// every use, so a change on the server applies to the next scan.
+    /// Gets Jellyfin's encoding options: the hardware acceleration type and its VAAPI and QSV
+    /// devices. Read on every use, so a change on the server applies to the next scan.
     /// </summary>
-    internal HardwareAccelerationType HardwareAccelerationType => _serverConfiguration.GetEncodingOptions().HardwareAccelerationType;
+    internal EncodingOptions EncodingOptions => _serverConfiguration.GetEncodingOptions();
 
     /// <summary>
     /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.
