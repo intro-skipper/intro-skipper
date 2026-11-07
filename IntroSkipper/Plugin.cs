@@ -91,6 +91,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal string? FFmpegPath => _serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
     /// <summary>
+    /// Gets the hardware acceleration type configured in Jellyfin's playback settings. Read on
+    /// every use, so a change on the server applies to the next scan.
+    /// </summary>
+    internal HardwareAccelerationType HardwareAccelerationType => _serverConfiguration.GetEncodingOptions().HardwareAccelerationType;
+
+    /// <summary>
     /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.
     /// </summary>
     internal string TempDirectory { get; }

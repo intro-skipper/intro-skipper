@@ -17,6 +17,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -762,6 +763,55 @@ public sealed class TestCacheOperations
             logger.Processes.Where(process => process.Contains("-skip_frame", StringComparison.Ordinal)),
             slice => Assert.Contains("-thread_type slice", slice, StringComparison.Ordinal),
             frame => Assert.DoesNotContain("-thread_type", frame, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The setting maps Jellyfin's acceleration type to an ffmpeg hwaccel, and adds nothing while
+    /// it is off or the type has no hwaccel ffmpeg can decode with.
+    /// </summary>
+    [Theory]
+    [InlineData(true, HardwareAccelerationType.nvenc, "-hwaccel cuda")]
+    [InlineData(true, HardwareAccelerationType.vaapi, "-hwaccel vaapi")]
+    [InlineData(true, HardwareAccelerationType.qsv, "-hwaccel qsv")]
+    [InlineData(true, HardwareAccelerationType.videotoolbox, "-hwaccel videotoolbox")]
+    [InlineData(true, HardwareAccelerationType.none, "")]
+    [InlineData(true, HardwareAccelerationType.amf, "")]
+    [InlineData(false, HardwareAccelerationType.nvenc, "")]
+    public void HardwareDecodeInput_MapsJellyfinAccelerationType(bool enabled, HardwareAccelerationType type, string expected)
+        => Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeInput(enabled, type)));
+
+    /// <summary>
+    /// A hardware decode whose device cannot be opened exits before the first frame. The scan
+    /// runs again in software and caches the same frames a software scan finds.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task BlackFrameScan_FallsBackToSoftwareWhenTheDeviceIsMissing()
+    {
+        var range = new TimeRange(0, 4);
+        BlackFrame[] software;
+        using (var scope = new CachingPluginScope())
+        {
+            var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+            software = await scope.CreateFFmpegService().DetectBlackFramesAsync(episode, range, 0, AnalysisMode.Recap, scope.Config);
+        }
+
+        using (var scope = new CachingPluginScope())
+        {
+            scope.Config.UseHardwareDecoding = true;
+
+            // No test host has a VAAPI device at this path, so device setup always fails.
+            EntrypointTestHelpers.SetHardwareAcceleration(HardwareAccelerationType.vaapi);
+            var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+            var logger = new ScanLogger();
+
+            var hardware = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, range, 0, AnalysisMode.Recap, scope.Config);
+
+            Assert.Equal(software, hardware);
+            Assert.Collection(
+                logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
+                first => Assert.Contains("-hwaccel vaapi", first, StringComparison.Ordinal),
+                retry => Assert.DoesNotContain("-hwaccel", retry, StringComparison.Ordinal));
+        }
     }
 
     // A 6 s VP9 mkv with a keyframe every 2 s and tagCount global tags of 100 bytes each.

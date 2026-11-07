@@ -109,6 +109,13 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
+    /// Makes the scoped plugin instance's server report the given hardware acceleration type
+    /// in its encoding options.
+    /// </summary>
+    internal static void SetHardwareAcceleration(HardwareAccelerationType type)
+        => SetPrivateField(Plugin.Instance!, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration(), new EncodingOptions { HardwareAccelerationType = type }));
+
+    /// <summary>
     /// Scopes a plugin instance carrying the given configuration whose chapter repository
     /// answers with the given chapters for every item.
     /// </summary>
@@ -206,11 +213,13 @@ internal static class EntrypointTestHelpers
     private class ServerConfigurationProxy : DispatchProxy
     {
         private ServerConfiguration _configuration = new();
+        private EncodingOptions _encoding = new();
 
-        public static IServerConfigurationManager Create(ServerConfiguration configuration)
+        public static IServerConfigurationManager Create(ServerConfiguration configuration, EncodingOptions? encoding = null)
         {
             var proxy = Create<IServerConfigurationManager, ServerConfigurationProxy>();
             ((ServerConfigurationProxy)(object)proxy)._configuration = configuration;
+            ((ServerConfigurationProxy)(object)proxy)._encoding = encoding ?? new EncodingOptions();
             return proxy;
         }
 
@@ -218,7 +227,7 @@ internal static class EntrypointTestHelpers
         {
             "get_" + nameof(IServerConfigurationManager.Configuration) => _configuration,
             "get_" + nameof(IServerConfigurationManager.ApplicationPaths) => ApplicationPathsProxy.Create(),
-            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => new EncodingOptions(),
+            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => _encoding,
             _ => throw new NotImplementedException(targetMethod?.Name),
         };
     }
