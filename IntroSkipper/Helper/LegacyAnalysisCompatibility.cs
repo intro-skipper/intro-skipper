@@ -58,6 +58,15 @@ internal static class LegacyAnalysisCompatibility
                 continue;
             }
 
+            // 10.11 credits used the intro offsets. Adopt only when the new credits-specific
+            // offsets preserve those playback boundaries under the retained configuration.
+            if (mode == AnalysisMode.Credits &&
+                (config.CreditsStartOffset != config.IntroStartOffset || config.CreditsEndOffset != config.IntroEndOffset ||
+                 (!config.IncludeIntroStartOffsetWhenSnapping && config.CreditsStartOffset != 0)))
+            {
+                continue;
+            }
+
             var action = snapshot.AnalyzerActionByMode.GetValueOrDefault(mode, AnalyzerAction.Default);
             var upgrades = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var available in new[] { false, true })

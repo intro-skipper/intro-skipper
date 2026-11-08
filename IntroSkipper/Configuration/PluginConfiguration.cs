@@ -601,9 +601,19 @@ public class PluginConfiguration : BasePluginConfiguration
     public int IntroEndOffset { get; set; }
 
     /// <summary>
+    /// Gets or sets the amount of credits to play before resuming (in seconds).
+    /// </summary>
+    public int CreditsEndOffset { get; set; }
+
+    /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int IntroStartOffset { get; set; }
+
+    /// <summary>
+    /// Gets or sets the amount of credits at start to play (in seconds).
+    /// </summary>
+    public int CreditsStartOffset { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to apply <see cref="IntroStartOffset" /> when the

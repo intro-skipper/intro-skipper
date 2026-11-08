@@ -48,6 +48,10 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
         }
 
         bool useChapters = !chapterSourced && _config.AdjustIntroBasedOnChapters;
+        bool isIntroduction = _mode == AnalysisMode.Introduction;
+        bool isCredits = _mode == AnalysisMode.Credits;
+        int startOffset = isIntroduction ? _config.IntroStartOffset : isCredits ? _config.CreditsStartOffset : 0;
+        int endOffset = isIntroduction ? _config.IntroEndOffset : isCredits ? _config.CreditsEndOffset : 0;
         var duration = episode.Duration;
         var chapters = useChapters ? episode.Chapters : [];
 
@@ -83,16 +87,16 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
 
         if (snapToEpisodeStart)
         {
-            // Snap the detected boundary first; IntroStartOffset is applied below so it also
-            // takes effect when the detected intro starts at (or near) the episode start.
+            // Snap the detected boundary first; mode-specific offset handling below decides whether
+            // playback should begin after the episode boundary.
             adjustedStart = 0;
         }
 
-        // Apply the configured playback offset after all other start adjustments. Snapped starts
-        // are opt-in because the default behavior is to preserve the episode boundary.
-        if (!snapToEpisodeStart || _config.IncludeIntroStartOffsetWhenSnapping)
+        // Apply the configured playback offset after all other start adjustments. Introduction
+        // keeps its opt-in for snapped starts; Credits always applies its own start offset there.
+        if (!snapToEpisodeStart || isCredits || (isIntroduction && _config.IncludeIntroStartOffsetWhenSnapping))
         {
-            adjustedStart = Math.Clamp(adjustedStart + _config.IntroStartOffset, 0, duration);
+            adjustedStart = Math.Clamp(adjustedStart + startOffset, 0, duration);
         }
 
         double rawEnd = originalIntro.End;
@@ -109,7 +113,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
                 adjustedEnd = GetChapterBoundary(chapters, adjustedEnd, searchRange);
             }
 
-            adjustedEnd -= _config.IntroEndOffset;
+            adjustedEnd -= endOffset;
             // Keep end inside media duration after offset
             adjustedEnd = Math.Clamp(adjustedEnd, 0, duration);
 
