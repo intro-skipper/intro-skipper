@@ -325,13 +325,13 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Used only for Introduction analysis. Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
+            "Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
     },
     IncludeIntroStartOffsetWhenSnapping: {
         kind: "checkbox",
-        label: "Include intro start offset when snapping to episode start",
+        label: "Include intro offset when snapping to episode start",
         description:
-            "Used only for Introduction analysis. When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
+            "When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
     },
     IntroEndOffset: {
         kind: "number",
@@ -339,7 +339,7 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Used only for Introduction analysis. Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
+            "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
     },
     CreditsStartOffset: {
         kind: "number",
@@ -347,7 +347,7 @@ export const configSchema = {
         min: 0,
         step: 1,
         description:
-            "Used only for Credits analysis. Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
+            "Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
     },
     CreditsEndOffset: {
         kind: "number",
@@ -355,11 +355,11 @@ export const configSchema = {
         min: 0,
         step: 1,
         description:
-            "Used only for Credits analysis. Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
+            "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
     },
     IncludeCreditsEndOffsetWhenSnapping: {
         kind: "checkbox",
-        label: "Include end offset when snapping to episode end",
+        label: "Include credits offset when snapping to episode end",
         description:
             "When enabled, Credits End Offset is also applied when the detected credits end is snapped to the end of the episode.",
     },
