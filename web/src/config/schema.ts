@@ -345,7 +345,7 @@ export const configSchema = {
         kind: "number",
         label: "Credits Start Offset (seconds)",
         min: 0,
-        step: 0.5,
+        step: 1,
         description:
             "Used only for Credits analysis. Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
     },
@@ -353,7 +353,7 @@ export const configSchema = {
         kind: "number",
         label: "Credits End Offset (seconds)",
         min: 0,
-        step: 0.5,
+        step: 1,
         description:
             "Used only for Credits analysis. Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
     },
