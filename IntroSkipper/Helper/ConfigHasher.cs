@@ -435,11 +435,14 @@ internal static class ConfigHasher
         int startOffset = isIntroduction ? config.IntroStartOffset : isCredits ? config.CreditsStartOffset : 0;
         int endOffset = isIntroduction ? config.IntroEndOffset : isCredits ? config.CreditsEndOffset : 0;
         bool includeStartOffsetWhenSnapping = isIntroduction && config.IncludeIntroStartOffsetWhenSnapping;
+        string includeEndOffsetWhenSnapping = isCredits && config.IncludeCreditsEndOffsetWhenSnapping
+            ? "|includeEndOffsetWhenSnapping=true"
+            : string.Empty;
         return Invariant(
             $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}",
             $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}",
             $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}",
-            $"|startOffset={startOffset}|includeStartOffsetWhenSnapping={includeStartOffsetWhenSnapping}|endOffset={endOffset}");
+            $"|startOffset={startOffset}|includeStartOffsetWhenSnapping={includeStartOffsetWhenSnapping}|endOffset={endOffset}{includeEndOffsetWhenSnapping}");
     }
 
     private static string Invariant(params FormattableString[] parts)

@@ -62,7 +62,8 @@ internal static class LegacyAnalysisCompatibility
             // offsets preserve those playback boundaries under the retained configuration.
             if (mode == AnalysisMode.Credits &&
                 (config.CreditsStartOffset != config.IntroStartOffset || config.CreditsEndOffset != config.IntroEndOffset ||
-                 (!config.IncludeIntroStartOffsetWhenSnapping && config.CreditsStartOffset != 0)))
+                 (!config.IncludeIntroStartOffsetWhenSnapping && config.CreditsStartOffset != 0) ||
+                 config.IncludeCreditsEndOffsetWhenSnapping))
             {
                 continue;
             }

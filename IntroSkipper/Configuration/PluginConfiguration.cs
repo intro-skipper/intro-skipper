@@ -606,6 +606,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int CreditsEndOffset { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether to apply <see cref="CreditsEndOffset" /> when the
+    /// credits end is snapped to the end of the episode.
+    /// </summary>
+    public bool IncludeCreditsEndOffsetWhenSnapping { get; set; }
+
+    /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int IntroStartOffset { get; set; }

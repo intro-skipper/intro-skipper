@@ -17,6 +17,7 @@ export const detectionTab: Tab = {
             form.field("IntroEndOffset"),
             form.field("CreditsStartOffset"),
             form.field("CreditsEndOffset"),
+            form.field("IncludeCreditsEndOffsetWhenSnapping"),
             form.field("AdjustWindowInward"),
             form.field("AdjustWindowOutward"),
             form.field("EndSnapThreshold"),

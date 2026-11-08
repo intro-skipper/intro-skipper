@@ -103,7 +103,9 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
         double adjustedEnd = rawEnd;
         if (rawEnd >= duration - _config.EndSnapThreshold - Epsilon)
         {
-            adjustedEnd = duration;
+            adjustedEnd = isCredits && _config.IncludeCreditsEndOffsetWhenSnapping
+                ? Math.Clamp(duration - endOffset, 0, duration)
+                : duration;
         }
         else
         {

@@ -357,6 +357,12 @@ export const configSchema = {
         description:
             "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
     },
+    IncludeCreditsEndOffsetWhenSnapping: {
+        kind: "checkbox",
+        label: "Include end offset when snapping to episode end",
+        description:
+            "When enabled, Credits End Offset is also applied when the detected credits end is snapped to the end of the episode.",
+    },
 
     // Black frame
     DetectRecapUsingBlackFrames: {
