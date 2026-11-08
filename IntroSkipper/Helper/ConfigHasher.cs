@@ -435,6 +435,9 @@ internal static class ConfigHasher
         double startOffset = isIntroduction ? config.IntroStartOffset : isCredits ? config.CreditsStartOffset : 0;
         double endOffset = isIntroduction ? config.IntroEndOffset : isCredits ? config.CreditsEndOffset : 0;
         bool includeStartOffsetWhenSnapping = isIntroduction && config.IncludeIntroStartOffsetWhenSnapping;
+        string creditsStartOffsetSemanticsToken = isCredits && startOffset != 0 && !config.IncludeIntroStartOffsetWhenSnapping
+            ? "|creditsStartOnSnap=always-v1"
+            : string.Empty;
         string includeEndOffsetWhenSnapping = isCredits && endOffset != 0 && config.IncludeCreditsEndOffsetWhenSnapping
             ? "|includeEndOffsetWhenSnapping=true"
             : string.Empty;
@@ -442,7 +445,7 @@ internal static class ConfigHasher
             $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}",
             $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}",
             $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}",
-            $"|startOffset={startOffset}|includeStartOffsetWhenSnapping={includeStartOffsetWhenSnapping}|endOffset={endOffset}{includeEndOffsetWhenSnapping}");
+            $"|startOffset={startOffset}|includeStartOffsetWhenSnapping={includeStartOffsetWhenSnapping}|endOffset={endOffset}{creditsStartOffsetSemanticsToken}{includeEndOffsetWhenSnapping}");
     }
 
     private static string Invariant(params FormattableString[] parts)

@@ -306,6 +306,32 @@ public sealed class TestLegacyAnalysisCompatibility
     }
 
     [Theory]
+    [InlineData(5, 0)]
+    [InlineData(0, 5)]
+    public async Task CommercialLegacyResultsWithIntroOffsets_AreNotAdopted(int startOffset, int endOffset)
+    {
+        using var temp = new TempSegmentDb();
+        var config = new PluginConfiguration { IntroStartOffset = startOffset, IntroEndOffset = endOffset };
+        var id = Guid.NewGuid();
+        var legacyHash = LegacyAnalysisCompatibility.AnalysisHash(
+            config,
+            AnalysisMode.Commercial,
+            AnalyzerAction.Default,
+            ffmpegValid: true,
+            alternativeBlackFrameAnalyzer: false,
+            release: 24);
+        await temp.Database.MarkItemsAnalyzedAsync(AnalysisMode.Commercial, [id], legacyHash);
+        var snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
+
+        Assert.False(await LegacyAnalysisCompatibility.UpgradeAsync(temp.Database, snapshot, config));
+
+        snapshot = await temp.Database.GetSeasonQueueSnapshotAsync(Guid.NewGuid(), [id]);
+        var candidate = new QueuedEpisode { EpisodeId = id };
+        new QueueVerifier(config, [AnalysisMode.Commercial], snapshot, ffmpegValid: true).Classify(candidate);
+        Assert.Equal(EpisodeState.NotAnalyzed, candidate.GetAnalyzed(AnalysisMode.Commercial));
+    }
+
+    [Theory]
     [InlineData(AnalysisMode.Preview)]
     [InlineData(AnalysisMode.Commercial)]
     public async Task PreviewAndCommercialLegacyHashes_RespectAnalyzerPrecedenceAndAudioSelection(AnalysisMode mode)
