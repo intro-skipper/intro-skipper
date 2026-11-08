@@ -57,8 +57,13 @@ public sealed class TestConfigHasher
     {
         var defaults = new PluginConfiguration();
         var intro = new PluginConfiguration { IntroStartOffset = 1 };
-        var credits = new PluginConfiguration { CreditsStartOffset = 0.5 };
-        var legacyCreditsOffset = new PluginConfiguration { IntroStartOffset = 0.5 };
+        var credits = new PluginConfiguration { CreditsStartOffset = 1 };
+        var creditsWithIntroSnapEnabled = new PluginConfiguration
+        {
+            CreditsStartOffset = 1,
+            IncludeIntroStartOffsetWhenSnapping = true,
+        };
+        var legacyCreditsOffset = new PluginConfiguration { IntroStartOffset = 1 };
         var creditsEnd = new PluginConfiguration { CreditsEndOffset = 1.5 };
         var creditsEndSnap = new PluginConfiguration { CreditsEndOffset = 1.5, IncludeCreditsEndOffsetWhenSnapping = true };
         var introHash = ConfigHasher.Analysis(defaults, AnalysisMode.Introduction, AnalyzerAction.Default, true);
@@ -67,6 +72,9 @@ public sealed class TestConfigHasher
         Assert.NotEqual(introHash, ConfigHasher.Analysis(intro, AnalysisMode.Introduction, AnalyzerAction.Default, true));
         Assert.Equal(creditsHash, ConfigHasher.Analysis(intro, AnalysisMode.Credits, AnalyzerAction.Default, true));
         Assert.NotEqual(creditsHash, ConfigHasher.Analysis(credits, AnalysisMode.Credits, AnalyzerAction.Default, true));
+        Assert.Equal(
+            ConfigHasher.Analysis(credits, AnalysisMode.Credits, AnalyzerAction.Default, true),
+            ConfigHasher.Analysis(creditsWithIntroSnapEnabled, AnalysisMode.Credits, AnalyzerAction.Default, true));
         Assert.NotEqual(
             ConfigHasher.Analysis(legacyCreditsOffset, AnalysisMode.Credits, AnalyzerAction.Default, true),
             ConfigHasher.Analysis(credits, AnalysisMode.Credits, AnalyzerAction.Default, true));

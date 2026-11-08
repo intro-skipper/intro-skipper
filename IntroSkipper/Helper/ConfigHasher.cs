@@ -435,7 +435,7 @@ internal static class ConfigHasher
         double startOffset = isIntroduction ? config.IntroStartOffset : isCredits ? config.CreditsStartOffset : 0;
         double endOffset = isIntroduction ? config.IntroEndOffset : isCredits ? config.CreditsEndOffset : 0;
         bool includeStartOffsetWhenSnapping = isIntroduction && config.IncludeIntroStartOffsetWhenSnapping;
-        string creditsStartOffsetSemanticsToken = isCredits && startOffset != 0 && !config.IncludeIntroStartOffsetWhenSnapping
+        string creditsStartOffsetSemanticsToken = isCredits && startOffset != 0
             ? "|creditsStartOnSnap=always-v1"
             : string.Empty;
         string includeEndOffsetWhenSnapping = isCredits && endOffset != 0 && config.IncludeCreditsEndOffsetWhenSnapping
