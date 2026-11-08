@@ -52,6 +52,80 @@ public class TestTimeAdjustmentHelper
     }
 
     [Fact]
+    public async Task CreditsOffsets_PreserveFractionalSeconds()
+    {
+        var config = new PluginConfiguration
+        {
+            EndSnapThreshold = 0,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+            CreditsStartOffset = 0.5,
+            CreditsEndOffset = 1.5,
+        };
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Credits, null!);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(
+            episode,
+            new Segment(episode.EpisodeId) { Start = 60, End = 90 });
+
+        Assert.Equal(60.5, adjusted.Start);
+        Assert.Equal(88.5, adjusted.End);
+    }
+
+    [Theory]
+    [InlineData(true, 98.5)]
+    [InlineData(false, 100)]
+    public async Task CreditsEndOffsetWhenSnapping_IsOptIn(bool includeOffset, double expectedEnd)
+    {
+        var config = new PluginConfiguration
+        {
+            EndSnapThreshold = 0.2,
+            CreditsEndOffset = 1.5,
+            IncludeCreditsEndOffsetWhenSnapping = includeOffset,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+        };
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Credits, null!);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 100 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(
+            episode,
+            new Segment(episode.EpisodeId) { Start = 60, End = 99.9 });
+
+        Assert.Equal(expectedEnd, adjusted.End);
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Recap)]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Commercial)]
+    public async Task PlaybackOffsets_AreLimitedToIntroductionAndCredits(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration
+        {
+            IntroStartOffset = 2,
+            IntroEndOffset = 3,
+            CreditsStartOffset = 4,
+            CreditsEndOffset = 5,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+        };
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, mode, null!);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(
+            episode,
+            new Segment(episode.EpisodeId) { Start = 60, End = 90 });
+
+        Assert.Equal(60, adjusted.Start);
+        Assert.Equal(90, adjusted.End);
+    }
+
+    [Fact]
     public async Task ChapterSourcedEnd_StaysOnTheMark_AndProbesNothing()
     {
         var adjusted = await AdjustMarkEndAsync(new PluginConfiguration(), chapterSourced: true);

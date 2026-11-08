@@ -139,7 +139,7 @@ public sealed class TestCreditsPass
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits, [new Segment(episodes[0].EpisodeId, new TimeRange(900, 950))], SegmentSource.Chapter);
-        var config = new PluginConfiguration { IntroStartOffset = startOffset, IntroEndOffset = endOffset };
+        var config = new PluginConfiguration { CreditsStartOffset = startOffset, CreditsEndOffset = endOffset };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 
@@ -1165,7 +1165,7 @@ public sealed class TestCreditsPass
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason();
         episodes[0].Chapters = [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 920)];
-        var config = new PluginConfiguration { IntroEndOffset = 30 };
+        var config = new PluginConfiguration { CreditsEndOffset = 30 };
 
         await CreatePass(ffmpeg, database, config: config).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
 

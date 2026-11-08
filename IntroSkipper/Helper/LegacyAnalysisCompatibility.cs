@@ -63,7 +63,7 @@ internal static class LegacyAnalysisCompatibility
             if (mode == AnalysisMode.Credits &&
                 (config.CreditsStartOffset != config.IntroStartOffset || config.CreditsEndOffset != config.IntroEndOffset ||
                  (!config.IncludeIntroStartOffsetWhenSnapping && config.CreditsStartOffset != 0) ||
-                 config.IncludeCreditsEndOffsetWhenSnapping))
+                 (config.IncludeCreditsEndOffsetWhenSnapping && config.CreditsEndOffset != 0)))
             {
                 continue;
             }

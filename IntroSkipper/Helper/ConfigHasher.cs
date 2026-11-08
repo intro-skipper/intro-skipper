@@ -432,10 +432,10 @@ internal static class ConfigHasher
     {
         bool isIntroduction = mode == AnalysisMode.Introduction;
         bool isCredits = mode == AnalysisMode.Credits;
-        int startOffset = isIntroduction ? config.IntroStartOffset : isCredits ? config.CreditsStartOffset : 0;
-        int endOffset = isIntroduction ? config.IntroEndOffset : isCredits ? config.CreditsEndOffset : 0;
+        double startOffset = isIntroduction ? config.IntroStartOffset : isCredits ? config.CreditsStartOffset : 0;
+        double endOffset = isIntroduction ? config.IntroEndOffset : isCredits ? config.CreditsEndOffset : 0;
         bool includeStartOffsetWhenSnapping = isIntroduction && config.IncludeIntroStartOffsetWhenSnapping;
-        string includeEndOffsetWhenSnapping = isCredits && config.IncludeCreditsEndOffsetWhenSnapping
+        string includeEndOffsetWhenSnapping = isCredits && endOffset != 0 && config.IncludeCreditsEndOffsetWhenSnapping
             ? "|includeEndOffsetWhenSnapping=true"
             : string.Empty;
         return Invariant(

@@ -325,13 +325,13 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
+            "Used only for Introduction analysis. Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
     },
     IncludeIntroStartOffsetWhenSnapping: {
         kind: "checkbox",
         label: "Include intro start offset when snapping to episode start",
         description:
-            "When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
+            "Used only for Introduction analysis. When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
     },
     IntroEndOffset: {
         kind: "number",
@@ -339,7 +339,7 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
+            "Used only for Introduction analysis. Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
     },
     CreditsStartOffset: {
         kind: "number",
@@ -347,7 +347,7 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
+            "Used only for Credits analysis. Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
     },
     CreditsEndOffset: {
         kind: "number",
@@ -355,7 +355,7 @@ export const configSchema = {
         min: 0,
         step: 0.5,
         description:
-            "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
+            "Used only for Credits analysis. Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
     },
     IncludeCreditsEndOffsetWhenSnapping: {
         kind: "checkbox",

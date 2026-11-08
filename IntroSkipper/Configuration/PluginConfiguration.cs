@@ -603,7 +603,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of credits to play before resuming (in seconds).
     /// </summary>
-    public int CreditsEndOffset { get; set; }
+    public double CreditsEndOffset { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to apply <see cref="CreditsEndOffset" /> when the
@@ -619,7 +619,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of credits at start to play (in seconds).
     /// </summary>
-    public int CreditsStartOffset { get; set; }
+    public double CreditsStartOffset { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to apply <see cref="IntroStartOffset" /> when the

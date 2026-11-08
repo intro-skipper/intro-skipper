@@ -50,8 +50,8 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
         bool useChapters = !chapterSourced && _config.AdjustIntroBasedOnChapters;
         bool isIntroduction = _mode == AnalysisMode.Introduction;
         bool isCredits = _mode == AnalysisMode.Credits;
-        int startOffset = isIntroduction ? _config.IntroStartOffset : isCredits ? _config.CreditsStartOffset : 0;
-        int endOffset = isIntroduction ? _config.IntroEndOffset : isCredits ? _config.CreditsEndOffset : 0;
+        double startOffset = isIntroduction ? _config.IntroStartOffset : isCredits ? _config.CreditsStartOffset : 0;
+        double endOffset = isIntroduction ? _config.IntroEndOffset : isCredits ? _config.CreditsEndOffset : 0;
         var duration = episode.Duration;
         var chapters = useChapters ? episode.Chapters : [];
 
