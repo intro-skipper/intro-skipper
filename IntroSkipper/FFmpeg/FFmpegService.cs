@@ -82,7 +82,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     // them: healthy streams with dependent slices log it on every skipped frame.
     internal static readonly string[] SliceStructureErrors = ["entry_point_offset table is corrupted", "WPP ctb addresses are wrong", "Previous slice segment missing"];
 
-    // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
+    // Generous: the probe is four fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
     // is awaited before that cap applies.
     private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
@@ -284,7 +284,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // brings 10-bit sources to 8-bit values and keeps the source's range. Hardware decode returns a 10-bit
     // 4:2:0 frame as p010, which format=yuv420p converts on another path than the yuv420p10le a
     // software decode gives, so a source that probes as yuv420p10le goes through yuv420p10le first
-    // and keeps software's pixels. The slice retry runs in software.
+    // and keeps software's pixels. The slice retry runs in software. -nostats stops the progress
+    // updates: each ends in a bare CR, so the message after it would share its log line and miss
+    // the reader's line-start check.
     private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, PluginConfiguration config, CancellationToken cancellationToken)
     {
         var stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -301,6 +303,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         string[] Arguments(string[] hardware) =>
         [
+            "-nostats",
             .. hardware,
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
@@ -485,7 +488,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="config">The configuration the arguments were built from; the row is read and written under its hash.</param>
     /// <param name="args">Builds the ffmpeg arguments. Runs only on a cache miss, so it may probe the file first.</param>
     /// <param name="hardwareDecodable">Whether the scan decodes on hardware under <see cref="PluginConfiguration.UseHardwareDecoding"/>, which then probes the file for its video stream when Jellyfin's gates let a method through.</param>
-    /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
+    /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
     private async Task<T[]> RunCachedScanAsync<T>(

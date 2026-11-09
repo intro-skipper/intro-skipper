@@ -34,7 +34,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// Every visually verified scene whose range meets the minimum duration is a black-frame candidate,
 /// so credits split by a mid-credits scene come out as separate parts. So is every scene after the
 /// last verified one that meets it. Those scenes have no visual evidence because the scan reads black
-/// frames to the end of the file but keeps visuals only inside the credits window, so they lie past a
+/// frames to the end of the file but its pages have visuals only inside the credits window, so they lie past a
 /// window that ends early. A scene without visual evidence before a verified one is not a candidate.
 /// With no verified scene, only the latest scene that meets the
 /// minimum duration is a candidate. The card run is found over each
