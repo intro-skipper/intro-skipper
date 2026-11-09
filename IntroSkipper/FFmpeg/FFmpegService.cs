@@ -651,7 +651,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         : [];
 
     /// <summary>
-    /// Whether a scan decodes the stream on hardware, given a method: only the formats measured to
+    /// Whether a scan decodes the stream on hardware, given a method: only the formats measured under VAAPI and D3D11VA to
     /// give software's frames, which Jellyfin's playback also decodes on hardware.
     /// </summary>
     /// <remarks>
