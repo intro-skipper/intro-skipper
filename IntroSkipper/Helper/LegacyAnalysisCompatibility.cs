@@ -53,7 +53,19 @@ internal static class LegacyAnalysisCompatibility
                 || ((mode is AnalysisMode.Introduction or AnalysisMode.Credits)
                     && (ConfigHasher.NormalizeAudioLanguage(config.PreferredAudioLanguage).Length != 0
                         || !config.PreferAudioStreamWithMostChannels))
+                || (mode == AnalysisMode.Commercial
+                    && (config.IntroStartOffset != 0 || config.IntroEndOffset != 0))
                 || (mode == AnalysisMode.Credits && (config.UseLegacyBlackFrameAnalyzer || config.EnhanceChapterCredits)))
+            {
+                continue;
+            }
+
+            // 10.11 credits used the intro offsets. Adopt only when the new credits-specific
+            // offsets preserve those playback boundaries under the retained configuration.
+            if (mode == AnalysisMode.Credits &&
+                (config.CreditsStartOffset != config.IntroStartOffset || config.CreditsEndOffset != config.IntroEndOffset ||
+                 (!config.IncludeIntroStartOffsetWhenSnapping && config.CreditsStartOffset != 0) ||
+                 (config.IncludeCreditsEndOffsetWhenSnapping && config.CreditsEndOffset != 0)))
             {
                 continue;
             }
