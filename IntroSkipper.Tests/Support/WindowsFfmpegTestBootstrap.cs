@@ -41,7 +41,7 @@ internal static class WindowsFfmpegTestBootstrap
         {
             var release = Path.GetFileNameWithoutExtension(new Uri(FfmpegZipUrl).LocalPath);
             var ffmpegDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IntroSkipper.Tests", "ffmpeg", release);
-            if (!File.Exists(Path.Combine(ffmpegDir, "ffmpeg.exe")))
+            if (!File.Exists(Path.Combine(ffmpegDir, "ffmpeg.exe")) || !File.Exists(Path.Combine(ffmpegDir, "ffprobe.exe")))
             {
                 Download(ffmpegDir);
             }
@@ -85,6 +85,12 @@ internal static class WindowsFfmpegTestBootstrap
         ZipFile.ExtractToDirectory(zipPath, extractDir);
         var ffmpegExe = Directory.EnumerateFiles(extractDir, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault()
             ?? throw new InvalidOperationException($"FFmpeg bootstrap failed: 'ffmpeg.exe' not found after extracting '{FfmpegZipUrl}'.");
+
+        // A folder missing either program is what brought us here, and Move needs the name free.
+        if (Directory.Exists(ffmpegDir))
+        {
+            Directory.Delete(ffmpegDir, recursive: true);
+        }
 
         Directory.Move(Path.GetDirectoryName(ffmpegExe)!, ffmpegDir);
         Directory.Delete(staging, recursive: true);
