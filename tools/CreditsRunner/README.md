@@ -64,7 +64,7 @@ The runner builds these plugin pieces directly, through `InternalsVisibleTo`. A 
 
 - `KeyframeAnalyzer`, its constructor and `DetectCreditsAsync(QueuedEpisode, CancellationToken)`
 - `CreditsCandidateCombiner.Combine`
-- `FFmpegService(ILogger<FFmpegService>, DetectionCacheService)`, plus the debug line `Starting ffmpeg with the following arguments` that `FFmpegProcessRunner` logs before each start, which the runner counts, and the warning `ffmpeg did not exit within` it logs when it kills a process at its timeout, which the runner counts per call
+- `FFmpegService`'s internal constructor and its `encodingOptions` argument, which the runner passes to choose hardware decode, plus the debug line `Starting ffmpeg with the following arguments` that `FFmpegProcessRunner` logs before each start, which the runner counts, and the warning `ffmpeg did not exit within` it logs when it kills a process at its timeout, which the runner counts per call
 - `FFmpegService.CheckFFmpegVersionAsync` and `GetCheckResult()`, run before each pass as the analysis pass runs them, since the check decides whether a season run runs Chromaprint; the results take the ffmpeg version from its output named `version`. A timeout during the check stops the run with exit code 2, since no recorded call would show it
 - `DetectionCacheService`, `DetectionCacheDatabase`, `DetectionCacheDbContext` and `SqlitePragmas.Configure`
 - `AttributedSegment` and `SegmentSource`, the candidates' shape

@@ -950,7 +950,34 @@ public sealed class TestCacheOperations
     {
         var encoding = new EncodingOptions { HardwareDecodingCodecs = ticked.Split(','), EnableDecodingColorDepth10Hevc = tenBitHevc };
 
-        Assert.Equal(hardware, FFmpegService.DecodesOnHardware(encoding, codec is null ? null : new(codec, pixelFormat)));
+        Assert.Equal(hardware, FFmpegService.DecodesOnHardware(encoding, codec is null ? null : new(codec, pixelFormat, null)));
+    }
+
+    /// <summary>
+    /// Jellyfin keeps these profiles in software whatever the pixel format, and the container tag
+    /// ffmpeg prints after the profile must not hide it. Stream lines as jellyfin-ffmpeg prints them.
+    /// </summary>
+    [Theory]
+    [InlineData("h264 (High 4:2:2), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:2:2) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:4:4 Predictive), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:4:4 Predictive) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("hevc (Rext), yuv420p10le(tv, bt709)", false)]
+    [InlineData("hevc (Rext) (hvc1 / 0x31637668), yuv420p10le(tv, bt709)", false)]
+    [InlineData("h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", true)]
+    [InlineData("h264 (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", true)]
+    [InlineData("hevc (Main 10) (hvc1 / 0x31637668), yuv420p10le(tv, bt709)", true)]
+    public void DecodesOnHardware_RefusesTheProfilesJellyfinKeepsInSoftware(string streamDescription, bool hardware)
+    {
+        var encoding = new EncodingOptions { HardwareDecodingCodecs = ["h264", "hevc"], EnableDecodingColorDepth10Hevc = true };
+        var codec = streamDescription[..4];
+        var stderr = $"""
+              Stream #0:0: Video: {streamDescription}, 1920x1080, 23.98 fps
+            Stream mapping:
+              Stream #0:0 -> #0:0 ({codec} (native) -> rawvideo (native))
+            """;
+
+        Assert.Equal(hardware, FFmpegService.DecodesOnHardware(encoding, FFmpegOutputParser.ParseMappedVideoStream(stderr)));
     }
 
     /// <summary>

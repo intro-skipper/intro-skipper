@@ -177,7 +177,6 @@ internal sealed partial class FFmpegService : IFFmpegService
             {
                 var output = Encoding.UTF8.GetString(await GetOutputAsync(
                     arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
-                    stderr: false,
                     infoQuery: true,
                     timeout: 2000,
                     cancellationToken).ConfigureAwait(false));
@@ -658,8 +657,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <remarks>
     /// H.264 and HEVC at <c>yuv420p</c> or <c>yuvj420p</c> qualify, and 10-bit 4:2:0 HEVC while
     /// Jellyfin decodes 10-bit HEVC on hardware, each only while Jellyfin decodes the codec on
-    /// hardware. HEVC RExt (4:2:2, 4:4:4, 12-bit), Hi10P H.264 and AV1 stay in software: VAAPI
-    /// applies AV1 film grain differently from software, and the others were not measured.
+    /// hardware. HEVC RExt, H.264 High 4:2:2 and High 4:4:4 (Jellyfin refuses these by profile,
+    /// since they can be encoded at 4:2:0), Hi10P H.264 and AV1 stay in software: VAAPI applies
+    /// AV1 film grain differently from software, and the others were not measured.
     /// </remarks>
     /// <param name="encoding">Jellyfin's encoding options.</param>
     /// <param name="stream">The video stream the scan decodes, or <see langword="null"/> when there is none.</param>
@@ -667,6 +667,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     internal static bool DecodesOnHardware(EncodingOptions encoding, FFmpegOutputParser.VideoStream? stream)
         => stream is { Codec: "h264" or "hevc" }
             && encoding.HardwareDecodingCodecs.Contains(stream.Codec, StringComparer.OrdinalIgnoreCase)
+            && !(stream.Profile is { } profile
+                && (stream.Codec == "h264"
+                    ? profile.Contains("4:2:2", StringComparison.Ordinal) || profile.Contains("4:4:4", StringComparison.Ordinal)
+                    : profile.Contains("Rext", StringComparison.Ordinal)))
             && stream.PixelFormat switch
             {
                 "yuv420p" or "yuvj420p" => true,
@@ -705,7 +709,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 filePath,
             ];
 
-            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
+            var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(ffprobePath, args, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(output))
             {
                 return null;
@@ -1120,23 +1124,19 @@ internal sealed partial class FFmpegService : IFFmpegService
     private partial void LogSubtitleScanFailed(Exception ex, string file);
 
     /// <summary>
-    /// Runs ffmpeg and returns standard output (or error).
+    /// Runs ffmpeg and returns standard output.
     /// </summary>
     /// <param name="args">Arguments to pass to ffmpeg as individual tokens.</param>
-    /// <param name="stderr"><see langword="true"/> to return standard error, where the detection
-    /// filters print their results at info log level; otherwise, <see langword="false"/> for
-    /// standard output at warning level.</param>
     /// <param name="infoQuery"><see langword="true"/> for a version or help query, which takes no
     /// input and rejects a trailing <c>-threads</c> option; otherwise, <see langword="false"/>.</param>
     /// <param name="timeout">Timeout (in milliseconds) to wait for ffmpeg to exit.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     private Task<byte[]> GetOutputAsync(
         IReadOnlyList<string> args,
-        bool stderr,
         bool infoQuery,
         int timeout,
         CancellationToken cancellationToken)
-        => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
+        => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, "warning", infoQuery), timeout, cancellationToken);
 
     // Called only on a scan cache miss, so an episode whose scans are all cached is never probed.
     private Task<FFmpegOutputParser.VideoStream?> GetVideoStreamAsync(QueuedEpisode episode, CancellationToken cancellationToken)
@@ -1266,7 +1266,6 @@ internal sealed partial class FFmpegService : IFFmpegService
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
                 GetFFprobePath(),
                 args,
-                stderr: false,
                 timeout: 10 * 1000,
                 cancellationToken: cancellationToken).ConfigureAwait(false));
 
@@ -1401,7 +1400,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         byte[] rawPoints;
         try
         {
-            rawPoints = await GetOutputAsync(args, stderr: false, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            rawPoints = await GetOutputAsync(args, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {

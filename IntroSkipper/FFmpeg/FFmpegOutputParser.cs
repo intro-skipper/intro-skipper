@@ -235,7 +235,7 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Reads the codec and pixel format of the input stream ffmpeg mapped to its first output
+    /// Reads the codec, pixel format and profile of the input stream ffmpeg mapped to its first output
     /// stream, from the stream mapping block a run prints at the info log level and the input
     /// dump before it.
     /// </summary>
@@ -250,7 +250,7 @@ internal static partial class FFmpegOutputParser
     /// <returns>The mapped input stream, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
     internal static VideoStream? ParseMappedVideoStream(string raw)
     {
-        var pixelFormats = new Dictionary<string, string>(StringComparer.Ordinal);
+        var inputs = new Dictionary<string, Match>(StringComparer.Ordinal);
         var inBlock = false;
         foreach (var line in raw.Split('\n'))
         {
@@ -260,7 +260,7 @@ internal static partial class FFmpegOutputParser
                 inBlock = text == "Stream mapping:";
                 if (_inputVideoStreamRegex.Match(text) is { Success: true } input)
                 {
-                    pixelFormats[input.Groups["stream"].Value] = input.Groups["format"].Value;
+                    inputs[input.Groups["stream"].Value] = input;
                 }
 
                 continue;
@@ -273,7 +273,8 @@ internal static partial class FFmpegOutputParser
 
             if (_mappedStreamRegex.Match(text) is { Success: true } match)
             {
-                return new(match.Groups["codec"].Value, pixelFormats.GetValueOrDefault(match.Groups["stream"].Value));
+                var input = inputs.GetValueOrDefault(match.Groups["stream"].Value);
+                return new(match.Groups["codec"].Value, input?.Groups["format"].Value, input?.Groups["profile"].Value);
             }
         }
 
@@ -446,8 +447,9 @@ internal static partial class FFmpegOutputParser
 
     // A video stream of the input dump, such as "  Stream #0:0[0x1](und): Video: hevc (Main 10)
     // (hvc1 / 0x31637668), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 ...": the
-    // codec, its parenthesized profile and tag, then the pixel format.
-    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+(?: \([^)]*\))*, (?<format>[a-z][^\s,(]*)")]
+    // codec, its parenthesized profile and tag, then the pixel format. One group holds all the
+    // parentheses: a group inside the repeat would hold only the last, the tag.
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+ ?(?<profile>(?:\([^)]*\) ?)*), (?<format>[a-z][^\s,(]*)")]
     private static partial Regex InputVideoStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
@@ -465,5 +467,6 @@ internal static partial class FFmpegOutputParser
     /// </summary>
     /// <param name="Codec">The codec name, such as <c>hevc</c>.</param>
     /// <param name="PixelFormat">The pixel format the input dump gives it, such as <c>yuv420p10le</c>, or <see langword="null"/> when the dump gives none.</param>
-    internal sealed record VideoStream(string Codec, string? PixelFormat);
+    /// <param name="Profile">The parenthesized text after the codec in the input dump, the profile and any container tag, such as <c>(Main 10) (hvc1 / 0x31637668)</c>, or <see langword="null"/> when the dump does not list the stream.</param>
+    internal sealed record VideoStream(string Codec, string? PixelFormat, string? Profile);
 }

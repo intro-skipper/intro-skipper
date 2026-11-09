@@ -23,25 +23,23 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     private readonly ILogger _logger = logger;
 
     /// <summary>
-    /// Runs a process to completion and returns one of its output streams.
+    /// Runs a process to completion and returns its standard output.
     /// </summary>
     /// <param name="processPath">Executable to start.</param>
     /// <param name="args">Arguments, one token each.</param>
-    /// <param name="stderr"><see langword="true"/> to return standard error; otherwise standard output is returned.</param>
     /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
     /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
-    /// <returns>The raw bytes of the selected stream.</returns>
+    /// <returns>The raw bytes of standard output.</returns>
     /// <exception cref="TimeoutException">The process did not exit within <paramref name="timeout"/> and was killed.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was canceled; the process has been killed.</exception>
     public async Task<byte[]> RunAsync(
         string processPath,
         IReadOnlyList<string> args,
-        bool stderr = false,
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
         using var ms = new MemoryStream();
-        await RunStreamingAsync(processPath, args, (stdout, stderrStream, kill) => DrainBothAsync(stdout, stderrStream, kill, stderr ? null : ms, stderr ? ms : null, long.MaxValue), timeout, cancellationToken).ConfigureAwait(false);
+        await RunStreamingAsync(processPath, args, (stdout, stderr, kill) => DrainBothAsync(stdout, stderr, kill, ms, null, long.MaxValue), timeout, cancellationToken).ConfigureAwait(false);
         return ms.ToArray();
     }
 
@@ -188,7 +186,7 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     }
 
     // Whether either stream crossed the limit.
-    private static async Task<bool> DrainBothAsync(Stream stdout, Stream stderr, Action kill, Stream? stdoutSink, Stream? stderrSink, long maximumBytesPerStream)
+    private static async Task<bool> DrainBothAsync(Stream stdout, Stream stderr, Action kill, Stream stdoutSink, Stream? stderrSink, long maximumBytesPerStream)
     {
         var stdoutTask = DrainAsync(stdout, stdoutSink, maximumBytesPerStream, kill);
         var stderrTask = DrainAsync(stderr, stderrSink, maximumBytesPerStream, kill);

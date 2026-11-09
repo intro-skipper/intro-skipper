@@ -71,8 +71,9 @@ public interface IFFmpegService
     /// <remarks>
     /// One ffmpeg pipes every keyframe here as raw yuv420p and the plugin measures it (<see cref="PageFacts"/>).
     /// The pages are cached as one row, keyed by the credits start. It holds every keyframe to the end of
-    /// the file and is clipped at this read, so a page past the credits window has no visual. A scan whose
-    /// ffmpeg exits nonzero keeps and caches the pages it read.
+    /// the file and is clipped at this read, so a page past the credits window has no visual. A software scan whose
+    /// ffmpeg exits nonzero keeps and caches the pages it read; a hardware run that does is discarded
+    /// and rerun in software.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and the row is hashed under it.</param>

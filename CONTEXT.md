@@ -31,7 +31,7 @@ One keyframe of the keyframe scan: its black-frame evidence and keyframe visuals
 _Avoid_: Frame, row (for the pair)
 
 **Hardware decode**:
-A scan's video decoded on the graphics hardware the server has configured for playback, with the frames returned to the plugin for measuring.
+A scan's video decoded on the graphics hardware the server has configured for playback, with the frames returned to system memory.
 _Avoid_: hwaccel, GPU decode, HW decoding
 
 **Keyframe analyzer**:

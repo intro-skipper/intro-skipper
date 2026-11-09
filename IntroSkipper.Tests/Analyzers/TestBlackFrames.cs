@@ -147,7 +147,7 @@ public class TestBlackFrames
                                 :   Stream #0:1 -> #0:0 (vp9 (native) -> wrapped_avframe (native))
             """.ReplaceLineEndings(newLine);
 
-        Assert.Equal(new("h264", "yuv420p"), FFmpegOutputParser.ParseMappedVideoStream(stderr));
+        Assert.Equal(new("h264", "yuv420p", "(High)"), FFmpegOutputParser.ParseMappedVideoStream(stderr));
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class TestBlackFrames
               Stream #0:1 -> #0:0 (hevc (native) -> wrapped_avframe (native))
             """;
 
-        Assert.Equal(new("hevc", "yuv420p10le"), FFmpegOutputParser.ParseMappedVideoStream(Stderr));
+        Assert.Equal(new("hevc", "yuv420p10le", "(Main 10) (hvc1 / 0x31637668)"), FFmpegOutputParser.ParseMappedVideoStream(Stderr));
     }
 
     [FactSkipFFmpegTests]
