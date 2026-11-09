@@ -97,7 +97,7 @@ public sealed class TestRawPageReader
     }
 
     /// <summary>
-    /// ffmpeg on Windows ends its log lines in CR LF, and the line ending must not cost a line its header.
+    /// ffmpeg on Windows ends its log lines in CR LF, and no cut at a carriage return may cost a line its header.
     /// </summary>
     [Fact]
     public async Task ReadsAHeaderFromALineEndingInCrLf()
