@@ -447,7 +447,7 @@ internal static partial class FFmpegOutputParser
     // A video stream of the input dump, such as "  Stream #0:0[0x1](und): Video: hevc (Main 10)
     // (hvc1 / 0x31637668), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 ...": the
     // codec, its parenthesized profile and tag, then the pixel format.
-    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+(?: \([^)]*\))*, (?<format>[^\s,(]+)")]
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+(?: \([^)]*\))*, (?<format>[a-z][^\s,(]*)")]
     private static partial Regex InputVideoStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]

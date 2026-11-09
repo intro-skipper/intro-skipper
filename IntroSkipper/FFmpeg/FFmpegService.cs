@@ -281,9 +281,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // One ffmpeg writing every keyframe from start to the end of the file down one pipe. Frames
     // keep their own size (-noautoscale) and all reach the pipe (passthrough), and format=yuv420p
-    // brings 10-bit sources to 8-bit values and keeps the source's range. Without -map_metadata -1
-    // ffmpeg logs the file's tags and chapter titles again after the first frame's time base, where
-    // one that reads like a showinfo line would announce a frame. Hardware decode returns a 10-bit
+    // brings 10-bit sources to 8-bit values and keeps the source's range. Hardware decode returns a 10-bit
     // 4:2:0 frame as p010, which format=yuv420p converts on another path than the yuv420p10le a
     // software decode gives, so a source that probes as yuv420p10le goes through yuv420p10le first
     // and keeps software's pixels. The slice retry runs in software.
@@ -306,7 +304,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             .. hardware,
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
-            "-fps_mode", "passthrough", "-noautoscale", "-map_metadata", "-1",
+            "-fps_mode", "passthrough", "-noautoscale",
             "-vf", KeyframeFilters(codec, hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le,format=yuv420p,showinfo=checksum=0" : "format=yuv420p,showinfo=checksum=0"),
             "-f", "rawvideo", "-",
         ];
@@ -559,9 +557,9 @@ internal sealed partial class FFmpegService : IFFmpegService
 
                 LogHardwareDecodeFailed(_logger, episode.Path, episode.EpisodeId, exitCode);
             }
-            catch (Exception ex) when (ex is TimeoutException or InvalidDataException)
+            catch (Exception ex) when (ex is InvalidDataException || IsProcessFailure(ex))
             {
-                // A hung device, or a process that died partway through a frame, is the hardware
+                // A hung device, a broken pipe or a process that died partway through a frame is the hardware
                 // run's failure, so software gets a full timeout of its own.
                 LogHardwareDecodeBroke(_logger, episode.Path, episode.EpisodeId, ex.Message);
             }

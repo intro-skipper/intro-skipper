@@ -181,6 +181,25 @@ internal static partial class RawPageReader
 
         void ReadLine(ReadOnlySpan<byte> line)
         {
+            foreach (var error in _sliceStructureErrors)
+            {
+                sliceStructureError |= line.IndexOf(error) >= 0;
+            }
+
+            // ffmpeg's progress line ends in a carriage return, so a message can follow it on one line.
+            var progressEnd = line.LastIndexOf((byte)'\r');
+            if (progressEnd >= 0 && line.StartsWith("frame="u8))
+            {
+                line = line[(progressEnd + 1)..];
+            }
+
+            // Only a filter's or decoder's own message starts with its [context]. ffmpeg's input and
+            // output dumps do not, and they print a file's name and tags, which can read like anything.
+            if (line.IsEmpty || line[0] != (byte)'[')
+            {
+                return;
+            }
+
             if (line.IndexOf("config in time_base:"u8) >= 0
                 && TimeBaseRegex().Match(Encoding.Latin1.GetString(line)) is { Success: true } match)
             {
@@ -189,8 +208,6 @@ internal static partial class RawPageReader
                 reset = true;
             }
 
-            // The input dump logs a file's tags before the first time base, and one can read like a
-            // header. The output dump after it would repeat them, so the scan runs -map_metadata -1.
             if (timeBase > 0
                 && line.IndexOf(" pts_time:"u8) >= 0
                 && FrameRegex().Match(Encoding.Latin1.GetString(line)) is { Success: true } frame)
@@ -202,11 +219,6 @@ internal static partial class RawPageReader
                     int.Parse(frame.Groups["height"].ValueSpan, CultureInfo.InvariantCulture),
                     reset));
                 reset = false;
-            }
-
-            foreach (var error in _sliceStructureErrors)
-            {
-                sliceStructureError |= line.IndexOf(error) >= 0;
             }
         }
     }
