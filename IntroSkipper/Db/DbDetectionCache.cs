@@ -83,7 +83,7 @@ public class DbDetectionCache
     /// <see cref="CacheEntryType.BlackFrame"/> stores <c>BlackFrame[]</c>,
     /// <see cref="CacheEntryType.BlackInterval"/> stores <c>BlackInterval[]</c>,
     /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>,
-    /// <see cref="CacheEntryType.KeyframeVisual"/> stores <c>KeyframeVisual[]</c>,
+    /// <see cref="CacheEntryType.KeyframePage"/> stores <c>KeyframePage[]</c>,
     /// <see cref="CacheEntryType.Cut"/> stores <c>double[]</c> with the cut frame's time, or empty to keep the keyframe.
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]

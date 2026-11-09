@@ -36,7 +36,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// last verified one that meets it. Those scenes have no visual evidence because the scan reads black
 /// frames to the end of the file but keeps visuals only inside the credits window, so they lie past a
 /// window that ends early. A scene without visual evidence before a verified one is not a candidate.
-/// With no verified scene, as on an ffmpeg without signalstats, only the latest scene that meets the
+/// With no verified scene, only the latest scene that meets the
 /// minimum duration is a candidate. The card run is found over each
 /// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
 /// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
@@ -81,8 +81,6 @@ internal sealed partial class KeyframeAnalyzer(
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or cut decode is logged and falls back.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
-        // keyframes inert.
         var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config, cancellationToken).ConfigureAwait(false);
 
         if (pages.Length == 0)
@@ -408,8 +406,7 @@ internal sealed partial class KeyframeAnalyzer(
     // Where an accepted scene ends: at the last of the pages after its last black keyframe that are
     // black or roll pages, walked page by page from that keyframe. The walk starts at the end index,
     // not the end time, which for an interval-supported scene can lie past its last black
-    // keyframe. A page without a visual stops it, so it never leaves the credits window and is
-    // inert on an ffmpeg without signalstats.
+    // keyframe. A page without a visual stops it, so it never leaves the credits window.
     private static double RollEnd(CreditScene scene, KeyframeScan scan)
     {
         var last = scene.EndIndex;

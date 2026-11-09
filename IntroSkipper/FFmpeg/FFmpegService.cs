@@ -25,9 +25,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
-    // Per-frame luma percentiles, mean saturation and luma difference to the frame before.
-    // format=yuv420p brings 10-bit sources to 8-bit values and keeps the source's range, so a
-    // full-range source spans 0 to 255.
+    // A cut decode's per-frame luma percentiles, mean saturation and luma difference to the frame
+    // before. format=yuv420p brings 10-bit sources to 8-bit values and keeps the source's range, so
+    // a full-range source spans 0 to 255. PageFacts measures the keyframe scan's pages on the same
+    // scale from the same format.
     private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
 
     // VP9/WebM may ignore -skip_frame nokey; filter expensive scans by packet keyframe.
@@ -74,9 +75,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // HEVC decoder errors of the wavefront path, which slice threads use: it trusts each slice
     // header's entry points, and a stream whose slice segments don't match them decodes as black
     // with exit 0. A slice-threaded scan that logs one is decoded again with frame threads
-    // (RunCachedScanAsync). "Independent slice segment missing." is not among them: healthy
-    // streams with dependent slices log it on every skipped frame.
-    private static readonly string[] SliceStructureErrors = ["entry_point_offset table is corrupted", "WPP ctb addresses are wrong", "Previous slice segment missing"];
+    // (RunCachedScanAsync, ReadRawPagesAsync). "Independent slice segment missing." is not among
+    // them: healthy streams with dependent slices log it on every skipped frame.
+    internal static readonly string[] SliceStructureErrors = ["entry_point_offset table is corrupted", "WPP ctb addresses are wrong", "Previous slice segment missing"];
 
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
@@ -91,14 +92,6 @@ internal sealed partial class FFmpegService : IFFmpegService
         ("-muxers", "chromaprint", "muxer list", "The installed version of ffmpeg does not support chromaprint", "chromaprint_not_supported"),
         ("-h muxer=chromaprint", "binary raw fingerprint", "chromaprint options", "The installed version of ffmpeg does not support raw binary fingerprints", "fp_format_not_supported"),
         ("-h filter=silencedetect", "noise tolerance", "silencedetect options", "The installed version of ffmpeg does not support the silencedetect filter", "silencedetect_not_supported"),
-    ];
-
-    // Probed after the requirements. This filter only feeds keyframe visuals, so a build
-    // without it keeps every other scan and loses card credits detection and the cut start,
-    // which reads the visuals' frame difference.
-    private static readonly (string Filter, string BundleName)[] KeyframeVisualFilterProbes =
-    [
-        ("signalstats", "signalstats options"),
     ];
 
     private static readonly Encoding Windows1252 = CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
@@ -184,18 +177,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                 }
             }
 
-            var visualsSupported = true;
-            foreach (var (filter, bundleName) in KeyframeVisualFilterProbes)
-            {
-                var output = await ProbeAsync("-h filter=" + filter, bundleName).ConfigureAwait(false);
-                if (!output.Contains("Filter " + filter, StringComparison.OrdinalIgnoreCase))
-                {
-                    LogKeyframeVisualFilterUnsupported(_logger, filter);
-                    visualsSupported = false;
-                }
-            }
-
-            return (true, new FFmpegCheckResult("okay", [.. outputs], visualsSupported));
+            return (true, new FFmpegCheckResult("okay", [.. outputs]));
         }
         catch (OperationCanceledException)
         {
@@ -262,115 +244,55 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public async Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
-        // The black-frame scan goes first: on a cache miss its decode also writes the visuals row,
-        // so the visuals read after it is a cache hit. Run concurrently, a miss would decode twice.
-        var rows = await DetectBlackFramesAsync(episode, config, cancellationToken).ConfigureAwait(false);
-        var visuals = await DetectKeyframeVisualsAsync(episode, config, cancellationToken).ConfigureAwait(false);
-        return KeyframeJoin.Pages(rows, visuals);
-    }
-
-    /// <summary>
-    /// Finds the black percentage of every keyframe from the credits start to the end of the file.
-    /// </summary>
-    /// <remarks>
-    /// A cache miss is one keyframe scan: it also caches the keyframe visuals of the credits
-    /// window, so a following <see cref="DetectKeyframeVisualsAsync"/> for the same episode reads
-    /// that row instead of decoding again.
-    /// </remarks>
-    /// <param name="episode">Media file to analyze.</param>
-    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and both cache rows are hashed under it.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns the black percentage of each keyframe.</returns>
-    internal async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
-    {
         var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
-        var window = new TimeRange(start, end);
-        var withVisuals = _versionGate.CheckResult.KeyframeVisualsSupported;
-
-        // The visuals row is keyed by the credits window, as the standalone visuals scan writes
-        // it; the black-frame row keeps its end-of-file key.
-        return await RunCachedScanAsync(
-            episode,
-            AnalysisMode.Credits,
-            CacheEntryType.BlackFrame,
-            start,
-            0,
-            config,
-            async () =>
-            {
-                // One decode feeds separate blackframe and visual filtergraphs: blackframe keeps
-                // source negotiation, while signalstats reads 8-bit yuv420p, which keeps the
-                // source's range.
-                var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
-                return
-                [
-                    .. KeyframeInput(codec, start, episode.Path),
-                    .. OutputArgs(KeyframeFilters(codec, $"blackframe=amount=0:threshold={config.BlackFrameThreshold}")),
-                    .. withVisuals ? OutputArgs(KeyframeFilters(codec, KeyframeVisualFilters)) : [],
-                ];
-            },
-            raw =>
-            {
-                if (withVisuals)
-                {
-                    _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, window.Start, window.End, config, ParseKeyframeVisualsInWindow(raw, window));
-                }
-
-                return FFmpegOutputParser.ParseBlackFrames(raw);
-            },
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Collects per-keyframe visual statistics (luma percentiles, saturation and frame difference)
-    /// for the credits fingerprint range.
-    /// </summary>
-    /// <remarks>
-    /// Normally served from the row the keyframe scan in
-    /// <see cref="DetectBlackFramesAsync(QueuedEpisode, PluginConfiguration, CancellationToken)"/> wrote. Decodes on
-    /// its own when that row is missing or unreadable, such as for an episode whose black-frame row
-    /// predates that shared write. Empty when the ffmpeg check found the visuals filters missing.
-    /// </remarks>
-    /// <param name="episode">Media file to analyze.</param>
-    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
-    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns per-keyframe visual statistics relative to the credits fingerprint start.</returns>
-    internal async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default)
-    {
-        if (!_versionGate.CheckResult.KeyframeVisualsSupported)
+        if (!_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, start, 0, config, out KeyframePage[] pages))
         {
-            return [];
+            LogDetectionScan(_logger, CacheEntryType.KeyframePage, start, 0, episode.Path, episode.EpisodeId);
+            pages = await ReadRawPagesAsync(episode, start, config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
+            _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, start, 0, config, pages);
         }
 
-        // Normally a cache hit on the row the keyframe scan wrote. The decode below runs when that
-        // row is missing or unreadable, such as for an episode whose black-frame row predates that
-        // shared write. -to stops decoding near the window end; ParseKeyframeVisualsInWindow does
-        // the bounding.
-        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
-        var range = new TimeRange(start, end);
-        return await RunCachedScanAsync(
-            episode,
-            AnalysisMode.Credits,
-            CacheEntryType.KeyframeVisual,
-            range.Start,
-            range.End,
-            config,
-            async () =>
-            {
-                var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
-                return
-                [
-                    .. KeyframeInput(codec, range.Start, episode.Path),
-                    "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-                    .. OutputArgs(KeyframeFilters(codec, KeyframeVisualFilters)),
-                ];
-            },
-            raw => ParseKeyframeVisualsInWindow(raw, range),
-            cancellationToken).ConfigureAwait(false);
+        // Clipped here rather than in the row, so where the window ends stays out of the key. A
+        // visual past it would let the roll end and the card run reach past CreditsFingerprintEnd
+        // and persist credits outside the scan window.
+        var duration = end - start;
+        return [.. pages.Select(page => page.Frame.Time <= duration ? page : page with { Visual = null })];
     }
 
-    // One null output with its own filtergraph. Two of these on one input decode it once.
-    private static string[] OutputArgs(string filters) => ["-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"];
+    // One ffmpeg writing every keyframe from start to the end of the file down one pipe. Frames
+    // keep their own size (-noautoscale) and all reach the pipe (passthrough), and format=yuv420p
+    // brings 10-bit sources to 8-bit values and keeps the source's range. Without -map_metadata -1
+    // ffmpeg logs the file's tags and chapter titles again after the first frame's time base, where
+    // one that reads like a showinfo line would announce a frame.
+    private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, int threshold, CancellationToken cancellationToken)
+    {
+        var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
+        string[] args =
+        [
+            .. KeyframeInput(codec, start, episode.Path),
+            "-an", "-dn", "-sn",
+            "-fps_mode", "passthrough", "-noautoscale", "-map_metadata", "-1",
+            "-vf", KeyframeFilters(codec, "format=yuv420p,showinfo=checksum=0"),
+            "-f", "rawvideo", "-",
+        ];
+
+        var (pages, sliceStructureError) = await RunRawPagePipeAsync(args).ConfigureAwait(false);
+        if (sliceStructureError && WithoutSliceThreads(args) is { } frameThreaded)
+        {
+            LogSliceThreadsRetried(_logger, episode.Path, episode.EpisodeId);
+            (pages, _) = await RunRawPagePipeAsync(frameThreaded).ConfigureAwait(false);
+        }
+
+        return pages;
+
+        async Task<(KeyframePage[] Pages, bool SliceStructureError)> RunRawPagePipeAsync(IReadOnlyList<string> arguments)
+            => (await _processRunner.RunStreamingAsync(
+                FFmpegPath,
+                ProcessArgs(arguments, "info"),
+                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, threshold),
+                ScanTimeout(),
+                cancellationToken).ConfigureAwait(false)).Output;
+    }
 
     // The input of a keyframe-only decode of path from start, for a file whose mapped video
     // stream (the one ffmpeg decodes, GetVideoCodecAsync) has the given codec.
@@ -388,7 +310,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <inheritdoc/>
     public async Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
-        // Every frame, at source resolution with the keyframe scan's filters, so a frame's
+        // Every frame, at source resolution and in the keyframe scan's pixel format, so a frame's
         // difference is on the scale of the page's. Seeking to the earlier keyframe starts the
         // decode on it.
         string[] args =
@@ -396,7 +318,9 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
             "-i", episode.Path,
-            .. OutputArgs(KeyframeVisualFilters),
+            "-an", "-dn", "-sn",
+            "-vf", KeyframeVisualFilters,
+            "-f", "null", "-",
         ];
 
         ProcessCapture capture;
@@ -428,14 +352,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Cut window of {Episode} unusable: ffmpeg exited with code {ExitCode}, output truncated at the byte cap: {Truncated}")]
     private partial void LogCutWindowUnusable(string episode, int exitCode, bool truncated);
-
-    // -to does not reliably bound a -skip_frame nokey scan (FFmpeg still emits keyframes past the
-    // requested duration) and the keyframe scan runs to end of file, so every writer of a
-    // KeyframeVisual row clips here. Times are relative to the -ss seek, so an in-window frame
-    // falls within [0, window.Duration]; an unclipped run would let FindCreditRange select a
-    // card run past CreditsFingerprintEnd and persist credits outside the scan window.
-    private static KeyframeVisual[] ParseKeyframeVisualsInWindow(string raw, TimeRange window)
-        => [.. FFmpegOutputParser.ParseKeyframeVisuals(raw).Where(v => v.Time >= 0 && v.Time <= window.Duration)];
 
     /// <inheritdoc/>
     public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
@@ -1357,9 +1273,6 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
-    private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);

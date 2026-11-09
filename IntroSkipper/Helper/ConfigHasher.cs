@@ -265,9 +265,9 @@ internal static class ConfigHasher
             // v2: VP9 keyframe listings select packet keyframes.
             CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Credits v4: VP9 visual scans select packet keyframes. Credits v5: visuals carry the
-            // frame difference and no longer the darkest-tenth saturation.
-            CacheEntryType.KeyframeVisual => $"cache|v{(mode == AnalysisMode.Credits ? 5 : 3)}|{type}|{mode}",
+            // Every fact of a page is cached, and the threshold decides its black percentage.
+            CacheEntryType.KeyframePage => Invariant(
+                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
 
             // The rule's thresholds are constants: bump the token when they change.
             CacheEntryType.Cut => $"cache|v1|{type}",

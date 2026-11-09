@@ -337,3 +337,12 @@ public sealed class FactSkipFFmpegTests : FactAttribute
     }
 #endif
 }
+
+public sealed class TheorySkipFFmpegTests : TheoryAttribute
+{
+#if SKIP_FFMPEG_TESTS
+    public TheorySkipFFmpegTests() {
+        Skip = "SKIP_FFMPEG_TESTS defined, skipping unit tests that require FFmpeg to be installed";
+    }
+#endif
+}

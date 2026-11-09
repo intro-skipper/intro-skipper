@@ -19,7 +19,7 @@ internal static class CardRunFinder
     /// <summary>
     /// Finds the latest sustained run of card pages that satisfies the minimum duration.
     /// </summary>
-    /// <param name="pages">The pages that have a visual, ordered by time, each with its card kind. A run is timed on the pages' black-frame times.</param>
+    /// <param name="pages">The pages that have a visual, ordered by time, each with its card kind.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
     public static TimeRange? FindCreditRange(IReadOnlyList<CardPage> pages, int minimumDuration)

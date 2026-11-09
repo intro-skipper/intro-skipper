@@ -46,12 +46,12 @@ public class TestBlackFrames
     }
 
     /// <summary>
-    /// A 10-bit gray source at luma 80 (20 on the 8-bit scale) is black at threshold 28 when read
-    /// as gray, but not after conversion to limited-range yuv420p (luma 33). FFmpeg emits two or
-    /// three frames for this synthetic clip.
+    /// A named class: the scan's pipe is yuv420p, and a 10-bit gray source at luma 80 (20 on the
+    /// 8-bit scale) converts to limited-range luma 33, over threshold 28, where the blackframe filter
+    /// read it as gray and called it black. FFmpeg emits two or three frames for this synthetic clip.
     /// </summary>
     [FactSkipFFmpegTests]
-    public async Task DetectBlackFramesAsync_KeepsBlackFrameFormatNegotiationOnGraySources()
+    public async Task ScanKeyframesAsync_ReadsGraySourcesAfterTheirConversionToYuv420p()
     {
         var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-gray10.mkv");
         await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
@@ -62,10 +62,10 @@ public class TestBlackFrames
             var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "gray10", Path = path, Duration = 3 };
             var ffmpegService = FfmpegTestHelpers.CreateFFmpegService();
 
-            var frames = await ffmpegService.DetectBlackFramesAsync(episode, new PluginConfiguration());
+            var pages = await ffmpegService.ScanKeyframesAsync(episode, new PluginConfiguration());
 
-            Assert.InRange(frames.Length, 2, 3);
-            Assert.All(frames, frame => Assert.Equal(100, frame.Percentage));
+            Assert.InRange(pages.Length, 2, 3);
+            Assert.All(pages, page => Assert.Equal(0, page.Frame.Percentage));
         }
         finally
         {
@@ -177,29 +177,6 @@ public class TestBlackFrames
             new PluginConfiguration());
 
         Assert.Equal([100], actual);
-    }
-
-    [FactSkipFFmpegTests]
-    public async Task TestDetectKeyframeVisuals_ClipsScanToCreditsWindow()
-    {
-        // Real FFmpeg: -skip_frame nokey + -to does NOT reliably bound the scan (it emits keyframes
-        // past the requested duration), so DetectKeyframeVisualsAsync must clip parsed visuals to the
-        // window. credits.mp4 has keyframes every 10s; for window [5,35] (Start=5, Duration=30) the scan
-        // must return only the in-window keyframes (seek-relative 5/15/25 = source 10/20/30), never the
-        // leaked frames past 30s that would otherwise let credits be detected past CreditsFingerprintEnd.
-        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
-        episode.Duration = 330;
-        episode.CreditsFingerprintStart = 5;
-        episode.CreditsFingerprintEnd = 35;
-
-        var visuals = await FfmpegTestHelpers.CreateFFmpegService().DetectKeyframeVisualsAsync(episode, new PluginConfiguration());
-
-        Assert.NotEmpty(visuals);
-        Assert.All(visuals, v => Assert.InRange(v.Time, 0, 30)); // clipped to range.Duration, no leak
-        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, v => v.Time));
-        Assert.All(visuals, v => Assert.True(v.LumaLow <= v.LumaHigh)); // real percentiles parsed
-        Assert.All(visuals, v => Assert.All([v.LumaMin, v.LumaLow, v.LumaHigh, v.LumaMax], luma => Assert.InRange(luma, 0, 255)));
-        Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
     }
 
     [Fact]
@@ -589,24 +566,6 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public async Task DetectCreditsAsync_CutStartCachedUnderBlackFrameTimes_IsRead()
-    {
-        // Every black-frame row sits 0.4 ms after its visual. The cut start keys its cache row on
-        // the pages' black-frame times, 28.0004 and 30.0004, so a start stored under them is read
-        // and nothing is decoded.
-        var ffmpeg = KeyframeScan(CutAfterDarkGreyLeadIn().Select(keyframe => keyframe with { Time = keyframe.Time + 0.0004 }));
-        var cache = DatabaseTestHelpers.CreateTempCacheService();
-        var episode = CreateQueuedCreditsEpisode();
-        cache.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Cut, 28.0004, 30.0004, new PluginConfiguration(), [29.0]);
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true }, cache);
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Equal([(SegmentSource.BlackFrame, 29.0, 54.0004)], candidates);
-        Assert.Empty(ffmpeg.Calls);
-    }
-
-    [Fact]
     public async Task DetectCreditsAsync_WithoutBoundaryRefinement_DecodesNoCut()
     {
         // Keyframe-only analysis: the lead-in still trims to the keyframe at 30, and nothing between
@@ -779,7 +738,7 @@ public class TestBlackFrames
     [Fact]
     public async Task DetectCreditsAsync_SceneWithoutVisualEvidenceIsKept()
     {
-        // A roll whose keyframes the visuals decode did not report, after content keyframes it did.
+        // A roll whose keyframes have no visual, after content keyframes that do.
         // The gates find no visual on any of the roll's pages and must leave the black-frame result
         // alone rather than reject the roll on a zero count.
         var ffmpeg = KeyframeScan(Keyframes(0, 54, 0.5, (20, 54, 95, _ => null)));
@@ -1642,7 +1601,7 @@ public class TestBlackFrames
         Assert.Equal(expected.Value.End, range.End);
     }
 
-    // Each row: the keyframe scan (one black row and one visual per keyframe); the black scenes the
+    // Each row: the keyframe scan (one page per keyframe); the black scenes the
     // black-frame rules accepted, empty when they found no credits; the lead-ins and scenes they
     // rejected; the expected (Start, End) or null.
     public static TheoryData<KeyframePage[], (double Start, double End)[], (double Start, double End)[], (double Start, double End)?> BlackKeyframeCases
@@ -1665,29 +1624,11 @@ public class TestBlackFrames
                 (68, 118, 100, KeyframeVisuals.Black));
             data.Add(Pages(epilogue), [(68, 118)], [], null);
 
-            // Grey cards then a roll: the black cards extend the run. Every black-frame row sits 0.4 ms
-            // after its visual, as the two ffmpeg filters can print them, and the run is timed on the
-            // rows. The accepted scene ends at 80, so the last roll page belongs to it through the
-            // membership pad.
+            // Grey cards then a roll: the black cards extend the run. The accepted scene ends just
+            // before the last roll page, on blackdetect's clock, so that page belongs to it through
+            // the membership pad.
             var cardsThenRoll = Keyframes(0, 80, 2, (0, 40, 0, KeyframeVisuals.Card), (42, 80, 100, KeyframeVisuals.Black));
-            data.Add(Pages(cardsThenRoll.Select(keyframe => keyframe with { Time = keyframe.Time + 0.0004 })), [(42, 80)], [], (0.0004, 80.0004));
-
-            // Cards 15 s apart on the visual clock, which FFmpeg before 7.0 rounds to six significant
-            // digits, with their black-frame rows a fraction of a millisecond later: 14.9998 s apart on
-            // the black-frame clock the run is timed on, so the run falls short of the 15 s minimum.
-            data.Add(
-                Pages(
-                [
-                    .. Keyframes(90, 98, 2),
-                    new(100.0004, 0, KeyframeVisuals.Card(100)),
-                    new(105.0003, 0, KeyframeVisuals.Card(105)),
-                    new(110.0003, 0, KeyframeVisuals.Card(110)),
-                    new(115.0002, 0, KeyframeVisuals.Card(115)),
-                    .. Keyframes(117, 125, 2),
-                ]),
-                [],
-                [],
-                null);
+            data.Add(Pages(cardsThenRoll), [(42, 79.9996)], [], (0, 80));
 
             // Pages without a visual are invisible to the card finder: they do not join two card spans
             // 24 s apart, which break at the run gap, and the later span is the run.

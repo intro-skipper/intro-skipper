@@ -35,7 +35,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     // scan's clock.
     private const double ScenePad = 0.01;
 
-    /// <summary>Gets the pages, in scan order, each with its black-frame row and its visual when it has one.</summary>
+    /// <summary>Gets the pages, in scan order, each with its black-frame evidence and its visual when it has one.</summary>
     internal IReadOnlyList<KeyframePage> Pages { get; } = pages;
 
     /// <summary>Gets the black percentage at or above which a page is black.</summary>
@@ -61,7 +61,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     /// </summary>
     /// <param name="start">The range's start.</param>
     /// <param name="end">The range's end.</param>
-    /// <param name="time">The page's black-frame time.</param>
+    /// <param name="time">The page's time.</param>
     /// <returns><see langword="true"/> if the page belongs to the range; otherwise, <see langword="false"/>.</returns>
     internal static bool InScene(double start, double end, double time)
         => time >= start - ScenePad && time <= end + ScenePad;

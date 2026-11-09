@@ -17,6 +17,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -528,104 +529,187 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// One keyframe scan serves both rows. After the black-frame scan of a fresh episode the
-    /// keyframe visuals row for the credits window exists, and the visuals read is served from
-    /// it: the path is broken before that read, so a second decode would fail instead.
-    /// With the item's cache rows deleted, the visuals read then decodes the window on its own.
-    /// Visuals from either decode pair with exactly one black-frame row within the service's join
-    /// tolerance, and ScanKeyframesAsync returns one page per black-frame row with the three visuals
-    /// on theirs. The pairing runs from visual to row, since the black-frame scan runs to end of file
-    /// and its rows past the window end have no visual.
-    /// credits.mp4 has a keyframe every 10 s; the window [5, 35] holds three.
+    /// One decode fills one row with every keyframe to the end of the file, and the window end is
+    /// applied at the read. credits.mp4 has a keyframe every 10 s, so the window [5, 35] holds three
+    /// visuals and a later read with a window to 40, which ends on a keyframe, finds four in the same
+    /// row. The path is broken before that read, so a second decode would fail instead.
     /// </summary>
     [FactSkipFFmpegTests]
-    public async Task DetectBlackFramesAsync_CachesKeyframeVisualsForTheCreditsWindow()
+    public async Task ScanKeyframesAsync_KeepsOneRowAndClipsItAtTheRead()
     {
         using var scope = new CachingPluginScope();
         var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
         episode.Duration = 330;
         episode.CreditsFingerprintStart = 5;
         episode.CreditsFingerprintEnd = 35;
-        var path = episode.Path;
-        var service = scope.CreateFFmpegService();
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger);
 
-        var blackFrames = await service.DetectBlackFramesAsync(episode, scope.Config);
-
-        Assert.NotEmpty(blackFrames);
-        Assert.Contains(blackFrames, frame => frame.Percentage == 100);
-        Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
-
-        episode.Path = "/does/not/exist.mkv";
-        var shared = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
-
-        Assert.Equal([5.0, 15.0, 25.0], shared.Select(visual => visual.Time));
-        AssertEachVisualPairsWithOneRow(shared);
-
-        episode.Path = path;
-        scope.CacheDatabase.DeleteForItem(episode.EpisodeId);
-        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35));
-        var separate = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
-
-        Assert.Equal([5.0, 15.0, 25.0], separate.Select(visual => visual.Time));
-        AssertEachVisualPairsWithOneRow(separate);
-
-        // The service pairs the two rows into pages: one per black-frame row, the window's three with
-        // visuals, each on the row of its own keyframe.
         var pages = await service.ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Equal(blackFrames, pages.Select(page => page.Frame));
-        Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
-        Assert.All(pages, page => Assert.True(page.Visual is null || Math.Abs(page.Visual.Time - page.Frame.Time) <= 0.001));
+        Assert.Equal($"KeyframePage scan [5, 0] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+        Assert.Equal([5.0, 15.0, 25.0], VisualTimes(pages));
+        Assert.True(pages.Length > 3);
+        Assert.Contains(pages, page => page.Frame.Percentage == 100);
+        Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
 
-        void AssertEachVisualPairsWithOneRow(KeyframeVisual[] visuals)
-            => Assert.All(visuals, visual => Assert.Single(blackFrames, frame => Math.Abs(frame.Time - visual.Time) <= KeyframeJoin.Tolerance));
+        episode.Path = "/does/not/exist.mkv";
+        episode.CreditsFingerprintEnd = 40;
+        var wider = await service.ScanKeyframesAsync(episode, scope.Config);
+
+        Assert.Single(logger.Messages);
+        Assert.Equal(pages.Select(page => page.Frame), wider.Select(page => page.Frame));
+        Assert.Equal([5.0, 15.0, 25.0, 35.0], VisualTimes(wider));
+
+        static double[] VisualTimes(KeyframePage[] scanned) => [.. scanned.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time)];
     }
 
     /// <summary>
-    /// A keyframe scan of a fresh episode decodes once: the black-frame scan runs first and writes
-    /// the visuals row, so the visuals read after it is a cache hit.
+    /// The second scan reads the row, since its path is broken, and gets every fact of every page
+    /// back. A fact the row lost would read correct on the first scan and wrong on every later one.
     /// </summary>
     [FactSkipFFmpegTests]
-    public async Task ScanKeyframesAsync_DecodesOnceOnAColdCache()
+    public async Task ScanKeyframesAsync_ReadsEveryFactBackFromTheRow()
     {
         using var scope = new CachingPluginScope();
-        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
-        episode.Duration = 330;
-        episode.CreditsFingerprintStart = 5;
-        episode.CreditsFingerprintEnd = 35;
-        var logger = new ScanLogger();
-        var service = scope.CreateFFmpegService(logger);
+        var episode = FfmpegTestHelpers.QueueFile("video/seek-sample.mp4");
+        episode.CreditsFingerprintEnd = 100000;
+        var service = scope.CreateFFmpegService();
 
-        var pages = await service.ScanKeyframesAsync(episode, scope.Config);
+        var fresh = await service.ScanKeyframesAsync(episode, scope.Config);
+        episode.Path = "/does/not/exist.mkv";
+        var cached = await service.ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Equal($"BlackFrame scan [5, 0] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
-        Assert.Equal([5.0, 15.0, 25.0], pages.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time));
+        Assert.Contains(fresh, page => page.Visual!.FrameDifference > 0 && page.Visual.Saturation > 0);
+        Assert.Equal(fresh, cached);
     }
 
+    /// <summary>
+    /// A row is hashed under the threshold it was measured at, so a new threshold decodes again
+    /// rather than reading the old percentages.
+    /// </summary>
     [FactSkipFFmpegTests]
-    public async Task DetectKeyframeVisualsAsync_LogsCacheMissButNotCacheHit()
+    public async Task ScanKeyframesAsync_MeasuresAgainUnderANewThreshold()
     {
         using var scope = new CachingPluginScope();
         var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
         episode.Duration = 330;
-        episode.CreditsFingerprintStart = 5;
-        episode.CreditsFingerprintEnd = 35;
-        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scope.Config, []);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
 
-        await service.DetectBlackFramesAsync(episode, scope.Config);
-        Assert.Empty(logger.Messages);
+        await service.ScanKeyframesAsync(episode, new PluginConfiguration { BlackFrameThreshold = 28 });
+        await service.ScanKeyframesAsync(episode, new PluginConfiguration { BlackFrameThreshold = 64 });
 
-        var visuals = await service.DetectKeyframeVisualsAsync(episode, scope.Config);
+        Assert.Equal(2, logger.Messages.Count);
+    }
 
-        Assert.NotEmpty(visuals);
-        Assert.Equal($"KeyframeVisual scan [5, 35] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
+    /// <summary>
+    /// A software run that fails partway keeps today's rule: ffmpeg wrote a frame and then exited
+    /// nonzero, so the page stands and the row is cached.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_CachesThePagesANonzeroExitLeft()
+    {
+        using var scope = new CachingPluginScope();
+        using var ffmpeg = new FakeFfmpegScript(
+            "config in time_base: 1/1000, frame_rate: 25/1\n[Parsed_showinfo_1 @ 0x1] n:   0 pts:   1000 pts_time:1 fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n",
+            [.. Enumerable.Repeat((byte)16, 8), .. Enumerable.Repeat((byte)128, 4)]);
+        var episode = FailedRunEpisode();
 
-        episode.Path = "/does/not/exist.mkv";
-        await service.DetectKeyframeVisualsAsync(episode, scope.Config);
+        var pages = await scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Single(logger.Messages);
+        Assert.Equal(1.0, Assert.Single(pages).Frame.Time);
+        Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
+    }
+
+    /// <summary>
+    /// An empty row cached for a run that broke the pipe's protocol would read as an episode with no
+    /// keyframes from then on, so the run throws and leaves no row.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_AProtocolErrorCachesNothing()
+    {
+        using var scope = new CachingPluginScope();
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [1]);
+        var episode = FailedRunEpisode();
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config));
+
+        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
+    }
+
+    /// <summary>
+    /// A wedged ffmpeg must not hold the analysis worker past the scan timeout, and a timed-out run
+    /// leaves no row. The script would end on its own only after 20 s, without an error.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_ATimedOutRunThrowsAndCachesNothing()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.ScanTimeoutSeconds = 2;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], hangs: true);
+        var episode = FailedRunEpisode();
+
+        await Assert.ThrowsAsync<TimeoutException>(() => scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config));
+
+        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
+    }
+
+    /// <summary>
+    /// Cancelling kills ffmpeg rather than waiting for it. The bound matters: a scan that ignored
+    /// the token in its run would still cancel, but only after the script's 20 s.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_CancellingKillsTheRunAndCachesNothing()
+    {
+        using var scope = new CachingPluginScope();
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], hangs: true);
+        var episode = FailedRunEpisode();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        var scan = scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config, cancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None));
+        Assert.Null(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
+    }
+
+    /// <summary>
+    /// The scan's old rows go once, by key, from a database that held them, including rows with no
+    /// hash, which would otherwise stay readable. The legacy analyzer's range rows share the
+    /// black-frame type and token and stay. Once done, a later open leaves a row of the old shape alone.
+    /// </summary>
+    [Fact]
+    public void OpeningTheCache_RetiresTheTwoRowScanOnce()
+    {
+        using var scope = new CachingPluginScope();
+        var itemId = Guid.NewGuid();
+        (AnalysisMode Mode, CacheEntryType Type, double Start, double End, bool Stays)[] rows =
+        [
+            (AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, false),
+            (AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 35, false),
+            (AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, true),
+            (AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 35, true),
+            (AnalysisMode.Recap, CacheEntryType.BlackFrame, 0, 0, true),
+            (AnalysisMode.Credits, CacheEntryType.BlackInterval, 5, 35, true),
+        ];
+        foreach (var (mode, type, start, end, _) in rows)
+        {
+            scope.SeedRow(itemId, mode, type, EntrypointTestHelpers.EmptyJsonArray, start, end);
+        }
+
+        using (var db = DatabaseTestHelpers.CreateCacheContext(scope.CacheDbPath))
+        {
+            db.Database.ExecuteSqlRaw("PRAGMA user_version = 0");
+        }
+
+        var upgraded = DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath);
+
+        Assert.All(rows, row => Assert.Equal(row.Stays, upgraded.FindEntry(itemId, row.Mode, row.Type, row.Start, row.End) is not null));
+
+        upgraded.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, EntrypointTestHelpers.EmptyJsonArray, string.Empty);
+        var reopened = DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath);
+
+        Assert.NotNull(reopened.FindEntry(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0));
     }
 
     /// <summary>
@@ -644,8 +728,7 @@ public sealed class TestCacheOperations
             CreditsFingerprintStart = 5,
             CreditsFingerprintEnd = 35,
         };
-        scope.CacheService.Write<BlackFrame>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 5, 0, scope.Config, [new(100, 0, 0)]);
-        scope.CacheService.Write<KeyframeVisual>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, 5, 35, scope.Config, [new(0, 16, 16, 16, 16, 0, 0)]);
+        scope.CacheService.Write<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, [new(new BlackFrame(100, 0, 0), new KeyframeVisual(0, 16, 16, 16, 16, 0, 0))]);
         scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, scope.Config, [10]);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
@@ -678,7 +761,7 @@ public sealed class TestCacheOperations
                 var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path, Duration = 2, CreditsFingerprintStart = 0, CreditsFingerprintEnd = 2 };
                 var logger = new ScanLogger();
 
-                await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, scope.Config);
+                await scope.CreateFFmpegService(logger).ScanKeyframesAsync(episode, scope.Config);
 
                 return Assert.Single(logger.Processes, process => process.Contains("-skip_frame", StringComparison.Ordinal));
             }
@@ -754,15 +837,17 @@ public sealed class TestCacheOperations
         episode.CreditsFingerprintEnd = 1;
         var logger = new ScanLogger();
 
-        var frames = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, scope.Config);
+        var pages = await scope.CreateFFmpegService(logger).ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.NotEmpty(frames);
-        Assert.All(frames, frame => Assert.Equal(0, frame.Percentage));
+        Assert.NotEmpty(pages);
+        Assert.All(pages, page => Assert.Equal(0, page.Frame.Percentage));
         Assert.Collection(
             logger.Processes.Where(process => process.Contains("-skip_frame", StringComparison.Ordinal)),
             slice => Assert.Contains("-thread_type slice", slice, StringComparison.Ordinal),
             frame => Assert.DoesNotContain("-thread_type", frame, StringComparison.Ordinal));
     }
+
+    private static QueuedEpisode FailedRunEpisode() => new() { EpisodeId = Guid.NewGuid(), Path = "episode.mkv", Duration = 330, CreditsFingerprintStart = 5, CreditsFingerprintEnd = 35 };
 
     // A 6 s VP9 mkv with a keyframe every 2 s and tagCount global tags of 100 bytes each.
     private static async Task<string> CreateTaggedVp9Async(int tagCount)
@@ -789,6 +874,37 @@ public sealed class TestCacheOperations
         }
 
         return path;
+    }
+
+    // Stands in for ffmpeg in the scoped plugin, for the ways a real one fails that no file provokes.
+    // The codec probe finds no video stream. The scan run writes the log, then the frames, then
+    // exits 3, or first sleeps for 20 s when it hangs.
+    private sealed class FakeFfmpegScript : IDisposable
+    {
+        private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("IntroSkipper.Tests.");
+
+        public FakeFfmpegScript(string log, byte[] frames, bool hangs = false)
+        {
+            var logPath = Path.Join(_directory.FullName, "log");
+            var framesPath = Path.Join(_directory.FullName, "frames");
+            File.WriteAllText(logPath, log);
+            File.WriteAllBytes(framesPath, frames);
+
+            var script = Path.Join(_directory.FullName, OperatingSystem.IsWindows() ? "ffmpeg.cmd" : "ffmpeg");
+            if (OperatingSystem.IsWindows())
+            {
+                File.WriteAllLines(script, ["@echo off", "echo %* | findstr rawvideo >nul || exit /b 0", $"type \"{logPath}\" 1>&2", $"type \"{framesPath}\"", .. hangs ? ["ping -n 21 127.0.0.1 >nul"] : Array.Empty<string>(), "exit /b 3"]);
+            }
+            else
+            {
+                File.WriteAllLines(script, ["#!/bin/sh", "case \"$*\" in *rawvideo*) ;; *) exit 0 ;; esac", $"cat '{logPath}' >&2", $"cat '{framesPath}'", .. hangs ? ["sleep 20"] : Array.Empty<string>(), "exit 3"]);
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            EntrypointTestHelpers.UseFFmpegAt(script);
+        }
+
+        public void Dispose() => _directory.Delete(recursive: true);
     }
 
     // Records the detection scans FFmpegService logs, and the processes its runner starts.

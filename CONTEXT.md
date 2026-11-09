@@ -27,8 +27,12 @@ One decode of the keyframes from an episode's credits start, reporting black-fra
 _Avoid_: Entropy scan
 
 **Page**:
-One keyframe of the keyframe scan: its black-frame row and its keyframe visual, when it has one. Its time is the black-frame time.
+One keyframe of the keyframe scan: its black-frame evidence and keyframe visuals, measured from the same frame. Its time is that frame's time.
 _Avoid_: Frame, row (for the pair)
+
+**Hardware decode**:
+A scan's video decoded on the graphics hardware the server has configured for playback, with the frames returned to the plugin for measuring.
+_Avoid_: hwaccel, GPU decode, HW decoding
 
 **Keyframe analyzer**:
 The analyzer over one keyframe scan. It emits black-frame candidates for roll credits and at most one card run; `docs/credits.md` has its rules.

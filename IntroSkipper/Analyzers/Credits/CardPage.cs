@@ -29,6 +29,6 @@ internal enum CardKind
 /// <summary>
 /// A page as the card run finder reads it.
 /// </summary>
-/// <param name="Time">The page's black-frame time, relative to the credits fingerprint start.</param>
+/// <param name="Time">The page's time, relative to the credits fingerprint start.</param>
 /// <param name="Kind">The page's card kind.</param>
 internal readonly record struct CardPage(double Time, CardKind Kind);
