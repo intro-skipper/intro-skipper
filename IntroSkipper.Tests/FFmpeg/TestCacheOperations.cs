@@ -773,14 +773,67 @@ public sealed class TestCacheOperations
     [InlineData(true, HardwareAccelerationType.nvenc, "", "", "-hwaccel cuda")]
     [InlineData(true, HardwareAccelerationType.vaapi, "", "", "-hwaccel vaapi")]
     [InlineData(true, HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "", "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129")]
-    [InlineData(true, HardwareAccelerationType.qsv, "", "", "-hwaccel qsv")]
-    [InlineData(true, HardwareAccelerationType.qsv, "", "/dev/dri/renderD129", "-qsv_device /dev/dri/renderD129 -hwaccel qsv")]
     [InlineData(true, HardwareAccelerationType.videotoolbox, "", "", "-hwaccel videotoolbox")]
     [InlineData(true, HardwareAccelerationType.none, "", "", "")]
     [InlineData(true, HardwareAccelerationType.amf, "", "", "")]
     [InlineData(false, HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "", "")]
     public void HardwareDecodeInput_MapsJellyfinAccelerationType(bool enabled, HardwareAccelerationType type, string vaapiDevice, string qsvDevice, string expected)
         => Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeInput(enabled, type, vaapiDevice, qsvDevice)));
+
+    /// <summary>
+    /// QSV decodes through VAAPI on Linux, whose QSV frames the software filters reject, and
+    /// through QSV elsewhere.
+    /// </summary>
+    [Fact]
+    public void HardwareDecodeInput_MapsQsvPerPlatform()
+    {
+        var plain = string.Join(' ', FFmpegService.HardwareDecodeInput(true, HardwareAccelerationType.qsv, "", ""));
+        var device = string.Join(' ', FFmpegService.HardwareDecodeInput(true, HardwareAccelerationType.qsv, "", "/dev/dri/renderD129"));
+
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.Equal("-hwaccel vaapi", plain);
+            Assert.Equal("-hwaccel vaapi -hwaccel_device /dev/dri/renderD129", device);
+        }
+        else
+        {
+            Assert.Equal("-hwaccel qsv", plain);
+            Assert.Equal("-qsv_device /dev/dri/renderD129 -hwaccel qsv", device);
+        }
+    }
+
+    /// <summary>
+    /// The pixel format comes from the input stream ffmpeg maps, not from another video stream.
+    /// </summary>
+    [Theory]
+    [InlineData("  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt709, progressive), 1920x1080\nStream mapping:\n  Stream #0:0 -> #0:0 (hevc (native) -> wrapped_avframe (native))\n", "yuv420p10le")]
+    [InlineData("  Stream #0:0: Video: mjpeg (Baseline), yuvj420p(pc), 320x180\n  Stream #0:1: Video: h264 (High), yuv420p(tv, bt709, progressive), 1920x1080\nStream mapping:\n  Stream #0:1 -> #0:0 (h264 (native) -> wrapped_avframe (native))\n", "yuv420p")]
+    [InlineData("  Stream #0:0: Video: h264 (High), yuv420p(tv), 1920x1080\n", null)]
+    public void ParseMappedPixelFormat_ReadsTheMappedStream(string raw, string? expected)
+        => Assert.Equal(expected, FFmpegService.ParseMappedPixelFormat(raw.Replace("\\n", "\n", StringComparison.Ordinal)));
+
+    /// <summary>
+    /// After three failed hardware scans in a row, scans stop asking for the hardware decoder.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task BlackFrameScan_StopsHardwareDecodingAfterThreeFailures()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        EntrypointTestHelpers.SetHardwareAcceleration(HardwareAccelerationType.vaapi, "/dev/dri/renderD199");
+        var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger);
+
+        for (var start = 0; start < 4; start++)
+        {
+            await service.DetectBlackFramesAsync(episode, new TimeRange(start, start + 1), 0, AnalysisMode.Recap, scope.Config);
+        }
+
+        var scans = logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, scans.Count(process => process.Contains("-hwaccel", StringComparison.Ordinal)));
+        Assert.Equal(4, scans.Count(process => !process.Contains("-hwaccel", StringComparison.Ordinal)));
+    }
 
     /// <summary>
     /// A scan decodes under the configuration it is given, not the live one, so a scan built from
@@ -833,6 +886,13 @@ public sealed class TestCacheOperations
                 logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
                 first => Assert.Contains("-hwaccel vaapi -hwaccel_device /dev/dri/renderD199", first, StringComparison.Ordinal),
                 retry => Assert.DoesNotContain("-hwaccel", retry, StringComparison.Ordinal));
+
+            // The cached row is the software rerun's: a second scan reads it without starting
+            // ffmpeg and returns the software frames, not the failed hardware run's empty output.
+            var before = logger.Processes.Count;
+            var cached = await scope.CreateFFmpegService(logger).DetectBlackFramesAsync(episode, range, 0, AnalysisMode.Recap, scope.Config);
+            Assert.Equal(before, logger.Processes.Count);
+            Assert.Equal(software, cached);
         }
     }
 

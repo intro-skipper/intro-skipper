@@ -667,8 +667,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether video scans decode on the hardware decoder Jellyfin
     /// is configured for (NVENC, VAAPI, QSV). Only the decode moves to the device; the frames come
-    /// back to system memory for the analysis filters, so the results are the same. A scan whose
-    /// device cannot be opened runs again in software.
+    /// back to system memory for the analysis filters, so the results are the same. A failed
+    /// hardware scan runs again in software with a warning; see docs/analysis.md for the cases
+    /// that stay in software.
     /// </summary>
     public bool UseHardwareDecoding { get; set; }
 
