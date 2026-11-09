@@ -954,7 +954,7 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// Jellyfin keeps these profiles in software whatever the pixel format, and the container tag
+    /// By default Jellyfin keeps these profiles in software whatever the pixel format, and the container tag
     /// ffmpeg prints after the profile must not hide it. Stream lines as jellyfin-ffmpeg prints them.
     /// </summary>
     [Theory]

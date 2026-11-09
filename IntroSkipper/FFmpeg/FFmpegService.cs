@@ -657,7 +657,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <remarks>
     /// H.264 and HEVC at <c>yuv420p</c> or <c>yuvj420p</c> qualify, and 10-bit 4:2:0 HEVC while
     /// Jellyfin decodes 10-bit HEVC on hardware, each only while Jellyfin decodes the codec on
-    /// hardware. HEVC RExt, H.264 High 4:2:2 and High 4:4:4 (Jellyfin refuses these by profile,
+    /// hardware. HEVC RExt, H.264 High 4:2:2 and High 4:4:4 (Jellyfin refuses these by profile by default,
     /// since they can be encoded at 4:2:0), Hi10P H.264 and AV1 stay in software: VAAPI applies
     /// AV1 film grain differently from software, and the others were not measured.
     /// </remarks>
