@@ -623,6 +623,23 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
+    /// A progress update ends in a bare CR, so the frame header after it shares its line and the
+    /// reader, which looks for a header at the line start, loses the frame and fails the scan.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_AsksFfmpegForNoProgressUpdates()
+    {
+        using var scope = new CachingPluginScope();
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, []);
+        var logger = new ScanLogger();
+
+        await scope.CreateFFmpegService(logger).ScanKeyframesAsync(FailedRunEpisode(), scope.Config);
+
+        var scan = Assert.Single(logger.Processes, process => process.Contains("-skip_frame", StringComparison.Ordinal));
+        Assert.Contains("-nostats", scan, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// An empty row cached for a run that broke the pipe's protocol would read as an episode with no
     /// keyframes from then on, so the run throws and leaves no row.
     /// </summary>

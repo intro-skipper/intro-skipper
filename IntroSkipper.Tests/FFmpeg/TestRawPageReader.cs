@@ -75,7 +75,7 @@ public sealed class TestRawPageReader
 
     /// <summary>
     /// A message from another thread can land in front of showinfo's fields on the same line, and
-    /// ffmpeg's stats line does, and a line can reach the reader in pieces.
+    /// a line can reach the reader in pieces.
     /// </summary>
     [Fact]
     public async Task FindsAHeaderBehindAnotherMessageAndAcrossReads()
@@ -83,7 +83,8 @@ public sealed class TestRawPageReader
         using var ffmpeg = new FakeFfmpeg();
         var read = ffmpeg.ReadAsync();
 
-        var line = "[hevc @ 0x1] Multiple Dolby Vision RPUs found in one AU. " + TimeBase + "frame=    1 fps=0.0\r" + Header(0, "4x2");
+        const string Message = "[hevc @ 0x1] Multiple Dolby Vision RPUs found in one AU. ";
+        var line = Message + TimeBase + Message + Header(0, "4x2");
         foreach (var piece in line.Chunk(7))
         {
             ffmpeg.Log(new string(piece));
@@ -93,6 +94,22 @@ public sealed class TestRawPageReader
         ffmpeg.Exit();
 
         Assert.Single((await read).Pages);
+    }
+
+    /// <summary>
+    /// ffmpeg on Windows ends its log lines in CR LF, and the line ending must not cost a line its header.
+    /// </summary>
+    [Fact]
+    public async Task ReadsAHeaderFromALineEndingInCrLf()
+    {
+        using var ffmpeg = new FakeFfmpeg();
+        var read = ffmpeg.ReadAsync();
+
+        ffmpeg.Log((TimeBase + Header(1000, "4x2")).Replace("\n", "\r\n", StringComparison.Ordinal));
+        ffmpeg.WriteFrame(4, 2, luma: 10, u: 128, v: 128);
+        ffmpeg.Exit();
+
+        Assert.Equal(1.0, Assert.Single((await read).Pages).Frame.Time);
     }
 
     /// <summary>

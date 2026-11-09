@@ -186,13 +186,6 @@ internal static partial class RawPageReader
                 sliceStructureError |= line.IndexOf(error) >= 0;
             }
 
-            // ffmpeg's progress line ends in a carriage return, so a message can follow it on one line.
-            var progressEnd = line.LastIndexOf((byte)'\r');
-            if (progressEnd >= 0 && line.StartsWith("frame="u8))
-            {
-                line = line[(progressEnd + 1)..];
-            }
-
             // Only a filter's or decoder's own message starts with its [context]. ffmpeg's input and
             // output dumps do not, and they print a file's name and tags, which can read like anything.
             if (line.IsEmpty || line[0] != (byte)'[')
