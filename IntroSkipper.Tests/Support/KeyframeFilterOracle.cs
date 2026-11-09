@@ -18,7 +18,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 internal static class KeyframeFilterOracle
 {
     /// <summary>
-    /// Decodes the keyframes through both filters, as one ffmpeg with two null outputs.
+    /// Decodes the keyframes through each filter in its own ffmpeg: two outputs of one run can
+    /// interleave their log lines, and the parsers then lose a row.
     /// </summary>
     /// <param name="path">The media file.</param>
     /// <param name="start">Seconds to seek to.</param>
@@ -27,23 +28,20 @@ internal static class KeyframeFilterOracle
     /// <returns>One page per keyframe. A page's visual carries the black-frame time and its frame counter is 0, as on the plugin's pages.</returns>
     internal static async Task<KeyframePage[]> PagesAsync(string path, double start, int threshold, bool selectKeyframes = false)
     {
-        var select = selectKeyframes ? "select=eq(key\\,1)," : string.Empty;
+        var select = selectKeyframes ? @"select=eq(key\,1)," : string.Empty;
+        var rows = FFmpegOutputParser.ParseBlackFrames(await LogOfAsync(path, start, select + "blackframe=amount=0:threshold=" + threshold.ToString(CultureInfo.InvariantCulture)));
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(await LogOfAsync(path, start, select + "format=yuv420p,signalstats,metadata=print"));
+        return [.. rows.Zip(visuals, (row, visual) => new KeyframePage(row with { Frame = 0 }, visual with { Time = row.Time }))];
+    }
+
+    private static async Task<string> LogOfAsync(string path, double start, string filters)
+    {
         var capture = await new FFmpegProcessRunner(NullLogger.Instance).RunCapturedAsync(
             "ffmpeg",
-            [
-                "-hide_banner", "-loglevel", "info",
-                "-skip_frame", "nokey",
-                "-ss", start.ToString(CultureInfo.InvariantCulture),
-                "-i", path,
-                "-an", "-dn", "-sn", "-vf", select + "blackframe=amount=0:threshold=" + threshold.ToString(CultureInfo.InvariantCulture), "-f", "null", "-",
-                "-an", "-dn", "-sn", "-vf", select + "format=yuv420p,signalstats,metadata=print", "-f", "null", "-",
-            ],
+            ["-hide_banner", "-loglevel", "info", "-skip_frame", "nokey", "-ss", start.ToString(CultureInfo.InvariantCulture), "-i", path, "-an", "-dn", "-sn", "-vf", filters, "-f", "null", "-"],
             maximumBytesPerStream: 64L * 1024 * 1024,
             expectedStdoutBytes: 0,
             timeout: 120_000);
-
-        var rows = FFmpegOutputParser.ParseBlackFrames(capture.Stderr);
-        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(capture.Stderr);
-        return [.. rows.Zip(visuals, (row, visual) => new KeyframePage(row with { Frame = 0 }, visual with { Time = row.Time }))];
+        return capture.Stderr;
     }
 }

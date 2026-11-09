@@ -22,7 +22,7 @@ using Xunit;
 /// </summary>
 public sealed class TestRawPageReader
 {
-    private const string TimeBase = "config in time_base: 1/1000, frame_rate: 25/1\n";
+    private const string TimeBase = "[Parsed_showinfo_1 @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n";
 
     /// <summary>
     /// The second frame is half the size of the first. A reader that kept the first size would
@@ -37,7 +37,7 @@ public sealed class TestRawPageReader
 
         ffmpeg.Log(TimeBase + Header(1000, "4x2"));
         ffmpeg.WriteFrame(4, 2, luma: 0, u: 128, v: 128);
-        ffmpeg.Log("config in time_base: 1/2, frame_rate: 25/1\n" + Header(3, "2x2"));
+        ffmpeg.Log("[Parsed_showinfo_1 @ 0x1] config in time_base: 1/2, frame_rate: 25/1\n" + Header(3, "2x2"));
         ffmpeg.WriteFrame(2, 2, luma: 100, u: 131, v: 132);
         ffmpeg.Exit();
 

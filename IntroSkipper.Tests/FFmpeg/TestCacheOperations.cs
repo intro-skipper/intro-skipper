@@ -612,7 +612,7 @@ public sealed class TestCacheOperations
     {
         using var scope = new CachingPluginScope();
         using var ffmpeg = new FakeFfmpegScript(
-            "config in time_base: 1/1000, frame_rate: 25/1\n[Parsed_showinfo_1 @ 0x1] n:   0 pts:   1000 pts_time:1 fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n",
+            "[Parsed_showinfo_1 @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n[Parsed_showinfo_1 @ 0x1] n:   0 pts:   1000 pts_time:1 fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n",
             [.. Enumerable.Repeat((byte)16, 8), .. Enumerable.Repeat((byte)128, 4)]);
         var episode = FailedRunEpisode();
 

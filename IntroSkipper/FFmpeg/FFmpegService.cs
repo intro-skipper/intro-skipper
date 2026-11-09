@@ -261,9 +261,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // One ffmpeg writing every keyframe from start to the end of the file down one pipe. Frames
     // keep their own size (-noautoscale) and all reach the pipe (passthrough), and format=yuv420p
-    // brings 10-bit sources to 8-bit values and keeps the source's range. Without -map_metadata -1
-    // ffmpeg logs the file's tags and chapter titles again after the first frame's time base, where
-    // one that reads like a showinfo line would announce a frame.
+    // brings 10-bit sources to 8-bit values and keeps the source's range.
     private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, int threshold, CancellationToken cancellationToken)
     {
         var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -271,7 +269,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         [
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
-            "-fps_mode", "passthrough", "-noautoscale", "-map_metadata", "-1",
+            "-fps_mode", "passthrough", "-noautoscale",
             "-vf", KeyframeFilters(codec, "format=yuv420p,showinfo=checksum=0"),
             "-f", "rawvideo", "-",
         ];

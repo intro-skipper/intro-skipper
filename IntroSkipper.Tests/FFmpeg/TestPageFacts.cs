@@ -178,7 +178,7 @@ public sealed class TestPageFacts
     [FactSkipFFmpegTests]
     public async Task ATagThatReadsLikeAHeader_AnnouncesNoFrame()
     {
-        const string Tag = "n: 0 pts: 77 pts_time:0 fmt:yuv420p cl:left sar:1/1 s:64x36 i:P iskey:1 type:I ";
+        const string Tag = "config in time_base: 1/1 n: 0 pts: 77 pts_time:0 fmt:yuv420p cl:left sar:1/1 s:30000x30000 i:P iskey:1 type:I ";
         var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-tagged.mkv");
         var metadata = Path.ChangeExtension(path, ".txt");
         await File.WriteAllLinesAsync(metadata, [";FFMETADATA1", "title=" + Tag, "[CHAPTER]", "TIMEBASE=1/1000", "START=0", "END=3000", "title=" + Tag]);
