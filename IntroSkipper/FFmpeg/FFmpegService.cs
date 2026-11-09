@@ -11,6 +11,9 @@ using System.Text.Unicode;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using UtfUnknown;
@@ -100,9 +103,12 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly DetectionCacheService _cacheService;
     private readonly FFmpegProcessRunner _processRunner;
     private readonly FFmpegVersionGate _versionGate;
+    private readonly Func<EncodingOptions?> _encodingOptions;
+    private readonly IMediaEncoder? _mediaEncoder;
+    private readonly ISessionManager? _sessionManager;
 
     // Results of the probes that several modes repeat, kept for one pass.
-    private readonly EpisodeProbeMemo<string, string> _videoCodecs = new();
+    private readonly EpisodeProbeMemo<string, FFmpegOutputParser.VideoStream> _videoStreams = new();
     private readonly EpisodeProbeMemo<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
     private readonly EpisodeProbeMemo<(string Path, string Languages), FFmpegOutputParser.SubtitleStreamListing> _subtitleStreamListings = new();
 
@@ -111,26 +117,39 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
-    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService)
-        : this(logger, cacheService, null, null)
+    /// <param name="mediaEncoder">Reports the hwaccels Jellyfin's ffmpeg supports.</param>
+    /// <param name="sessionManager">Reports the sessions whose video transcodes keep the scans in software.</param>
+    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService, IMediaEncoder mediaEncoder, ISessionManager sessionManager)
+        : this(logger, cacheService, null, null, null, mediaEncoder, sessionManager)
     {
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="FFmpegService"/> class with a replaced version probe (tests only).
+    /// Initializes a new instance of the <see cref="FFmpegService"/> class with a replaced version
+    /// probe, encoding options or Jellyfin services, for tests and CreditsRunner, which run without
+    /// Jellyfin.
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
     /// <param name="versionProbe">Replaces the ffmpeg version probe; <see langword="null"/> runs the real one.</param>
     /// <param name="versionProbeTimeout">Bounds one probe attempt; <see langword="null"/> uses the default.</param>
+    /// <param name="encodingOptions">Reads the encoding options hardware decode follows, on every scan; <see langword="null"/> reads Jellyfin's.</param>
+    /// <param name="mediaEncoder">Reports the hwaccels Jellyfin's ffmpeg supports; <see langword="null"/> treats every hwaccel as supported.</param>
+    /// <param name="sessionManager">Reports the running sessions; <see langword="null"/> treats no session as transcoding.</param>
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         DetectionCacheService cacheService,
-        Func<CancellationToken, Task<bool>>? versionProbe,
-        TimeSpan? versionProbeTimeout)
+        Func<CancellationToken, Task<bool>>? versionProbe = null,
+        TimeSpan? versionProbeTimeout = null,
+        Func<EncodingOptions?>? encodingOptions = null,
+        IMediaEncoder? mediaEncoder = null,
+        ISessionManager? sessionManager = null)
     {
         _logger = logger;
         _cacheService = cacheService;
+        _encodingOptions = encodingOptions ?? (() => Plugin.Instance?.EncodingOptions);
+        _mediaEncoder = mediaEncoder;
+        _sessionManager = sessionManager;
         _processRunner = new FFmpegProcessRunner(logger);
         _versionGate = new FFmpegVersionGate(
             logger,
@@ -211,7 +230,7 @@ internal sealed partial class FFmpegService : IFFmpegService
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, config, args, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
+        return RunCachedScanAsync(episode, mode, CacheEntryType.Silence, range.Start, range.End, config, args, hardwareDecodable: false, raw => FFmpegOutputParser.ParseSilence(raw, range.Start), cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -237,7 +256,8 @@ internal sealed partial class FFmpegService : IFFmpegService
             "-f", "null", "-",
         ];
 
-        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
+        // Only the recap scan decodes on hardware: the legacy analyzer's scans were not measured there.
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, hardwareDecodable: mode == AnalysisMode.Recap, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
@@ -248,7 +268,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         if (!_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, start, 0, config, out KeyframePage[] pages))
         {
             LogDetectionScan(_logger, CacheEntryType.KeyframePage, start, 0, episode.Path, episode.EpisodeId);
-            pages = await ReadRawPagesAsync(episode, start, config.BlackFrameThreshold, cancellationToken).ConfigureAwait(false);
+            pages = await ReadRawPagesAsync(episode, start, config, cancellationToken).ConfigureAwait(false);
             _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, start, 0, config, pages);
         }
 
@@ -263,39 +283,45 @@ internal sealed partial class FFmpegService : IFFmpegService
     // keep their own size (-noautoscale) and all reach the pipe (passthrough), and format=yuv420p
     // brings 10-bit sources to 8-bit values and keeps the source's range. Without -map_metadata -1
     // ffmpeg logs the file's tags and chapter titles again after the first frame's time base, where
-    // one that reads like a showinfo line would announce a frame.
-    private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, int threshold, CancellationToken cancellationToken)
+    // one that reads like a showinfo line would announce a frame. Hardware decode returns a 10-bit
+    // 4:2:0 frame as p010, which format=yuv420p converts on another path than the yuv420p10le a
+    // software decode gives, so a source that probes as yuv420p10le goes through yuv420p10le first
+    // and keeps software's pixels. The slice retry runs in software.
+    private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, PluginConfiguration config, CancellationToken cancellationToken)
     {
-        var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
-        string[] args =
-        [
-            .. KeyframeInput(codec, start, episode.Path),
-            "-an", "-dn", "-sn",
-            "-fps_mode", "passthrough", "-noautoscale", "-map_metadata", "-1",
-            "-vf", KeyframeFilters(codec, "format=yuv420p,showinfo=checksum=0"),
-            "-f", "rawvideo", "-",
-        ];
-
-        var (pages, sliceStructureError) = await RunRawPagePipeAsync(args).ConfigureAwait(false);
-        if (sliceStructureError && WithoutSliceThreads(args) is { } frameThreaded)
+        var stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
+        var hardwareInput = await HardwareDecodeInputAsync(episode, config, cancellationToken).ConfigureAwait(false);
+        var codec = stream?.Codec;
+        var (pages, sliceStructureError) = await DecodeAsync(episode, hardwareInput, hardware => RunRawPagePipeAsync(Arguments(hardware))).ConfigureAwait(false);
+        if (sliceStructureError && WithoutSliceThreads(Arguments([])) is { } frameThreaded)
         {
             LogSliceThreadsRetried(_logger, episode.Path, episode.EpisodeId);
-            (pages, _) = await RunRawPagePipeAsync(frameThreaded).ConfigureAwait(false);
+            (pages, _) = (await RunRawPagePipeAsync(frameThreaded).ConfigureAwait(false)).Output;
         }
 
         return pages;
 
-        async Task<(KeyframePage[] Pages, bool SliceStructureError)> RunRawPagePipeAsync(IReadOnlyList<string> arguments)
-            => (await _processRunner.RunStreamingAsync(
+        string[] Arguments(string[] hardware) =>
+        [
+            .. hardware,
+            .. KeyframeInput(codec, start, episode.Path),
+            "-an", "-dn", "-sn",
+            "-fps_mode", "passthrough", "-noautoscale", "-map_metadata", "-1",
+            "-vf", KeyframeFilters(codec, hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le,format=yuv420p,showinfo=checksum=0" : "format=yuv420p,showinfo=checksum=0"),
+            "-f", "rawvideo", "-",
+        ];
+
+        Task<((KeyframePage[] Pages, bool SliceStructureError) Output, int ExitCode)> RunRawPagePipeAsync(IReadOnlyList<string> arguments)
+            => _processRunner.RunStreamingAsync(
                 FFmpegPath,
                 ProcessArgs(arguments, "info"),
-                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, threshold),
+                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, config.BlackFrameThreshold),
                 ScanTimeout(),
-                cancellationToken).ConfigureAwait(false)).Output;
+                cancellationToken);
     }
 
     // The input of a keyframe-only decode of path from start, for a file whose mapped video
-    // stream (the one ffmpeg decodes, GetVideoCodecAsync) has the given codec.
+    // stream (the one ffmpeg decodes, GetVideoStreamAsync) has the given codec.
     private static string[] KeyframeInput(string? codec, double start, string path) =>
     [
         "-skip_frame", "nokey",
@@ -380,6 +406,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             range.End,
             config,
             args,
+            hardwareDecodable: true,
             raw => FFmpegOutputParser.ParseBlackIntervals(raw).Select(interval => new BlackInterval(interval.Start + range.Start, interval.End + range.Start)).ToArray(),
             cancellationToken);
     }
@@ -418,7 +445,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             config,
             async () =>
             {
-                var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
+                var codec = (await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false))?.Codec;
                 return
                 [
                     .. KeyframeInput(codec, range.Start, episode.Path),
@@ -428,6 +455,7 @@ internal sealed partial class FFmpegService : IFFmpegService
                     "-f", "null", "-",
                 ];
             },
+            hardwareDecodable: false,
             raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger),
             cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
@@ -442,9 +470,10 @@ internal sealed partial class FFmpegService : IFFmpegService
         double end,
         PluginConfiguration config,
         IReadOnlyList<string> args,
+        bool hardwareDecodable,
         Func<string, T[]> parse,
         CancellationToken cancellationToken)
-        => RunCachedScanAsync(episode, mode, entryType, start, end, config, () => Task.FromResult(args), parse, cancellationToken);
+        => RunCachedScanAsync(episode, mode, entryType, start, end, config, () => Task.FromResult(args), hardwareDecodable, parse, cancellationToken);
 
     /// <summary>
     /// Serves a detection scan from the cache or runs ffmpeg, parses its stderr and caches the result.
@@ -457,6 +486,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="end">Cache key end; must be the exact value used when the row was written.</param>
     /// <param name="config">The configuration the arguments were built from; the row is read and written under its hash.</param>
     /// <param name="args">Builds the ffmpeg arguments. Runs only on a cache miss, so it may probe the file first.</param>
+    /// <param name="hardwareDecodable">Whether the scan decodes on hardware under <see cref="PluginConfiguration.UseHardwareDecoding"/>, which then probes the file for its video stream when Jellyfin's gates let a method through.</param>
     /// <param name="parse">Parses ffmpeg's stderr into the scan result. Runs only on a cache miss, so it may also record other results of the same run.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
     /// <returns>The cached or freshly parsed result.</returns>
@@ -468,6 +498,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         double end,
         PluginConfiguration config,
         Func<Task<IReadOnlyList<string>>> args,
+        bool hardwareDecodable,
         Func<string, T[]> parse,
         CancellationToken cancellationToken)
     {
@@ -481,12 +512,13 @@ internal sealed partial class FFmpegService : IFFmpegService
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
         var arguments = await args().ConfigureAwait(false);
-        var raw = await RunScanAsync(arguments).ConfigureAwait(false);
+        string[] hardware = hardwareDecodable ? await HardwareDecodeInputAsync(episode, config, cancellationToken).ConfigureAwait(false) : [];
+        var raw = await DecodeAsync(episode, hardware, input => RunScanAsync([.. input, .. arguments])).ConfigureAwait(false);
         if (WithoutSliceThreads(arguments) is { } frameThreaded
             && SliceStructureErrors.Any(error => raw.Contains(error, StringComparison.Ordinal)))
         {
             LogSliceThreadsRetried(_logger, episode.Path, episode.EpisodeId);
-            raw = await RunScanAsync(frameThreaded).ConfigureAwait(false);
+            (raw, _) = await RunScanAsync(frameThreaded).ConfigureAwait(false);
         }
 
         var result = parse(raw);
@@ -495,9 +527,151 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         return result;
 
-        async Task<string> RunScanAsync(IReadOnlyList<string> scanArguments)
-            => Encoding.UTF8.GetString(await GetOutputAsync(scanArguments, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+        async Task<(string Output, int ExitCode)> RunScanAsync(IReadOnlyList<string> scanArguments)
+        {
+            var capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(scanArguments, "info"), long.MaxValue, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            return (capture.Stderr, capture.ExitCode);
+        }
     }
+
+    /// <summary>
+    /// Runs a scan under hardware decode when <paramref name="hardware"/> holds input options, and
+    /// in software when it holds none or the hardware run exits nonzero, times out or breaks the
+    /// raw page protocol. Nothing the failed run wrote is kept. A software run's result stands
+    /// whatever its exit code.
+    /// </summary>
+    /// <typeparam name="T">What the scan reads from ffmpeg.</typeparam>
+    /// <param name="episode">The episode scanned, named in the log.</param>
+    /// <param name="hardware">The input options from <see cref="HardwareDecodeInputAsync"/>.</param>
+    /// <param name="run">Runs ffmpeg with the given input options in front of the scan's own arguments.</param>
+    /// <returns>The accepted run's output.</returns>
+    private async Task<T> DecodeAsync<T>(QueuedEpisode episode, string[] hardware, Func<string[], Task<(T Output, int ExitCode)>> run)
+    {
+        if (hardware.Length > 0)
+        {
+            try
+            {
+                var (output, exitCode) = await run(hardware).ConfigureAwait(false);
+                if (exitCode == 0)
+                {
+                    return output;
+                }
+
+                LogHardwareDecodeFailed(_logger, episode.Path, episode.EpisodeId, exitCode);
+            }
+            catch (Exception ex) when (ex is TimeoutException or InvalidDataException)
+            {
+                // A hung device, or a process that died partway through a frame, is the hardware
+                // run's failure, so software gets a full timeout of its own.
+                LogHardwareDecodeBroke(_logger, episode.Path, episode.EpisodeId, ex.Message);
+            }
+        }
+
+        return (await run([]).ConfigureAwait(false)).Output;
+    }
+
+    // The hardware decode input options of a scan under config and the server's current encoding
+    // options, or none. Probes the file only when Jellyfin's gates let a method through.
+    private async Task<string[]> HardwareDecodeInputAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        if (!config.UseHardwareDecoding
+            || _encodingOptions() is not { } encoding
+            || HardwareDecodeMethod(encoding) is not { Length: > 0 } method
+            || !JellyfinAllowsHardwareDecode(method))
+        {
+            return [];
+        }
+
+        FFmpegOutputParser.VideoStream? stream;
+        try
+        {
+            stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is InvalidDataException || IsProcessFailure(ex))
+        {
+            // The recap and interval scans ask for the stream only to choose hardware. A failed
+            // probe puts them back on the software path they ran before hardware decode, which
+            // reports a real problem with the file itself. The keyframe scan probed first, so a
+            // probe failure there has already thrown.
+            LogHardwareDecodeProbeFailed(ex, episode.Path);
+            return [];
+        }
+
+        return DecodesOnHardware(encoding, stream) ? [.. method, "-xerror"] : [];
+    }
+
+    // Jellyfin's two gates, read when a scan starts. A transcode starting later shares the
+    // decoder with that scan until the scan ends: Jellyfin has no decoder slot count to wait on.
+    // An audio-only transcode also reports IsVideoDirect false, but with no VideoCodec. NowPlayingItem
+    // is left out because a transcode can run before its client reports playing. The cost is that
+    // a TranscodingInfo Jellyfin leaves set after a stop report with no PlaySessionId keeps scans in
+    // software until the device's next report.
+    private bool JellyfinAllowsHardwareDecode(string[] method)
+        => (_mediaEncoder?.SupportsHwaccel(method[Array.IndexOf(method, "-hwaccel") + 1]) ?? true)
+            && !(_sessionManager?.Sessions.Any(session => session.TranscodingInfo is { IsVideoDirect: false, VideoCodec: not null }) ?? false);
+
+    /// <summary>
+    /// The hwaccel input options Jellyfin's playback decodes with under its acceleration type, or
+    /// none when the scans decode in software.
+    /// </summary>
+    /// <remarks>
+    /// VAAPI decodes on Jellyfin's VAAPI device and only on Linux, NVENC through CUDA, AMF through
+    /// D3D11VA on the first AMD adapter and only on Windows, and QSV through VAAPI on Linux
+    /// (<see cref="LinuxQsvMethod"/>), as Jellyfin does. QSV on Windows, VideoToolbox, RKMPP and V4L2
+    /// were not measured and decode in software. No output format is set, so each frame comes back
+    /// to system memory.
+    /// </remarks>
+    /// <param name="encoding">Jellyfin's encoding options.</param>
+    /// <returns>The options to place before <c>-i</c>, or none.</returns>
+    internal static string[] HardwareDecodeMethod(EncodingOptions encoding) => encoding.HardwareAccelerationType switch
+    {
+        HardwareAccelerationType.vaapi when OperatingSystem.IsLinux() && !string.IsNullOrEmpty(encoding.VaapiDevice) => ["-hwaccel", "vaapi", "-hwaccel_device", encoding.VaapiDevice],
+        HardwareAccelerationType.vaapi when OperatingSystem.IsLinux() => ["-hwaccel", "vaapi"],
+        HardwareAccelerationType.nvenc => ["-hwaccel", "cuda"],
+        HardwareAccelerationType.amf when OperatingSystem.IsWindows() => ["-init_hw_device", "d3d11va=dx11:,vendor=0x1002", "-hwaccel", "d3d11va"],
+        HardwareAccelerationType.qsv when OperatingSystem.IsLinux() => LinuxQsvMethod(encoding),
+        _ => [],
+    };
+
+    /// <summary>
+    /// The hwaccel options of QSV on Linux, which decode the way Jellyfin's default native path
+    /// does: through VAAPI on the device Jellyfin derives its QSV device from, or none when
+    /// <see cref="EncodingOptions.PreferSystemNativeHwDecoder"/> is off.
+    /// </summary>
+    /// <remarks>
+    /// Jellyfin names the device by render node when <see cref="EncodingOptions.QsvDevice"/> is an
+    /// existing file and by vendor otherwise, and takes the vendor form only from ffmpeg 7.0.1 on.
+    /// The plugin requires ffmpeg 7.1.3, and on an older one device setup fails and the scan reruns
+    /// in software.
+    /// </remarks>
+    /// <param name="encoding">Jellyfin's encoding options.</param>
+    /// <returns>The options to place before <c>-i</c>, or none.</returns>
+    internal static string[] LinuxQsvMethod(EncodingOptions encoding) => encoding.PreferSystemNativeHwDecoder
+        ? ["-init_hw_device", (File.Exists(encoding.QsvDevice) ? $"vaapi=va:{encoding.QsvDevice}" : "vaapi=va:,vendor_id=0x8086") + ",driver=iHD", "-hwaccel", "vaapi"]
+        : [];
+
+    /// <summary>
+    /// Whether a scan decodes the stream on hardware, given a method: only the formats measured to
+    /// give software's frames, which Jellyfin's playback also decodes on hardware.
+    /// </summary>
+    /// <remarks>
+    /// H.264 and HEVC at <c>yuv420p</c> or <c>yuvj420p</c> qualify, and 10-bit 4:2:0 HEVC while
+    /// Jellyfin decodes 10-bit HEVC on hardware, each only while Jellyfin decodes the codec on
+    /// hardware. HEVC RExt (4:2:2, 4:4:4, 12-bit), Hi10P H.264 and AV1 stay in software: VAAPI
+    /// applies AV1 film grain differently from software, and the others were not measured.
+    /// </remarks>
+    /// <param name="encoding">Jellyfin's encoding options.</param>
+    /// <param name="stream">The video stream the scan decodes, or <see langword="null"/> when there is none.</param>
+    /// <returns><see langword="true"/> when the stream decodes on hardware.</returns>
+    internal static bool DecodesOnHardware(EncodingOptions encoding, FFmpegOutputParser.VideoStream? stream)
+        => stream is { Codec: "h264" or "hevc" }
+            && encoding.HardwareDecodingCodecs.Contains(stream.Codec, StringComparer.OrdinalIgnoreCase)
+            && stream.PixelFormat switch
+            {
+                "yuv420p" or "yuvj420p" => true,
+                "yuv420p10le" => stream.Codec == "hevc" && encoding.EnableDecodingColorDepth10Hevc,
+                _ => false,
+            };
 
     // The arguments with HevcKeyframeThreads taken out, or null when they don't hold it.
     private static string[]? WithoutSliceThreads(IReadOnlyList<string> arguments)
@@ -964,17 +1138,17 @@ internal sealed partial class FFmpegService : IFFmpegService
         => _processRunner.RunAsync(FFmpegPath, ProcessArgs(args, stderr ? "info" : "warning", infoQuery), stderr, timeout, cancellationToken);
 
     // Called only on a scan cache miss, so an episode whose scans are all cached is never probed.
-    private Task<string?> GetVideoCodecAsync(QueuedEpisode episode, CancellationToken cancellationToken)
-        => _videoCodecs.GetAsync(episode, episode.Path, ct => ProbeVideoCodecAsync(episode.Path, ct), cancellationToken);
+    private Task<FFmpegOutputParser.VideoStream?> GetVideoStreamAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+        => _videoStreams.GetAsync(episode, episode.Path, ct => ProbeVideoStreamAsync(episode.Path, ct), cancellationToken);
 
-    // The codec name of the video stream a scan decodes, such as "hevc", read from the stream
+    // The video stream a scan decodes, its codec such as "hevc" and pixel format, read from the stream
     // mapping of an ffmpeg run that decodes no frame. ffmpeg ranks the video streams by frame
     // size, the default disposition and whether the stream delivered packets while ffmpeg
     // probed the file. ffprobe cannot report the last, so no ffprobe rule can copy the choice.
     // Null when the file has no video stream. A run that fails to start, times out or is cut at
     // the cap before its stream mapping throws instead, since the scan would cache a VP9 file's
     // every frame as a keyframe.
-    private async Task<string?> ProbeVideoCodecAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<FFmpegOutputParser.VideoStream?> ProbeVideoStreamAsync(string filePath, CancellationToken cancellationToken)
     {
         string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
 
@@ -987,13 +1161,13 @@ internal sealed partial class FFmpegService : IFFmpegService
             expectedStdoutBytes: 0,
             ScanTimeout(),
             cancellationToken).ConfigureAwait(false);
-        var codec = FFmpegOutputParser.ParseMappedVideoCodec(capture.Stderr);
-        if (codec is null && capture.Truncated)
+        var stream = FFmpegOutputParser.ParseMappedVideoStream(capture.Stderr);
+        if (stream is null && capture.Truncated)
         {
             throw new InvalidDataException($"The ffmpeg log of \"{filePath}\" passed {VideoCodecProbeMaximumBytes} bytes before its stream mapping");
         }
 
-        return codec;
+        return stream;
     }
 
     /// <summary>
@@ -1273,6 +1447,15 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Hardware decode of \"{File}\" (id {Id}) exited with code {ExitCode}, decoding again in software")]
+    private static partial void LogHardwareDecodeFailed(ILogger logger, string file, Guid id, int exitCode);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Hardware decode of \"{File}\" (id {Id}) failed ({Reason}), decoding again in software")]
+    private static partial void LogHardwareDecodeBroke(ILogger logger, string file, Guid id, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Could not probe \"{File}\" for hardware decode, scanning in software")]
+    private partial void LogHardwareDecodeProbeFailed(Exception ex, string file);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);

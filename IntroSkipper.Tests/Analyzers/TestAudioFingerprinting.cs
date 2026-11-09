@@ -338,6 +338,21 @@ public sealed class FactSkipFFmpegTests : FactAttribute
 #endif
 }
 
+public sealed class FactLinuxFFmpegTests : FactAttribute
+{
+    public FactLinuxFFmpegTests()
+    {
+#if SKIP_FFMPEG_TESTS
+        Skip = "SKIP_FFMPEG_TESTS defined, skipping unit tests that require FFmpeg to be installed";
+#else
+        if (!OperatingSystem.IsLinux())
+        {
+            Skip = "Needs a real ffmpeg on Linux, the only platform where this test's hwaccel starts";
+        }
+#endif
+    }
+}
+
 public sealed class TheorySkipFFmpegTests : TheoryAttribute
 {
 #if SKIP_FFMPEG_TESTS

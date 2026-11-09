@@ -34,6 +34,8 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _mappedStreamRegex = MappedStreamRegex();
 
+    private static readonly Regex _inputVideoStreamRegex = InputVideoStreamRegex();
+
     // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
     // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
     // (dvb_subtitle, dvd_subtitle, hdmv_pgs_subtitle, xsub), which would need OCR, and the
@@ -233,8 +235,9 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Reads the codec of the input stream ffmpeg mapped to its first output stream, from the
-    /// stream mapping block a run prints at the info log level.
+    /// Reads the codec and pixel format of the input stream ffmpeg mapped to its first output
+    /// stream, from the stream mapping block a run prints at the info log level and the input
+    /// dump before it.
     /// </summary>
     /// <remarks>
     /// The block is a line that reads exactly <c>Stream mapping:</c>, followed by one indented
@@ -244,9 +247,10 @@ internal static partial class FFmpegOutputParser
     /// jellyfin-ffmpeg 7.1.3 and 8.1.2.
     /// </remarks>
     /// <param name="raw">The ffmpeg standard error output.</param>
-    /// <returns>The mapped input stream's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
-    internal static string? ParseMappedVideoCodec(string raw)
+    /// <returns>The mapped input stream, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
+    internal static VideoStream? ParseMappedVideoStream(string raw)
     {
+        var pixelFormats = new Dictionary<string, string>(StringComparer.Ordinal);
         var inBlock = false;
         foreach (var line in raw.Split('\n'))
         {
@@ -254,6 +258,11 @@ internal static partial class FFmpegOutputParser
             if (!inBlock)
             {
                 inBlock = text == "Stream mapping:";
+                if (_inputVideoStreamRegex.Match(text) is { Success: true } input)
+                {
+                    pixelFormats[input.Groups["stream"].Value] = input.Groups["format"].Value;
+                }
+
                 continue;
             }
 
@@ -264,7 +273,7 @@ internal static partial class FFmpegOutputParser
 
             if (_mappedStreamRegex.Match(text) is { Success: true } match)
             {
-                return match.Groups["codec"].Value;
+                return new(match.Groups["codec"].Value, pixelFormats.GetValueOrDefault(match.Groups["stream"].Value));
             }
         }
 
@@ -432,8 +441,14 @@ internal static partial class FFmpegOutputParser
     private static partial Regex KeyframeSignalStatRegex();
 
     // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
-    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+) ")]
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+) -> #0:0 \((?<codec>[^\s()]+) ")]
     private static partial Regex MappedStreamRegex();
+
+    // A video stream of the input dump, such as "  Stream #0:0[0x1](und): Video: hevc (Main 10)
+    // (hvc1 / 0x31637668), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 ...": the
+    // codec, its parenthesized profile and tag, then the pixel format.
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+(?: \([^)]*\))*, (?<format>[^\s,(]+)")]
+    private static partial Regex InputVideoStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
@@ -444,4 +459,11 @@ internal static partial class FFmpegOutputParser
     /// <param name="Streams">The selected text subtitle streams, by stream index.</param>
     /// <param name="MatroskaStartTime">The file's start time in seconds when it is Matroska, else <see langword="null"/>.</param>
     internal sealed record SubtitleStreamListing(int[] Streams, double? MatroskaStartTime);
+
+    /// <summary>
+    /// The video stream a scan decodes.
+    /// </summary>
+    /// <param name="Codec">The codec name, such as <c>hevc</c>.</param>
+    /// <param name="PixelFormat">The pixel format the input dump gives it, such as <c>yuv420p10le</c>, or <see langword="null"/> when the dump gives none.</param>
+    internal sealed record VideoStream(string Codec, string? PixelFormat);
 }

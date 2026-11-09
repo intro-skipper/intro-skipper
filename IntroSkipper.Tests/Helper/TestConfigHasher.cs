@@ -44,6 +44,7 @@ public sealed class TestConfigHasher
         nameof(PluginConfiguration.ProcessThreads),
         nameof(PluginConfiguration.ScanTimeoutSeconds),
         nameof(PluginConfiguration.ProcessPriority),
+        nameof(PluginConfiguration.UseHardwareDecoding),
         nameof(PluginConfiguration.UseFileTransformationPlugin),
         nameof(PluginConfiguration.SkipbuttonHideDelay),
         nameof(PluginConfiguration.AutoSkipIntro),

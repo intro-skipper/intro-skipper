@@ -17,6 +17,7 @@ dotnet run --project tools/CreditsRunner -- diff --baseline before.json --candid
 - `--repeat 3` times three passes per file after an untimed pass that warms the page cache. Every pass starts with an empty detection cache. Credits mode only.
 - `--minimum-credits-duration 10` overrides that setting. Every other setting is the plugin default. Credits and credits-pass modes only.
 - `--ffmpeg /usr/lib/jellyfin-ffmpeg` puts that directory first on PATH.
+- `--hwaccel vaapi`, `nvenc`, `amf` or `qsv` turns on `UseHardwareDecoding` and hands the plugin the encoding options Jellyfin would hold with that hardware acceleration type and H.264 and HEVC decoded on hardware, so the scans pick their hwaccel through the production path (`docs/credits.md`, Hardware decode). `--hwaccel-device /dev/dri/renderD128` sets the VAAPI device and needs `--hwaccel vaapi`. As in Jellyfin, `vaapi` and `qsv` decode on hardware only on Linux, `qsv` through VAAPI on the Intel device, and `amf` only on Windows. A hardware run that fails and decodes again in software shows as one more ffmpeg process in its call.
 
 For the timing box, publish self-contained with `dotnet publish tools/CreditsRunner -c Release -r linux-x64 --self-contained -p:SkipWebBuild=true`.
 

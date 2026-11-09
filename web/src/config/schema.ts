@@ -515,6 +515,12 @@ export const configSchema = {
         description:
             "Codec threads per FFmpeg process. 0 lets FFmpeg choose. Lower values reduce CPU use but may slow scans; use Maximum degree of parallelism to limit process count.",
     },
+    UseHardwareDecoding: {
+        kind: "checkbox",
+        label: "Hardware decode",
+        description:
+            "Follows Jellyfin's hardware settings for the keyframe, recap and black interval scans, in software while a video transcode runs. Can be slower on weak integrated GPUs and 10-bit HEVC, so measure before leaving it on.",
+    },
     ScanTimeoutSeconds: {
         kind: "number",
         label: "FFmpeg scan timeout (seconds)",

@@ -13,6 +13,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using MediaBrowser.Model.Configuration;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -37,7 +38,8 @@ namespace CreditsRunner;
 /// <param name="progress">Where to write one line per file.</param>
 /// <param name="mode">What to analyze.</param>
 /// <param name="noChapters">Whether a season run drops the chapters it reads.</param>
-internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter progress, RunMode mode = RunMode.Credits, bool noChapters = false)
+/// <param name="encoding">The encoding options hardware decode follows in place of Jellyfin's, or <see langword="null"/> for none.</param>
+internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter progress, RunMode mode = RunMode.Credits, bool noChapters = false, EncodingOptions? encoding = null)
 {
     private readonly AnalysisMode _segmentType = mode == RunMode.Introduction ? AnalysisMode.Introduction : AnalysisMode.Credits;
 
@@ -191,7 +193,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
         {
             var cache = new DetectionCacheService(NullLogger<DetectionCacheService>.Instance, new DetectionCacheDatabase(new CacheContextFactory(dbPath), NullLogger<DetectionCacheDatabase>.Instance));
             var recorder = new CallRecorder();
-            var ffmpeg = new FFmpegService(recorder, cache);
+            var ffmpeg = new FFmpegService(recorder, cache, null, null, () => encoding);
 
             // Outside the timed span: the cache database's migration, and the ffmpeg check a pass
             // runs before analysis, which also tells the scan whether keyframe visuals are available.
@@ -259,7 +261,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
                 new DetectionCacheDatabase(new CacheContextFactory(Path.Join(directory.FullName, "cache.db")), NullLogger<DetectionCacheDatabase>.Instance));
             var database = new IntroSkipperDatabase(new SegmentContextFactory(Path.Join(directory.FullName, "segments.db")), NullLogger<IntroSkipperDatabase>.Instance);
             var recorder = new CallRecorder();
-            var service = new FFmpegService(recorder, cache);
+            var service = new FFmpegService(recorder, cache, null, null, () => encoding);
             var ffmpegValid = await service.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
             StopIfTheCheckTimedOut(recorder, service);
             var ffmpeg = recorder.Wrap(service);

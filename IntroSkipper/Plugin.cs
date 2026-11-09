@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Plugins;
@@ -89,6 +90,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// this is the previous run's path, or <see langword="null"/> on a fresh configuration.
     /// </summary>
     internal string? FFmpegPath => _serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
+
+    /// <summary>
+    /// Gets Jellyfin's encoding options, which hold the hardware acceleration settings playback
+    /// uses. Read on every use, so a change on the server applies to the next scan.
+    /// </summary>
+    internal EncodingOptions EncodingOptions => _serverConfiguration.GetEncodingOptions();
 
     /// <summary>
     /// Gets Jellyfin's temporary directory, whose stale files Jellyfin's cache cleanup task deletes.
