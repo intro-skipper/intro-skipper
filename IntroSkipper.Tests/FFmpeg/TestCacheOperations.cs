@@ -854,10 +854,13 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on Jellyfin's VAAPI device
-    /// when one is set and only on the platforms where Jellyfin decodes with it, so each row names
-    /// the method on Linux, Windows and macOS. QSV decodes on hardware only while
-    /// PreferSystemNativeHwDecoder is on. The types the scans keep in software add nothing.
+    /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on the device Jellyfin's
+    /// VAAPI or QSV setting names (both set to the row's device) and only on the platforms where
+    /// Jellyfin decodes with it, so each row names the method on Linux, Windows and macOS. NVENC is
+    /// the exception: it maps to CUDA on macOS too, where Jellyfin never uses CUDA. QSV decodes on
+    /// hardware only while PreferSystemNativeHwDecoder is on, and on Windows opens the adapter by
+    /// the device's index when it is one. The types the scans keep in software add nothing. Only
+    /// the column of the OS the tests run on is checked, and CI runs none on macOS.
     /// </summary>
     [Theory]
     [InlineData(HardwareAccelerationType.vaapi, "/dev/dri/renderD129", true, "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129", "", "")]
@@ -866,13 +869,15 @@ public sealed class TestCacheOperations
     [InlineData(HardwareAccelerationType.amf, "/dev/dri/renderD129", true, "", "-init_hw_device d3d11va=dx11:,vendor=0x1002 -hwaccel d3d11va", "")]
     [InlineData(HardwareAccelerationType.none, "", true, "", "", "")]
     [InlineData(HardwareAccelerationType.qsv, "", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:,vendor=0x8086 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.qsv, "1", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:1 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.qsv, "-1", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:0 -hwaccel d3d11va", "")]
     [InlineData(HardwareAccelerationType.qsv, "", false, "", "", "")]
     [InlineData(HardwareAccelerationType.videotoolbox, "", true, "", "", "-hwaccel videotoolbox")]
     [InlineData(HardwareAccelerationType.rkmpp, "", true, "", "", "")]
     [InlineData(HardwareAccelerationType.v4l2m2m, "", true, "", "", "")]
-    public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string vaapiDevice, bool preferNative, string linux, string windows, string macOS)
+    public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string device, bool preferNative, string linux, string windows, string macOS)
     {
-        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = vaapiDevice, PreferSystemNativeHwDecoder = preferNative };
+        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = device, QsvDevice = device, PreferSystemNativeHwDecoder = preferNative };
         var expected = OperatingSystem.IsWindows() ? windows : OperatingSystem.IsMacOS() ? macOS : linux;
 
         Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeMethod(encoding)));
