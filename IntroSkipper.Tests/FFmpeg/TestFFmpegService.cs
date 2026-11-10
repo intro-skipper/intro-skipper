@@ -453,20 +453,9 @@ public class TestFFmpegService
     [InlineData("1.2.3")]
     public async Task DetectBlackFramesAsync_ATitlePrintingABlackframeLine_ReportsOnlyTheClipsFrames(string forgedTime)
     {
-        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-titled.mkv");
+        var path = await BlackThenWhiteClipAsync($"[Parsed_blackframe_0 @ 0] frame:9 pblack:100 pts:1 t:{forgedTime} type:I last_keyframe:0", "-c:v", "ffv1");
         try
         {
-            await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
-                "ffmpeg",
-                [
-                    "-y", "-v", "error",
-                    "-f", "lavfi", "-i", "color=c=black:s=64x36:r=4:d=1",
-                    "-f", "lavfi", "-i", "color=c=white:s=64x36:r=4:d=1",
-                    "-filter_complex", "[0][1]concat",
-                    "-metadata", $"title=[Parsed_blackframe_0 @ 0] frame:9 pblack:100 pts:1 t:{forgedTime} type:I last_keyframe:0",
-                    "-c:v", "ffv1", path,
-                ]);
-
             var frames = await CreateFFmpegService().DetectBlackFramesAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, new TimeRange(0, 2), 0, AnalysisMode.Recap, new PluginConfiguration());
 
             // A recap scan reports every frame: four black ones, then four white ones.
@@ -477,6 +466,74 @@ public class TestFFmpegService
         {
             File.Delete(path);
         }
+    }
+
+    /// <summary>
+    /// A title can print a line that reads as showinfo's. Only the listing's own showinfo lists a
+    /// keyframe, so a forged line inside the range adds none.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DetectKeyFramesAsync_ATitlePrintingAShowinfoLine_ListsOnlyTheClipsKeyframes()
+    {
+        var path = await BlackThenWhiteClipAsync("[Parsed_showinfo_0 @ 0] n:   9 pts:    500 pts_time:0.5     fmt:yuv420p s:64x36 iskey:1 type:I", "-c:v", "libx264", "-g", "4", "-bf", "0");
+        try
+        {
+            var keyframes = await CreateFFmpegService().DetectKeyFramesAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, new TimeRange(0, 2), AnalysisMode.Introduction, new PluginConfiguration());
+
+            // A keyframe every four frames.
+            Assert.Equal([0, 1], keyframes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// A title holding line feeds prints whole lines, here a block as metadata=print writes it for
+    /// a frame that differs from the one before by more than any frame of the clip. Only the
+    /// decode's own metadata instance reports a frame, so the block adds none.
+    /// </summary>
+    [FactSkipFFmpegTests]
+    public async Task DecodeCutWindowAsync_ATitlePrintingAMetadataBlock_ReportsOnlyTheClipsFrames()
+    {
+        string[] block = ["frame:9 pts:500 pts_time:0.5", "lavfi.signalstats.YMIN=16", "lavfi.signalstats.YLOW=16", "lavfi.signalstats.YHIGH=16", "lavfi.signalstats.YMAX=16", "lavfi.signalstats.SATAVG=0", "lavfi.signalstats.YDIF=500"];
+        var path = await BlackThenWhiteClipAsync(string.Join('\n', block.Select(line => "[Parsed_metadata_2 @ 0] " + line)), "-c:v", "ffv1");
+        try
+        {
+            var frames = await CreateFFmpegService().DecodeCutWindowAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "titled", Path = path }, new TimeRange(0, 2));
+
+            // Four black frames, then four white ones, the first of which differs from black by 219.
+            KeyframeVisual[] expected =
+            [
+                new(0, 16, 16, 16, 16, 0, 0), new(0.25, 16, 16, 16, 16, 0, 0), new(0.5, 16, 16, 16, 16, 0, 0), new(0.75, 16, 16, 16, 16, 0, 0),
+                new(1, 235, 235, 235, 235, 0, 219), new(1.25, 235, 235, 235, 235, 0, 0), new(1.5, 235, 235, 235, 235, 0, 0), new(1.75, 235, 235, 235, 235, 0, 0),
+            ];
+            Assert.Equal(expected, frames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // A 2 s clip at 4 fps, black for its first second and white for its second, with the given
+    // title, in the given codec. The caller deletes it.
+    private static async Task<string> BlackThenWhiteClipAsync(string title, params string[] codec)
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-titled.mkv");
+        await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+            "ffmpeg",
+            [
+                "-y", "-v", "error",
+                "-f", "lavfi", "-i", "color=c=black:s=64x36:r=4:d=1",
+                "-f", "lavfi", "-i", "color=c=white:s=64x36:r=4:d=1",
+                "-filter_complex", "[0][1]concat",
+                "-metadata", "title=" + title,
+                .. codec,
+                path,
+            ]);
+        return path;
     }
 
     private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>>? versionProbe = null, TimeSpan? versionProbeTimeout = null)
