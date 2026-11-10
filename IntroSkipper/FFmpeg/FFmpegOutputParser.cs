@@ -449,7 +449,9 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]
     private static partial Regex BlackIntervalLogRegex();
 
-    [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    // metadata=print's frame header must be the whole message: the frame metadata a decoder attached
+    // prints under the same context as key=value, and no "=" fits here.
+    [GeneratedRegex(@"^frame:\s*\d+\s+pts:\s*(?:-?\d+|NOPTS)\s+pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)\s*$")]
     private static partial Regex KeyframeVisualTimeRegex();
 
     [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATAVG|YDIF)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]

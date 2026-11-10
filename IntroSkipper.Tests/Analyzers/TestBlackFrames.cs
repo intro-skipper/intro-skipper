@@ -1468,6 +1468,29 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestParseKeyframeVisuals_IgnoresFrameMetadataShapedLikeAHeader()
+    {
+        // metadata=print also prints the metadata a decoder attached to the frame, such as a PNG
+        // frame's text chunks, as key=value under the instance's own context and before the
+        // signalstats keys. Neither entry here may start a block and retime the frame's stats.
+        const string raw = """
+            [metadata@TOKEN @ 0x0] frame:0    pts:0       pts_time:0
+            [metadata@TOKEN @ 0x0] frame:7 pts:0=x pts_time:0.5
+            [metadata@TOKEN @ 0x0] frame:9 pts:9 pts_time:0.75=x
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=0
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=0
+            """;
+
+        var frame = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
+
+        Assert.Equal(new CutFrame(0, new KeyframeVisual(16, 16, 16, 235, 0, 0)), frame);
+    }
+
+    [Fact]
     public void TestParseKeyframeVisuals_ParsesExponentNotation()
     {
         // Defensive: signalstats prints integers, but if a build ever emits exponent form the whole
