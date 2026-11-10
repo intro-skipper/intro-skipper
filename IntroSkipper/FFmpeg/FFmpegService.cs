@@ -5,6 +5,7 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -283,14 +284,15 @@ internal sealed partial class FFmpegService : IFFmpegService
     // brings 10-bit sources to 8-bit values and keeps the source's range. Hardware decode returns a 10-bit
     // 4:2:0 frame as p010, which format=yuv420p converts on another path than the yuv420p10le a
     // software decode gives, so a source that probes as yuv420p10le goes through yuv420p10le first
-    // and keeps software's pixels. The slice retry runs in software. -nostats stops the progress
-    // updates: each ends in a bare CR, so the message after it would share its log line and miss
-    // the reader's line-start check.
+    // and keeps software's pixels. The slice retry runs in software. showinfo runs under a name
+    // drawn for this scan, which the reader looks for in each log line, so a file cannot print a
+    // line that reads as one of its headers.
     private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, PluginConfiguration config, CancellationToken cancellationToken)
     {
         var stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
         var hardwareInput = await HardwareDecodeInputAsync(episode, config, cancellationToken).ConfigureAwait(false);
         var codec = stream?.Codec;
+        var token = RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 8);
         var (pages, sliceStructureError) = await DecodeAsync(episode, hardwareInput, hardware => RunRawPagePipeAsync(Arguments(hardware))).ConfigureAwait(false);
         if (sliceStructureError && WithoutSliceThreads(Arguments([])) is { } frameThreaded)
         {
@@ -302,12 +304,11 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         string[] Arguments(string[] hardware) =>
         [
-            "-nostats",
             .. hardware,
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough", "-noautoscale",
-            "-vf", KeyframeFilters(codec, hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le,format=yuv420p,showinfo=checksum=0" : "format=yuv420p,showinfo=checksum=0"),
+            "-vf", KeyframeFilters(codec, $"{(hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le," : string.Empty)}format=yuv420p,showinfo@{token}=checksum=0"),
             "-f", "rawvideo", "-",
         ];
 
@@ -315,7 +316,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             => _processRunner.RunStreamingAsync(
                 FFmpegPath,
                 ProcessArgs(arguments, "info"),
-                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, config.BlackFrameThreshold),
+                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, config.BlackFrameThreshold, token),
                 ScanTimeout(),
                 cancellationToken);
     }

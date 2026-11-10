@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -171,22 +172,30 @@ public sealed class TestPageFacts
     }
 
     /// <summary>
-    /// ffmpeg logs a file's tags and chapter titles before the first time base and, unless told
-    /// otherwise, again after it, among the real headers. Read as a header there, this title would
-    /// shift every later page's time.
+    /// ffmpeg prints a tag's key raw in its input and output dumps, so line feeds in a Matroska key
+    /// print whole lines of the file's choosing: here a time base and a header as showinfo writes
+    /// them. Read as a header, the forged one would shift every page and announce a frame of
+    /// 30000x30000.
     /// </summary>
     [FactSkipFFmpegTests]
-    public async Task ATagThatReadsLikeAHeader_AnnouncesNoFrame()
+    public async Task ATagKeyThatPrintsHeaderLines_AnnouncesNoFrame()
     {
-        const string Tag = "config in time_base: 1/1 n: 0 pts: 77 pts_time:0 fmt:yuv420p cl:left sar:1/1 s:30000x30000 i:P iskey:1 type:I ";
+        const string Key = "\n[x] config in time_base: 1/1000\n[Parsed_showinfo_0 @ 0] n:   0 pts:  77000 pts_time:77 fmt:yuv420p cl:left sar:1/1 s:30000x30000 i:P iskey:1 type:I \n";
+        var placeholder = new string('X', Key.Length);
         var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-tagged.mkv");
         var metadata = Path.ChangeExtension(path, ".txt");
-        await File.WriteAllLinesAsync(metadata, [";FFMETADATA1", "title=" + Tag, "[CHAPTER]", "TIMEBASE=1/1000", "START=0", "END=3000", "title=" + Tag]);
+        await File.WriteAllLinesAsync(metadata, [";FFMETADATA1", placeholder + "=v"]);
         await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
             "ffmpeg",
-            ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x36:r=1:d=3", "-f", "ffmetadata", "-i", metadata, "-map", "0", "-map_metadata", "1", "-map_chapters", "1", "-c:v", "ffv1", "-g", "1", path]);
+            ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=64x36:r=1:d=3", "-f", "ffmetadata", "-i", metadata, "-map", "0", "-map_metadata", "1", "-c:v", "ffv1", "-g", "1", "-write_crc32", "0", path]);
         try
         {
+            // The muxer upper-cases a key and turns its spaces into underscores, so the key goes
+            // into the file as bytes, over a placeholder of the same length.
+            var file = await File.ReadAllBytesAsync(path);
+            Encoding.ASCII.GetBytes(Key).CopyTo(file, file.AsSpan().IndexOf(Encoding.ASCII.GetBytes(placeholder)));
+            await File.WriteAllBytesAsync(path, file);
+
             var pages = await ScanAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, 0, 28);
 
             Assert.Equal([0.0, 1.0, 2.0], pages.Select(page => page.Time));
