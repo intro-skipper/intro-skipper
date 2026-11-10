@@ -5,6 +5,7 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -261,19 +262,19 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     // One ffmpeg writing every keyframe from start to the end of the file down one pipe. Frames
     // keep their own size (-noautoscale) and all reach the pipe (passthrough), and format=yuv420p
-    // brings 10-bit sources to 8-bit values and keeps the source's range. -nostats stops the
-    // progress updates: each ends in a bare CR, so the message after it would share its log line
-    // and miss the reader's line-start check.
+    // brings 10-bit sources to 8-bit values and keeps the source's range. showinfo runs under a
+    // name drawn for this scan, which the reader looks for in each log line, so a file cannot
+    // print a line that reads as one of its headers.
     private async Task<KeyframePage[]> ReadRawPagesAsync(QueuedEpisode episode, double start, int threshold, CancellationToken cancellationToken)
     {
         var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
+        var token = RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 8);
         string[] args =
         [
-            "-nostats",
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough", "-noautoscale",
-            "-vf", KeyframeFilters(codec, "format=yuv420p,showinfo=checksum=0"),
+            "-vf", KeyframeFilters(codec, $"format=yuv420p,showinfo@{token}=checksum=0"),
             "-f", "rawvideo", "-",
         ];
 
@@ -290,7 +291,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             => (await _processRunner.RunStreamingAsync(
                 FFmpegPath,
                 ProcessArgs(arguments, "info"),
-                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, threshold),
+                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, threshold, token),
                 ScanTimeout(),
                 cancellationToken).ConfigureAwait(false)).Output;
     }

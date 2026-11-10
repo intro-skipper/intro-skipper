@@ -24,7 +24,9 @@ using Xunit;
 /// </summary>
 public sealed class TestRawPageReader
 {
-    private const string TimeBase = "[Parsed_showinfo_1 @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n";
+    private const string Token = "Ab3x9Q";
+
+    private const string TimeBase = $"[showinfo@{Token} @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n";
 
     /// <summary>
     /// The second frame is half the size of the first. A reader that kept the first size would
@@ -39,7 +41,7 @@ public sealed class TestRawPageReader
 
         ffmpeg.Log(TimeBase + Header(1000, "4x2"));
         ffmpeg.WriteFrame(4, 2, luma: 0, u: 128, v: 128);
-        ffmpeg.Log("[Parsed_showinfo_1 @ 0x1] config in time_base: 1/2, frame_rate: 25/1\n" + Header(3, "2x2"));
+        ffmpeg.Log($"[showinfo@{Token} @ 0x1] config in time_base: 1/2, frame_rate: 25/1\n" + Header(3, "2x2"));
         ffmpeg.WriteFrame(2, 2, luma: 100, u: 131, v: 132);
         ffmpeg.Exit();
 
@@ -76,8 +78,8 @@ public sealed class TestRawPageReader
     }
 
     /// <summary>
-    /// A message from another thread can land in front of showinfo's fields on the same line, and
-    /// a line can reach the reader in pieces.
+    /// A message from another thread can land in front of showinfo's on the same line, and a
+    /// progress update, which ends in a bare CR, always does. A line can also reach the reader in pieces.
     /// </summary>
     [Fact]
     public async Task FindsAHeaderBehindAnotherMessageAndAcrossReads()
@@ -85,8 +87,8 @@ public sealed class TestRawPageReader
         using var ffmpeg = new FakeFfmpeg();
         var read = ffmpeg.ReadAsync();
 
-        const string Message = "[hevc @ 0x1] Multiple Dolby Vision RPUs found in one AU. ";
-        var line = Message + TimeBase + Message + Header(0, "4x2");
+        var line = "[hevc @ 0x1] Multiple Dolby Vision RPUs found in one AU. " + TimeBase
+            + "frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A elapsed=0:00:00.00    \r" + Header(0, "4x2");
         foreach (var piece in line.Chunk(7))
         {
             ffmpeg.Log(new string(piece));
@@ -193,7 +195,7 @@ public sealed class TestRawPageReader
         using var stdout = new PriorityRecordingStream();
         using var stderr = new PriorityRecordingStream();
 
-        await RawPageReader.ReadAsync(stdout, stderr, () => { }, 16);
+        await RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Token);
 
         Assert.Equal(ThreadPriority.BelowNormal, stdout.Priority);
         Assert.Equal(ThreadPriority.BelowNormal, stderr.Priority);
@@ -234,7 +236,7 @@ public sealed class TestRawPageReader
         using var gate = new ManualResetEventSlim();
         using var stdout = new GatedEmptyStream(gate);
         using var stderr = new GatedEmptyStream(gate);
-        var read = RawPageReader.ReadAsync(stdout, stderr, () => { }, 16);
+        var read = RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Token);
         gate.Set();
         await read;
 
@@ -285,7 +287,7 @@ public sealed class TestRawPageReader
 
     // showinfo's line at checksum=0, on jellyfin-ffmpeg 8.1.2.
     private static string Header(string pts, string size)
-        => $"[Parsed_showinfo_1 @ 0x1] n:   0 pts:{pts,7} pts_time:0       duration:    500 duration_time:0.5     fmt:yuv420p cl:left sar:1/1 s:{size} i:P iskey:1 type:I \n";
+        => $"[showinfo@{Token} @ 0x1] n:   0 pts:{pts,7} pts_time:0       duration:    500 duration_time:0.5     fmt:yuv420p cl:left sar:1/1 s:{size} i:P iskey:1 type:I \n";
 
     // Field 19 of proc(5), the 17th after the thread name, which may hold spaces.
     private static int Nice(string statPath)
@@ -357,7 +359,7 @@ public sealed class TestRawPageReader
         public bool Killed { get; private set; }
 
         public Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync()
-            => RawPageReader.ReadAsync(_stdout.Reader.AsStream(), _stderr.Reader.AsStream(), Kill, 16)
+            => RawPageReader.ReadAsync(_stdout.Reader.AsStream(), _stderr.Reader.AsStream(), Kill, 16, Token)
                 .WaitAsync(TimeSpan.FromSeconds(60));
 
         public void Log(string text) => Send(_stderr, Encoding.ASCII.GetBytes(text));

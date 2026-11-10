@@ -612,7 +612,7 @@ public sealed class TestCacheOperations
     {
         using var scope = new CachingPluginScope();
         using var ffmpeg = new FakeFfmpegScript(
-            "[Parsed_showinfo_1 @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n[Parsed_showinfo_1 @ 0x1] n:   0 pts:   1000 pts_time:1 fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n",
+            "[showinfo@TOKEN @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n[showinfo@TOKEN @ 0x1] n:   0 pts:   1000 pts_time:1 fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n",
             [.. Enumerable.Repeat((byte)16, 8), .. Enumerable.Repeat((byte)128, 4)]);
         var episode = FailedRunEpisode();
 
@@ -620,23 +620,6 @@ public sealed class TestCacheOperations
 
         Assert.Equal(1.0, Assert.Single(pages).Time);
         Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
-    }
-
-    /// <summary>
-    /// A progress update ends in a bare CR, so the frame header after it shares its line and the
-    /// reader, which looks for a header at the line start, loses the frame and fails the scan.
-    /// </summary>
-    [Fact]
-    public async Task ScanKeyframesAsync_AsksFfmpegForNoProgressUpdates()
-    {
-        using var scope = new CachingPluginScope();
-        using var ffmpeg = new FakeFfmpegScript(string.Empty, []);
-        var logger = new ScanLogger();
-
-        await scope.CreateFFmpegService(logger).ScanKeyframesAsync(FailedRunEpisode(), scope.Config);
-
-        var scan = Assert.Single(logger.Processes, process => process.Contains("-skip_frame", StringComparison.Ordinal));
-        Assert.Contains("-nostats", scan, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -894,8 +877,9 @@ public sealed class TestCacheOperations
     }
 
     // Stands in for ffmpeg in the scoped plugin, for the ways a real one fails that no file provokes.
-    // The codec probe finds no video stream. The scan run writes the log, then the frames, then
-    // exits 3, or first sleeps for 20 s when it hangs.
+    // The codec probe finds no video stream. The scan run writes the log, with TOKEN in it standing
+    // for the token of the showinfo@token in its arguments, then the frames, then exits 3, or first
+    // sleeps for 20 s when it hangs.
     private sealed class FakeFfmpegScript : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("IntroSkipper.Tests.");
@@ -910,11 +894,34 @@ public sealed class TestCacheOperations
             var script = Path.Join(_directory.FullName, OperatingSystem.IsWindows() ? "ffmpeg.cmd" : "ffmpeg");
             if (OperatingSystem.IsWindows())
             {
-                File.WriteAllLines(script, ["@echo off", "echo %* | findstr rawvideo >nul || exit /b 0", $"type \"{logPath}\" 1>&2", $"type \"{framesPath}\"", .. hangs ? ["ping -n 21 127.0.0.1 >nul"] : Array.Empty<string>(), "exit /b 3"]);
+                File.WriteAllLines(
+                    script,
+                    [
+                        "@echo off",
+                        "setlocal enabledelayedexpansion",
+                        "echo %* | findstr rawvideo >nul || exit /b 0",
+                        "set \"token=%*\"",
+                        "set \"token=!token:*showinfo@=!\"",
+                        "for /f \"delims==\" %%t in (\"!token!\") do set \"token=%%t\"",
+                        $"(for /f \"usebackq delims=\" %%l in (\"{logPath}\") do (set \"line=%%l\" & echo !line:TOKEN=%token%!)) 1>&2",
+                        $"type \"{framesPath}\"",
+                        .. hangs ? ["ping -n 21 127.0.0.1 >nul"] : Array.Empty<string>(),
+                        "exit /b 3",
+                    ]);
             }
             else
             {
-                File.WriteAllLines(script, ["#!/bin/sh", "case \"$*\" in *rawvideo*) ;; *) exit 0 ;; esac", $"cat '{logPath}' >&2", $"cat '{framesPath}'", .. hangs ? ["sleep 20"] : Array.Empty<string>(), "exit 3"]);
+                File.WriteAllLines(
+                    script,
+                    [
+                        "#!/bin/sh",
+                        "case \"$*\" in *rawvideo*) ;; *) exit 0 ;; esac",
+                        @"token=$(printf '%s' ""$*"" | sed 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/')",
+                        $"sed \"s/TOKEN/$token/g\" '{logPath}' >&2",
+                        $"cat '{framesPath}'",
+                        .. hangs ? ["sleep 20"] : Array.Empty<string>(),
+                        "exit 3",
+                    ]);
                 File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
 

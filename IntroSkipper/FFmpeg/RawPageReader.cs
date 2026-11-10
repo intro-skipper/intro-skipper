@@ -43,12 +43,13 @@ internal static partial class RawPageReader
     /// <param name="stderr">ffmpeg's log at info level.</param>
     /// <param name="kill">Kills ffmpeg, which ends both streams.</param>
     /// <param name="threshold">The luma under which a pixel counts as black.</param>
+    /// <param name="token">The name of the scan's showinfo instance, <c>showinfo@token</c>. Only lines carrying it count, so it must be one the file cannot know.</param>
     /// <returns>The pages read, and whether the log held one of <see cref="FFmpegService.SliceStructureErrors"/>. A run that fails on a frame boundary, a nonzero exit included, gives the pages read so far.</returns>
     /// <exception cref="InvalidDataException">The streams broke the protocol; ffmpeg has been killed.</exception>
-    public static async Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync(Stream stdout, Stream stderr, Action kill, int threshold)
+    public static async Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync(Stream stdout, Stream stderr, Action kill, int threshold, string token)
     {
         using var headers = new BlockingCollection<FrameHeader>();
-        var log = RunBelowNormal("IntroSkipper keyframe log", () => ReadLog(stderr, headers), kill);
+        var log = RunBelowNormal("IntroSkipper keyframe log", () => ReadLog(stderr, headers, Encoding.ASCII.GetBytes($"[showinfo@{token} @ ")), kill);
         var frames = RunBelowNormal("IntroSkipper keyframe pages", () => ReadFrames(stdout, headers, threshold), kill);
 
         // Both tasks end: a fault on either side kills ffmpeg, which closes the other stream.
@@ -161,7 +162,11 @@ internal static partial class RawPageReader
 
     // Turns log lines into frame headers. A Dolby Vision frame logs kilobytes of side data, so
     // lines are searched as bytes, and only a line with a header or time base becomes a string.
-    private static bool ReadLog(Stream stderr, BlockingCollection<FrameHeader> headers)
+    // A line counts from showinfo's log context on, the "[showinfo@token @ 0x...] " it prints its
+    // messages under, so a message from another thread that lands in front of it changes nothing.
+    // ffmpeg's input and output dumps print a file's tags raw, line feeds included, but no file
+    // knows the token.
+    private static bool ReadLog(Stream stderr, BlockingCollection<FrameHeader> headers, byte[] context)
     {
         var timeBase = 0.0;
         var reset = false;
@@ -206,13 +211,13 @@ internal static partial class RawPageReader
                 sliceStructureError |= line.IndexOf(error) >= 0;
             }
 
-            // Only a filter's or decoder's own message starts with its [context]. ffmpeg's input and
-            // output dumps do not, and they print a file's name and tags, which can read like anything.
-            if (line.IsEmpty || line[0] != (byte)'[')
+            var at = line.IndexOf(context);
+            if (at < 0)
             {
                 return;
             }
 
+            line = line[(at + context.Length)..];
             if (line.IndexOf("config in time_base:"u8) >= 0
                 && TimeBaseRegex().Match(Encoding.Latin1.GetString(line)) is { Success: true } match)
             {
@@ -239,8 +244,6 @@ internal static partial class RawPageReader
     [GeneratedRegex(@"config in time_base: (?<numerator>\d+)/(?<denominator>[1-9]\d*)")]
     private static partial Regex TimeBaseRegex();
 
-    // Anywhere in the line: a message from another thread that ends without a newline lands in
-    // front of showinfo's fields. Its later fields are the same message, so they stay together.
     [GeneratedRegex(@"n:\s*\d+ pts:\s*(?<pts>\S+) pts_time:.*?fmt:\S+ .*?s:(?<width>\d+)x(?<height>\d+) ")]
     private static partial Regex FrameRegex();
 
