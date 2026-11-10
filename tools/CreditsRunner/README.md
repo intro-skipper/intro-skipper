@@ -17,6 +17,7 @@ dotnet run --project tools/CreditsRunner -- diff --baseline before.json --candid
 - `--repeat 3` times three passes per file after an untimed pass that warms the page cache. Every pass starts with an empty detection cache. Credits mode only.
 - `--minimum-credits-duration 10` overrides that setting. Every other setting is the plugin default. Credits and credits-pass modes only.
 - `--ffmpeg /usr/lib/jellyfin-ffmpeg` puts that directory first on PATH.
+- `--hwaccel vaapi`, `nvenc`, `amf` or `qsv` turns on `UseHardwareDecoding` and hands the plugin the encoding options Jellyfin would hold with that hardware acceleration type and H.264 and HEVC decoded on hardware, so the scans pick their hwaccel through the production path (`docs/credits.md`, Hardware decode). `--hwaccel-device /dev/dri/renderD128` sets the VAAPI device and needs `--hwaccel vaapi`. As in Jellyfin, `vaapi` and `qsv` decode on hardware only on Linux, `qsv` through VAAPI on the Intel device, and `amf` only on Windows. A hardware run that fails and decodes again in software shows as one more ffmpeg process in its call.
 
 For the timing box, publish self-contained with `dotnet publish tools/CreditsRunner -c Release -r linux-x64 --self-contained -p:SkipWebBuild=true`.
 
@@ -63,7 +64,7 @@ The runner builds these plugin pieces directly, through `InternalsVisibleTo`. A 
 
 - `KeyframeAnalyzer`, its constructor and `DetectCreditsAsync(QueuedEpisode, CancellationToken)`
 - `CreditsCandidateCombiner.Combine`
-- `FFmpegService(ILogger<FFmpegService>, DetectionCacheService)`, plus the debug line `Starting ffmpeg with the following arguments` that `FFmpegProcessRunner` logs before each start, which the runner counts, and the warning `ffmpeg did not exit within` it logs when it kills a process at its timeout, which the runner counts per call
+- `FFmpegService`'s internal constructor and its `encodingOptions` argument, which the runner passes to choose hardware decode, plus the debug line `Starting ffmpeg with the following arguments` that `FFmpegProcessRunner` logs before each start, which the runner counts, and the warning `ffmpeg did not exit within` it logs when it kills a process at its timeout, which the runner counts per call
 - `FFmpegService.CheckFFmpegVersionAsync` and `GetCheckResult()`, run before each pass as the analysis pass runs them, since the check decides whether a season run runs Chromaprint; the results take the ffmpeg version from its output named `version`. A timeout during the check stops the run with exit code 2, since no recorded call would show it
 - `DetectionCacheService`, `DetectionCacheDatabase`, `DetectionCacheDbContext` and `SqlitePragmas.Configure`
 - `AttributedSegment` and `SegmentSource`, the candidates' shape

@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -17,6 +18,11 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Session;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -847,7 +853,481 @@ public sealed class TestCacheOperations
             frame => Assert.DoesNotContain("-thread_type", frame, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on Jellyfin's VAAPI device
+    /// when one is set and on the platform where Jellyfin decodes with it. The types the scans keep
+    /// in software, and VAAPI or AMF on another platform, add nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "linux", "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129")]
+    [InlineData(HardwareAccelerationType.vaapi, "", "linux", "-hwaccel vaapi")]
+    [InlineData(HardwareAccelerationType.nvenc, "/dev/dri/renderD129", "any", "-hwaccel cuda")]
+    [InlineData(HardwareAccelerationType.amf, "/dev/dri/renderD129", "windows", "-init_hw_device d3d11va=dx11:,vendor=0x1002 -hwaccel d3d11va")]
+    [InlineData(HardwareAccelerationType.none, "", "any", "")]
+    [InlineData(HardwareAccelerationType.qsv, "", "linux", "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi")]
+    [InlineData(HardwareAccelerationType.videotoolbox, "", "any", "")]
+    [InlineData(HardwareAccelerationType.rkmpp, "", "any", "")]
+    [InlineData(HardwareAccelerationType.v4l2m2m, "", "any", "")]
+    public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string vaapiDevice, string platform, string expected)
+    {
+        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = vaapiDevice };
+        var onPlatform = platform switch
+        {
+            "linux" => OperatingSystem.IsLinux(),
+            "windows" => OperatingSystem.IsWindows(),
+            _ => true,
+        };
+
+        Assert.Equal(onPlatform ? expected : string.Empty, string.Join(' ', FFmpegService.HardwareDecodeMethod(encoding)));
+    }
+
+    /// <summary>
+    /// QSV on Linux decodes through VAAPI on the device Jellyfin's default native path opens: the
+    /// render node when QsvDevice names an existing file, otherwise the vendor. With
+    /// PreferSystemNativeHwDecoder off, Jellyfin takes its QSV decoder path, which stays in software.
+    /// </summary>
+    [Theory]
+    [InlineData("existing", true, "-init_hw_device vaapi=va:{device},driver=iHD -hwaccel vaapi")]
+    [InlineData("missing", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi")]
+    [InlineData("existing", false, "")]
+    public void LinuxQsvMethod_MirrorsJellyfinsNativeDevice(string device, bool preferNative, string expected)
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            if (device == "missing")
+            {
+                File.Delete(path);
+            }
+
+            var encoding = new EncodingOptions { QsvDevice = path, PreferSystemNativeHwDecoder = preferNative };
+
+            Assert.Equal(expected.Replace("{device}", path, StringComparison.Ordinal), string.Join(' ', FFmpegService.LinuxQsvMethod(encoding)));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Only H.264 and HEVC in the measured 4:2:0 formats decode on hardware, and only while Jellyfin
+    /// decodes the codec on hardware for playback, and for 10-bit HEVC while it decodes 10-bit HEVC
+    /// there. Hi10P H.264, HEVC RExt and AV1 stay in software.
+    /// </summary>
+    [Theory]
+    [InlineData("h264", "yuv420p", "h264", true, true)]
+    [InlineData("h264", "yuvj420p", "h264", true, true)]
+    [InlineData("hevc", "yuv420p", "h264,hevc", true, true)]
+    [InlineData("hevc", "yuv420p", "h264", true, false)]
+    [InlineData("hevc", "yuv420p10le", "hevc", true, true)]
+    [InlineData("hevc", "yuv420p10le", "hevc", false, false)]
+    [InlineData("h264", "yuv420p10le", "h264", true, false)]
+    [InlineData("hevc", "yuv420p12le", "hevc", true, false)]
+    [InlineData("hevc", "yuv422p10le", "hevc", true, false)]
+    [InlineData("hevc", "yuv444p", "hevc", true, false)]
+    [InlineData("hevc", null, "hevc", true, false)]
+    [InlineData("av1", "yuv420p", "h264,hevc,av1", true, false)]
+    [InlineData(null, null, "h264,hevc", true, false)]
+    public void DecodesOnHardware_TakesOnlyTheMeasuredFormatsJellyfinDecodesOnHardware(string? codec, string? pixelFormat, string ticked, bool tenBitHevc, bool hardware)
+    {
+        var encoding = new EncodingOptions { HardwareDecodingCodecs = ticked.Split(','), EnableDecodingColorDepth10Hevc = tenBitHevc };
+
+        Assert.Equal(hardware, FFmpegService.DecodesOnHardware(encoding, codec is null ? null : new(codec, pixelFormat, null)));
+    }
+
+    /// <summary>
+    /// By default Jellyfin keeps these profiles in software whatever the pixel format, and the container tag
+    /// ffmpeg prints after the profile must not hide it. Stream lines as jellyfin-ffmpeg prints them.
+    /// </summary>
+    [Theory]
+    [InlineData("h264 (High 4:2:2), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:2:2) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:4:4 Predictive), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("h264 (High 4:4:4 Predictive) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", false)]
+    [InlineData("hevc (Rext), yuv420p10le(tv, bt709)", false)]
+    [InlineData("hevc (Rext) (hvc1 / 0x31637668), yuv420p10le(tv, bt709)", false)]
+    [InlineData("h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", true)]
+    [InlineData("h264 (avc1 / 0x31637661), yuv420p(tv, bt709, progressive)", true)]
+    [InlineData("hevc (Main 10) (hvc1 / 0x31637668), yuv420p10le(tv, bt709)", true)]
+    public void DecodesOnHardware_RefusesTheProfilesJellyfinKeepsInSoftware(string streamDescription, bool hardware)
+    {
+        var encoding = new EncodingOptions { HardwareDecodingCodecs = ["h264", "hevc"], EnableDecodingColorDepth10Hevc = true };
+        var codec = streamDescription[..4];
+        var stderr = $"""
+              Stream #0:0: Video: {streamDescription}, 1920x1080, 23.98 fps
+            Stream mapping:
+              Stream #0:0 -> #0:0 ({codec} (native) -> rawvideo (native))
+            """;
+
+        Assert.Equal(hardware, FFmpegService.DecodesOnHardware(encoding, FFmpegOutputParser.ParseMappedVideoStream(stderr)));
+    }
+
+    /// <summary>
+    /// The black interval probe starts on the hardware while the setting is on, here with neither
+    /// of Jellyfin's services, which passes both gates. The legacy
+    /// analyzer's black-frame and keyframe time scans, the cut decode and the silence scan stay in
+    /// software, and with the setting off every scan does. The fallback tests below cover the
+    /// keyframe and recap scans' hardware runs.
+    /// </summary>
+    [Theory]
+    [InlineData("intervals", true, true)]
+    [InlineData("legacy", true, false)]
+    [InlineData("keyframe times", true, false)]
+    [InlineData("cut", true, false)]
+    [InlineData("silence", true, false)]
+    [InlineData("keyframes", false, false)]
+    [InlineData("recap", false, false)]
+    [InlineData("intervals", false, false)]
+    public async Task Scans_DecodeOnHardwareOnlyWhereItApplies(string scan, bool enabled, bool hardware)
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = enabled;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
+        var episode = FailedRunEpisode();
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger, NvencEncoding());
+
+        await RunScan(service, scan, episode, scope.Config);
+
+        Assert.Equal(hardware, logger.Processes.Any(process => process.Contains("-hwaccel cuda -xerror ", StringComparison.Ordinal)));
+    }
+
+    public static TheoryData<string, string, bool> JellyfinGateCases()
+    {
+        var cases = new TheoryData<string, string, bool>();
+        foreach (var scan in new[] { "keyframes", "recap", "intervals" })
+        {
+            cases.Add(scan, "supported and idle", true);
+            cases.Add(scan, "unsupported", false);
+            cases.Add(scan, "video transcode", false);
+            cases.Add(scan, "video remux", true);
+            cases.Add(scan, "audio only transcode", true);
+            cases.Add(scan, "direct session", true);
+        }
+
+        return cases;
+    }
+
+    /// <summary>
+    /// All three scans start on hardware only while Jellyfin's ffmpeg has the hwaccel and no session
+    /// transcodes video. A closed gate decides before the codec probe, which the recap and interval
+    /// scans would run only to choose hardware.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(JellyfinGateCases))]
+    public async Task Scans_FollowJellyfinsHardwareGates(string scan, string situation, bool hardware)
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
+        var logger = new ScanLogger();
+        var encoder = FakeMediaEncoder.Create(situation == "unsupported" ? [] : ["cuda"]);
+        var sessions = situation switch
+        {
+            "video transcode" => FakeSessionManager.Create(null, new TranscodingInfo { IsVideoDirect = false, VideoCodec = "h264" }),
+            "video remux" => FakeSessionManager.Create(new TranscodingInfo { IsVideoDirect = true, VideoCodec = "h264", IsAudioDirect = false }),
+            "audio only transcode" => FakeSessionManager.Create(new TranscodingInfo { IsVideoDirect = false, VideoCodec = null, IsAudioDirect = false }),
+            "direct session" => FakeSessionManager.Create((TranscodingInfo?)null),
+            _ => FakeSessionManager.Create(),
+        };
+        var service = scope.CreateFFmpegService(logger, NvencEncoding(), encoder, sessions);
+
+        await RunScan(service, scan, FailedRunEpisode(), scope.Config);
+
+        Assert.Equal(hardware, logger.Processes.Any(process => process.Contains("-hwaccel cuda -xerror ", StringComparison.Ordinal)));
+        if (!hardware && scan != "keyframes")
+        {
+            Assert.DoesNotContain(logger.Processes, process => process.Contains("-frames:v 0", StringComparison.Ordinal));
+        }
+    }
+
+    public static TheoryData<HardwareAccelerationType, string> HwaccelsByType()
+    {
+        var cases = new TheoryData<HardwareAccelerationType, string> { { HardwareAccelerationType.nvenc, "cuda" } };
+        if (OperatingSystem.IsWindows())
+        {
+            cases.Add(HardwareAccelerationType.amf, "d3d11va");
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            cases.Add(HardwareAccelerationType.vaapi, "vaapi");
+            cases.Add(HardwareAccelerationType.qsv, "vaapi");
+        }
+
+        return cases;
+    }
+
+    /// <summary>
+    /// The support check names the hwaccel the method decodes with, which is vaapi for QSV on Linux
+    /// and d3d11va for AMF, not the acceleration type's own name.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(HwaccelsByType))]
+    public async Task HardwareGate_AsksForTheHwaccelTheMethodUses(HardwareAccelerationType type, string hwaccel)
+    {
+        string[] allHwaccels = ["cuda", "vaapi", "d3d11va", "qsv", "amf"];
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
+        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = string.Empty, HardwareDecodingCodecs = ["h264"] };
+
+        var withIt = new ScanLogger();
+        await scope.CreateFFmpegService(withIt, encoding, FakeMediaEncoder.Create([hwaccel])).DetectBlackFramesAsync(FailedRunEpisode(), new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+        var withoutIt = new ScanLogger();
+        await scope.CreateFFmpegService(withoutIt, encoding, FakeMediaEncoder.Create([.. allHwaccels.Where(name => name != hwaccel)])).DetectBlackFramesAsync(FailedRunEpisode(), new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+
+        Assert.Contains(withIt.Processes, process => process.Contains($"-hwaccel {hwaccel} -xerror ", StringComparison.Ordinal));
+        Assert.DoesNotContain(withoutIt.Processes, process => process.Contains("-hwaccel", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A recap or interval scan asks for the codec only to choose hardware, so a codec probe that
+    /// is cut at its cap or hangs past the scan timeout leaves it to run in software. It must not
+    /// fail the scan.
+    /// </summary>
+    [Theory]
+    [InlineData("recap", "cut")]
+    [InlineData("recap", "hangs")]
+    [InlineData("intervals", "cut")]
+    [InlineData("intervals", "hangs")]
+    public async Task Scans_RunInSoftwareWhenTheHardwareGatesCodecProbeFails(string scan, string failure)
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        scope.Config.ScanTimeoutSeconds = 2;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: failure == "cut" ? ProbePastTheCap : string.Empty, probeHangs: failure == "hangs");
+        var logger = new ScanLogger();
+
+        await RunScan(scope.CreateFFmpegService(logger, NvencEncoding()), scan, FailedRunEpisode(), scope.Config);
+
+        Assert.Single(logger.Processes, process => process.Contains("-frames:v 0", StringComparison.Ordinal));
+        var run = Assert.Single(logger.Processes, process => !process.Contains("-frames:v 0", StringComparison.Ordinal));
+        Assert.DoesNotContain("-hwaccel", run, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The keyframe scan needs the codec to read its pages at all, so with hardware decode on, a
+    /// codec probe cut at its cap still fails the scan, after one probe, and caches nothing.
+    /// </summary>
+    [Fact]
+    public async Task KeyframeScan_StillFailsWhenTheCodecProbeFailsUnderHardwareDecode()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(PageLog(1000), Frame, probe: ProbePastTheCap);
+        var episode = FailedRunEpisode();
+        var logger = new ScanLogger();
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => scope.CreateFFmpegService(logger, NvencEncoding()).ScanKeyframesAsync(episode, scope.Config));
+
+        Assert.Single(logger.Processes, process => process.Contains("-frames:v 0", StringComparison.Ordinal));
+        Assert.DoesNotContain(logger.Processes, process => process.Contains("rawvideo", StringComparison.Ordinal));
+        Assert.False(scope.CacheService.TryRead<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, out _));
+    }
+
+    /// <summary>
+    /// A hardware decode whose device cannot be opened exits before the first frame. The scan runs
+    /// again in software and caches the frames a software scan finds, not the failed run's empty
+    /// output. Linux only: no other platform takes the VAAPI method, and there the missing device
+    /// fails before any decode starts.
+    /// </summary>
+    [FactLinuxFFmpegTests]
+    public async Task RecapBlackFrameScan_FallsBackToSoftwareWhenTheDeviceIsMissing()
+    {
+        var range = new TimeRange(0, 4);
+        BlackFrame[] software;
+        using (var scope = new CachingPluginScope())
+        {
+            software = await scope.CreateFFmpegService().DetectBlackFramesAsync(FfmpegTestHelpers.QueueFile("video/credits.mp4"), range, 0, AnalysisMode.Recap, scope.Config);
+        }
+
+        using (var scope = new CachingPluginScope())
+        {
+            scope.Config.UseHardwareDecoding = true;
+            var episode = FfmpegTestHelpers.QueueFile("video/credits.mp4");
+            var logger = new ScanLogger();
+            var encoding = new EncodingOptions { HardwareAccelerationType = HardwareAccelerationType.vaapi, VaapiDevice = "/dev/dri/renderD199", HardwareDecodingCodecs = ["h264"] };
+            var service = scope.CreateFFmpegService(logger, encoding);
+
+            var hardware = await service.DetectBlackFramesAsync(episode, range, 0, AnalysisMode.Recap, scope.Config);
+            var before = logger.Processes.Count;
+            var cached = await service.DetectBlackFramesAsync(episode, range, 0, AnalysisMode.Recap, scope.Config);
+
+            Assert.Equal(software, hardware);
+            Assert.Equal(software, cached);
+            Assert.Equal(before, logger.Processes.Count);
+            Assert.Collection(
+                logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
+                first => Assert.Contains("-hwaccel vaapi -hwaccel_device /dev/dri/renderD199", first, StringComparison.Ordinal),
+                retry => Assert.DoesNotContain("-hwaccel", retry, StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// With the setting on but no hardware method under Jellyfin's acceleration type, a recap scan
+    /// starts no codec probe: only the scan itself runs.
+    /// </summary>
+    [Fact]
+    public async Task RecapBlackFrameScan_ProbesNothingWithoutAHardwareMethod()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
+        var logger = new ScanLogger();
+        var videoToolbox = new EncodingOptions { HardwareAccelerationType = HardwareAccelerationType.videotoolbox, HardwareDecodingCodecs = ["h264"] };
+
+        await scope.CreateFFmpegService(logger, videoToolbox).DetectBlackFramesAsync(FailedRunEpisode(), new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+
+        Assert.Contains("blackframe", Assert.Single(logger.Processes), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A hardware run that exits 0 is the scan: its page is used and cached, and no software run
+    /// starts.
+    /// </summary>
+    [Fact]
+    public async Task KeyframeScan_UsesAndCachesASuccessfulHardwareRun()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(PageLog(1000), Frame, probe: ProbeLog("h264", "yuv420p"), hardwareLog: PageLog(2000), hardwareFrames: Frame, hardwareExitCode: 0);
+        var episode = FailedRunEpisode();
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger, NvencEncoding());
+
+        var pages = await service.ScanKeyframesAsync(episode, scope.Config);
+        var cached = await service.ScanKeyframesAsync(episode, scope.Config);
+
+        Assert.Equal(2.0, Assert.Single(pages).Time);
+        Assert.Equal(pages, cached);
+        Assert.Contains("-hwaccel cuda -xerror ", Assert.Single(logger.Processes, process => process.Contains("rawvideo", StringComparison.Ordinal)), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A hardware run that exits nonzero, hangs past the scan timeout, or exits 0 after ending a
+    /// frame early, is thrown away with the page it wrote, and the scan decodes once more in
+    /// software. Only the software page is cached, so the second scan reads it without starting
+    /// ffmpeg.
+    /// </summary>
+    [Theory]
+    [InlineData("exits 1")]
+    [InlineData("hangs")]
+    [InlineData("ends a frame early")]
+    public async Task KeyframeScan_DecodesInSoftwareAfterAFailedHardwareRun(string failure)
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        scope.Config.ScanTimeoutSeconds = 2;
+        using var ffmpeg = new FakeFfmpegScript(
+            PageLog(1000),
+            Frame,
+            probe: ProbeLog("h264", "yuv420p"),
+            hardwareLog: PageLog(2000),
+            hardwareFrames: failure == "ends a frame early" ? Frame[..6] : Frame,
+            hardwareHangs: failure == "hangs",
+            hardwareExitCode: failure == "ends a frame early" ? 0 : 1);
+        var episode = FailedRunEpisode();
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger, NvencEncoding());
+
+        var pages = await service.ScanKeyframesAsync(episode, scope.Config);
+        var cached = await service.ScanKeyframesAsync(episode, scope.Config);
+
+        Assert.Equal(1.0, Assert.Single(pages).Time);
+        Assert.Equal(pages, cached);
+        Assert.Collection(
+            logger.Processes.Where(process => process.Contains("rawvideo", StringComparison.Ordinal)),
+            hardware => Assert.Contains("-hwaccel cuda -xerror ", hardware, StringComparison.Ordinal),
+            software => Assert.DoesNotContain("-hwaccel", software, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The recap black-frame scan follows the same rule: the frame of the failed hardware run is
+    /// dropped, and the software run's frame is used and cached even though it exits nonzero.
+    /// </summary>
+    [Fact]
+    public async Task RecapBlackFrameScan_DecodesInSoftwareAfterAFailedHardwareRun()
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(BlackFrameLog("1.000000"), [], probe: ProbeLog("hevc", "yuv420p"), hardwareLog: BlackFrameLog("2.000000"));
+        var episode = FailedRunEpisode();
+        var logger = new ScanLogger();
+        var service = scope.CreateFFmpegService(logger, NvencEncoding());
+
+        var frames = await service.DetectBlackFramesAsync(episode, new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+        var cached = await service.DetectBlackFramesAsync(episode, new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+
+        Assert.Equal(1.0, Assert.Single(frames).Time);
+        Assert.Equal(frames, cached);
+        Assert.Collection(
+            logger.Processes.Where(process => process.Contains("blackframe", StringComparison.Ordinal)),
+            hardware => Assert.Contains("-hwaccel cuda -xerror ", hardware, StringComparison.Ordinal),
+            software => Assert.DoesNotContain("-hwaccel", software, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Hardware returns a 10-bit 4:2:0 frame as p010, which a plain conversion to yuv420p dithers
+    /// unlike software's yuv420p10le, so a hardware run on such a source converts through
+    /// yuv420p10le first. Other sources, and every software run, convert directly.
+    /// </summary>
+    [Theory]
+    [InlineData("yuv420p10le", "-vf format=yuv420p10le,format=yuv420p,showinfo")]
+    [InlineData("yuv420p", "-vf format=yuv420p,showinfo")]
+    public async Task KeyframeScan_ConvertsA10BitHardwareFrameThrough10BitFirst(string pixelFormat, string hardwareFilters)
+    {
+        using var scope = new CachingPluginScope();
+        scope.Config.UseHardwareDecoding = true;
+        using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("hevc", pixelFormat));
+        var logger = new ScanLogger();
+
+        await scope.CreateFFmpegService(logger, NvencEncoding()).ScanKeyframesAsync(FailedRunEpisode(), scope.Config);
+
+        Assert.Collection(
+            logger.Processes.Where(process => process.Contains("rawvideo", StringComparison.Ordinal)),
+            hardware => Assert.Contains(hardwareFilters, hardware, StringComparison.Ordinal),
+            software => Assert.Contains("-vf format=yuv420p,showinfo", software, StringComparison.Ordinal));
+    }
+
     private static QueuedEpisode FailedRunEpisode() => new() { EpisodeId = Guid.NewGuid(), Path = "episode.mkv", Duration = 330, CreditsFingerprintStart = 5, CreditsFingerprintEnd = 35 };
+
+    private static Task RunScan(FFmpegService service, string scan, QueuedEpisode episode, PluginConfiguration config) => scan switch
+    {
+        "keyframes" => service.ScanKeyframesAsync(episode, config),
+        "recap" => service.DetectBlackFramesAsync(episode, new TimeRange(0, 30), 0, AnalysisMode.Recap, config),
+        "intervals" => service.DetectBlackIntervalsAsync(episode, new TimeRange(5, 35), 85, config),
+        "legacy" => service.DetectBlackFramesAsync(episode, new TimeRange(5, 35), 85, AnalysisMode.Credits, config),
+        "keyframe times" => service.DetectKeyFramesAsync(episode, new TimeRange(5, 35), AnalysisMode.Credits, config),
+        "cut" => service.DecodeCutWindowAsync(episode, new TimeRange(5, 10)),
+        _ => service.DetectSilenceAsync(episode, new TimeRange(0, 30), AnalysisMode.Introduction, config),
+    };
+
+    // Past the probe's 1 MiB capture, with no stream mapping before the cut.
+    private static string ProbePastTheCap => string.Concat(Enumerable.Repeat(new string('x', 99) + "\n", 12000));
+
+    // A server whose playback decodes H.264 and HEVC through NVENC, which scans take as CUDA on
+    // every platform the tests run on. The fake ffmpeg below only reads the arguments, so no test
+    // decodes on a GPU.
+    private static EncodingOptions NvencEncoding() => new() { HardwareAccelerationType = HardwareAccelerationType.nvenc, HardwareDecodingCodecs = ["h264", "hevc"] };
+
+    // The input dump and stream mapping of the codec probe on a file with one video stream.
+    private static string ProbeLog(string codec, string pixelFormat) => $"""
+        Input #0, matroska,webm, from 'episode.mkv':
+          Stream #0:0: Video: {codec} (Main), {pixelFormat}(tv, progressive), 4x2, 25 fps, 25 tbr, 1k tbn
+        Stream mapping:
+          Stream #0:0 -> #0:0 ({codec} (native) -> wrapped_avframe (native))
+
+        """;
+
+    // The showinfo header of one 4x2 keyframe at pts milliseconds, and the frame it announces.
+    private static string PageLog(int pts) => $"[showinfo@TOKEN @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n[showinfo@TOKEN @ 0x1] n:   0 pts:   {pts} pts_time:{pts / 1000} fmt:yuv420p cl:left sar:1/1 s:4x2 i:P iskey:1 type:I \n";
+
+    private static byte[] Frame => [.. Enumerable.Repeat((byte)16, 8), .. Enumerable.Repeat((byte)128, 4)];
+
+    // blackframe's line for one black frame at time t.
+    private static string BlackFrameLog(string time) => $"[Parsed_blackframe_0 @ 0x1] frame:0 pblack:100 pts:1 t:{time} type:I last_keyframe:0\n";
 
     // A 6 s VP9 mkv with a keyframe every 2 s and tagCount global tags of 100 bytes each.
     private static async Task<string> CreateTaggedVp9Async(int tagCount)
@@ -877,51 +1357,52 @@ public sealed class TestCacheOperations
     }
 
     // Stands in for ffmpeg in the scoped plugin, for the ways a real one fails that no file provokes.
-    // The codec probe finds no video stream. The scan run writes the log, with TOKEN in it standing
-    // for the token of the showinfo@token in its arguments, then the frames, then exits 3, or first
-    // sleeps for 20 s when it hangs.
+    // The codec probe logs probe, which by default names no video stream, and exits 0, or first
+    // sleeps for 20 s when probeHangs. A hardware run writes hardwareLog and hardwareFrames, then
+    // exits hardwareExitCode, or first sleeps for 20 s when hardwareHangs. Any other run writes the
+    // log, then the frames, then exits 3, or first sleeps for 20 s when it hangs. TOKEN in a log
+    // stands for the token of the showinfo@token in the run's arguments.
     private sealed class FakeFfmpegScript : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("IntroSkipper.Tests.");
 
-        public FakeFfmpegScript(string log, byte[] frames, bool hangs = false)
+        public FakeFfmpegScript(string log, byte[] frames, bool hangs = false, string probe = "", string hardwareLog = "", byte[]? hardwareFrames = null, bool hardwareHangs = false, int hardwareExitCode = 1, bool probeHangs = false)
         {
-            var logPath = Path.Join(_directory.FullName, "log");
-            var framesPath = Path.Join(_directory.FullName, "frames");
-            File.WriteAllText(logPath, log);
-            File.WriteAllBytes(framesPath, frames);
+            var logPath = Write("log", log);
+            var framesPath = Write("frames", frames);
+            var probePath = Write("probe", probe);
+            var hardwareLogPath = Write("hardware-log", hardwareLog);
+            var hardwareFramesPath = Write("hardware-frames", hardwareFrames ?? []);
 
             var script = Path.Join(_directory.FullName, OperatingSystem.IsWindows() ? "ffmpeg.cmd" : "ffmpeg");
             if (OperatingSystem.IsWindows())
             {
-                File.WriteAllLines(
-                    script,
-                    [
-                        "@echo off",
-                        "setlocal enabledelayedexpansion",
-                        "echo %* | findstr rawvideo >nul || exit /b 0",
-                        "set \"token=%*\"",
-                        "set \"token=!token:*showinfo@=!\"",
-                        "for /f \"delims==\" %%t in (\"!token!\") do set \"token=%%t\"",
-                        $"(for /f \"usebackq delims=\" %%l in (\"{logPath}\") do (set \"line=%%l\" & echo !line:TOKEN=%token%!)) 1>&2",
-                        $"type \"{framesPath}\"",
-                        .. hangs ? ["ping -n 21 127.0.0.1 >nul"] : Array.Empty<string>(),
-                        "exit /b 3",
-                    ]);
+                const string Sleep = "ping -n 21 127.0.0.1 >nul";
+                static string Log(string path) => $"(for /f \"usebackq delims=\" %%l in (\"{path}\") do (set \"line=%%l\" & echo !line:TOKEN=%token%!)) 1>&2";
+                File.WriteAllLines(script, [
+                    "@echo off",
+                    "setlocal enabledelayedexpansion",
+                    $"echo %* | findstr /c:\"-frames:v 0\" >nul && (type \"{probePath}\" 1>&2 {(probeHangs ? "& " + Sleep + " " : string.Empty)}& exit /b 0)",
+                    "set \"token=%*\"",
+                    "set \"token=!token:*showinfo@=!\"",
+                    "for /f \"delims==\" %%t in (\"!token!\") do set \"token=%%t\"",
+                    $"echo %* | findstr /c:\"-hwaccel\" >nul && ({Log(hardwareLogPath)} & type \"{hardwareFramesPath}\" {(hardwareHangs ? "& " + Sleep + " " : string.Empty)}& exit /b {hardwareExitCode})",
+                    Log(logPath),
+                    $"type \"{framesPath}\"",
+                    .. hangs ? [Sleep] : Array.Empty<string>(),
+                    "exit /b 3"]);
             }
             else
             {
-                File.WriteAllLines(
-                    script,
-                    [
-                        "#!/bin/sh",
-                        "case \"$*\" in *rawvideo*) ;; *) exit 0 ;; esac",
-                        @"token=$(printf '%s' ""$*"" | sed 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/')",
-                        $"sed \"s/TOKEN/$token/g\" '{logPath}' >&2",
-                        $"cat '{framesPath}'",
-                        .. hangs ? ["sleep 20"] : Array.Empty<string>(),
-                        "exit 3",
-                    ]);
+                File.WriteAllLines(script, [
+                    "#!/bin/sh",
+                    $"case \"$*\" in *-frames:v*) cat '{probePath}' >&2; {(probeHangs ? "sleep 20; " : string.Empty)}exit 0 ;; esac",
+                    @"token=$(printf '%s' ""$*"" | sed -n 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/p')",
+                    $"case \"$*\" in *-hwaccel*) sed \"s/TOKEN/$token/g\" '{hardwareLogPath}' >&2; cat '{hardwareFramesPath}'; {(hardwareHangs ? "sleep 20; " : string.Empty)}exit {hardwareExitCode} ;; esac",
+                    $"sed \"s/TOKEN/$token/g\" '{logPath}' >&2",
+                    $"cat '{framesPath}'",
+                    .. hangs ? ["sleep 20"] : Array.Empty<string>(),
+                    "exit 3"]);
                 File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             }
 
@@ -929,6 +1410,20 @@ public sealed class TestCacheOperations
         }
 
         public void Dispose() => _directory.Delete(recursive: true);
+
+        private string Write(string name, string text)
+        {
+            var path = Path.Join(_directory.FullName, name);
+            File.WriteAllText(path, text);
+            return path;
+        }
+
+        private string Write(string name, byte[] bytes)
+        {
+            var path = Path.Join(_directory.FullName, name);
+            File.WriteAllBytes(path, bytes);
+            return path;
+        }
     }
 
     // Records the detection scans FFmpegService logs, and the processes its runner starts.
@@ -962,6 +1457,43 @@ public sealed class TestCacheOperations
         }
     }
 
+    // Jellyfin's ffmpeg support list, for the hardware gate. Only SupportsHwaccel is called.
+    private class FakeMediaEncoder : DispatchProxy
+    {
+        private string[] _supported = [];
+
+        public static IMediaEncoder Create(string[] supported)
+        {
+            var proxy = Create<IMediaEncoder, FakeMediaEncoder>();
+            ((FakeMediaEncoder)(object)proxy)._supported = supported;
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == nameof(IMediaEncoder.SupportsHwaccel)
+                ? _supported.Contains((string)args![0]!)
+                : throw new NotImplementedException(targetMethod?.Name);
+    }
+
+    // One session per transcoding info given, null being a session that plays directly. Only
+    // Sessions is read.
+    private class FakeSessionManager : DispatchProxy
+    {
+        private SessionInfo[] _sessions = [];
+
+        public static ISessionManager Create(params TranscodingInfo?[] transcodes)
+        {
+            var proxy = Create<ISessionManager, FakeSessionManager>();
+            ((FakeSessionManager)(object)proxy)._sessions = [.. transcodes.Select(transcode => new SessionInfo(proxy, NullLogger.Instance) { TranscodingInfo = transcode! })];
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+            => targetMethod?.Name == $"get_{nameof(ISessionManager.Sessions)}"
+                ? _sessions
+                : throw new NotImplementedException(targetMethod?.Name);
+    }
+
     /// <summary>
     /// A plugin instance with fingerprint caching enabled over a fresh cache database,
     /// plus the cache facade and service the ffmpeg service reads through.
@@ -986,7 +1518,8 @@ public sealed class TestCacheOperations
 
         public string CacheDbPath => _inner.CacheDbPath;
 
-        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null) => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService);
+        public FFmpegService CreateFFmpegService(ILogger<FFmpegService>? logger = null, EncodingOptions? encoding = null, IMediaEncoder? mediaEncoder = null, ISessionManager? sessionManager = null)
+            => new(logger ?? NullLogger<FFmpegService>.Instance, CacheService, null, null, encoding is null ? null : () => encoding, mediaEncoder, sessionManager);
 
         /// <summary>
         /// The hash a release without audio stream selection wrote on this configuration's

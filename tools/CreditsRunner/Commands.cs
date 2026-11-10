@@ -5,6 +5,8 @@ using System.Globalization;
 using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 
 namespace CreditsRunner;
 
@@ -16,7 +18,7 @@ internal static class Commands
 {
     public static async Task<int> RunAsync(IReadOnlyList<string> args, TextWriter output, CancellationToken cancellationToken)
     {
-        var options = Options.Parse(args, ["manifest", "out", "repeat", "minimum-credits-duration", "ffmpeg", "mode"], ["no-chapters"]);
+        var options = Options.Parse(args, ["manifest", "out", "repeat", "minimum-credits-duration", "ffmpeg", "mode", "hwaccel", "hwaccel-device"], ["no-chapters"]);
         var manifestPath = Path.GetFullPath(options.Required("manifest"));
         var outPath = Path.GetFullPath(options.Required("out"));
         var repeats = options.Int("repeat") ?? 1;
@@ -57,6 +59,32 @@ internal static class Commands
             config.MinimumCreditsDuration = minimumDuration;
         }
 
+        // Stands in for Jellyfin's playback settings, which the plugin reads its hardware decode from.
+        EncodingOptions? encoding = null;
+        if (options.Optional("hwaccel") is { } hwaccel)
+        {
+            encoding = new EncodingOptions
+            {
+                HardwareAccelerationType = hwaccel switch
+                {
+                    "vaapi" => HardwareAccelerationType.vaapi,
+                    "nvenc" => HardwareAccelerationType.nvenc,
+                    "amf" => HardwareAccelerationType.amf,
+                    "qsv" => HardwareAccelerationType.qsv,
+                    var other => throw new ArgumentException($"--hwaccel must be vaapi, nvenc, amf or qsv, got '{other}'"),
+                },
+                VaapiDevice = options.Optional("hwaccel-device") ?? string.Empty,
+                HardwareDecodingCodecs = ["h264", "hevc"],
+            };
+            config.UseHardwareDecoding = true;
+        }
+
+        // The runner sets a device only for VAAPI.
+        if (options.Optional("hwaccel-device") is not null && encoding?.HardwareAccelerationType != HardwareAccelerationType.vaapi)
+        {
+            throw new ArgumentException("--hwaccel-device needs --hwaccel vaapi");
+        }
+
         // A missing file would scan as a file without credits, so the run refuses it, as the
         // analysis pass skips it. Ids key the labels and the diff, so each must be unique.
         var directory = Path.GetDirectoryName(manifestPath)!;
@@ -92,7 +120,7 @@ internal static class Commands
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-        var results = await new Runner(config, repeats, output, mode, noChapters).RunAsync(files, cancellationToken).ConfigureAwait(false);
+        var results = await new Runner(config, repeats, output, mode, noChapters, encoding).RunAsync(files, cancellationToken).ConfigureAwait(false);
         Json.Write(outPath, results);
         return 0;
     }

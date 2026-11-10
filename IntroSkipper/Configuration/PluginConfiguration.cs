@@ -681,6 +681,15 @@ public class PluginConfiguration : BasePluginConfiguration
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the keyframe scan, the recap black-frame scan and
+    /// the black interval probe decode H.264 and HEVC on the hardware Jellyfin's playback uses, in
+    /// the pixel formats measured to decode the same there (<c>FFmpegService.DecodesOnHardware</c>).
+    /// They follow Jellyfin's hardware settings and stay in software while a video transcode runs.
+    /// Not hashed: in those formats VAAPI and D3D11VA matched software's pages and frames, apart from the differences docs/credits.md accepts.
+    /// </summary>
+    public bool UseHardwareDecoding { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether to use the File Transformation plugin if available.
     /// </summary>
     public bool UseFileTransformationPlugin { get; set; }

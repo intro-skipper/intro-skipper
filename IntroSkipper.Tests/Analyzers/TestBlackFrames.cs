@@ -127,7 +127,7 @@ public class TestBlackFrames
     [Theory]
     [InlineData("\n")]
     [InlineData("\r\n")]
-    public void ParseMappedVideoCodec_ReadsTheMappingBlockNotATagThatRepeatsIt(string newLine)
+    public void ParseMappedVideoStream_ReadsTheMappingBlockNotATagThatRepeatsIt(string newLine)
     {
         var stderr = """
             Input #0, matroska,webm, from 'episode.mkv':
@@ -147,11 +147,11 @@ public class TestBlackFrames
                                 :   Stream #0:1 -> #0:0 (vp9 (native) -> wrapped_avframe (native))
             """.ReplaceLineEndings(newLine);
 
-        Assert.Equal("h264", FFmpegOutputParser.ParseMappedVideoCodec(stderr));
+        Assert.Equal(new("h264", "yuv420p", "(High)"), FFmpegOutputParser.ParseMappedVideoStream(stderr));
     }
 
     [Fact]
-    public void ParseMappedVideoCodec_ReturnsNullWithoutAMappingBlock()
+    public void ParseMappedVideoStream_ReturnsNullWithoutAMappingBlock()
     {
         // A file without a video stream: ffmpeg maps nothing and prints no block.
         const string Stderr = """
@@ -162,7 +162,25 @@ public class TestBlackFrames
             Error opening output file -.
             """;
 
-        Assert.Null(FFmpegOutputParser.ParseMappedVideoCodec(Stderr));
+        Assert.Null(FFmpegOutputParser.ParseMappedVideoStream(Stderr));
+    }
+
+    /// <summary>
+    /// The pixel format comes from the stream the mapping names, not the first video stream of
+    /// the input dump, which here is 8-bit cover art in front of a 10-bit episode.
+    /// </summary>
+    [Fact]
+    public void ParseMappedVideoStream_ReadsThePixelFormatOfTheMappedStream()
+    {
+        const string Stderr = """
+            Input #0, matroska,webm, from 'episode.mkv':
+              Stream #0:0: Video: mjpeg (Baseline), yuvj420p(pc, bt470bg/unknown/unknown), 600x600, 90k tbr, 90k tbn (attached pic)
+              Stream #0:1(eng): Video: hevc (Main 10) (hvc1 / 0x31637668), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)
+            Stream mapping:
+              Stream #0:1 -> #0:0 (hevc (native) -> wrapped_avframe (native))
+            """;
+
+        Assert.Equal(new("hevc", "yuv420p10le", "(Main 10) (hvc1 / 0x31637668)"), FFmpegOutputParser.ParseMappedVideoStream(Stderr));
     }
 
     [FactSkipFFmpegTests]
