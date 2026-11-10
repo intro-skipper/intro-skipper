@@ -109,6 +109,12 @@ internal static class EntrypointTestHelpers
     }
 
     /// <summary>
+    /// Sends the scoped plugin instance's ffmpeg runs to the given executable.
+    /// </summary>
+    internal static void UseFFmpegAt(string path)
+        => SetPrivateField(Plugin.Instance!, "_serverConfiguration", ServerConfigurationProxy.Create(new ServerConfiguration(), path));
+
+    /// <summary>
     /// Scopes a plugin instance carrying the given configuration whose chapter repository
     /// answers with the given chapters for every item.
     /// </summary>
@@ -201,16 +207,18 @@ internal static class EntrypointTestHelpers
 
     // IServerConfigurationManager stub that answers the given configuration, application
     // paths whose internal metadata folder is InternalMetadataRoot, and the "encoding"
-    // configuration as default EncodingOptions, whose null ffmpeg path sends ffmpeg to PATH.
+    // configuration as EncodingOptions, whose ffmpeg path is null by default, which sends ffmpeg to PATH.
     // Anything else throws.
     private class ServerConfigurationProxy : DispatchProxy
     {
         private ServerConfiguration _configuration = new();
+        private string? _ffmpegPath;
 
-        public static IServerConfigurationManager Create(ServerConfiguration configuration)
+        public static IServerConfigurationManager Create(ServerConfiguration configuration, string? ffmpegPath = null)
         {
             var proxy = Create<IServerConfigurationManager, ServerConfigurationProxy>();
             ((ServerConfigurationProxy)(object)proxy)._configuration = configuration;
+            ((ServerConfigurationProxy)(object)proxy)._ffmpegPath = ffmpegPath;
             return proxy;
         }
 
@@ -218,7 +226,7 @@ internal static class EntrypointTestHelpers
         {
             "get_" + nameof(IServerConfigurationManager.Configuration) => _configuration,
             "get_" + nameof(IServerConfigurationManager.ApplicationPaths) => ApplicationPathsProxy.Create(),
-            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => new EncodingOptions(),
+            nameof(IConfigurationManager.GetConfiguration) when args is ["encoding"] => new EncodingOptions { EncoderAppPathDisplay = _ffmpegPath },
             _ => throw new NotImplementedException(targetMethod?.Name),
         };
     }

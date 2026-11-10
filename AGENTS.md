@@ -49,7 +49,7 @@ Put a test in the folder matching the plugin code it covers. Reuse the shared se
 - `TempSegmentDb`, `TempCacheDb` (temp-file segment and detection-cache databases, deleted on dispose), `DatabaseTestHelpers` (facades over temp-file SQLite), `TempJellyfinDb` (real `JellyfinDbContext` over temp SQLite)
 - `SegmentChangeHarness` (production segment-change composition over a temp DB and a fake store), `SegmentSeeding` (seeds user state through `ApplyChangeAsync`), `EntrypointTestHelpers` (entrypoint over fresh databases)
 - `FakeJellyfinSegmentStore` (records calls, can throw or park), `FakeMirrorPolicy` (settable policy with a toggle event), `StubFFmpegService` (counting `IFFmpegService` with per-member hooks), `ChapterManagerStub` (fixed chapter list), `JellyfinItems` (library items shaped for the season resolver, `WithParents` adds the series and seasons the episodes name)
-- `FfmpegTestHelpers` (real ffmpeg over the fixture media), `LegacySchemaFixtures` (pre-v2 rows for importer tests)
+- `FfmpegTestHelpers` (real ffmpeg over the fixture media), `KeyframeFilterOracle` (pages from ffmpeg's blackframe and signalstats filters, for pinning the C# page facts), `LegacySchemaFixtures` (pre-v2 rows for importer tests)
 
 Test parallelization is disabled assembly-wide, so tests may share `Plugin.Instance`.
 </important>

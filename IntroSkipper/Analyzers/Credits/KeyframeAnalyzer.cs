@@ -34,9 +34,9 @@ namespace IntroSkipper.Analyzers.Credits;
 /// Every visually verified scene whose range meets the minimum duration is a black-frame candidate,
 /// so credits split by a mid-credits scene come out as separate parts. So is every scene after the
 /// last verified one that meets it. Those scenes have no visual evidence because the scan reads black
-/// frames to the end of the file but keeps visuals only inside the credits window, so they lie past a
+/// frames to the end of the file but its pages have visuals only inside the credits window, so they lie past a
 /// window that ends early. A scene without visual evidence before a verified one is not a candidate.
-/// With no verified scene, as on an ffmpeg without signalstats, only the latest scene that meets the
+/// With no verified scene, only the latest scene that meets the
 /// minimum duration is a candidate. The card run is found over each
 /// page's card kind, which the analyzer sets from the black scenes those rules accepted and rejected.
 /// Once they accept any scene, a black keyframe counts toward a card run only inside one (see
@@ -81,8 +81,6 @@ internal sealed partial class KeyframeAnalyzer(
     /// <returns>Black-frame candidates under <see cref="SegmentSource.BlackFrame"/>, one for each scene whose range from its start before the cut start to its roll end meets the minimum duration among the visually verified scenes and the scenes after the last of them, or for only the latest such scene when none is verified, and at most one card run under <see cref="SegmentSource.KeyframeVisuals"/>. Failures of the keyframe scan propagate to the credits pass, which drops the keyframe candidates; a failed interval probe or cut decode is logged and falls back.</returns>
     internal async Task<IReadOnlyList<AttributedSegment>> DetectCreditsAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        // On an ffmpeg without signalstats no page has a visual, which leaves the gates on black
-        // keyframes inert.
         var pages = await _ffmpegService.ScanKeyframesAsync(episode, _config, cancellationToken).ConfigureAwait(false);
 
         if (pages.Length == 0)
@@ -101,7 +99,7 @@ internal sealed partial class KeyframeAnalyzer(
             {
                 // The run starts on one of the pages, so its first page is found by time.
                 var start = _config.RefineCreditsBoundary
-                    ? await CutStartAsync(episode, pages, Array.FindIndex(pages, page => page.Frame.Time == range.Start), cancellationToken).ConfigureAwait(false)
+                    ? await CutStartAsync(episode, pages, Array.FindIndex(pages, page => page.Time == range.Start), cancellationToken).ConfigureAwait(false)
                     : range.Start;
                 candidates.Add(new AttributedSegment(
                     new Segment(episode.EpisodeId, new TimeRange(start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart)),
@@ -153,13 +151,12 @@ internal sealed partial class KeyframeAnalyzer(
         List<CardPage> kinds = [];
         for (var i = 0; i < scan.Pages.Count; i++)
         {
-            var (frame, visual) = scan.Pages[i];
+            var (time, _, visual) = scan.Pages[i];
             if (visual is null)
             {
                 continue;
             }
 
-            var time = frame.Time;
             var black = scan.IsBlack(i);
             var cardLike = visual.IsCardLike();
             var kind = visual.IsSolidWhite() || (black && rejected.Any(range => KeyframeScan.InScene(range.Start, range.End, time))) ? CardKind.Content
@@ -304,25 +301,25 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
-        var firstPage = scenePages[0].Page.Frame;
+        var firstPage = scenePages[0].Page;
         var lastLeadInTime = scene.StartTime;
         for (var k = 0; k < scenePages.Count; k++)
         {
-            var (index, (frame, visual)) = scenePages[k];
+            var (index, (time, _, visual)) = scenePages[k];
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
                 List<KeyframeVisual> rest = [.. scenePages.Skip(k).Select(page => page.Page.Visual).OfType<KeyframeVisual>()];
                 if (rest.Count(page => IsDarkPicture(page, blackLevel)) * 2 > rest.Count)
                 {
-                    return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Page.Frame.Time));
+                    return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Page.Time));
                 }
 
                 return k == 0
                     ? (scene, null)
-                    : (new CreditScene(index, scene.EndIndex, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
+                    : (new CreditScene(index, scene.EndIndex, time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
             }
 
-            lastLeadInTime = frame.Time;
+            lastLeadInTime = time;
         }
 
         return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
@@ -343,7 +340,7 @@ internal sealed partial class KeyframeAnalyzer(
         var page = pages[index];
         if (CutStart.Window(pages, index) is not { } gap || page.Visual is not { } visual)
         {
-            return page.Frame.Time;
+            return page.Time;
         }
 
         var offset = episode.CreditsFingerprintStart;
@@ -361,7 +358,7 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         LogCutStart(episode.Name, window.Start, window.End, start ?? window.End);
-        return start is { } cut ? cut - offset : page.Frame.Time;
+        return start is { } cut ? cut - offset : page.Time;
     }
 
     // Dim content on a black keyframe: a background above the scene's black level, or a 90th
@@ -408,8 +405,7 @@ internal sealed partial class KeyframeAnalyzer(
     // Where an accepted scene ends: at the last of the pages after its last black keyframe that are
     // black or roll pages, walked page by page from that keyframe. The walk starts at the end index,
     // not the end time, which for an interval-supported scene can lie past its last black
-    // keyframe. A page without a visual stops it, so it never leaves the credits window and is
-    // inert on an ffmpeg without signalstats.
+    // keyframe. A page without a visual stops it, so it never leaves the credits window.
     private static double RollEnd(CreditScene scene, KeyframeScan scan)
     {
         var last = scene.EndIndex;
@@ -420,7 +416,7 @@ internal sealed partial class KeyframeAnalyzer(
             last++;
         }
 
-        return Math.Max(scene.EndTime, scan.Pages[last].Frame.Time);
+        return Math.Max(scene.EndTime, scan.Pages[last].Time);
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are

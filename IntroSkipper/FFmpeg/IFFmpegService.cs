@@ -69,16 +69,17 @@ public interface IFFmpegService
     /// frame difference.
     /// </summary>
     /// <remarks>
-    /// One keyframe decode writes two cache rows, the black-frame row and the visuals row. This reads
-    /// each row, or decodes it on a miss, and pairs them into pages, so no caller joins them. A
-    /// page's time is its black-frame time. A page has no visual when it lies past the credits
-    /// window, when no visual lies within 10 ms of its row, or when the ffmpeg check found the
-    /// signalstats filter missing.
+    /// One ffmpeg pipes every keyframe here as raw yuv420p and the plugin measures it (<see cref="PageFacts"/>).
+    /// The pages are cached as one row, keyed by the credits start. It holds every keyframe to the end of
+    /// the file and is clipped at this read, so a page past the credits window has no visual. A scan whose
+    /// ffmpeg exits nonzero keeps and caches the pages it read.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and both cache rows are hashed under it.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and the row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns one page per keyframe, in time order, relative to the credits fingerprint start.</returns>
+    /// <returns>A task that returns one page per keyframe, in the order ffmpeg decoded them, relative to the credits fingerprint start.</returns>
+    /// <exception cref="InvalidDataException">The pipe broke its protocol: ffmpeg was killed and nothing was cached.</exception>
+    /// <exception cref="TimeoutException">ffmpeg did not exit within the scan timeout; nothing was cached.</exception>
     Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -97,7 +98,7 @@ public interface IFFmpegService
     /// </summary>
     /// <remarks>
     /// Not cached: the caller caches the start it derives. The frames are decoded at source
-    /// resolution with the keyframe scan's filters, so each frame's
+    /// resolution through signalstats on <c>format=yuv420p</c>, so each frame's
     /// <see cref="KeyframeVisual.FrameDifference"/> compares directly with a page's: both are YDIF of
     /// the same 8-bit yuv420p frames at the same resolution. The first frame's difference is 0,
     /// since nothing was decoded before it. Each output stream is capped at 64 MiB.

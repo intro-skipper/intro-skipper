@@ -4,14 +4,14 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// One keyframe of the keyframe scan: its black-frame row and its visual, when it has one.
+/// One keyframe of the keyframe scan: its black percentage and keyframe visuals, measured from the
+/// same frame.
 /// </summary>
 /// <remarks>
-/// The page's time is its black-frame time, never rounded, because the interval probe and the cut
-/// start key their cache rows from it. A page has no visual when it lies past the credits
-/// window, when no visual lies within 10 ms of its row, or when the ffmpeg build has no signalstats
-/// filter.
+/// The time is never rounded, because the interval probe and the cut start key their cache rows
+/// from it. A page has no visual when it lies past the credits window.
 /// </remarks>
-/// <param name="Frame">The keyframe's black-frame row.</param>
-/// <param name="Visual">The keyframe's visual, or <see langword="null"/> when the scan has none for it.</param>
-public sealed record KeyframePage(BlackFrame Frame, KeyframeVisual? Visual);
+/// <param name="Time">The keyframe's time, relative to the credits fingerprint start.</param>
+/// <param name="BlackPercentage">The share of the keyframe's pixels under the black-frame threshold.</param>
+/// <param name="Visual">The keyframe's visual, or <see langword="null"/> past the credits window.</param>
+public sealed record KeyframePage(double Time, int BlackPercentage, KeyframeVisual? Visual);

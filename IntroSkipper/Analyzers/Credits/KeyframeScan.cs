@@ -12,8 +12,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// </summary>
 /// <remarks>
 /// Every time is relative to the credits fingerprint start, as the pages' are. A scene's indices are
-/// scan positions (see <see cref="CreditScene"/>), not <see cref="BlackFrame.Frame"/>. The scan reads
-/// no visual: the rules on visuals are the keyframe analyzer's.
+/// scan positions (see <see cref="CreditScene"/>). The scan reads no visual: the rules on visuals are
+/// the keyframe analyzer's.
 /// </remarks>
 /// <param name="pages">The pages, in scan order.</param>
 /// <param name="blackMinimum">The black percentage at or above which a page is black.</param>
@@ -35,7 +35,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     // scan's clock.
     private const double ScenePad = 0.01;
 
-    /// <summary>Gets the pages, in scan order, each with its black-frame row and its visual when it has one.</summary>
+    /// <summary>Gets the pages, in scan order, each with its black-frame evidence and its visual when it has one.</summary>
     internal IReadOnlyList<KeyframePage> Pages { get; } = pages;
 
     /// <summary>Gets the black percentage at or above which a page is black.</summary>
@@ -51,7 +51,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="pages"/> is empty.</exception>
     internal static KeyframeScan Normalize(IReadOnlyList<KeyframePage> pages, int minimumPercentage)
     {
-        var (minimum, transition) = BlackFrameThresholdHelper.NormalizeThreshold([.. pages.Select(page => page.Frame)], minimumPercentage);
+        var (minimum, transition) = BlackFrameThresholdHelper.NormalizeThreshold([.. pages.Select(page => new BlackFrame(page.BlackPercentage, page.Time, 0))], minimumPercentage);
         return new KeyframeScan(pages, minimum, transition);
     }
 
@@ -61,7 +61,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     /// </summary>
     /// <param name="start">The range's start.</param>
     /// <param name="end">The range's end.</param>
-    /// <param name="time">The page's black-frame time.</param>
+    /// <param name="time">The page's time.</param>
     /// <returns><see langword="true"/> if the page belongs to the range; otherwise, <see langword="false"/>.</returns>
     internal static bool InScene(double start, double end, double time)
         => time >= start - ScenePad && time <= end + ScenePad;
@@ -69,7 +69,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     /// <summary>Determines whether the page at a scan position is black: its raw percentage at or above <see cref="BlackMinimum"/>.</summary>
     /// <param name="index">The page's scan position.</param>
     /// <returns><see langword="true"/> if the page is black; otherwise, <see langword="false"/>.</returns>
-    internal bool IsBlack(int index) => Pages[index].Frame.Percentage >= BlackMinimum;
+    internal bool IsBlack(int index) => Pages[index].BlackPercentage >= BlackMinimum;
 
     /// <summary>
     /// Enumerates a scene's black pages: every black page in the whole scan that is <see cref="InScene"/>
@@ -81,7 +81,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     {
         for (var i = 0; i < Pages.Count; i++)
         {
-            if (IsBlack(i) && InScene(scene.StartTime, scene.EndTime, Pages[i].Frame.Time))
+            if (IsBlack(i) && InScene(scene.StartTime, scene.EndTime, Pages[i].Time))
             {
                 yield return (i, Pages[i]);
             }
@@ -217,9 +217,9 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
             {
                 sceneStart = i;
             }
-            else if (Pages[i].Frame.Time - Pages[lastBlack].Frame.Time > MaximumRunGapSeconds)
+            else if (Pages[i].Time - Pages[lastBlack].Time > MaximumRunGapSeconds)
             {
-                scenes.Add(new CreditScene(sceneStart, lastBlack, Pages[sceneStart].Frame.Time, Pages[lastBlack].Frame.Time));
+                scenes.Add(new CreditScene(sceneStart, lastBlack, Pages[sceneStart].Time, Pages[lastBlack].Time));
                 sceneStart = i;
             }
 
@@ -228,7 +228,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
 
         if (sceneStart >= 0)
         {
-            scenes.Add(new CreditScene(sceneStart, lastBlack, Pages[sceneStart].Frame.Time, Pages[lastBlack].Frame.Time));
+            scenes.Add(new CreditScene(sceneStart, lastBlack, Pages[sceneStart].Time, Pages[lastBlack].Time));
         }
 
         return scenes;
@@ -242,9 +242,9 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
             var shifted = scene;
             for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
             {
-                if (Pages[i].Frame.Percentage >= sceneChange)
+                if (Pages[i].BlackPercentage >= sceneChange)
                 {
-                    shifted = scene with { StartIndex = i, StartTime = Pages[i].Frame.Time };
+                    shifted = scene with { StartIndex = i, StartTime = Pages[i].Time };
                     break;
                 }
             }
@@ -259,7 +259,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
     {
         for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
         {
-            if (Pages[i].Frame.Time >= startTime && IsBlack(i))
+            if (Pages[i].Time >= startTime && IsBlack(i))
             {
                 return i;
             }
@@ -273,7 +273,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
         var endIndex = scene.StartIndex;
         for (var i = scene.StartIndex; i <= scene.EndIndex; i++)
         {
-            if (Pages[i].Frame.Time <= endTime && IsBlack(i))
+            if (Pages[i].Time <= endTime && IsBlack(i))
             {
                 endIndex = i;
             }
@@ -301,7 +301,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
 
         for (var i = FirstIndexAtOrAfterTime(scene.StartTime); i < Pages.Count; i++)
         {
-            if (Pages[i].Frame.Time > scene.EndTime)
+            if (Pages[i].Time > scene.EndTime)
             {
                 break;
             }
@@ -323,7 +323,7 @@ internal sealed class KeyframeScan(IReadOnlyList<KeyframePage> pages, int blackM
         while (low < high)
         {
             var mid = low + ((high - low) / 2);
-            if (Pages[mid].Frame.Time < time)
+            if (Pages[mid].Time < time)
             {
                 low = mid + 1;
             }

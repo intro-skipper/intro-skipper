@@ -194,7 +194,7 @@ internal sealed class Runner(PluginConfiguration config, int repeats, TextWriter
             var ffmpeg = new FFmpegService(recorder, cache);
 
             // Outside the timed span: the cache database's migration, and the ffmpeg check a pass
-            // runs before analysis, which also tells the scan whether keyframe visuals are available.
+            // runs before analysis.
             _ = cache.TryRead<double>(Guid.Empty, AnalysisMode.Credits, CacheEntryType.Keyframe, 0, 0, config, out _);
             await ffmpeg.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
             StopIfTheCheckTimedOut(recorder, ffmpeg);

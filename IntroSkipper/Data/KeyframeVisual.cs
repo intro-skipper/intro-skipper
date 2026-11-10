@@ -8,10 +8,11 @@ namespace IntroSkipper.Data;
 /// difference that places a credits part's start on the cut before its first keyframe.
 /// </summary>
 /// <remarks>
-/// All from the <c>signalstats</c> filter in the same keyframe decode as the black-frame scan, on the
-/// 8-bit scale of <c>format=yuv420p</c>. That conversion keeps the source's range, so a full-range
-/// source spans 0 to 255. A cut decode reads every frame of one keyframe gap with the same filters
-/// at the same resolution, so its frame differences compare directly with a page's. A card is a dominant background
+/// The values of ffmpeg's <c>signalstats</c> filter, on the 8-bit scale of <c>format=yuv420p</c>. That
+/// conversion keeps the source's range, so a full-range source spans 0 to 255. The keyframe scan
+/// measures them from each keyframe's raw pixels (<see cref="FFmpeg.PageFacts"/>). A cut decode runs the
+/// filter itself over every frame of one keyframe gap at the same resolution, so its frame differences
+/// compare directly with a page's. A card is a dominant background
 /// (<see cref="LumaLow"/> to <see cref="LumaHigh"/> within a few levels) with text far from it
 /// (<see cref="LumaMin"/> or <see cref="LumaMax"/> far outside that band).
 /// </remarks>

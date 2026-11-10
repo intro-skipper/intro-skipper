@@ -36,9 +36,9 @@ public enum CacheEntryType
     BlackInterval,
 
     /// <summary>
-    /// Per-keyframe visual statistics (luma percentiles, saturation and frame difference) for card credits detection and the cut start.
+    /// The pages of a keyframe scan, every keyframe to the end of the file, keyed by the credits start and an end of 0.
     /// </summary>
-    KeyframeVisual,
+    KeyframePage,
 
     /// <summary>
     /// Where the credits cut start places a part's start, keyed by the two keyframes that bound the decoded gap.

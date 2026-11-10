@@ -257,6 +257,28 @@ public sealed partial class DetectionCacheDatabase
 
         db.EnsureSchema();
         SqlitePragmas.EnforceWal(db.Database);
+
+        // The keyframe scan used to keep a black-frame row keyed to the end of the file (end 0) and
+        // a visuals row keyed by the credits window, in the slot KeyframePage took over. Nothing
+        // reads either, and a settled season never rescans to replace them, so they go once. The
+        // legacy analyzer's BlackFrame rows have an end of their own. user_version records the
+        // delete, which reads every Credits row, so later opens skip it. A failed delete is retried
+        // at the next start rather than failing the cache on every call.
+        try
+        {
+            if (db.Database.SqlQueryRaw<int>("SELECT user_version AS Value FROM pragma_user_version").AsEnumerable().First() == 0)
+            {
+                db.DetectionCache
+                    .Where(e => e.Mode == AnalysisMode.Credits
+                        && ((e.Type == CacheEntryType.BlackFrame && e.End == 0) || (e.Type == CacheEntryType.KeyframePage && e.End != 0)))
+                    .ExecuteDelete();
+                db.Database.ExecuteSqlRaw("PRAGMA user_version = 1");
+            }
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]
