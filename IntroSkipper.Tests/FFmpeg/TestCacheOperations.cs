@@ -855,12 +855,13 @@ public sealed class TestCacheOperations
 
     /// <summary>
     /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on the device Jellyfin's
-    /// VAAPI or QSV setting names (both set to the row's device) and only on the platforms where
-    /// Jellyfin decodes with it, so each row names the method on Linux, Windows and macOS. NVENC is
-    /// the exception: it maps to CUDA on macOS too, where Jellyfin never uses CUDA. QSV decodes on
-    /// hardware only while PreferSystemNativeHwDecoder is on, and on Windows opens the adapter by
-    /// the device's index when it is one. The types the scans keep in software add nothing. Only
-    /// the column of the OS the tests run on is checked, and CI runs none on macOS.
+    /// VAAPI or QSV setting names (the row's device is in the setting its type reads, and a 9 in
+    /// the other) and only on the platforms where Jellyfin decodes with it, so each row names the
+    /// method on Linux, Windows and macOS. NVENC is the exception: it maps to CUDA on macOS too,
+    /// where Jellyfin never uses CUDA. QSV decodes on hardware only while
+    /// PreferSystemNativeHwDecoder is on, and on Windows opens the adapter by the device's index
+    /// when it is one. The types the scans keep in software add nothing. Only the column of the OS
+    /// the tests run on is checked, and CI runs none on macOS.
     /// </summary>
     [Theory]
     [InlineData(HardwareAccelerationType.vaapi, "/dev/dri/renderD129", true, "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129", "", "")]
@@ -877,7 +878,8 @@ public sealed class TestCacheOperations
     [InlineData(HardwareAccelerationType.v4l2m2m, "", true, "", "", "")]
     public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string device, bool preferNative, string linux, string windows, string macOS)
     {
-        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = device, QsvDevice = device, PreferSystemNativeHwDecoder = preferNative };
+        var qsv = type == HardwareAccelerationType.qsv;
+        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = qsv ? "9" : device, QsvDevice = qsv ? device : "9", PreferSystemNativeHwDecoder = preferNative };
         var expected = OperatingSystem.IsWindows() ? windows : OperatingSystem.IsMacOS() ? macOS : linux;
 
         Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeMethod(encoding)));
