@@ -617,10 +617,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <remarks>
     /// VAAPI decodes on Jellyfin's VAAPI device and only on Linux, NVENC through CUDA, AMF through
-    /// D3D11VA on the first AMD adapter and only on Windows, and QSV through VAAPI on Linux
-    /// (<see cref="LinuxQsvMethod"/>), as Jellyfin does. QSV on Windows, VideoToolbox, RKMPP and V4L2
-    /// were not measured and decode in software. No output format is set, so each frame comes back
-    /// to system memory.
+    /// D3D11VA on the first AMD adapter and only on Windows, QSV through VAAPI on Linux
+    /// (<see cref="LinuxQsvMethod"/>) and through D3D11VA on the first Intel adapter on Windows, both
+    /// only while <see cref="EncodingOptions.PreferSystemNativeHwDecoder"/> is on, and VideoToolbox
+    /// only on macOS, as Jellyfin does. RKMPP and V4L2 decode in software. No output format is set,
+    /// so each frame comes back to system memory.
     /// </remarks>
     /// <param name="encoding">Jellyfin's encoding options.</param>
     /// <returns>The options to place before <c>-i</c>, or none.</returns>
@@ -631,6 +632,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         HardwareAccelerationType.nvenc => ["-hwaccel", "cuda"],
         HardwareAccelerationType.amf when OperatingSystem.IsWindows() => ["-init_hw_device", "d3d11va=dx11:,vendor=0x1002", "-hwaccel", "d3d11va"],
         HardwareAccelerationType.qsv when OperatingSystem.IsLinux() => LinuxQsvMethod(encoding),
+        HardwareAccelerationType.qsv when OperatingSystem.IsWindows() && encoding.PreferSystemNativeHwDecoder => ["-init_hw_device", "d3d11va=dx11:,vendor=0x8086", "-hwaccel", "d3d11va"],
+        HardwareAccelerationType.videotoolbox when OperatingSystem.IsMacOS() => ["-hwaccel", "videotoolbox"],
         _ => [],
     };
 
