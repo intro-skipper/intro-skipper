@@ -20,178 +20,79 @@ internal static class WindowsFfmpegTestBootstrap
     [ModuleInitializer]
     internal static void Init()
     {
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
         {
-            return;
+            PutFfmpegOnPath();
         }
-
-        EnsureFreshFfmpegOnPath();
     }
 
-    private static void EnsureFreshFfmpegOnPath()
+    // Each release is downloaded once into the user's local app data and reused, so test runs need
+    // no network and a new URL fetches its own release.
+    private static void PutFfmpegOnPath()
     {
-        // Use the test output directory so this works both locally and in CI.
-        var baseDir = AppContext.BaseDirectory;
-
-        // Guard against concurrent test processes (e.g., VS Test Explorer + `dotnet test`).
-        // The failure we want to avoid is: "ffmpeg.zip is being used by another process".
+        // Guards against concurrent test processes (e.g., VS Test Explorer + `dotnet test`).
         using var mutex = new Mutex(initiallyOwned: false, name: @"Global\IntroSkipper.Tests.FFmpegBootstrap");
-        var acquired = false;
+        if (!mutex.WaitOne(TimeSpan.FromMinutes(5)))
+        {
+            throw new TimeoutException("Timed out waiting for FFmpeg bootstrap mutex.");
+        }
+
         try
         {
-            acquired = mutex.WaitOne(TimeSpan.FromMinutes(5));
-            if (!acquired)
+            var release = Path.GetFileNameWithoutExtension(new Uri(FfmpegZipUrl).LocalPath);
+            var ffmpegDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IntroSkipper.Tests", "ffmpeg", release);
+            if (!File.Exists(Path.Combine(ffmpegDir, "ffmpeg.exe")) || !File.Exists(Path.Combine(ffmpegDir, "ffprobe.exe")))
             {
-                throw new TimeoutException("Timed out waiting for FFmpeg bootstrap mutex.");
+                Download(ffmpegDir);
             }
-
-            var rootDir = Path.Combine(baseDir, "_ffmpeg");
-
-            // Requirement: always download the current ffmpeg on Windows for tests.
-            // Try to clear any existing download/extract first.
-            try
-            {
-                if (Directory.Exists(rootDir))
-                {
-                    ExecuteWithRetry(
-                        () => Directory.Delete(rootDir, recursive: true),
-                        maxAttempts: 6,
-                        baseDelayMs: 150);
-                }
-            }
-            catch
-            {
-                // If cleanup fails (e.g., AV locks an .exe), fall back to a unique folder.
-                rootDir = Path.Combine(baseDir, "_ffmpeg", Guid.NewGuid().ToString("N"));
-            }
-
-            Directory.CreateDirectory(rootDir);
-
-            var originalZipFileName = TryGetZipFileNameFromUrl(FfmpegZipUrl);
-            var zipFileName = string.IsNullOrWhiteSpace(originalZipFileName) ? "ffmpeg.zip" : originalZipFileName;
-            var zipPath = Path.Combine(rootDir, zipFileName);
-            ExecuteWithRetry(
-                () => DownloadFileSynchronously(FfmpegZipUrl, zipPath),
-                maxAttempts: 6,
-                baseDelayMs: 150);
-
-            var extractDir = Path.Combine(rootDir, "extract");
-            Directory.CreateDirectory(extractDir);
-            ExecuteWithRetry(
-                () => ZipFile.ExtractToDirectory(zipPath, extractDir, overwriteFiles: true),
-                maxAttempts: 6,
-                baseDelayMs: 150);
-
-            // Best-effort cleanup; avoid leaving the zip around for subsequent runs.
-            if (!string.Equals(zipFileName, originalZipFileName, StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    ExecuteWithRetry(
-                        () => File.Delete(zipPath),
-                        maxAttempts: 3,
-                        baseDelayMs: 150);
-                }
-                catch
-                {
-                    // Ignore cleanup errors.
-                }
-            }
-
-            var ffmpegExe = Directory.EnumerateFiles(extractDir, "ffmpeg.exe", SearchOption.AllDirectories)
-                .FirstOrDefault();
-
-            if (string.IsNullOrWhiteSpace(ffmpegExe))
-            {
-                throw new InvalidOperationException(
-                    $"FFmpeg bootstrap failed: 'ffmpeg.exe' not found after extracting '{FfmpegZipUrl}' to '{extractDir}'.");
-            }
-
-            var ffmpegDir = Path.GetDirectoryName(ffmpegExe);
-            if (string.IsNullOrWhiteSpace(ffmpegDir))
-            {
-                throw new InvalidOperationException(
-                    $"FFmpeg bootstrap failed: could not determine directory for '{ffmpegExe}'.");
-            }
-
-            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
 
             // Ensure our ffmpeg is preferred over any globally installed one.
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             Environment.SetEnvironmentVariable("PATH", ffmpegDir + Path.PathSeparator + currentPath, EnvironmentVariableTarget.Process);
         }
         finally
         {
-            if (acquired)
-            {
-                try
-                {
-                    mutex.ReleaseMutex();
-                }
-                catch
-                {
-                    // Ignore release failures.
-                }
-            }
+            mutex.ReleaseMutex();
         }
     }
 
-    private static void ExecuteWithRetry(Action action, int maxAttempts, int baseDelayMs)
+    // Extracts beside ffmpegDir and moves the folder holding ffmpeg.exe into place last, so an
+    // interrupted download never leaves a half-filled ffmpegDir that a later run would trust.
+    private static void Download(string ffmpegDir)
     {
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        var staging = ffmpegDir + ".download";
+        if (Directory.Exists(staging))
         {
-            try
-            {
-                action();
-                return;
-            }
-            catch (Exception ex) when (attempt < maxAttempts && IsTransientIo(ex))
-            {
-                // Simple exponential backoff.
-                var delayMs = baseDelayMs * (1 << Math.Min(attempt - 1, 5));
-                Thread.Sleep(delayMs);
-            }
+            Directory.Delete(staging, recursive: true);
         }
 
-        // Final attempt (let any exception bubble with original stack).
-        action();
-    }
+        Directory.CreateDirectory(staging);
+        var zipPath = Path.Combine(staging, "ffmpeg.zip");
 
-    private static bool IsTransientIo(Exception ex)
-        => ex is IOException || ex is UnauthorizedAccessException;
-
-    private static string? TryGetZipFileNameFromUrl(string url)
-    {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            return null;
-        }
-
-        var fileName = Path.GetFileName(uri.LocalPath);
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return null;
-        }
-
-        if (fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            return null;
-        }
-
-        return fileName;
-    }
-
-    private static void DownloadFileSynchronously(string url, string destinationFilePath)
-    {
         // Module initializers cannot be async. Use synchronous HTTP APIs here instead of
         // blocking on asynchronous APIs during assembly load.
-        using var httpClient = new HttpClient();
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        using var response = httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
+        using (var httpClient = new HttpClient())
+        using (var request = new HttpRequestMessage(HttpMethod.Get, FfmpegZipUrl))
+        using (var response = httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead))
+        {
+            response.EnsureSuccessStatusCode();
+            using var httpStream = response.Content.ReadAsStream();
+            using var fileStream = File.Create(zipPath);
+            httpStream.CopyTo(fileStream);
+        }
 
-        using var httpStream = response.Content.ReadAsStream();
-        using var fileStream = new FileStream(destinationFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        httpStream.CopyTo(fileStream);
-        fileStream.Flush(flushToDisk: true);
+        var extractDir = Path.Combine(staging, "extract");
+        ZipFile.ExtractToDirectory(zipPath, extractDir);
+        var ffmpegExe = Directory.EnumerateFiles(extractDir, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault()
+            ?? throw new InvalidOperationException($"FFmpeg bootstrap failed: 'ffmpeg.exe' not found after extracting '{FfmpegZipUrl}'.");
+
+        // A folder missing either program is what brought us here, and Move needs the name free.
+        if (Directory.Exists(ffmpegDir))
+        {
+            Directory.Delete(ffmpegDir, recursive: true);
+        }
+
+        Directory.Move(Path.GetDirectoryName(ffmpegExe)!, ffmpegDir);
+        Directory.Delete(staging, recursive: true);
     }
 }
