@@ -38,7 +38,7 @@ public class TestCutStart
         {
             "first page" => Pages((Page, PageDifference)),
             "difference at the minimum" => Pages((PageBefore, 0), (Page, CutStart.PageDifferenceMinimum)),
-            "no visual" => [Pages((PageBefore, 0))[0], new KeyframePage(new BlackFrame(100, Page, 1), null)],
+            "no visual" => [Pages((PageBefore, 0))[0], new KeyframePage(Page, 100, null)],
             "page before is later" => Pages((Page + 1, 0), (Page, PageDifference)),
             _ => throw new ArgumentOutOfRangeException(nameof(page)),
         };
@@ -121,7 +121,7 @@ public class TestCutStart
     }
 
     private static KeyframePage[] Pages(params (double Time, double Difference)[] pages)
-        => [.. pages.Select((page, frame) => new KeyframePage(new BlackFrame(100, page.Time, frame), KeyframeVisuals.Black(page.Time) with { FrameDifference = page.Difference }))];
+        => [.. pages.Select(page => new KeyframePage(page.Time, 100, KeyframeVisuals.Black(page.Time) with { FrameDifference = page.Difference }))];
 
     // The 48 frames of the gap, each with the difference the function gives its index.
     private static KeyframeVisual[] Gap(Func<int, double> difference)

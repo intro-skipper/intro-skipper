@@ -65,7 +65,7 @@ public class TestBlackFrames
             var pages = await ffmpegService.ScanKeyframesAsync(episode, new PluginConfiguration());
 
             Assert.InRange(pages.Length, 2, 3);
-            Assert.All(pages, page => Assert.Equal(0, page.Frame.Percentage));
+            Assert.All(pages, page => Assert.Equal(0, page.BlackPercentage));
         }
         finally
         {
@@ -657,28 +657,6 @@ public class TestBlackFrames
         var candidates = await KeyframeCandidates(analyzer, episode);
 
         Assert.Equal([(SegmentSource.BlackFrame, 130.0, 160.0)], candidates);
-    }
-
-    [Fact]
-    public async Task DetectCreditsAsync_FrameCounterRestart_KeepsTheRoll()
-    {
-        // The roll above, 100 s later, with the roll's first page on a cut as in the trimmed scene
-        // fixture. ffmpeg rebuilds the filtergraph at 100 and at 150, as it does when the video
-        // changes resolution, and the blackframe counter starts over at 0 at each, so a page's frame
-        // number no longer says where it is. The lead-in still trims the scene to its page at 130,
-        // the cut decode still reads the gap before that page, and the scene still ends on its roll
-        // pages at 160.
-        var pages = Pages(Keyframes(0, 180, 2, (0, 118, 0, KeyframeVisuals.Content), (120, 128, 95, KeyframeVisuals.DarkGrey), (130, 130, 95, KeyframeVisuals.BlackAfterCut), (132, 140, 95, KeyframeVisuals.Black), (142, 160, 80, KeyframeVisuals.DenseText), (162, 180, 0, KeyframeVisuals.Content)))
-            .Select((page, i) => page with { Frame = page.Frame with { Frame = page.Frame.Time < 100 ? i : page.Frame.Time < 150 ? i - 50 : i - 75 } })
-            .ToArray();
-        var ffmpeg = new StubFFmpegService { KeyframeScan = (_, _) => pages, CutWindows = (_, window) => CutFrames(window, cutFrame: 24) };
-        var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = true });
-        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
-
-        var candidates = await KeyframeCandidates(analyzer, episode);
-
-        Assert.Equal([(SegmentSource.BlackFrame, 229.0, 260.0)], candidates);
-        Assert.Equal([new CutDecode(228, 230)], ffmpeg.Calls);
     }
 
     [Theory]
@@ -1856,7 +1834,7 @@ public class TestBlackFrames
         => [.. (await analyzer.DetectCreditsAsync(episode, CancellationToken.None)).Select(c => (c.Source, c.Segment.Start, c.Segment.End))];
 
     private static KeyframeScan ScanOf(IEnumerable<BlackFrame> frames, int blackMinimum, int sceneChange)
-        => new([.. frames.Select(frame => new KeyframePage(frame, null))], blackMinimum, sceneChange);
+        => new([.. frames.Select(frame => new KeyframePage(frame.Time, frame.Percentage, null))], blackMinimum, sceneChange);
 
     private static Func<IReadOnlyList<CreditScene>, Task<BlackInterval[]>> ProbeFinding(params BlackInterval[] intervals)
         => _ => Task.FromResult(intervals);

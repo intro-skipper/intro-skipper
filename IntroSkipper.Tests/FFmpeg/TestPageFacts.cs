@@ -127,7 +127,7 @@ public sealed class TestPageFacts
         {
             var pages = await ScanAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, 0, 28);
 
-            Assert.Equal([0.0, 1.0, 2.0], pages.Select(page => page.Frame.Time));
+            Assert.Equal([0.0, 1.0, 2.0], pages.Select(page => page.Time));
             Assert.Equal(await KeyframeFilterOracle.PagesAsync(path, 0, 28, selectKeyframes: true), pages);
         }
         finally
@@ -189,7 +189,7 @@ public sealed class TestPageFacts
         {
             var pages = await ScanAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, 0, 28);
 
-            Assert.Equal([0.0, 1.0, 2.0], pages.Select(page => page.Frame.Time));
+            Assert.Equal([0.0, 1.0, 2.0], pages.Select(page => page.Time));
             Assert.Equal(await KeyframeFilterOracle.PagesAsync(path, 0, 28), pages);
         }
         finally

@@ -31,7 +31,7 @@ internal static class KeyframeFilterOracle
         var select = selectKeyframes ? @"select=eq(key\,1)," : string.Empty;
         var rows = FFmpegOutputParser.ParseBlackFrames(await LogOfAsync(path, start, select + "blackframe=amount=0:threshold=" + threshold.ToString(CultureInfo.InvariantCulture)));
         var visuals = FFmpegOutputParser.ParseKeyframeVisuals(await LogOfAsync(path, start, select + "format=yuv420p,signalstats,metadata=print"));
-        return [.. rows.Zip(visuals, (row, visual) => new KeyframePage(row with { Frame = 0 }, visual with { Time = row.Time }))];
+        return [.. rows.Zip(visuals, (row, visual) => new KeyframePage(row.Time, row.Percentage, visual with { Time = row.Time }))];
     }
 
     private static async Task<string> LogOfAsync(string path, double start, string filters)

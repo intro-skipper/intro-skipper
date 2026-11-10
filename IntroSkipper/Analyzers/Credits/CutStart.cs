@@ -46,8 +46,8 @@ internal static class CutStart
     internal static TimeRange? Window(IReadOnlyList<KeyframePage> pages, int index)
         => index > 0
             && pages[index].Visual is { FrameDifference: > PageDifferenceMinimum }
-            && pages[index - 1].Frame.Time < pages[index].Frame.Time
-            ? new TimeRange(pages[index - 1].Frame.Time, pages[index].Frame.Time)
+            && pages[index - 1].Time < pages[index].Time
+            ? new TimeRange(pages[index - 1].Time, pages[index].Time)
             : null;
 
     /// <summary>

@@ -44,8 +44,8 @@ public sealed class TestRawPageReader
         ffmpeg.Exit();
 
         var pages = (await read).Pages;
-        Assert.Equal([1.0, 1.5], pages.Select(page => page.Frame.Time));
-        Assert.Equal([100, 0], pages.Select(page => page.Frame.Percentage));
+        Assert.Equal([1.0, 1.5], pages.Select(page => page.Time));
+        Assert.Equal([100, 0], pages.Select(page => page.BlackPercentage));
         Assert.Equal([0.0, 5.0], pages.Select(page => page.Visual!.Saturation));
         Assert.False(ffmpeg.Killed);
     }
@@ -71,7 +71,7 @@ public sealed class TestRawPageReader
         ffmpeg.Exit();
 
         var pages = (await read).Pages;
-        Assert.Equal([0.0, 0.08], pages.Select(page => page.Frame.Time));
+        Assert.Equal([0.0, 0.08], pages.Select(page => page.Time));
         Assert.Equal([0.0, 30.0], pages.Select(page => page.Visual!.FrameDifference));
     }
 
@@ -111,7 +111,7 @@ public sealed class TestRawPageReader
         ffmpeg.WriteFrame(4, 2, luma: 10, u: 128, v: 128);
         ffmpeg.Exit();
 
-        Assert.Equal(1.0, Assert.Single((await read).Pages).Frame.Time);
+        Assert.Equal(1.0, Assert.Single((await read).Pages).Time);
     }
 
     /// <summary>

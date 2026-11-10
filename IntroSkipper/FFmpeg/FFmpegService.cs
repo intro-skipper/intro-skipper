@@ -256,7 +256,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         // visual past it would let the roll end and the card run reach past CreditsFingerprintEnd
         // and persist credits outside the scan window.
         var duration = end - start;
-        return [.. pages.Select(page => page.Frame.Time <= duration ? page : page with { Visual = null })];
+        return [.. pages.Select(page => page.Time <= duration ? page : page with { Visual = null })];
     }
 
     // One ffmpeg writing every keyframe from start to the end of the file down one pipe. Frames

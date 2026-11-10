@@ -99,7 +99,7 @@ internal sealed partial class KeyframeAnalyzer(
             {
                 // The run starts on one of the pages, so its first page is found by time.
                 var start = _config.RefineCreditsBoundary
-                    ? await CutStartAsync(episode, pages, Array.FindIndex(pages, page => page.Frame.Time == range.Start), cancellationToken).ConfigureAwait(false)
+                    ? await CutStartAsync(episode, pages, Array.FindIndex(pages, page => page.Time == range.Start), cancellationToken).ConfigureAwait(false)
                     : range.Start;
                 candidates.Add(new AttributedSegment(
                     new Segment(episode.EpisodeId, new TimeRange(start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart)),
@@ -151,13 +151,12 @@ internal sealed partial class KeyframeAnalyzer(
         List<CardPage> kinds = [];
         for (var i = 0; i < scan.Pages.Count; i++)
         {
-            var (frame, visual) = scan.Pages[i];
+            var (time, _, visual) = scan.Pages[i];
             if (visual is null)
             {
                 continue;
             }
 
-            var time = frame.Time;
             var black = scan.IsBlack(i);
             var cardLike = visual.IsCardLike();
             var kind = visual.IsSolidWhite() || (black && rejected.Any(range => KeyframeScan.InScene(range.Start, range.End, time))) ? CardKind.Content
@@ -302,25 +301,25 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         var blackLevel = Math.Max(LimitedRangeBlack, levels[levels.Count / 2]);
-        var firstPage = scenePages[0].Page.Frame;
+        var firstPage = scenePages[0].Page;
         var lastLeadInTime = scene.StartTime;
         for (var k = 0; k < scenePages.Count; k++)
         {
-            var (index, (frame, visual)) = scenePages[k];
+            var (index, (time, _, visual)) = scenePages[k];
             if (visual is null || !IsDimContent(visual, blackLevel))
             {
                 List<KeyframeVisual> rest = [.. scenePages.Skip(k).Select(page => page.Page.Visual).OfType<KeyframeVisual>()];
                 if (rest.Count(page => IsDarkPicture(page, blackLevel)) * 2 > rest.Count)
                 {
-                    return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Page.Frame.Time));
+                    return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), scenePages[^1].Page.Time));
                 }
 
                 return k == 0
                     ? (scene, null)
-                    : (new CreditScene(index, scene.EndIndex, frame.Time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
+                    : (new CreditScene(index, scene.EndIndex, time, scene.EndTime), new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
             }
 
-            lastLeadInTime = frame.Time;
+            lastLeadInTime = time;
         }
 
         return (null, new TimeRange(Math.Min(firstPage.Time, scene.StartTime), lastLeadInTime));
@@ -341,7 +340,7 @@ internal sealed partial class KeyframeAnalyzer(
         var page = pages[index];
         if (CutStart.Window(pages, index) is not { } gap || page.Visual is not { } visual)
         {
-            return page.Frame.Time;
+            return page.Time;
         }
 
         var offset = episode.CreditsFingerprintStart;
@@ -359,7 +358,7 @@ internal sealed partial class KeyframeAnalyzer(
         }
 
         LogCutStart(episode.Name, window.Start, window.End, start ?? window.End);
-        return start is { } cut ? cut - offset : page.Frame.Time;
+        return start is { } cut ? cut - offset : page.Time;
     }
 
     // Dim content on a black keyframe: a background above the scene's black level, or a 90th
@@ -417,7 +416,7 @@ internal sealed partial class KeyframeAnalyzer(
             last++;
         }
 
-        return Math.Max(scene.EndTime, scan.Pages[last].Frame.Time);
+        return Math.Max(scene.EndTime, scan.Pages[last].Time);
     }
 
     // Only the scene's black keyframes count: an interval-supported scene can span keyframes that are

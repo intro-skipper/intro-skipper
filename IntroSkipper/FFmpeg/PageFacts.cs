@@ -29,7 +29,7 @@ internal static class PageFacts
     /// <param name="height">The frame's height.</param>
     /// <param name="threshold">The luma under which a pixel counts as black.</param>
     /// <param name="time">The page's time.</param>
-    /// <returns>The page. Its black-frame counter is 0, since no credits rule reads one.</returns>
+    /// <returns>The page.</returns>
     public static KeyframePage Measure(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> previousLuma, int width, int height, int threshold, double time)
     {
         var pixels = width * height;
@@ -72,7 +72,8 @@ internal static class PageFacts
         var difference = previousLuma.IsEmpty ? 0L : AbsoluteDifference(luma, previousLuma);
 
         return new KeyframePage(
-            new BlackFrame(percentage, time, 0),
+            time,
+            percentage,
             new KeyframeVisual(time, minimum, low, high, maximum, PrintedByFilter(1.0 * saturation / chromaSamples), PrintedByFilter(1.0 * difference / pixels)));
     }
 
