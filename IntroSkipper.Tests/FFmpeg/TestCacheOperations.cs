@@ -1395,7 +1395,8 @@ public sealed class TestCacheOperations
                     "setlocal enabledelayedexpansion",
                     $"echo %* | findstr /c:\"-frames:v 0\" >nul && (type \"{probePath}\" 1>&2 {(probeHangs ? "& " + Sleep + " " : string.Empty)}& exit /b 0)",
                     "set \"token=%*\"",
-                    "set \"token=!token:*@=!\"",
+                    "set \"token=!token:*showinfo@=!\"",
+                    "set \"token=!token:*blackframe@=!\"",
                     "for /f \"delims==\" %%t in (\"!token!\") do set \"token=%%t\"",
                     $"echo %* | findstr /c:\"-hwaccel\" >nul && ({Log(hardwareLogPath)} & type \"{hardwareFramesPath}\" {(hardwareHangs ? "& " + Sleep + " " : string.Empty)}& exit /b {hardwareExitCode})",
                     Log(logPath),
@@ -1408,7 +1409,7 @@ public sealed class TestCacheOperations
                 File.WriteAllLines(script, [
                     "#!/bin/sh",
                     $"case \"$*\" in *-frames:v*) cat '{probePath}' >&2; {(probeHangs ? "sleep 20; " : string.Empty)}exit 0 ;; esac",
-                    @"token=$(printf '%s' ""$*"" | sed -n 's/[^@]*@\([A-Za-z0-9]*\).*/\1/p')",
+                    @"token=$(printf '%s' ""$*"" | sed -n 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/p;s/.*blackframe@\([A-Za-z0-9]*\).*/\1/p')",
                     $"case \"$*\" in *-hwaccel*) sed \"s/TOKEN/$token/g\" '{hardwareLogPath}' >&2; cat '{hardwareFramesPath}'; {(hardwareHangs ? "sleep 20; " : string.Empty)}exit {hardwareExitCode} ;; esac",
                     $"sed \"s/TOKEN/$token/g\" '{logPath}' >&2",
                     $"cat '{framesPath}'",
