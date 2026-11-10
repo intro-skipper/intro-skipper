@@ -617,10 +617,11 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// </summary>
     /// <remarks>
     /// VAAPI decodes on Jellyfin's VAAPI device and only on Linux, NVENC through CUDA, AMF through
-    /// D3D11VA on the first AMD adapter and only on Windows, and QSV through VAAPI on Linux
-    /// (<see cref="LinuxQsvMethod"/>), as Jellyfin does. QSV on Windows, VideoToolbox, RKMPP and V4L2
-    /// were not measured and decode in software. No output format is set, so each frame comes back
-    /// to system memory.
+    /// D3D11VA on the first AMD adapter and only on Windows, QSV through VAAPI on Linux
+    /// (<see cref="LinuxQsvMethod"/>) and through D3D11VA on Windows (<see cref="WindowsQsvDevice"/>),
+    /// both only while <see cref="EncodingOptions.PreferSystemNativeHwDecoder"/> is on, and VideoToolbox
+    /// only on macOS, as Jellyfin does. RKMPP and V4L2 decode in software. No output format is set,
+    /// so each frame comes back to system memory.
     /// </remarks>
     /// <param name="encoding">Jellyfin's encoding options.</param>
     /// <returns>The options to place before <c>-i</c>, or none.</returns>
@@ -631,6 +632,8 @@ internal sealed partial class FFmpegService : IFFmpegService
         HardwareAccelerationType.nvenc => ["-hwaccel", "cuda"],
         HardwareAccelerationType.amf when OperatingSystem.IsWindows() => ["-init_hw_device", "d3d11va=dx11:,vendor=0x1002", "-hwaccel", "d3d11va"],
         HardwareAccelerationType.qsv when OperatingSystem.IsLinux() => LinuxQsvMethod(encoding),
+        HardwareAccelerationType.qsv when OperatingSystem.IsWindows() && encoding.PreferSystemNativeHwDecoder => ["-init_hw_device", WindowsQsvDevice(encoding.QsvDevice), "-hwaccel", "d3d11va"],
+        HardwareAccelerationType.videotoolbox when OperatingSystem.IsMacOS() => ["-hwaccel", "videotoolbox"],
         _ => [],
     };
 
@@ -652,6 +655,18 @@ internal sealed partial class FFmpegService : IFFmpegService
         : [];
 
     /// <summary>
+    /// The D3D11VA device QSV on Windows decodes on, the one Jellyfin derives its QSV device from:
+    /// the adapter at the index <see cref="EncodingOptions.QsvDevice"/> holds, a negative one read as 0,
+    /// and otherwise the first Intel adapter.
+    /// </summary>
+    /// <param name="qsvDevice">Jellyfin's QSV device setting.</param>
+    /// <returns>The <c>-init_hw_device</c> value.</returns>
+    private static string WindowsQsvDevice(string qsvDevice)
+        => int.TryParse(qsvDevice, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+            ? string.Create(CultureInfo.InvariantCulture, $"d3d11va=dx11:{Math.Max(index, 0)}")
+            : "d3d11va=dx11:,vendor=0x8086";
+
+    /// <summary>
     /// Whether a scan decodes the stream on hardware, given a method: only the formats measured under VAAPI and D3D11VA to
     /// give software's frames, which Jellyfin's playback also decodes on hardware.
     /// </summary>
@@ -660,7 +675,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// Jellyfin decodes 10-bit HEVC on hardware, each only while Jellyfin decodes the codec on
     /// hardware. HEVC RExt, H.264 High 4:2:2 and High 4:4:4 (Jellyfin refuses these by profile by default,
     /// since they can be encoded at 4:2:0), Hi10P H.264 and AV1 stay in software: VAAPI applies
-    /// AV1 film grain differently from software, and the others were not measured.
+    /// AV1 film grain differently from software, and the others were not measured. QSV on Windows and
+    /// VideoToolbox decode the same formats without having been compared with software. Under
+    /// VideoToolbox, Jellyfin's playback decodes more on hardware than the scans do: HEVC RExt, 10-bit
+    /// HEVC with its setting off, and on Apple Silicon H.264 High 4:2:2 and High 4:4:4.
     /// </remarks>
     /// <param name="encoding">Jellyfin's encoding options.</param>
     /// <param name="stream">The video stream the scan decodes, or <see langword="null"/> when there is none.</param>

@@ -854,31 +854,35 @@ public sealed class TestCacheOperations
     }
 
     /// <summary>
-    /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on Jellyfin's VAAPI device
-    /// when one is set and on the platform where Jellyfin decodes with it. The types the scans keep
-    /// in software, and VAAPI or AMF on another platform, add nothing.
+    /// Each acceleration type maps to the hwaccel Jellyfin decodes with, on the device Jellyfin's
+    /// VAAPI or QSV setting names (the row's device is in the setting its type reads, and a 9 in
+    /// the other) and only on the platforms where Jellyfin decodes with it, so each row names the
+    /// method on Linux, Windows and macOS. NVENC is the exception: it maps to CUDA on macOS too,
+    /// where Jellyfin never uses CUDA. QSV decodes on hardware only while
+    /// PreferSystemNativeHwDecoder is on, and on Windows opens the adapter by the device's index
+    /// when it is one. The types the scans keep in software add nothing. Only the column of the OS
+    /// the tests run on is checked, and CI runs none on macOS.
     /// </summary>
     [Theory]
-    [InlineData(HardwareAccelerationType.vaapi, "/dev/dri/renderD129", "linux", "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129")]
-    [InlineData(HardwareAccelerationType.vaapi, "", "linux", "-hwaccel vaapi")]
-    [InlineData(HardwareAccelerationType.nvenc, "/dev/dri/renderD129", "any", "-hwaccel cuda")]
-    [InlineData(HardwareAccelerationType.amf, "/dev/dri/renderD129", "windows", "-init_hw_device d3d11va=dx11:,vendor=0x1002 -hwaccel d3d11va")]
-    [InlineData(HardwareAccelerationType.none, "", "any", "")]
-    [InlineData(HardwareAccelerationType.qsv, "", "linux", "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi")]
-    [InlineData(HardwareAccelerationType.videotoolbox, "", "any", "")]
-    [InlineData(HardwareAccelerationType.rkmpp, "", "any", "")]
-    [InlineData(HardwareAccelerationType.v4l2m2m, "", "any", "")]
-    public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string vaapiDevice, string platform, string expected)
+    [InlineData(HardwareAccelerationType.vaapi, "/dev/dri/renderD129", true, "-hwaccel vaapi -hwaccel_device /dev/dri/renderD129", "", "")]
+    [InlineData(HardwareAccelerationType.vaapi, "", true, "-hwaccel vaapi", "", "")]
+    [InlineData(HardwareAccelerationType.nvenc, "/dev/dri/renderD129", true, "-hwaccel cuda", "-hwaccel cuda", "-hwaccel cuda")]
+    [InlineData(HardwareAccelerationType.amf, "/dev/dri/renderD129", true, "", "-init_hw_device d3d11va=dx11:,vendor=0x1002 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.none, "", true, "", "", "")]
+    [InlineData(HardwareAccelerationType.qsv, "", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:,vendor=0x8086 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.qsv, "1", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:1 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.qsv, "-1", true, "-init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD -hwaccel vaapi", "-init_hw_device d3d11va=dx11:0 -hwaccel d3d11va", "")]
+    [InlineData(HardwareAccelerationType.qsv, "", false, "", "", "")]
+    [InlineData(HardwareAccelerationType.videotoolbox, "", true, "", "", "-hwaccel videotoolbox")]
+    [InlineData(HardwareAccelerationType.rkmpp, "", true, "", "", "")]
+    [InlineData(HardwareAccelerationType.v4l2m2m, "", true, "", "", "")]
+    public void HardwareDecodeMethod_FollowsJellyfinsAccelerationType(HardwareAccelerationType type, string device, bool preferNative, string linux, string windows, string macOS)
     {
-        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = vaapiDevice };
-        var onPlatform = platform switch
-        {
-            "linux" => OperatingSystem.IsLinux(),
-            "windows" => OperatingSystem.IsWindows(),
-            _ => true,
-        };
+        var qsv = type == HardwareAccelerationType.qsv;
+        var encoding = new EncodingOptions { HardwareAccelerationType = type, VaapiDevice = qsv ? "9" : device, QsvDevice = qsv ? device : "9", PreferSystemNativeHwDecoder = preferNative };
+        var expected = OperatingSystem.IsWindows() ? windows : OperatingSystem.IsMacOS() ? macOS : linux;
 
-        Assert.Equal(onPlatform ? expected : string.Empty, string.Join(' ', FFmpegService.HardwareDecodeMethod(encoding)));
+        Assert.Equal(expected, string.Join(' ', FFmpegService.HardwareDecodeMethod(encoding)));
     }
 
     /// <summary>
@@ -1048,6 +1052,7 @@ public sealed class TestCacheOperations
         if (OperatingSystem.IsWindows())
         {
             cases.Add(HardwareAccelerationType.amf, "d3d11va");
+            cases.Add(HardwareAccelerationType.qsv, "d3d11va");
         }
 
         if (OperatingSystem.IsLinux())
@@ -1056,18 +1061,23 @@ public sealed class TestCacheOperations
             cases.Add(HardwareAccelerationType.qsv, "vaapi");
         }
 
+        if (OperatingSystem.IsMacOS())
+        {
+            cases.Add(HardwareAccelerationType.videotoolbox, "videotoolbox");
+        }
+
         return cases;
     }
 
     /// <summary>
     /// The support check names the hwaccel the method decodes with, which is vaapi for QSV on Linux
-    /// and d3d11va for AMF, not the acceleration type's own name.
+    /// and d3d11va for AMF and for QSV on Windows, not the acceleration type's own name.
     /// </summary>
     [Theory]
     [MemberData(nameof(HwaccelsByType))]
     public async Task HardwareGate_AsksForTheHwaccelTheMethodUses(HardwareAccelerationType type, string hwaccel)
     {
-        string[] allHwaccels = ["cuda", "vaapi", "d3d11va", "qsv", "amf"];
+        string[] allHwaccels = ["cuda", "vaapi", "d3d11va", "qsv", "amf", "videotoolbox"];
         using var scope = new CachingPluginScope();
         scope.Config.UseHardwareDecoding = true;
         using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
@@ -1176,9 +1186,9 @@ public sealed class TestCacheOperations
         scope.Config.UseHardwareDecoding = true;
         using var ffmpeg = new FakeFfmpegScript(string.Empty, [], probe: ProbeLog("h264", "yuv420p"));
         var logger = new ScanLogger();
-        var videoToolbox = new EncodingOptions { HardwareAccelerationType = HardwareAccelerationType.videotoolbox, HardwareDecodingCodecs = ["h264"] };
+        var rkmpp = new EncodingOptions { HardwareAccelerationType = HardwareAccelerationType.rkmpp, HardwareDecodingCodecs = ["h264"] };
 
-        await scope.CreateFFmpegService(logger, videoToolbox).DetectBlackFramesAsync(FailedRunEpisode(), new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
+        await scope.CreateFFmpegService(logger, rkmpp).DetectBlackFramesAsync(FailedRunEpisode(), new TimeRange(0, 30), 0, AnalysisMode.Recap, scope.Config);
 
         Assert.Contains("blackframe", Assert.Single(logger.Processes), StringComparison.Ordinal);
     }
