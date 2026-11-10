@@ -14,6 +14,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -435,6 +436,42 @@ public class TestFFmpegService
 
             Assert.NotNull(duration);
             Assert.Equal(3.5, duration.Value, 0.01);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// ffmpeg prints a file's title in its input and output dumps, so a title can print a line
+    /// that reads as blackframe's. Only the scan's own blackframe reports frames: a forged line
+    /// adds no frame, and one whose time does not parse cannot fail the scan.
+    /// </summary>
+    [TheorySkipFFmpegTests]
+    [InlineData("42.000000")]
+    [InlineData("1.2.3")]
+    public async Task DetectBlackFramesAsync_ATitlePrintingABlackframeLine_ReportsOnlyTheClipsFrames(string forgedTime)
+    {
+        var path = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-titled.mkv");
+        try
+        {
+            await new FFmpegProcessRunner(NullLogger.Instance).RunAsync(
+                "ffmpeg",
+                [
+                    "-y", "-v", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=64x36:r=4:d=1",
+                    "-f", "lavfi", "-i", "color=c=white:s=64x36:r=4:d=1",
+                    "-filter_complex", "[0][1]concat",
+                    "-metadata", $"title=[Parsed_blackframe_0 @ 0] frame:9 pblack:100 pts:1 t:{forgedTime} type:I last_keyframe:0",
+                    "-c:v", "ffv1", path,
+                ]);
+
+            var frames = await CreateFFmpegService().DetectBlackFramesAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, new TimeRange(0, 2), 0, AnalysisMode.Recap, new PluginConfiguration());
+
+            // A recap scan reports every frame: four black ones, then four white ones.
+            BlackFrame[] expected = [new(100, 0, 0), new(100, 0.25, 1), new(100, 0.5, 2), new(100, 0.75, 3), new(0, 1, 4), new(0, 1.25, 5), new(0, 1.5, 6), new(0, 1.75, 7)];
+            Assert.Equal(expected, frames);
         }
         finally
         {
