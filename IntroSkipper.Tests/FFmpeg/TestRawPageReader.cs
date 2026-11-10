@@ -5,6 +5,8 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
+using System.Diagnostics.Tracing;
 using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
@@ -203,6 +205,45 @@ public sealed class TestRawPageReader
     }
 
     /// <summary>
+    /// A thread inherits the nice value of the thread that creates it, and a thread that queues
+    /// work to the pool may create the worker that runs it. So no niced reader may queue work, and
+    /// completing the read's task queues its continuation. The pool reports each enqueue on the
+    /// enqueuing thread, so the check does not depend on whether the pool had an idle worker.
+    /// </summary>
+    [Fact]
+    public async Task NoNicedThreadQueuesWorkToThePool()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var listener = new PoolEnqueueListener();
+
+        // The pool rereads whether to report enqueues when a worker starts dispatching.
+        for (var i = 0; i < 100 && listener.EnqueuerNices.IsEmpty; i++)
+        {
+            await Task.Run(() => { });
+            await Task.Delay(50);
+        }
+
+        Assert.False(listener.EnqueuerNices.IsEmpty);
+
+        // The reads end only after ReadAsync has returned, so both have a continuation to queue.
+        // The streams block on a gate: the test's pipes can queue work from the reader themselves.
+        using var gate = new ManualResetEventSlim();
+        using var stdout = new GatedEmptyStream(gate);
+        using var stderr = new GatedEmptyStream(gate);
+        var read = RawPageReader.ReadAsync(stdout, stderr, () => { }, 16);
+        gate.Set();
+        await read;
+
+        // The main thread's nice value: no other thread of the test host lowers its own.
+        var normal = Nice("/proc/self/stat");
+        Assert.All(listener.EnqueuerNices, nice => Assert.Equal(normal, nice));
+    }
+
+    /// <summary>
     /// A kill that lands inside a frame reads as a short frame. That is the kill's doing, so the
     /// cancellation or timeout that caused it is what the caller hears, and the read's fault is
     /// observed rather than left for the finalizer to report as unobserved.
@@ -246,6 +287,13 @@ public sealed class TestRawPageReader
     private static string Header(string pts, string size)
         => $"[Parsed_showinfo_1 @ 0x1] n:   0 pts:{pts,7} pts_time:0       duration:    500 duration_time:0.5     fmt:yuv420p cl:left sar:1/1 s:{size} i:P iskey:1 type:I \n";
 
+    // Field 19 of proc(5), the 17th after the thread name, which may hold spaces.
+    private static int Nice(string statPath)
+    {
+        var stat = File.ReadAllText(statPath);
+        return int.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[16], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     // An empty stream that records the thread its first read blocks on.
     private sealed class PriorityRecordingStream : MemoryStream
     {
@@ -258,12 +306,44 @@ public sealed class TestRawPageReader
             Priority = Thread.CurrentThread.Priority;
             if (OperatingSystem.IsLinux())
             {
-                // Field 19 of proc(5), the 17th after the thread name, which may hold spaces.
-                var stat = File.ReadAllText("/proc/thread-self/stat");
-                Nice = int.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[16], System.Globalization.CultureInfo.InvariantCulture);
+                Nice = Nice("/proc/thread-self/stat");
             }
 
             return 0;
+        }
+    }
+
+    // An empty stream whose reads wait for the gate.
+    private sealed class GatedEmptyStream(ManualResetEventSlim gate) : MemoryStream
+    {
+        public override int Read(Span<byte> buffer)
+        {
+            gate.Wait();
+            return 0;
+        }
+    }
+
+    // Records the nice value of each thread that queues work to the thread pool, which the pool
+    // reports through FrameworkEventSource on that thread.
+    private sealed class PoolEnqueueListener : EventListener
+    {
+        public ConcurrentQueue<int> EnqueuerNices { get; } = new();
+
+        protected override void OnEventSourceCreated(EventSource eventSource)
+        {
+            if (eventSource.Name == "System.Diagnostics.Eventing.FrameworkEventSource")
+            {
+                // Its ThreadPool and ThreadTransfer keywords.
+                EnableEvents(eventSource, EventLevel.Verbose, (EventKeywords)0x12);
+            }
+        }
+
+        protected override void OnEventWritten(EventWrittenEventArgs eventData)
+        {
+            if (eventData.EventName == "ThreadPoolEnqueueWork")
+            {
+                EnqueuerNices.Enqueue(Nice("/proc/thread-self/stat"));
+            }
         }
     }
 
