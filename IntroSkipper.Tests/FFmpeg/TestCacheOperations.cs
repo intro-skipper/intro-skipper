@@ -556,7 +556,7 @@ public sealed class TestCacheOperations
         Assert.Equal($"KeyframePage scan [5, 0] of \"{episode.Path}\" (id {episode.EpisodeId})", Assert.Single(logger.Messages));
         Assert.Equal([5.0, 15.0, 25.0], VisualTimes(pages));
         Assert.True(pages.Length > 3);
-        Assert.Contains(pages, page => page.Frame.Percentage == 100);
+        Assert.Contains(pages, page => page.BlackPercentage == 100);
         Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
 
         episode.Path = "/does/not/exist.mkv";
@@ -564,7 +564,7 @@ public sealed class TestCacheOperations
         var wider = await service.ScanKeyframesAsync(episode, scope.Config);
 
         Assert.Single(logger.Messages);
-        Assert.Equal(pages.Select(page => page.Frame), wider.Select(page => page.Frame));
+        Assert.Equal(pages.Select(page => (page.Time, page.BlackPercentage)), wider.Select(page => (page.Time, page.BlackPercentage)));
         Assert.Equal([5.0, 15.0, 25.0, 35.0], VisualTimes(wider));
 
         static double[] VisualTimes(KeyframePage[] scanned) => [.. scanned.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time)];
@@ -624,7 +624,7 @@ public sealed class TestCacheOperations
 
         var pages = await scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Equal(1.0, Assert.Single(pages).Frame.Time);
+        Assert.Equal(1.0, Assert.Single(pages).Time);
         Assert.NotNull(scope.CacheDatabase.FindEntry(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0));
     }
 
@@ -751,7 +751,7 @@ public sealed class TestCacheOperations
             CreditsFingerprintStart = 5,
             CreditsFingerprintEnd = 35,
         };
-        scope.CacheService.Write<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, [new(new BlackFrame(100, 0, 0), new KeyframeVisual(0, 16, 16, 16, 16, 0, 0))]);
+        scope.CacheService.Write<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, [new(0, 100, new KeyframeVisual(0, 16, 16, 16, 16, 0, 0))]);
         scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, scope.Config, [10]);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
@@ -863,7 +863,7 @@ public sealed class TestCacheOperations
         var pages = await scope.CreateFFmpegService(logger).ScanKeyframesAsync(episode, scope.Config);
 
         Assert.NotEmpty(pages);
-        Assert.All(pages, page => Assert.Equal(0, page.Frame.Percentage));
+        Assert.All(pages, page => Assert.Equal(0, page.BlackPercentage));
         Assert.Collection(
             logger.Processes.Where(process => process.Contains("-skip_frame", StringComparison.Ordinal)),
             slice => Assert.Contains("-thread_type slice", slice, StringComparison.Ordinal),
@@ -1217,7 +1217,7 @@ public sealed class TestCacheOperations
         var pages = await service.ScanKeyframesAsync(episode, scope.Config);
         var cached = await service.ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Equal(2.0, Assert.Single(pages).Frame.Time);
+        Assert.Equal(2.0, Assert.Single(pages).Time);
         Assert.Equal(pages, cached);
         Assert.Contains("-hwaccel cuda -xerror ", Assert.Single(logger.Processes, process => process.Contains("rawvideo", StringComparison.Ordinal)), StringComparison.Ordinal);
     }
@@ -1252,7 +1252,7 @@ public sealed class TestCacheOperations
         var pages = await service.ScanKeyframesAsync(episode, scope.Config);
         var cached = await service.ScanKeyframesAsync(episode, scope.Config);
 
-        Assert.Equal(1.0, Assert.Single(pages).Frame.Time);
+        Assert.Equal(1.0, Assert.Single(pages).Time);
         Assert.Equal(pages, cached);
         Assert.Collection(
             logger.Processes.Where(process => process.Contains("rawvideo", StringComparison.Ordinal)),

@@ -40,7 +40,7 @@ internal static class BlackFrameFixtures
     /// <param name="keyframes">The keyframes, in time order.</param>
     /// <returns>The pages.</returns>
     internal static KeyframePage[] Pages(IEnumerable<Keyframe> keyframes)
-        => [.. keyframes.Select((keyframe, frame) => new KeyframePage(new BlackFrame(keyframe.Percentage, keyframe.Time, frame), keyframe.Visual))];
+        => [.. keyframes.Select(keyframe => new KeyframePage(keyframe.Time, keyframe.Percentage, keyframe.Visual))];
 
     /// <summary>
     /// Creates a dense run of keyframes at the given black percentage.

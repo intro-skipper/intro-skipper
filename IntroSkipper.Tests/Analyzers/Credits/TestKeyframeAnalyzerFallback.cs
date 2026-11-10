@@ -47,7 +47,7 @@ public sealed class TestKeyframeAnalyzerFallback
                 : earlierScene || finalScene
                     ? KeyframeVisuals.Black(time)
                     : KeyframeVisuals.Content(time);
-            return new KeyframePage(new BlackFrame(earlierScene || middleScene || finalScene ? 95 : 0, time, index), visual);
+            return new KeyframePage(time, earlierScene || middleScene || finalScene ? 95 : 0, visual);
         })];
         var ffmpeg = new StubFFmpegService
         {
@@ -85,7 +85,7 @@ public sealed class TestKeyframeAnalyzerFallback
         {
             var time = index * 2.0;
             var black = (time >= 10 && time <= 30) || time >= 70;
-            return new KeyframePage(new BlackFrame(black ? 95 : 0, time, index), null);
+            return new KeyframePage(time, black ? 95 : 0, null);
         })];
         var ffmpeg = new StubFFmpegService
         {

@@ -61,7 +61,9 @@ internal static partial class RawPageReader
     private static Task<T> RunBelowNormal<T>(string name, Func<T> work, Action kill)
     {
         var result = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        new Thread(() =>
+        T value = default!;
+        Exception? fault = null;
+        var reader = new Thread(() =>
         {
             try
             {
@@ -70,19 +72,37 @@ internal static partial class RawPageReader
                     _ = NativeMethods.setpriority(NativeMethods.PrioProcess, 0, LinuxNiceBelowNormal);
                 }
 
-                result.SetResult(work());
+                value = work();
             }
             catch (Exception ex)
             {
                 // An exception left on this thread would take the server down with it.
-                kill();
-                result.SetException(ex);
+                fault = ex;
             }
         })
         {
             IsBackground = true,
             Name = name,
             Priority = ThreadPriority.BelowNormal,
+        };
+        reader.Start();
+
+        // Completing the task can create a pool worker, which would inherit a niced reader's nice value.
+        new Thread(() =>
+        {
+            reader.Join();
+            if (fault is null)
+            {
+                result.SetResult(value);
+            }
+            else
+            {
+                kill();
+                result.SetException(fault);
+            }
+        })
+        {
+            IsBackground = true,
         }.Start();
         return result.Task;
     }
