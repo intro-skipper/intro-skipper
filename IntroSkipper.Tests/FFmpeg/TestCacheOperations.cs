@@ -1337,7 +1337,7 @@ public sealed class TestCacheOperations
     private static byte[] Frame => [.. Enumerable.Repeat((byte)16, 8), .. Enumerable.Repeat((byte)128, 4)];
 
     // blackframe's line for one black frame at time t.
-    private static string BlackFrameLog(string time) => $"[Parsed_blackframe_0 @ 0x1] frame:0 pblack:100 pts:1 t:{time} type:I last_keyframe:0\n";
+    private static string BlackFrameLog(string time) => $"[blackframe@TOKEN @ 0x1] frame:0 pblack:100 pts:1 t:{time} type:I last_keyframe:0\n";
 
     // A 6 s VP9 mkv with a keyframe every 2 s and tagCount global tags of 100 bytes each.
     private static async Task<string> CreateTaggedVp9Async(int tagCount)
@@ -1371,7 +1371,8 @@ public sealed class TestCacheOperations
     // sleeps for 20 s when probeHangs. A hardware run writes hardwareLog and hardwareFrames, then
     // exits hardwareExitCode, or first sleeps for 20 s when hardwareHangs. Any other run writes the
     // log, then the frames, then exits 3, or first sleeps for 20 s when it hangs. TOKEN in a log
-    // stands for the token of the showinfo@token in the run's arguments.
+    // stands for the token of the filter instance in the run's arguments, showinfo@token or
+    // blackframe@token.
     private sealed class FakeFfmpegScript : IDisposable
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("IntroSkipper.Tests.");
@@ -1395,6 +1396,7 @@ public sealed class TestCacheOperations
                     $"echo %* | findstr /c:\"-frames:v 0\" >nul && (type \"{probePath}\" 1>&2 {(probeHangs ? "& " + Sleep + " " : string.Empty)}& exit /b 0)",
                     "set \"token=%*\"",
                     "set \"token=!token:*showinfo@=!\"",
+                    "set \"token=!token:*blackframe@=!\"",
                     "for /f \"delims==\" %%t in (\"!token!\") do set \"token=%%t\"",
                     $"echo %* | findstr /c:\"-hwaccel\" >nul && ({Log(hardwareLogPath)} & type \"{hardwareFramesPath}\" {(hardwareHangs ? "& " + Sleep + " " : string.Empty)}& exit /b {hardwareExitCode})",
                     Log(logPath),
@@ -1407,7 +1409,7 @@ public sealed class TestCacheOperations
                 File.WriteAllLines(script, [
                     "#!/bin/sh",
                     $"case \"$*\" in *-frames:v*) cat '{probePath}' >&2; {(probeHangs ? "sleep 20; " : string.Empty)}exit 0 ;; esac",
-                    @"token=$(printf '%s' ""$*"" | sed -n 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/p')",
+                    @"token=$(printf '%s' ""$*"" | sed -n 's/.*showinfo@\([A-Za-z0-9]*\).*/\1/p;s/.*blackframe@\([A-Za-z0-9]*\).*/\1/p')",
                     $"case \"$*\" in *-hwaccel*) sed \"s/TOKEN/$token/g\" '{hardwareLogPath}' >&2; cat '{hardwareFramesPath}'; {(hardwareHangs ? "sleep 20; " : string.Empty)}exit {hardwareExitCode} ;; esac",
                     $"sed \"s/TOKEN/$token/g\" '{logPath}' >&2",
                     $"cat '{framesPath}'",
