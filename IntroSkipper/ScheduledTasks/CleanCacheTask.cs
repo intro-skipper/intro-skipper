@@ -115,10 +115,43 @@ public partial class CleanCacheTask(
             return !exists;
         }
 
+        // Rebind before forgetting, so an orphan whose file a library item holds keeps its
+        // rows under the item's id. Skipped while no orphan holds a file hash to match.
+        // While a file cannot be read, an orphan may be that file's and go unmatched, so
+        // every orphan still holding a hash, and the season key it was hashed under, is
+        // kept for a later run.
+        var hashedOutsideIds = await _database.GetHashedItemIdsOutsideAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<Guid, DbFileHash> unmatchedOrphans = new Dictionary<Guid, DbFileHash>();
+        if (hashedOutsideIds.Any(IsGone))
+        {
+            var rebinder = new ItemRebinder(_database, IsGone, _logger);
+            var allHashed = true;
+
+            // A season matched before a later season refreshed its stale hashes may have
+            // seen an orphan's hash held twice, so a second round matches against the
+            // refreshed inventory. It reads no file the first round hashed.
+            for (var round = 0; round < 2; round++)
+            {
+                foreach (var season in seasons)
+                {
+                    allHashed &= await rebinder.RebindAsync(season, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            if (!allHashed)
+            {
+                var unmatchedOrphanIds = (await _database.GetHashedItemIdsOutsideAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false))
+                    .Where(IsGone)
+                    .ToList();
+                unmatchedOrphans = await _database.GetFileHashesAsync(unmatchedOrphanIds, cancellationToken).ConfigureAwait(false);
+                LogKeepingUnmatchedOrphans(_logger, unmatchedOrphans.Count);
+            }
+        }
+
         var staleTimestampEpisodeIds = (await _database
             .GetStaleTimestampEpisodeIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
             .ConfigureAwait(false))
-            .Where(IsGone)
+            .Where(id => IsGone(id) && !unmatchedOrphans.ContainsKey(id))
             .ToList();
 
         // Gone items lose their user segments too. Nothing can play them, and kept rows
@@ -146,13 +179,13 @@ public partial class CleanCacheTask(
         // Clean up season state by removing seasons that no longer exist.
         var seasonKeys = seasons.Select(static season => season.Key).ToList();
         var staleSeasonIds = await _database.GetStaleSeasonIdsAsync(seasonKeys, cancellationToken).ConfigureAwait(false);
-        var retainedSeasonIds = seasonKeys.Concat(staleSeasonIds.Where(id => !IsGone(id)));
+        var retainedSeasonIds = seasonKeys.Concat(staleSeasonIds.Where(id => !IsGone(id))).Concat(unmatchedOrphans.Values.Select(static h => h.SeasonId));
         await _database.CleanSeasonStateAsync(retainedSeasonIds, cancellationToken).ConfigureAwait(false);
 
-        // Per-item state (disable flags, analysis records) follows the item, not a season
+        // Per-item state (disable flags, analysis records, file hashes) follows the item, not a season
         // key, so it is pruned against the retained item IDs instead.
         var staleItemStateIds = await _database.GetStaleItemStateIdsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
-        var retainedItemIds = enabledLibraryEpisodeIds.Concat(staleItemStateIds.Where(id => !IsGone(id))).ToList();
+        var retainedItemIds = enabledLibraryEpisodeIds.Concat(staleItemStateIds.Where(id => !IsGone(id))).Concat(unmatchedOrphans.Keys).ToList();
         await _database.CleanItemStateAsync(retainedItemIds, cancellationToken).ConfigureAwait(false);
 
         // Cache rows whose configuration hash no read path accepts any more are dead weight;
@@ -174,6 +207,9 @@ public partial class CleanCacheTask(
     {
         return [];
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Keeping the rows of {Count} removed items that may be renamed files: a library file could not be read to match them. Re-run the task once the files are readable")]
+    private static partial void LogKeepingUnmatchedOrphans(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for {Count} items the server no longer knows")]
     private static partial void LogDeletingDetectionCacheRows(ILogger logger, int count);
