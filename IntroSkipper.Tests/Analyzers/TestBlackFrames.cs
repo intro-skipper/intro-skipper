@@ -467,12 +467,12 @@ public class TestBlackFrames
         {
             "black" => Roll((20, 54, 95, KeyframeVisuals.Black)),
             "tinted" => Roll((20, 54, 95, KeyframeVisuals.Tinted)),
-            "saturated background" => Roll((20, 54, 95, t => new KeyframeVisual(t, 16, 16, 16, 235, 30, 0))),
+            "saturated background" => Roll((20, 54, 95, new KeyframeVisual(16, 16, 16, 235, 30, 0))),
             "blank" => Roll((20, 54, 95, KeyframeVisuals.BlankBlack)),
             "one page" => Roll((30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
-            "most pages" => Roll((20, 54, 95, t => (t - 20) % 1.5 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
-            "half the pages" => Roll((20, 54, 95, t => (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
-            "none" => Roll((20, 54, 95, _ => null)),
+            "most pages" => [.. Times(20, 54, 0.5).Select(t => new Keyframe(t, 95, (t - 20) % 1.5 == 0 ? KeyframeVisuals.BlankBlack : KeyframeVisuals.Black))],
+            "half the pages" => [.. Times(20, 54, 0.5).Select(t => new Keyframe(t, 95, (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack : KeyframeVisuals.Black))],
+            "none" => Roll((20, 54, 95, null)),
             "dense text" => Roll((20, 54, 89, KeyframeVisuals.DenseText)),
             "red text" => Roll((20, 54, 95, KeyframeVisuals.RedText)),
             "dense red text" => Roll((20, 54, 89, KeyframeVisuals.DenseRedText)),
@@ -485,12 +485,12 @@ public class TestBlackFrames
             "letterboxed dark majority" => Roll((20, 37.5, 89, KeyframeVisuals.LetterboxedDark), (38, 54, 95, KeyframeVisuals.Black)),
             "big text" => Roll((20, 54, 89, KeyframeVisuals.BigText)),
             "dense first pages" => Roll((20, 23.5, 89, KeyframeVisuals.DenseText), (24, 54, 95, KeyframeVisuals.Black)),
-            "dark picture after a black head" => Roll((20, 20, 95, t => new KeyframeVisual(t, 15, 17, 19, 179, 1.1, 0)), (20.5, 54, 95, t => new KeyframeVisual(t, 15, 17, 26, 100, 2, 0))),
-            "dense white text on a tint" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 10, 16, 37, 241, 1.2, 0))),
-            "dense warm grey text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 30, 150, 0.9, 0))),
-            "dense coloured text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, t => new KeyframeVisual(t, 16, 16, 60, 177, 12, 0))),
-            "tinted dark lead-in majority" => Roll((20, 37.5, 95, t => new KeyframeVisual(t, 16, 16, 32, 150, 3, 0)), (38, 54, 95, KeyframeVisuals.Black)),
-            "an eighth dark picture" => Roll((20, 54, 95, t => (t - 20) % 4 == 0.5 ? new KeyframeVisual(t, 16, 16, 26, 100, 2, 0) : KeyframeVisuals.Black(t))),
+            "dark picture after a black head" => Roll((20, 20, 95, new KeyframeVisual(15, 17, 19, 179, 1.1, 0)), (20.5, 54, 95, new KeyframeVisual(15, 17, 26, 100, 2, 0))),
+            "dense white text on a tint" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, new KeyframeVisual(10, 16, 37, 241, 1.2, 0))),
+            "dense warm grey text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, new KeyframeVisual(16, 16, 30, 150, 0.9, 0))),
+            "dense coloured text" => Roll((20, 20, 95, KeyframeVisuals.Black), (20.5, 54, 95, new KeyframeVisual(16, 16, 60, 177, 12, 0))),
+            "tinted dark lead-in majority" => Roll((20, 37.5, 95, new KeyframeVisual(16, 16, 32, 150, 3, 0)), (38, 54, 95, KeyframeVisuals.Black)),
+            "an eighth dark picture" => [.. Times(20, 54, 0.5).Select(t => new Keyframe(t, 95, (t - 20) % 4 == 0.5 ? new KeyframeVisual(16, 16, 26, 100, 2, 0) : KeyframeVisuals.Black))],
             _ => throw new ArgumentOutOfRangeException(nameof(visualsKind)),
         };
         var ffmpeg = KeyframeScan(keyframes);
@@ -502,7 +502,7 @@ public class TestBlackFrames
         (SegmentSource, double, double)[] expected = expectedStart is { } start ? [(SegmentSource.BlackFrame, start, 154)] : [];
         Assert.Equal(expected, candidates);
 
-        static Keyframe[] Roll(params (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
+        static Keyframe[] Roll(params (double From, double To, int Percentage, KeyframeVisual? Visual)[] spans)
             => Keyframes(20, 54, 0.5, spans);
     }
 
@@ -654,7 +654,7 @@ public class TestBlackFrames
     {
         // The pages under the black minimum after the scene each fail one roll page clause, so the
         // scene ends at its last black keyframe.
-        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, t => new KeyframeVisual(t, 16, lumaLow, lumaHigh, lumaMax, saturation, 0)), (82, 90, 0, KeyframeVisuals.Content)));
+        var ffmpeg = KeyframeScan(Keyframes(0, 90, 2, (0, 18, 0, KeyframeVisuals.Content), (20, 40, 95, KeyframeVisuals.Black), (42, 80, 80, new KeyframeVisual(16, lumaLow, lumaHigh, lumaMax, saturation, 0)), (82, 90, 0, KeyframeVisuals.Content)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
@@ -737,7 +737,7 @@ public class TestBlackFrames
         // A roll whose keyframes have no visual, after content keyframes that do.
         // The gates find no visual on any of the roll's pages and must leave the black-frame result
         // alone rather than reject the roll on a zero count.
-        var ffmpeg = KeyframeScan(Keyframes(0, 54, 0.5, (20, 54, 95, _ => null)));
+        var ffmpeg = KeyframeScan(Keyframes(0, 54, 0.5, (20, 54, 95, null)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
@@ -759,7 +759,7 @@ public class TestBlackFrames
         var keyframes = visualsKind switch
         {
             "one page" => Keyframes(20, 54, 0.5, (30, 30, 95, KeyframeVisuals.Black), (20, 54, 95, KeyframeVisuals.BlankBlack)),
-            "half the pages" => Keyframes(20, 54, 0.5, (20, 54, 95, t => (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack(t) : KeyframeVisuals.Black(t))),
+            "half the pages" => [.. Times(20, 54, 0.5).Select(t => new Keyframe(t, 95, (t - 20) % 1 == 0 ? KeyframeVisuals.BlankBlack : KeyframeVisuals.Black))],
             "dark room" => Keyframes(20, 54, 0.5, (20, 54, 95, KeyframeVisuals.DarkRoom)),
             _ => Keyframes(20, 54, 0.5, (20, 37, 95, KeyframeVisuals.BlankBlack), (37.5, 54, 95, KeyframeVisuals.DarkHighlight)),
         };
@@ -787,7 +787,7 @@ public class TestBlackFrames
         // Red lettering on black swept across font sizes: the 90th percentile climbs from the
         // background onto the text as the lettering thickens, and every size is lettering. Only the
         // contrast decides: a page whose brightest pixel is under 60 levels above the darkest tenth is blank.
-        var visual = new KeyframeVisual(0, 16, 16, 16 + spread, max, 11, 0);
+        var visual = new KeyframeVisual(16, 16, 16 + spread, max, 11, 0);
 
         Assert.Equal(expected, visual.IsLettered());
     }
@@ -801,9 +801,9 @@ public class TestBlackFrames
         // confirmed blackdetect interval and should remain a credits candidate.
         Keyframe[] keyframes =
         [
-            new(0, 10, KeyframeVisuals.Content(0)),
+            new(0, 10, KeyframeVisuals.Content),
             .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
-            new(100, 10, KeyframeVisuals.Content(100)),
+            new(100, 10, KeyframeVisuals.Content),
             .. Keyframes(110, 130, 10, (110, 130, 96, KeyframeVisuals.Black)),
         ];
         var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(10, 30)]);
@@ -824,9 +824,9 @@ public class TestBlackFrames
         // scan covers both. The probe changes nothing, and both scenes are candidates.
         Keyframe[] keyframes =
         [
-            new(0, 10, KeyframeVisuals.Content(0)),
+            new(0, 10, KeyframeVisuals.Content),
             .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
-            new(45, 10, KeyframeVisuals.Content(45)),
+            new(45, 10, KeyframeVisuals.Content),
             .. Keyframes(55, 75, 10, (55, 75, 96, KeyframeVisuals.Black)),
         ];
         var ffmpeg = KeyframeScan(keyframes, intervals: [new BlackInterval(0, 1)]);
@@ -846,9 +846,9 @@ public class TestBlackFrames
         // the card run covers the cards and the roll after them.
         Keyframe[] keyframes =
         [
-            new(0, 0, KeyframeVisuals.Content(0)),
+            new(0, 0, KeyframeVisuals.Content),
             .. Keyframes(10, 30, 10, (10, 30, 96, KeyframeVisuals.Black)),
-            new(60, 0, KeyframeVisuals.Content(60)),
+            new(60, 0, KeyframeVisuals.Content),
             .. Keyframes(90, 98, 2, (90, 98, 0, KeyframeVisuals.Card)),
             .. Keyframes(100, 130, 2, (100, 130, 96, KeyframeVisuals.Black)),
         ];
@@ -968,12 +968,12 @@ public class TestBlackFrames
         // earlier of the interval start and the cut frame.
         var ffmpeg = KeyframeScan(
             [
-                new(366.45, 15, KeyframeVisuals.Dark(366.45)),
-                new(376.46, 96, KeyframeVisuals.BlackAfterCut(376.46)),
-                new(386.47, 96, KeyframeVisuals.Black(386.47)),
-                new(396.48, 98, KeyframeVisuals.Black(396.48)),
-                new(406.49, 99, KeyframeVisuals.Black(406.49)),
-                new(416.5, 20, KeyframeVisuals.Dark(416.5)),
+                new(366.45, 15, KeyframeVisuals.Dark),
+                new(376.46, 96, KeyframeVisuals.BlackAfterCut),
+                new(386.47, 96, KeyframeVisuals.Black),
+                new(396.48, 98, KeyframeVisuals.Black),
+                new(406.49, 99, KeyframeVisuals.Black),
+                new(416.5, 20, KeyframeVisuals.Dark),
             ],
             intervals: [new BlackInterval(367.827, 376.002)],
             cutWindows: (_, window) => CutFrames(window, cutFrame));
@@ -1059,8 +1059,8 @@ public class TestBlackFrames
         var ffmpeg = KeyframeScan(
             times.Select(t => t switch
             {
-                >= 20 and <= 40 or >= 70 and <= 90 => new Keyframe(t, 100, KeyframeVisuals.Black(t)),
-                _ => new Keyframe(t, 0, KeyframeVisuals.Content(t)),
+                >= 20 and <= 40 or >= 70 and <= 90 => new Keyframe(t, 100, KeyframeVisuals.Black),
+                _ => new Keyframe(t, 0, KeyframeVisuals.Content),
             }),
             intervals: oneInterval ? [new BlackInterval(19, 90)] : [new BlackInterval(19, 40), new BlackInterval(65, 90)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
@@ -1131,10 +1131,10 @@ public class TestBlackFrames
     {
         var ffmpeg = KeyframeScan(
             [
-                new(366.45, 15, KeyframeVisuals.Dark(366.45)),
-                new(376.46, 20, KeyframeVisuals.Dark(376.46)),
-                new(386.47, 18, KeyframeVisuals.Dark(386.47)),
-                new(396.48, 22, KeyframeVisuals.Dark(396.48)),
+                new(366.45, 15, KeyframeVisuals.Dark),
+                new(376.46, 20, KeyframeVisuals.Dark),
+                new(386.47, 18, KeyframeVisuals.Dark),
+                new(396.48, 22, KeyframeVisuals.Dark),
             ],
             intervals: [new BlackInterval(367.827, 376.002)]);
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
@@ -1208,7 +1208,7 @@ public class TestBlackFrames
         // ends the lead-in walk, since nothing says it is dim. So the dim page alone is the lead-in,
         // and the scene starts on the page without a visual at 22, not on the first level page at
         // 24. Without a visual that page has no frame difference, so no cut is decoded before it.
-        var ffmpeg = KeyframeScan(Keyframes(0, 70, 2, (20, 20, 95, KeyframeVisuals.DarkGrey), (22, 22, 95, _ => null), (24, 54, 95, KeyframeVisuals.Black)));
+        var ffmpeg = KeyframeScan(Keyframes(0, 70, 2, (20, 20, 95, KeyframeVisuals.DarkGrey), (22, 22, 95, null), (24, 54, 95, KeyframeVisuals.Black)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
 
         var candidates = await KeyframeCandidates(analyzer, CreateQueuedCreditsEpisode(creditsFingerprintStart: 100));
@@ -1267,8 +1267,8 @@ public class TestBlackFrames
             2,
             (32, 40, 0, KeyframeVisuals.Card),
             (42, 54, 100, KeyframeVisuals.Black),
-            (82, 110, 100, _ => null),
-            (62, 120, 0, _ => null)));
+            (82, 110, 100, null),
+            (62, 120, 0, null)));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
         var episode = new QueuedEpisode
         {
@@ -1332,7 +1332,7 @@ public class TestBlackFrames
         // it by 40. No page is black, so there is no black scene, and the card run starts on the cut
         // frame of the gap before its first page.
         var ffmpeg = KeyframeScan(
-            Keyframes(0, 70, 2, (30, 30, 0, t => KeyframeVisuals.Card(t) with { FrameDifference = 40 }), (32, 60, 0, KeyframeVisuals.Card)),
+            Keyframes(0, 70, 2, (30, 30, 0, KeyframeVisuals.Card with { FrameDifference = 40 }), (32, 60, 0, KeyframeVisuals.Card)),
             cutWindows: (_, window) => CutFrames(window, cutFrame: 36));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg);
 
@@ -1348,7 +1348,7 @@ public class TestBlackFrames
         // The card run from DetectCreditsAsync_CardRun_StartsOnTheCut, analyzed keyframe-only: it
         // starts on its first page at 30 and nothing between the keyframes is decoded.
         var ffmpeg = KeyframeScan(
-            Keyframes(0, 70, 2, (30, 30, 0, t => KeyframeVisuals.Card(t) with { FrameDifference = 40 }), (32, 60, 0, KeyframeVisuals.Card)),
+            Keyframes(0, 70, 2, (30, 30, 0, KeyframeVisuals.Card with { FrameDifference = 40 }), (32, 60, 0, KeyframeVisuals.Card)),
             cutWindows: (_, window) => CutFrames(window, cutFrame: 36));
         var analyzer = CreateKeyframeAnalyzer(ffmpeg, new PluginConfiguration { RefineCreditsBoundary = false });
 
@@ -1390,8 +1390,8 @@ public class TestBlackFrames
         var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN"));
 
         Assert.Equal(2, visuals.Length);
-        Assert.Equal(new KeyframeVisual(0.0, 16, 60, 200, 235, 108.199, 0), visuals[0]);
-        Assert.Equal(new KeyframeVisual(2.0, 16, 16, 16, 235, 0, 101.5), visuals[1]);
+        Assert.Equal(new CutFrame(0.0, new KeyframeVisual(16, 60, 200, 235, 108.199, 0)), visuals[0]);
+        Assert.Equal(new CutFrame(2.0, new KeyframeVisual(16, 16, 16, 235, 0, 101.5)), visuals[1]);
     }
 
     [Fact]
@@ -1432,7 +1432,7 @@ public class TestBlackFrames
 
         var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
-        Assert.Equal(new KeyframeVisual(300, 16, 16, 16, 16, 0, 45), visual);
+        Assert.Equal(new CutFrame(300, new KeyframeVisual(16, 16, 16, 16, 0, 45)), visual);
     }
 
     [Fact]
@@ -1464,7 +1464,7 @@ public class TestBlackFrames
 
         var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
-        Assert.Equal(new KeyframeVisual(5.0, 16, 128, 128, 235, 12.5, 3), visual);
+        Assert.Equal(new CutFrame(5.0, new KeyframeVisual(16, 128, 128, 235, 12.5, 3)), visual);
     }
 
     [Fact]
@@ -1486,30 +1486,30 @@ public class TestBlackFrames
 
         var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
-        Assert.Equal(new KeyframeVisual(1e-05, 16, 128, 128, 235, 32, 15), visual);
+        Assert.Equal(new CutFrame(1e-05, new KeyframeVisual(16, 128, 128, 235, 32, 15)), visual);
     }
 
     // Each row: a keyframe visual and whether it is card-like.
     public static TheoryData<KeyframeVisual, bool> CardLikeCases => new()
     {
-        { KeyframeVisuals.Card(0), true },
-        { KeyframeVisuals.WhiteCard(0), true },
+        { KeyframeVisuals.Card, true },
+        { KeyframeVisuals.WhiteCard, true },
 
         // Spread 9: the background is not dominant.
-        { new KeyframeVisual(0, 16, 128, 137, 235, 30, 0), false },
+        { new KeyframeVisual(16, 128, 137, 235, 30, 0), false },
 
         // Spread 8 with contrast 60 on both sides: both boundaries inclusive.
-        { new KeyframeVisual(0, 68, 128, 136, 196, 30, 0), true },
+        { new KeyframeVisual(68, 128, 136, 196, 30, 0), true },
 
         // Contrast 59: a bare wall or a fade.
-        { new KeyframeVisual(0, 69, 128, 128, 187, 30, 0), false },
+        { new KeyframeVisual(69, 128, 128, 187, 30, 0), false },
 
-        { KeyframeVisuals.BlankBlack(0), false },
-        { KeyframeVisuals.Dark(0), false },
-        { KeyframeVisuals.FlatWithSubject(0), false },
+        { KeyframeVisuals.BlankBlack, false },
+        { KeyframeVisuals.Dark, false },
+        { KeyframeVisuals.FlatWithSubject, false },
 
         // Card at the exclusive saturation maximum.
-        { KeyframeVisuals.Card(0, saturation: 96), false },
+        { KeyframeVisuals.Card with { Saturation = 96 }, false },
     };
 
     [Theory]
@@ -1549,11 +1549,11 @@ public class TestBlackFrames
 
         // An earlier dense run (0-20) must not capture or extend into a later long-GOP credit run
         // (60-96, 12s cadence): the 40 s gap between them breaks the run, so the latest is returned.
-        { Pages(NotBlack([.. Cards(0, 20, 2), .. Busy(22, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
+        { Pages([.. Cards(0, 20, 2), .. Busy(22, 58, 2), .. Cards(60, 96, 12)]), 15, (60, 96) },
 
         // Dense non-card content, then static cards on a 12s-keyframe source: grouping must key off the
         // card cadence, not the content cadence, or every 12s card gap splits the run.
-        { Pages(NotBlack([.. Busy(0, 58, 2), .. Cards(60, 96, 12)])), 15, (60, 96) },
+        { Pages([.. Busy(0, 58, 2), .. Cards(60, 96, 12)]), 15, (60, 96) },
 
         // Sparse isolated cards bridged across busy 2s content (brief dense head, then a lone card
         // every 8s) -> rejected by the card-density floor: most keyframes in the span are busy
@@ -1571,10 +1571,10 @@ public class TestBlackFrames
 
         // Dark (low luma) but detailed content spreads wide within the dark range, like a night scene -> not a card.
         // Its percentiles put it between a tenth and nine tenths black, so its rows sit at 50, under the minimum.
-        { Pages(Times(0, 58, 2).Select(t => new Keyframe(t, 50, KeyframeVisuals.Dark(t)))), 15, null },
+        { Pages(Times(0, 58, 2).Select(t => new Keyframe(t, 50, KeyframeVisuals.Dark))), 15, null },
 
         // Uniform but vividly saturated frames are excluded on purpose (see KeyframeVisualTraits).
-        { Pages(NotBlack(CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200))), 15, null },
+        { Pages(NotBlack(0, 20, 2, KeyframeVisuals.Card with { Saturation = 200 })), 15, null },
 
         // All busy content -> null.
         { Pages(Seq(60, 2)), 15, null },
@@ -1629,7 +1629,7 @@ public class TestBlackFrames
             // Pages without a visual are invisible to the card finder: they do not join two card spans
             // 24 s apart, which break at the run gap, and the later span is the run.
             data.Add(
-                Pages([.. Keyframes(0, 20, 2, (0, 20, 0, KeyframeVisuals.Card)), .. Keyframes(22, 42, 2, (22, 42, 0, _ => null)), .. Keyframes(44, 64, 2, (44, 64, 0, KeyframeVisuals.Card))]),
+                Pages([.. Keyframes(0, 20, 2, (0, 20, 0, KeyframeVisuals.Card)), .. Keyframes(22, 42, 2, (22, 42, 0, null)), .. Keyframes(44, 64, 2, (44, 64, 0, KeyframeVisuals.Card))]),
                 [],
                 [],
                 (44, 64));
@@ -1688,7 +1688,7 @@ public class TestBlackFrames
             // Dark detailed keyframes at 89 percent are black at the minimum of 85, but their luma spreads
             // too wide for a card. With no accepted scene the visuals alone decide, so they are content
             // and stay in the density ratio: 13 cards among 31 keyframes fail the floor.
-            data.Add(Pages(Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? new Keyframe(t, 0, KeyframeVisuals.Card(t)) : new Keyframe(t, 89, KeyframeVisuals.Dark(t)))), [], [], null);
+            data.Add(Pages(Times(0, 60, 2).Select(t => t % 10 is 0 or 4 ? new Keyframe(t, 0, KeyframeVisuals.Card) : new Keyframe(t, 89, KeyframeVisuals.Dark))), [], [], null);
 
             // One-keyframe black flashes before an interval-confirmed roll: the accepted black scene
             // starts at the roll, so the flashes are content and the run starts there too.
@@ -1705,7 +1705,7 @@ public class TestBlackFrames
 
             // Black page, grey card, busy frame repeating, with no black-frame candidate: the visuals
             // alone decide, as the old fallback did, and two cards in three keep the run.
-            data.Add(Pages(Times(0, 60, 2).Select(t => t % 6 == 0 ? new Keyframe(t, 100, KeyframeVisuals.Black(t)) : new Keyframe(t, 0, t % 6 == 2 ? KeyframeVisuals.Card(t) : KeyframeVisuals.Content(t)))), [], [], (0, 60));
+            data.Add(Pages(Times(0, 60, 2).Select(t => t % 6 == 0 ? new Keyframe(t, 100, KeyframeVisuals.Black) : new Keyframe(t, 0, t % 6 == 2 ? KeyframeVisuals.Card : KeyframeVisuals.Content))), [], [], (0, 60));
 
             // Red lettering on black raises the mean saturation, not the background's: a card run
             // through the no-scene fallback like white lettering would be.
@@ -1884,7 +1884,7 @@ public class TestBlackFrames
     private static StubFFmpegService KeyframeScan(
         IEnumerable<Keyframe> keyframes,
         BlackInterval[]? intervals = null,
-        Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? cutWindows = null)
+        Func<QueuedEpisode, TimeRange, CutFrame[]?>? cutWindows = null)
     {
         var pages = Pages(keyframes);
         return new()
@@ -1908,9 +1908,9 @@ public class TestBlackFrames
     /// its end, each differing from the frame before by 1, except the first, which differs by 0, and
     /// the frame <paramref name="cutFrame"/> after the start, which carries the cut's difference of 40.
     /// </summary>
-    private static KeyframeVisual[] CutFrames(TimeRange window, int cutFrame)
+    private static CutFrame[] CutFrames(TimeRange window, int cutFrame)
         => [.. Enumerable.Range(0, (int)Math.Round(window.Duration * 24)).Select(i =>
-            KeyframeVisuals.Black(window.Start + (i / 24.0)) with { FrameDifference = i == 0 ? 0 : i == cutFrame ? 40 : 1 })];
+            new CutFrame(window.Start + (i / 24.0), KeyframeVisuals.Black with { FrameDifference = i == 0 ? 0 : i == cutFrame ? 40 : 1 }))];
 
     /// <summary>
     /// Keyframes 0.5 s apart from 0 to 49.5: dark shots at 30 percent black, with a black roll page at
@@ -1918,7 +1918,7 @@ public class TestBlackFrames
     /// after it.
     /// </summary>
     private static IEnumerable<Keyframe> DarkSceneWithBlackPages(int every, int percentage)
-        => Times(0, 49.5, 0.5).Select((t, i) => i % every == 0 ? new Keyframe(t, percentage, KeyframeVisuals.Black(t)) : new Keyframe(t, 30, KeyframeVisuals.Dark(t)));
+        => Times(0, 49.5, 0.5).Select((t, i) => i % every == 0 ? new Keyframe(t, percentage, KeyframeVisuals.Black) : new Keyframe(t, 30, KeyframeVisuals.Dark));
 
     /// <summary>
     /// Keyframes ten seconds apart from 0 to 120: content, then a roll that is black from the page at
@@ -1933,37 +1933,21 @@ public class TestBlackFrames
         var pageVisual = page switch
         {
             "no visual" => null,
-            "dim" => KeyframeVisuals.DarkGrey(pageTime),
-            "content" => KeyframeVisuals.Content(pageTime),
-            _ => KeyframeVisuals.Black(pageTime),
+            "dim" => KeyframeVisuals.DarkGrey,
+            "content" => KeyframeVisuals.Content,
+            _ => KeyframeVisuals.Black,
         };
         var rollStart = page == "content" ? 50 : pageTime;
         double[] times = [0, 10, 20, 30, pageTime, 50, 60, 70, 80, 90, 100, 110, 120];
         return KeyframeScan(
             times.Select(time => new Keyframe(time, time >= rollStart && time <= 80 ? 100 : 0, time == pageTime ? pageVisual : time switch
             {
-                < 40 => KeyframeVisuals.Content(time),
-                50 when page == "level before dim" => KeyframeVisuals.DarkGrey(time),
-                <= 80 => KeyframeVisuals.Black(time),
-                _ => KeyframeVisuals.Card(time),
+                < 40 => KeyframeVisuals.Content,
+                50 when page == "level before dim" => KeyframeVisuals.DarkGrey,
+                <= 80 => KeyframeVisuals.Black,
+                _ => KeyframeVisuals.Card,
             })),
             intervals: [new BlackInterval(40, 80)]);
-    }
-
-    private static KeyframeVisual[] CreateCardCreditVisuals(double cardStart, double cardEnd, double cardSaturation)
-    {
-        var visuals = new List<KeyframeVisual>();
-        for (var time = 0.0; time < cardStart; time += 2)
-        {
-            visuals.Add(KeyframeVisuals.Content(time));
-        }
-
-        for (var time = cardStart; time <= cardEnd; time += 2)
-        {
-            visuals.Add(KeyframeVisuals.Card(time, cardSaturation));
-        }
-
-        return [.. visuals];
     }
 
     private static IEnumerable<double> Times(double from, double to, double step)
@@ -1974,11 +1958,9 @@ public class TestBlackFrames
         }
     }
 
-    private static IEnumerable<KeyframeVisual> Cards(double from, double to, double step)
-        => Times(from, to, step).Select(t => KeyframeVisuals.Card(t));
+    private static IEnumerable<Keyframe> Cards(double from, double to, double step) => NotBlack(from, to, step, KeyframeVisuals.Card);
 
-    private static IEnumerable<KeyframeVisual> Busy(double from, double to, double step)
-        => Times(from, to, step).Select(t => KeyframeVisuals.Content(t));
+    private static IEnumerable<Keyframe> Busy(double from, double to, double step) => NotBlack(from, to, step, KeyframeVisuals.Content);
 
     /// <summary>
     /// Keyframes every <paramref name="step"/> seconds from 0 to <paramref name="end"/>, none of them
@@ -1986,16 +1968,17 @@ public class TestBlackFrames
     /// rest busy content.
     /// </summary>
     private static Keyframe[] Seq(double end, double step, params (double From, double To)[] cards)
-        => NotBlack(Times(0, end, step).Select(t => cards.Any(c => t >= c.From - 1e-9 && t <= c.To + 1e-9)
-            ? KeyframeVisuals.Card(t)
-            : KeyframeVisuals.Content(t)));
+        => [.. Times(0, end, step).Select(t => new Keyframe(t, 0, cards.Any(c => t >= c.From - 1e-9 && t <= c.To + 1e-9)
+            ? KeyframeVisuals.Card
+            : KeyframeVisuals.Content))];
 
     /// <summary>
-    /// Keyframes for <paramref name="visuals"/> that the blackframe filter does not count as black
-    /// at all, as cards and busy content are not.
+    /// Keyframes every <paramref name="step"/> seconds from <paramref name="from"/> to
+    /// <paramref name="to"/> with <paramref name="visual"/>, which the blackframe filter does not
+    /// count as black at all, as cards and busy content are not.
     /// </summary>
-    private static Keyframe[] NotBlack(IEnumerable<KeyframeVisual> visuals)
-        => [.. visuals.Select(visual => new Keyframe(visual.Time, 0, visual))];
+    private static IEnumerable<Keyframe> NotBlack(double from, double to, double step, KeyframeVisual visual)
+        => Times(from, to, step).Select(t => new Keyframe(t, 0, visual));
 
     /// <summary>
     /// Keyframes 0.5s apart with a per-index black percentage.

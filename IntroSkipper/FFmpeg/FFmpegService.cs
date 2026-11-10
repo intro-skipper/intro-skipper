@@ -335,7 +335,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string KeyframeFilters(string? codec, string filters) => codec == "vp9" ? $"{KeyframeSelect},{filters}" : filters;
 
     /// <inheritdoc/>
-    public async Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
+    public async Task<CutFrame[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         // Every frame, at source resolution and in the keyframe scan's pixel format, so a frame's
         // difference is on the scale of the page's. Seeking to the earlier keyframe starts the

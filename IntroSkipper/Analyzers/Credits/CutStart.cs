@@ -63,7 +63,7 @@ internal static class CutStart
     /// whose difference is to a frame outside the gap, so it never counts. The start also stays on the
     /// page when the decode does not begin on the page before.
     /// </returns>
-    internal static double? Locate(IReadOnlyList<KeyframeVisual> frames, TimeRange window, double pageDifference)
+    internal static double? Locate(IReadOnlyList<CutFrame> frames, TimeRange window, double pageDifference)
     {
         var gap = frames.Where(frame => frame.Time >= window.Start - TimeTolerance && frame.Time < window.End - TimeTolerance).ToList();
         if (gap.Count == 0 || gap[0].Time > window.Start + TimeTolerance)
@@ -71,7 +71,7 @@ internal static class CutStart
             return null;
         }
 
-        var cut = gap.Skip(1).MaxBy(frame => frame.FrameDifference);
-        return cut is not null && cut.FrameDifference >= CutShare * pageDifference ? cut.Time : null;
+        var cut = gap.Skip(1).MaxBy(frame => frame.Visual.FrameDifference);
+        return cut is not null && cut.Visual.FrameDifference >= CutShare * pageDifference ? cut.Time : null;
     }
 }

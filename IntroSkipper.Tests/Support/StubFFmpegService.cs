@@ -53,7 +53,7 @@ internal class StubFFmpegService : IFFmpegService
     public Func<QueuedEpisode, TimeRange, int, int, BlackInterval[]>? BlackIntervals { get; init; }
 
     /// <summary>Gets the cut decode; a hook that returns <see langword="null"/> stands for a decode that failed.</summary>
-    public Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? CutWindows { get; init; }
+    public Func<QueuedEpisode, TimeRange, CutFrame[]?>? CutWindows { get; init; }
 
     public int VersionCheckCalls => Volatile.Read(ref _versionCheckCalls);
 
@@ -117,7 +117,7 @@ internal class StubFFmpegService : IFFmpegService
     public virtual Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
         => Task.FromResult(Hook(KeyFrames)(episode, range, mode));
 
-    public virtual Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
+    public virtual Task<CutFrame[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         _calls.Enqueue(new CutDecode(window.Start, window.End));
         cancellationToken.ThrowIfCancellationRequested();

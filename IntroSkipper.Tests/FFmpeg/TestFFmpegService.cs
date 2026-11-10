@@ -504,10 +504,12 @@ public class TestFFmpegService
             var frames = await CreateFFmpegService().DecodeCutWindowAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Name = "titled", Path = path }, new TimeRange(0, 2));
 
             // Four black frames, then four white ones, the first of which differs from black by 219.
-            KeyframeVisual[] expected =
+            KeyframeVisual black = new(16, 16, 16, 16, 0, 0);
+            KeyframeVisual white = new(235, 235, 235, 235, 0, 0);
+            CutFrame[] expected =
             [
-                new(0, 16, 16, 16, 16, 0, 0), new(0.25, 16, 16, 16, 16, 0, 0), new(0.5, 16, 16, 16, 16, 0, 0), new(0.75, 16, 16, 16, 16, 0, 0),
-                new(1, 235, 235, 235, 235, 0, 219), new(1.25, 235, 235, 235, 235, 0, 0), new(1.5, 235, 235, 235, 235, 0, 0), new(1.75, 235, 235, 235, 235, 0, 0),
+                new(0, black), new(0.25, black), new(0.5, black), new(0.75, black),
+                new(1, white with { FrameDifference = 219 }), new(1.25, white), new(1.5, white), new(1.75, white),
             ];
             Assert.Equal(expected, frames);
         }

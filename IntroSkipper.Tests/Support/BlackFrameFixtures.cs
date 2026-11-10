@@ -25,12 +25,12 @@ internal static class BlackFrameFixtures
     /// <param name="step">The keyframe spacing.</param>
     /// <param name="spans">Inclusive time spans with the black percentage and the visual of their keyframes.</param>
     /// <returns>The keyframes, in time order.</returns>
-    internal static Keyframe[] Keyframes(double from, double to, double step, params (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
+    internal static Keyframe[] Keyframes(double from, double to, double step, params (double From, double To, int Percentage, KeyframeVisual? Visual)[] spans)
         => [.. Enumerable.Range(0, (int)Math.Round((to - from) / step) + 1).Select(i =>
         {
             var time = from + (i * step);
             var index = Array.FindIndex(spans, span => time >= span.From - 1e-9 && time <= span.To + 1e-9);
-            return index < 0 ? new Keyframe(time, 0, KeyframeVisuals.Content(time)) : new Keyframe(time, spans[index].Percentage, spans[index].Visual(time));
+            return index < 0 ? new Keyframe(time, 0, KeyframeVisuals.Content) : new Keyframe(time, spans[index].Percentage, spans[index].Visual);
         })];
 
     /// <summary>

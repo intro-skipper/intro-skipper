@@ -137,9 +137,9 @@ internal static partial class FFmpegOutputParser
 
     // Reads the frames "signalstats,metadata@token=print" reports, each line from the metadata
     // instance's log context on.
-    internal static KeyframeVisual[] ParseKeyframeVisuals(string raw, FilterInstance metadata)
+    internal static CutFrame[] ParseKeyframeVisuals(string raw, FilterInstance metadata)
     {
-        var visuals = new List<KeyframeVisual>();
+        var frames = new List<CutFrame>();
 
         /* Sample output (one block per frame, other signalstats lines omitted):
          * [metadata@Ab3dE5gH @ 0x0] frame:1 pts:20480 pts_time:2
@@ -163,7 +163,7 @@ internal static partial class FFmpegOutputParser
             var timeMatch = _keyframeVisualTimeRegex.Match(message);
             if (timeMatch.Success)
             {
-                AddKeyframeVisual(visuals, time, stats);
+                AddFrame(frames, time, stats);
                 time = ParseDouble(timeMatch.Groups["time"].Value);
                 stats.Clear();
                 continue;
@@ -176,18 +176,18 @@ internal static partial class FFmpegOutputParser
             }
         }
 
-        AddKeyframeVisual(visuals, time, stats);
+        AddFrame(frames, time, stats);
 
-        return [.. visuals];
+        return [.. frames];
     }
 
     // A block missing any stat, such as one truncated at the end of the output, is dropped rather
     // than emitted with zeros that would pass the card gate.
-    private static void AddKeyframeVisual(List<KeyframeVisual> visuals, double? time, Dictionary<string, double> stats)
+    private static void AddFrame(List<CutFrame> frames, double? time, Dictionary<string, double> stats)
     {
-        if (time is { } keyframeTime && stats.Count == KeyframeSignalStatCount)
+        if (time is { } frameTime && stats.Count == KeyframeSignalStatCount)
         {
-            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"], stats["YDIF"]));
+            frames.Add(new CutFrame(frameTime, new KeyframeVisual(stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"], stats["YDIF"])));
         }
     }
 
