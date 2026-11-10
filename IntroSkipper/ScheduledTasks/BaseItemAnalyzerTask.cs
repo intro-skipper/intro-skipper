@@ -737,17 +737,21 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
+        // Keep the hash and analyzer on one configuration object. Jellyfin replaces this
+        // object when settings are saved, so a save during an awaited setup step must not
+        // let the pass write results under a hash from the previous configuration.
+        var config = Config;
         var first = items[0];
         var isMovie = first.Category == QueuedMediaCategory.Movie;
 
         var configHash = ConfigHasher.Analysis(
-            Config,
+            config,
             mode,
             action,
             ffmpegValid,
             first.AnalysisPercentOverride,
             first.AnalysisLengthLimitOverride,
-            ShouldDerivePreview(first, Config),
+            ShouldDerivePreview(first, config),
             first.SubtitleRecapDetectionOverride,
             first.SubtitlePreviewDetectionOverride,
             chapterSource: first.ChaptersSource);
@@ -759,7 +763,7 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                items.Select(i => (i.EpisodeId, Config.RecordedFileVersion(i, mode))),
+                items.Select(i => (i.EpisodeId, config.RecordedFileVersion(i, mode))),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
             return;
@@ -790,7 +794,7 @@ public partial class BaseItemAnalyzerTask(
         // the mode, such as the rows a subtitle-only pass kept under their old hash. With
         // subtitle detection active, the chain cleans up after itself instead.
         var cleanableItems = conventionalItems
-            .Where(item => item.NeedsAnalysis(mode) && Config.ActiveSubtitlePattern(item, mode) is null);
+            .Where(item => item.NeedsAnalysis(mode) && config.ActiveSubtitlePattern(item, mode) is null);
         QueuedEpisode[] cleanableItemsSnapshot = [.. cleanableItems];
         // Credits must inspect standing rows when a keyframe scan fails, even if those rows
         // were written under an older hash. Clean only after a result settles; failed episodes
@@ -811,12 +815,12 @@ public partial class BaseItemAnalyzerTask(
 
         if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed) && mode == AnalysisMode.Credits)
         {
-            await SetCreditsWindowsAsync(conventionalItems, isMovie, cancellationToken).ConfigureAwait(false);
+            await SetCreditsWindowsAsync(conventionalItems, isMovie, config, cancellationToken).ConfigureAwait(false);
 
             // Credits settle chapter matches that no story follows first by default; the
             // others, and every match under enhancement, combine with the other candidates.
             // A single item cannot use chromaprint comparison.
-            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, Config, useLocalConsensus);
+            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, config, useLocalConsensus);
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
 
             await _database.CleanStaleAutomaticSegmentsAsync(
@@ -846,20 +850,20 @@ public partial class BaseItemAnalyzerTask(
         // go stale when preview settings change. Failed Credits episodes retain their prior
         // rows here; a settled-season reset may later refresh their Preview from retained
         // Credits under the stored hash.
-        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, Config);
+        var previewFromCreditsEnd = ShouldCreateCreditsDerivedPreview(first, config);
         if (previewFromCreditsEnd)
         {
             if (mode == AnalysisMode.Credits)
             {
                 // Subtitle detection in the Preview mode later in this pass can still supersede
                 // the derived preview, so the derive leaves the Preview state to it.
-                var subtitlePreviewWillRun = Config.ScanPreview && Config.ActiveSubtitlePattern(first, AnalysisMode.Preview) is not null;
+                var subtitlePreviewWillRun = config.ScanPreview && config.ActiveSubtitlePattern(first, AnalysisMode.Preview) is not null;
                 QueuedEpisode[] settledCreditsItems = [.. items
                     .Where(item => item.GetAnalyzed(AnalysisMode.Credits) is EpisodeState.Analyzed or EpisodeState.NoSegments or EpisodeState.UserProvided)];
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
                     settledCreditsItems,
-                    Config.MinimumPreviewDuration,
+                    config.MinimumPreviewDuration,
                     cancellationToken,
                     settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);
             }
@@ -898,7 +902,7 @@ public partial class BaseItemAnalyzerTask(
                     unsettled.Add(item);
                 }
 
-                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, Config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -907,7 +911,7 @@ public partial class BaseItemAnalyzerTask(
         await _database.MarkItemsAnalyzedAsync(
             mode,
             items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
-                .Select(item => (item.EpisodeId, Config.RecordedFileVersion(item, mode))),
+                .Select(item => (item.EpisodeId, config.RecordedFileVersion(item, mode))),
             configHash,
             cancellationToken).ConfigureAwait(false);
     }
@@ -1147,10 +1151,12 @@ public partial class BaseItemAnalyzerTask(
     /// cached fingerprints under the same window. The audio duration is probed only here,
     /// so a run that settles a season without entering the credits pass spawns no ffprobe.
     /// </summary>
-    private async Task SetCreditsWindowsAsync(IReadOnlyList<QueuedEpisode> items, bool isMovie, CancellationToken cancellationToken)
+    private async Task SetCreditsWindowsAsync(
+        IReadOnlyList<QueuedEpisode> items,
+        bool isMovie,
+        PluginConfiguration config,
+        CancellationToken cancellationToken)
     {
-        var config = Config;
-
         // Credits have their own maximum duration in seconds. The general analysis
         // percentage is not applied to them, since it can exclude the actual credits boundary.
         var maxCreditsDuration = isMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
