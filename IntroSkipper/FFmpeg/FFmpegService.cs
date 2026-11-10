@@ -7,10 +7,14 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Unicode;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using UtfUnknown;
@@ -60,6 +64,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double SubtitleSeekMargin = 10;
     private const double SubtitleStopMargin = 5;
 
+    // Consecutive hardware scan failures after which video scans stop asking for the hardware
+    // decoder, so a broken setup costs a few doubled scans instead of one per scan.
+    private const int HardwareFailureLimit = 3;
+
     // Seconds a head list reads past the window. Its outpoint stops the file at the first packet
     // of any stream past it, so the margin leaves room for a cue a muxer stored after the audio
     // and video of the same time: ffmpeg's muxer holds a sparse stream back by up to 10 s.
@@ -77,6 +85,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     // (RunCachedScanAsync). "Independent slice segment missing." is not among them: healthy
     // streams with dependent slices log it on every skipped frame.
     private static readonly string[] SliceStructureErrors = ["entry_point_offset table is corrupted", "WPP ctb addresses are wrong", "Previous slice segment missing"];
+
+    // The options HardwareDecodeInput adds, each with its value.
+    private static readonly string[] HardwareDecodeOptions = ["-hwaccel", "-hwaccel_device", "-qsv_device"];
 
     // Generous: the probe is five fast ffmpeg info queries, each capped at 2 s of process-exit
     // wait (see ProbeFFmpegVersionAsync), so ~8 s covers a healthy run, but the output drain
@@ -112,6 +123,15 @@ internal sealed partial class FFmpegService : IFFmpegService
     private readonly EpisodeProbeMemo<string, string> _videoCodecs = new();
     private readonly EpisodeProbeMemo<(string Path, string Language, bool PreferMostChannels), AudioStreamSelection> _audioStreamSelections = new();
     private readonly EpisodeProbeMemo<(string Path, string Languages), FFmpegOutputParser.SubtitleStreamListing> _subtitleStreamListings = new();
+    private readonly EpisodeProbeMemo<string, string> _videoBitDepths = new();
+    private readonly IMediaEncoder? _mediaEncoder;
+    private readonly ISessionManager? _sessionManager;
+    private readonly Lock _hardwareLock = new();
+
+    // Consecutive hardware scan failures since the last success, counted under the hardware
+    // options in _hardwareKey; a change of those options starts the count again.
+    private int _hardwareFailures;
+    private string? _hardwareKey;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegService"/> class.
@@ -119,8 +139,23 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// <param name="logger">The logger instance.</param>
     /// <param name="cacheService">The detection cache service.</param>
     public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService)
-        : this(logger, cacheService, null, null)
+        : this(logger, cacheService, (Func<CancellationToken, Task<bool>>?)null, (TimeSpan?)null)
     {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FFmpegService"/> class with the Jellyfin
+    /// services that decide whether a video scan may use the hardware decoder.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="cacheService">The detection cache service.</param>
+    /// <param name="mediaEncoder">Reports which hwaccels Jellyfin's ffmpeg supports.</param>
+    /// <param name="sessionManager">Reports running transcodes, which keep scans in software.</param>
+    public FFmpegService(ILogger<FFmpegService> logger, DetectionCacheService cacheService, IMediaEncoder mediaEncoder, ISessionManager sessionManager)
+        : this(logger, cacheService, (Func<CancellationToken, Task<bool>>?)null, (TimeSpan?)null)
+    {
+        _mediaEncoder = mediaEncoder;
+        _sessionManager = sessionManager;
     }
 
     /// <summary>
@@ -247,6 +282,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
         string[] args =
         [
+            .. HardwareDecodeInput(config),
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
@@ -445,6 +481,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
         string[] args =
         [
+            .. HardwareDecodeInput(config),
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-skip_frame", "noref",
             "-i", episode.Path,
@@ -565,7 +602,37 @@ internal sealed partial class FFmpegService : IFFmpegService
         LogDetectionScan(_logger, entryType, start, end, episode.Path, episode.EpisodeId);
 
         var arguments = await args().ConfigureAwait(false);
-        var raw = await RunScanAsync(arguments).ConfigureAwait(false);
+        if (WithoutHardwareDecoding(arguments) is { } highBitDepthSoftware
+            && await KeepInSoftwareAsync(episode, cancellationToken).ConfigureAwait(false))
+        {
+            arguments = highBitDepthSoftware;
+        }
+
+        string raw;
+        if (WithoutHardwareDecoding(arguments) is { } software)
+        {
+            // A missing or unusable device makes ffmpeg exit nonzero before the first frame, and
+            // so does a filter that rejects the device's frames. The output of a failed hardware
+            // run is never parsed or cached; only the software rerun is.
+            var (hardwareRaw, exitCode) = await RunHardwareScanAsync(arguments).ConfigureAwait(false);
+            var failed = exitCode != 0;
+            RecordHardwareResult(failed);
+            if (failed)
+            {
+                LogHardwareDecodeFallback(_logger, episode.Path, episode.EpisodeId, exitCode);
+                arguments = software;
+                raw = await RunScanAsync(arguments).ConfigureAwait(false);
+            }
+            else
+            {
+                raw = hardwareRaw;
+            }
+        }
+        else
+        {
+            raw = await RunScanAsync(arguments).ConfigureAwait(false);
+        }
+
         if (WithoutSliceThreads(arguments) is { } frameThreaded
             && SliceStructureErrors.Any(error => raw.Contains(error, StringComparison.Ordinal)))
         {
@@ -581,7 +648,211 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         async Task<string> RunScanAsync(IReadOnlyList<string> scanArguments)
             => Encoding.UTF8.GetString(await GetOutputAsync(scanArguments, stderr: true, infoQuery: false, timeout: ScanTimeout(), cancellationToken).ConfigureAwait(false));
+
+        async Task<(string Raw, int ExitCode)> RunHardwareScanAsync(IReadOnlyList<string> scanArguments)
+        {
+            var (output, exitCode) = await _processRunner.RunWithExitCodeAsync(FFmpegPath, ProcessArgs(scanArguments, "info"), stderr: true, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            return (Encoding.UTF8.GetString(output), exitCode);
+        }
     }
+
+    // The arguments with the hardware decoding options taken out, or null when they hold none.
+    private static string[]? WithoutHardwareDecoding(IReadOnlyList<string> arguments)
+    {
+        var software = new List<string>(arguments.Count);
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            if (i + 1 < arguments.Count && HardwareDecodeOptions.Contains(arguments[i]))
+            {
+                i++;
+                continue;
+            }
+
+            software.Add(arguments[i]);
+        }
+
+        return software.Count == arguments.Count ? null : [.. software];
+    }
+
+    /// <summary>
+    /// The input options that move a video decode to the hardware decoder Jellyfin is configured
+    /// for, on the device Jellyfin uses for VAAPI and QSV, or none when hardware decoding is off or
+    /// the type has no ffmpeg hwaccel. No output format is set, so ffmpeg copies each frame back to
+    /// system memory and the software filters see the same pixels.
+    /// </summary>
+    /// <param name="enabled">Whether the scan's configuration asks for hardware decoding.</param>
+    /// <param name="type">Jellyfin's hardware acceleration type.</param>
+    /// <param name="vaapiDevice">Jellyfin's VAAPI device, or empty for ffmpeg's default.</param>
+    /// <param name="qsvDevice">Jellyfin's QSV device, or empty for ffmpeg's default.</param>
+    /// <returns>The options to place before <c>-i</c>.</returns>
+    internal static string[] HardwareDecodeInput(bool enabled, HardwareAccelerationType type, string? vaapiDevice, string? qsvDevice)
+    {
+        if (!enabled)
+        {
+            return [];
+        }
+
+        return type switch
+        {
+            HardwareAccelerationType.nvenc => ["-hwaccel", "cuda"],
+            HardwareAccelerationType.vaapi when !string.IsNullOrWhiteSpace(vaapiDevice) => ["-hwaccel", "vaapi", "-hwaccel_device", vaapiDevice],
+            HardwareAccelerationType.vaapi => ["-hwaccel", "vaapi"],
+            // On Linux the QSV decoder hands the software filters frames they cannot take, so QSV
+            // decodes through VAAPI on the same Intel device, which uses the same media driver.
+            HardwareAccelerationType.qsv when OperatingSystem.IsLinux() && !string.IsNullOrWhiteSpace(qsvDevice) => ["-hwaccel", "vaapi", "-hwaccel_device", qsvDevice],
+            HardwareAccelerationType.qsv when OperatingSystem.IsLinux() => ["-hwaccel", "vaapi"],
+            HardwareAccelerationType.qsv when !string.IsNullOrWhiteSpace(qsvDevice) => ["-qsv_device", qsvDevice, "-hwaccel", "qsv"],
+            HardwareAccelerationType.qsv => ["-hwaccel", "qsv"],
+            HardwareAccelerationType.videotoolbox => ["-hwaccel", "videotoolbox"],
+            _ => [],
+        };
+    }
+
+    // The hardware decoding options for a scan built from config, on the server's current
+    // acceleration settings, or none once HardwareFailureLimit scans in a row have failed under
+    // the same options.
+    private string[] HardwareDecodeInput(PluginConfiguration config)
+    {
+        if (!config.UseHardwareDecoding || Plugin.Instance?.EncodingOptions is not { } encoding)
+        {
+            return [];
+        }
+
+        var options = HardwareDecodeInput(true, encoding.HardwareAccelerationType, encoding.VaapiDevice, encoding.QsvDevice);
+        if (options.Length == 0)
+        {
+            return options;
+        }
+
+        // An ffmpeg build without the hwaccel would only fail; ask Jellyfin instead of starting it.
+        if (_mediaEncoder is not null && !_mediaEncoder.SupportsHwaccel(options[Array.IndexOf(options, "-hwaccel") + 1]))
+        {
+            return [];
+        }
+
+        var key = string.Join(' ', options);
+        lock (_hardwareLock)
+        {
+            if (key != _hardwareKey)
+            {
+                _hardwareKey = key;
+                _hardwareFailures = 0;
+            }
+
+            return _hardwareFailures >= HardwareFailureLimit ? [] : options;
+        }
+    }
+
+    // Counts a hardware scan result. A success clears the count while hardware decoding is still
+    // on; the failure that reaches HardwareFailureLimit logs once, and later scans decode in
+    // software until Jellyfin restarts or its hardware acceleration settings change.
+    private void RecordHardwareResult(bool failed)
+    {
+        bool reachedLimit;
+        lock (_hardwareLock)
+        {
+            if (!failed)
+            {
+                if (_hardwareFailures < HardwareFailureLimit)
+                {
+                    _hardwareFailures = 0;
+                }
+
+                return;
+            }
+
+            _hardwareFailures++;
+            reachedLimit = _hardwareFailures == HardwareFailureLimit;
+        }
+
+        if (reachedLimit)
+        {
+            LogHardwareDecodeDisabled(_logger, HardwareFailureLimit);
+        }
+    }
+
+    // Whether a video scan of the episode stays in software although hardware decoding is on: a
+    // video transcode is running (Jellyfin has no decoder slot count, so analysis yields to any
+    // transcode), the admin has not enabled hardware decoding for the codec in Jellyfin's
+    // playback settings, or the stream has more than 8 bits per sample.
+    private async Task<bool> KeepInSoftwareAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    {
+        if (_sessionManager?.Sessions.Any(session => session.TranscodingInfo is { IsVideoDirect: false }) ?? false)
+        {
+            return true;
+        }
+
+        if (Plugin.Instance?.EncodingOptions is not { } encoding)
+        {
+            return true;
+        }
+
+        // Only H.264 and HEVC, and only when the admin enabled hardware decoding for the codec.
+        var codec = await GetVideoCodecAsync(episode, cancellationToken).ConfigureAwait(false);
+        if (codec is not ("h264" or "hevc")
+            || !(encoding.HardwareDecodingCodecs ?? []).Contains(codec, StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // More than 8 bits per sample decodes in hardware only as HEVC with Jellyfin's 10-bit
+        // HEVC decoding enabled.
+        return await IsHighBitDepthAsync(episode, cancellationToken).ConfigureAwait(false)
+            && !(codec == "hevc" && encoding.EnableDecodingColorDepth10Hevc);
+    }
+
+    // Whether the video stream a scan decodes has more than 8 bits per sample. Such streams decode
+    // in software: hardware decoders return them in formats whose conversion to the 8-bit filter
+    // input differs from the software path, so the filter output would not match.
+    private async Task<bool> IsHighBitDepthAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+        => await _videoBitDepths.GetAsync(episode, episode.Path, ct => ProbeBitDepthAsync(episode.Path, ct), cancellationToken).ConfigureAwait(false) == "high";
+
+    // "high" or "low" for the mapped video stream's pixel format, or null when the probe failed,
+    // which keeps hardware decoding allowed and leaves failures to the software retry.
+    private async Task<string?> ProbeBitDepthAsync(string filePath, CancellationToken cancellationToken)
+    {
+        string[] args = ["-i", filePath, "-an", "-dn", "-sn", "-frames:v", "0", "-f", "null", "-"];
+        try
+        {
+            var capture = await _processRunner.RunCapturedAsync(FFmpegPath, ProcessArgs(args, "info"), VideoCodecProbeMaximumBytes, expectedStdoutBytes: 0, ScanTimeout(), cancellationToken).ConfigureAwait(false);
+            return ParseMappedPixelFormat(capture.Stderr) is { } format ? (HighBitDepthFormatRegex().IsMatch(format) ? "high" : "low") : null;
+        }
+        catch (Exception ex) when (IsProcessFailure(ex))
+        {
+            return null;
+        }
+    }
+
+    // The pixel format of the input stream ffmpeg maps to its first output, read from the input
+    // dump line of that stream, such as "Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, ...".
+    internal static string? ParseMappedPixelFormat(string raw)
+    {
+        var lines = raw.Split('\n');
+        var mapped = lines.Select(line => MappedInputRegex().Match(line)).FirstOrDefault(match => match.Success)?.Groups["id"].Value;
+        if (mapped is null)
+        {
+            return null;
+        }
+
+        foreach (var line in lines)
+        {
+            if (InputVideoRegex().Match(line) is { Success: true } match && match.Groups["id"].Value == mapped)
+            {
+                return match.Groups["format"].Value;
+            }
+        }
+
+        return null;
+    }
+
+    [GeneratedRegex(@"^  Stream #(?<id>\d+:\d+) -> #0:0 ")]
+    private static partial Regex MappedInputRegex();
+
+    [GeneratedRegex(@"^  Stream #(?<id>\d+:\d+)[^:]*: Video: [^,]+, (?<format>[a-z0-9]+)")]
+    private static partial Regex InputVideoRegex();
+
+    [GeneratedRegex(@"(1[0-6](le|be)|^p01[0-6]|^p2[0-9]{2})")]
+    private static partial Regex HighBitDepthFormatRegex();
 
     // The arguments with HevcKeyframeThreads taken out, or null when they don't hold it.
     private static string[]? WithoutSliceThreads(IReadOnlyList<string> arguments)
@@ -1357,6 +1628,12 @@ internal sealed partial class FFmpegService : IFFmpegService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "HEVC slice errors in \"{File}\" (id {Id}), decoding again with frame threads")]
     private static partial void LogSliceThreadsRetried(ILogger logger, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hardware decoding failed for \"{File}\" (id {Id}, ffmpeg exit code {ExitCode}), decoding again in software. Turn off hardware decoding in the plugin settings if this repeats.")]
+    private static partial void LogHardwareDecodeFallback(ILogger logger, string file, Guid id, int exitCode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hardware decoding failed {Count} times in a row; video scans decode in software until Jellyfin restarts or its hardware acceleration settings change")]
+    private static partial void LogHardwareDecodeDisabled(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The installed version of ffmpeg does not support the {Filter} filter; credits on a uniform card will not be detected, and credits will not start on a cut")]
     private static partial void LogKeyframeVisualFilterUnsupported(ILogger logger, string filter);

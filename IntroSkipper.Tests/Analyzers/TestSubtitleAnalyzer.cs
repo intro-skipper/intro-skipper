@@ -182,7 +182,7 @@ public sealed class TestSubtitleAnalyzer
         var episode = new QueuedEpisode { Name = "long", Path = await MuxLongEpisodeAsync(directory), Duration = 300 };
         await File.WriteAllTextAsync(directory.Join("long.fr.srt"), "1\n00:04:15,000 --> 00:04:16,000\nLa prochaine fois\n");
         var logger = new CapturingLogger<FFmpegService>();
-        var ffmpeg = new FFmpegService(logger, DatabaseTestHelpers.CreateTempCacheService(), null, null);
+        var ffmpeg = new FFmpegService(logger, DatabaseTestHelpers.CreateTempCacheService(), (Func<CancellationToken, Task<bool>>?)null, null);
 
         var scan = await ffmpeg.ExtractSubtitleCuesAsync(episode, new TimeRange(180, 300));
 

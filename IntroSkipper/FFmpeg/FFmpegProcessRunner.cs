@@ -46,6 +46,29 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
     }
 
     /// <summary>
+    /// Runs a process to completion and returns one of its output streams with the exit code.
+    /// </summary>
+    /// <param name="processPath">Executable to start.</param>
+    /// <param name="args">Arguments, one token each.</param>
+    /// <param name="stderr"><see langword="true"/> to return standard error; otherwise standard output is returned.</param>
+    /// <param name="timeout">Milliseconds to wait for the process to exit before killing it.</param>
+    /// <param name="cancellationToken">Cancels the wait and kills the process.</param>
+    /// <returns>The raw bytes of the selected stream and the exit code.</returns>
+    /// <exception cref="TimeoutException">The process did not exit within <paramref name="timeout"/> and was killed.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was canceled; the process has been killed.</exception>
+    public async Task<(byte[] Output, int ExitCode)> RunWithExitCodeAsync(
+        string processPath,
+        IReadOnlyList<string> args,
+        bool stderr,
+        int timeout,
+        CancellationToken cancellationToken = default)
+    {
+        using var ms = new MemoryStream();
+        var (exitCode, _) = await RunCoreAsync(processPath, args, stderr ? null : ms, stderr ? ms : null, long.MaxValue, timeout, cancellationToken).ConfigureAwait(false);
+        return (ms.ToArray(), exitCode);
+    }
+
+    /// <summary>
     /// Runs a process to completion and returns both output streams and the exit code. Each stream
     /// is capped: the moment either crosses <paramref name="maximumBytesPerStream"/> the process is
     /// killed and the capture says so, so neither a decode that writes more than expected nor a

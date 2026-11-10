@@ -537,6 +537,12 @@ export const configSchema = {
         description:
             "Codec threads per FFmpeg process. 0 lets FFmpeg choose. Lower values reduce CPU use but may slow scans; use Maximum degree of parallelism to limit process count.",
     },
+    UseHardwareDecoding: {
+        kind: "checkbox",
+        label: "Use hardware decoding for video scans",
+        description:
+            "Decode video for the recap black frame and black interval scans on the hardware decoder selected in Jellyfin's playback settings. Experimental, off by default. Follows Jellyfin's decode settings: only H.264 and HEVC enabled for hardware decoding, 10-bit only for HEVC with 10-bit decoding on, and never while a video transcode runs. A failed hardware scan runs again in software with a warning in the log; after three failures in a row hardware decoding pauses until Jellyfin restarts. On weak integrated GPUs scans can be slower than in software.",
+    },
     ScanTimeoutSeconds: {
         kind: "number",
         label: "FFmpeg scan timeout (seconds)",
