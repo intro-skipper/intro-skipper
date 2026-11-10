@@ -29,6 +29,26 @@ public sealed class TestRawPageReader
     private const string TimeBase = $"[showinfo@{Token} @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n";
 
     /// <summary>
+    /// Only this scan's showinfo instance announces a frame: a file can print lines under any other
+    /// instance name, but not under a name drawn for the scan.
+    /// </summary>
+    [Fact]
+    public async Task IgnoresLinesOfAnotherShowinfoInstance()
+    {
+        using var ffmpeg = new FakeFfmpeg();
+        var read = ffmpeg.ReadAsync();
+
+        const string Other = "Zz9yX8";
+        ffmpeg.Log(TimeBase.Replace(Token, Other, StringComparison.Ordinal) + Header(77000, "30000x30000").Replace(Token, Other, StringComparison.Ordinal));
+        ffmpeg.Log(TimeBase + Header(1000, "4x2"));
+        ffmpeg.WriteFrame(4, 2, luma: 0, u: 128, v: 128);
+        ffmpeg.Exit();
+
+        Assert.Equal([1.0], (await read).Pages.Select(page => page.Time));
+        Assert.False(ffmpeg.Killed);
+    }
+
+    /// <summary>
     /// The second frame is half the size of the first. A reader that kept the first size would
     /// run off the stream. The values are worked by hand: a luma of 0 is under the threshold, and a
     /// chroma pair 3 and 4 from neutral has a saturation of 5.
