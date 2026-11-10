@@ -676,7 +676,9 @@ internal sealed partial class FFmpegService : IFFmpegService
     /// hardware. HEVC RExt, H.264 High 4:2:2 and High 4:4:4 (Jellyfin refuses these by profile by default,
     /// since they can be encoded at 4:2:0), Hi10P H.264 and AV1 stay in software: VAAPI applies
     /// AV1 film grain differently from software, and the others were not measured. QSV on Windows and
-    /// VideoToolbox decode the same formats without having been compared with software.
+    /// VideoToolbox decode the same formats without having been compared with software. Under
+    /// VideoToolbox, Jellyfin's playback decodes more on hardware than the scans do: HEVC RExt, 10-bit
+    /// HEVC with its setting off, and on Apple Silicon H.264 High 4:2:2 and High 4:4:4.
     /// </remarks>
     /// <param name="encoding">Jellyfin's encoding options.</param>
     /// <param name="stream">The video stream the scan decodes, or <see langword="null"/> when there is none.</param>
