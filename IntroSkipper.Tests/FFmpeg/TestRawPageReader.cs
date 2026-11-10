@@ -204,22 +204,40 @@ public sealed class TestRawPageReader
 
     /// <summary>
     /// A kill that lands inside a frame reads as a short frame. That is the kill's doing, so the
-    /// cancellation or timeout that caused it is what the caller hears.
+    /// cancellation or timeout that caused it is what the caller hears, and the read's fault is
+    /// observed rather than left for the finalizer to report as unobserved.
     /// </summary>
     [FactSkipFFmpegTests]
     public async Task AReadThatFaultsAfterTheKillLosesToTheTimeout()
     {
-        var run = new FFmpegProcessRunner(new CapturingLogger<TestRawPageReader>()).RunStreamingAsync<int>(
-            "ffmpeg",
-            ["-hide_banner", "-loglevel", "info", "-re", "-f", "lavfi", "-i", "testsrc2=s=64x64:r=1", "-f", "null", "-"],
-            async (stdout, stderr, kill) =>
-            {
-                await Task.WhenAll(stdout.CopyToAsync(Stream.Null), stderr.CopyToAsync(Stream.Null));
-                throw new InvalidDataException("short frame");
-            },
-            timeout: 500);
+        var fault = new InvalidDataException("short frame");
+        var unobserved = false;
+        void Record(object? sender, UnobservedTaskExceptionEventArgs e) => unobserved |= e.Exception.InnerExceptions.Contains(fault);
+        TaskScheduler.UnobservedTaskException += Record;
+        try
+        {
+            var run = new FFmpegProcessRunner(new CapturingLogger<TestRawPageReader>()).RunStreamingAsync<int>(
+                "ffmpeg",
+                ["-hide_banner", "-loglevel", "info", "-re", "-f", "lavfi", "-i", "testsrc2=s=64x64:r=1", "-f", "null", "-"],
+                async (stdout, stderr, kill) =>
+                {
+                    await Task.WhenAll(stdout.CopyToAsync(Stream.Null), stderr.CopyToAsync(Stream.Null));
+                    throw fault;
+                },
+                timeout: 500);
 
-        await Assert.ThrowsAsync<TimeoutException>(() => run.WaitAsync(TimeSpan.FromSeconds(60)));
+            await Assert.ThrowsAsync<TimeoutException>(() => run.WaitAsync(TimeSpan.FromSeconds(60)));
+
+            // The finished run no longer holds the read, so collecting it reports a fault nobody observed.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= Record;
+        }
+
+        Assert.False(unobserved);
     }
 
     private static string Header(int pts, string size) => Header(pts.ToString(System.Globalization.CultureInfo.InvariantCulture), size);

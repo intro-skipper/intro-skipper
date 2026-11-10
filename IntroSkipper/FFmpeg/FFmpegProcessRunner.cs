@@ -158,8 +158,9 @@ internal sealed partial class FFmpegProcessRunner(ILogger logger)
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
-            // Waited on without its result first: a read that the kill above cut short may fault.
-            await Task.WhenAny(reading).ConfigureAwait(false);
+            // A read that the kill above cut short may fault. Its fault is observed here but loses
+            // to the cancellation or timeout below.
+            await ((Task)reading).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
             cancellationToken.ThrowIfCancellationRequested();
             if (timedOut)
