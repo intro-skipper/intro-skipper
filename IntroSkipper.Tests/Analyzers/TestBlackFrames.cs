@@ -1365,29 +1365,29 @@ public class TestBlackFrames
     {
         // The other signalstats lines (YAVG, the U/V and hue stats) are noise to this parser.
         const string raw = """
-            [Parsed_metadata_2 @ 0x0] frame:0    pts:0       pts_time:0
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=60
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YAVG=130.5
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=200
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.UMIN=90
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATLOW=0
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=108.199
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.HUEAVG=180
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=0
-            [Parsed_metadata_2 @ 0x0] frame:1    pts:20480   pts_time:2
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YAVG=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATLOW=0
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=0
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=101.5
+            [metadata@TOKEN @ 0x0] frame:0    pts:0       pts_time:0
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=60
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YAVG=130.5
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=200
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.UMIN=90
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATLOW=0
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=108.199
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.HUEAVG=180
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=0
+            [metadata@TOKEN @ 0x0] frame:1    pts:20480   pts_time:2
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YAVG=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATLOW=0
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=0
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=101.5
             """;
 
-        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN"));
 
         Assert.Equal(2, visuals.Length);
         Assert.Equal(new KeyframeVisual(0.0, 16, 60, 200, 235, 108.199, 0), visuals[0]);
@@ -1401,36 +1401,36 @@ public class TestBlackFrames
         // the cut to the blank black page at 300 s differs from the keyframe before by 45. UDIF and
         // VDIF are the chroma differences, which the parser leaves alone.
         const string raw = """
-            [Parsed_metadata_2 @ 00000191857e6dc0] frame:30   pts:3840000 pts_time:300
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YLOW=16
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YAVG=16
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YHIGH=16
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YMAX=16
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.UMIN=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.ULOW=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.UAVG=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.UHIGH=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.UMAX=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VMIN=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VLOW=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VAVG=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VHIGH=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VMAX=128
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.SATMIN=0
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.SATLOW=0
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.SATAVG=0
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.SATHIGH=0
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.SATMAX=0
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.HUEMED=180
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.HUEAVG=180
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YDIF=45
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.UDIF=37
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.VDIF=47
-            [Parsed_metadata_2 @ 00000191857e6dc0] lavfi.signalstats.YBITDEPTH=1
+            [metadata@TOKEN @ 00000191857e6dc0] frame:30   pts:3840000 pts_time:300
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YLOW=16
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YAVG=16
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YHIGH=16
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YMAX=16
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.UMIN=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.ULOW=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.UAVG=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.UHIGH=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.UMAX=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VMIN=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VLOW=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VAVG=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VHIGH=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VMAX=128
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.SATMIN=0
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.SATLOW=0
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.SATAVG=0
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.SATHIGH=0
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.SATMAX=0
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.HUEMED=180
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.HUEAVG=180
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YDIF=45
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.UDIF=37
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.VDIF=47
+            [metadata@TOKEN @ 00000191857e6dc0] lavfi.signalstats.YBITDEPTH=1
             """;
 
-        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
         Assert.Equal(new KeyframeVisual(300, 16, 16, 16, 16, 0, 45), visual);
     }
@@ -1442,27 +1442,27 @@ public class TestBlackFrames
         // than emitted with zeros: a zero saturation passes the credit-card gate and a zero spread
         // would fabricate a card.
         const string raw = """
-            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:5
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=128
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=3
-            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:7
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=3
-            [Parsed_metadata_2 @ 0x0] frame:2 pts:2 pts_time:9
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=128
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=128
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] frame:0 pts:0 pts_time:5
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=128
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=128
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=3
+            [metadata@TOKEN @ 0x0] frame:1 pts:1 pts_time:7
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=128
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=3
+            [metadata@TOKEN @ 0x0] frame:2 pts:2 pts_time:9
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=16
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=128
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=128
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=235
             """;
 
-        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
         Assert.Equal(new KeyframeVisual(5.0, 16, 128, 128, 235, 12.5, 3), visual);
     }
@@ -1474,17 +1474,17 @@ public class TestBlackFrames
         // numeric token must be parsed, not truncated at the mantissa, which would feed corrupt
         // values into detection and the cache.
         const string raw = """
-            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:1e-05
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=1.6e+01
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=1.28e+02
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=1.28e+02
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=2.35e+02
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=3.2e+01
-            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=1.5e+01
-            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:2
+            [metadata@TOKEN @ 0x0] frame:0 pts:0 pts_time:1e-05
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMIN=1.6e+01
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YLOW=1.28e+02
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YHIGH=1.28e+02
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YMAX=2.35e+02
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.SATAVG=3.2e+01
+            [metadata@TOKEN @ 0x0] lavfi.signalstats.YDIF=1.5e+01
+            [metadata@TOKEN @ 0x0] frame:1 pts:1 pts_time:2
             """;
 
-        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw, new FilterInstance("metadata@TOKEN")));
 
         Assert.Equal(new KeyframeVisual(1e-05, 16, 128, 128, 235, 32, 15), visual);
     }
@@ -1813,7 +1813,7 @@ public class TestBlackFrames
     {
         var path = Path.Combine("..", "..", "..", "fingerprints", filename);
         var raw = File.ReadAllText(path);
-        return [.. FFmpegOutputParser.ParseBlackFrames(raw, "TOKEN")];
+        return [.. FFmpegOutputParser.ParseBlackFrames(raw, new FilterInstance("blackframe@TOKEN"))];
     }
 
     /// <summary>

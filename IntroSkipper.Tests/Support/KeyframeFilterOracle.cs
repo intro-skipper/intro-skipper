@@ -29,8 +29,8 @@ internal static class KeyframeFilterOracle
     internal static async Task<KeyframePage[]> PagesAsync(string path, double start, int threshold, bool selectKeyframes = false)
     {
         var select = selectKeyframes ? @"select=eq(key\,1)," : string.Empty;
-        var rows = FFmpegOutputParser.ParseBlackFrames(await LogOfAsync(path, start, select + "blackframe@oracle=amount=0:threshold=" + threshold.ToString(CultureInfo.InvariantCulture)), "oracle");
-        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(await LogOfAsync(path, start, select + "format=yuv420p,signalstats,metadata=print"));
+        var rows = FFmpegOutputParser.ParseBlackFrames(await LogOfAsync(path, start, select + "blackframe@oracle=amount=0:threshold=" + threshold.ToString(CultureInfo.InvariantCulture)), new FilterInstance("blackframe@oracle"));
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(await LogOfAsync(path, start, select + "format=yuv420p,signalstats,metadata@oracle=print"), new FilterInstance("metadata@oracle"));
         return [.. rows.Zip(visuals, (row, visual) => new KeyframePage(row.Time, row.Percentage, visual with { Time = row.Time }))];
     }
 

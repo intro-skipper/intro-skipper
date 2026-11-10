@@ -71,19 +71,25 @@ internal static partial class FFmpegOutputParser
         return [.. silenceRanges];
     }
 
-    internal static double[] ParseKeyFrames(string raw, double rangeStart, ILogger? logger = null)
+    // Reads the keyframe times a showinfo@token instance lists, each line from its log context on.
+    internal static double[] ParseKeyFrames(string raw, FilterInstance showinfo, double rangeStart, ILogger? logger = null)
     {
         var keyframes = new List<double>();
 
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (showinfo.Message(line) is not { } message)
+            {
+                continue;
+            }
+
+            var ptsIndex = message.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
             if (ptsIndex == -1)
             {
                 continue;
             }
 
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+            var ptsTimeStr = message[(ptsIndex + 9)..].Split(' ', 2)[0];
 
             if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out var timestamp))
             {
@@ -99,10 +105,8 @@ internal static partial class FFmpegOutputParser
     }
 
     // Reads the frames a blackframe@token instance reports, each line from its log context on.
-    // ffmpeg's input and output dumps print a file's tags raw, but no file knows the token.
-    internal static BlackFrame[] ParseBlackFrames(string raw, string token)
+    internal static BlackFrame[] ParseBlackFrames(string raw, FilterInstance blackframe)
     {
-        var context = $"[blackframe@{token} @ ";
         var blackFrames = new List<BlackFrame>();
         /* Sample output:
          * [blackframe@Ab3dE5gH @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
@@ -110,13 +114,12 @@ internal static partial class FFmpegOutputParser
          */
         foreach (var line in raw.Split('\n'))
         {
-            var at = line.IndexOf(context, StringComparison.Ordinal);
-            if (at < 0)
+            if (blackframe.Message(line) is not { } message)
             {
                 continue;
             }
 
-            var match = _blackFrameRegex.Match(line[(at + context.Length)..]);
+            var match = _blackFrameRegex.Match(message);
             if (!match.Success)
             {
                 continue;
@@ -132,27 +135,32 @@ internal static partial class FFmpegOutputParser
         return [.. blackFrames];
     }
 
-    internal static KeyframeVisual[] ParseKeyframeVisuals(string raw)
+    // Reads the frames "signalstats,metadata@token=print" reports, each line from the metadata
+    // instance's log context on.
+    internal static KeyframeVisual[] ParseKeyframeVisuals(string raw, FilterInstance metadata)
     {
         var visuals = new List<KeyframeVisual>();
 
-        /* Parse the per-keyframe metadata emitted by "signalstats,metadata=print".
-         *
-         * Sample output (one block per keyframe, other signalstats lines omitted):
-         * [Parsed_metadata_2 @ 0x0] frame:1 pts:20480 pts_time:2
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YDIF=0
+        /* Sample output (one block per frame, other signalstats lines omitted):
+         * [metadata@Ab3dE5gH @ 0x0] frame:1 pts:20480 pts_time:2
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YMIN=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YLOW=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YHIGH=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YMAX=235
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.SATAVG=33
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YDIF=0
          */
         double? time = null;
         var stats = new Dictionary<string, double>(KeyframeSignalStatCount, StringComparer.Ordinal);
 
         foreach (var line in raw.Split('\n'))
         {
-            var timeMatch = _keyframeVisualTimeRegex.Match(line);
+            if (metadata.Message(line) is not { } message)
+            {
+                continue;
+            }
+
+            var timeMatch = _keyframeVisualTimeRegex.Match(message);
             if (timeMatch.Success)
             {
                 AddKeyframeVisual(visuals, time, stats);
@@ -161,7 +169,7 @@ internal static partial class FFmpegOutputParser
                 continue;
             }
 
-            var statMatch = _keyframeSignalStatRegex.Match(line);
+            var statMatch = _keyframeSignalStatRegex.Match(message);
             if (statMatch.Success)
             {
                 stats[statMatch.Groups["name"].Value] = ParseDouble(statMatch.Groups["value"].Value);
@@ -435,8 +443,7 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
 
-    // The rest of a line after "[blackframe@token @ ": the instance's address, then its message.
-    [GeneratedRegex(@"^[^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
+    [GeneratedRegex(@"^frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
 
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]

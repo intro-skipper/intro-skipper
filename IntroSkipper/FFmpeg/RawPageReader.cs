@@ -43,13 +43,13 @@ internal static partial class RawPageReader
     /// <param name="stderr">ffmpeg's log at info level.</param>
     /// <param name="kill">Kills ffmpeg, which ends both streams.</param>
     /// <param name="threshold">The luma under which a pixel counts as black.</param>
-    /// <param name="token">The name of the scan's showinfo instance, <c>showinfo@token</c>. Only lines carrying it count, so it must be one the file cannot know.</param>
+    /// <param name="showinfo">The scan's showinfo instance. Only lines it logged count, so its name must be one the file cannot know.</param>
     /// <returns>The pages read, and whether the log held one of <see cref="FFmpegService.SliceStructureErrors"/>. A run that fails on a frame boundary, a nonzero exit included, gives the pages read so far.</returns>
     /// <exception cref="InvalidDataException">The streams broke the protocol; ffmpeg has been killed.</exception>
-    public static async Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync(Stream stdout, Stream stderr, Action kill, int threshold, string token)
+    public static async Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync(Stream stdout, Stream stderr, Action kill, int threshold, FilterInstance showinfo)
     {
         using var headers = new BlockingCollection<FrameHeader>();
-        var log = RunBelowNormal("IntroSkipper keyframe log", () => ReadLog(stderr, headers, Encoding.ASCII.GetBytes($"[showinfo@{token} @ ")), kill);
+        var log = RunBelowNormal("IntroSkipper keyframe log", () => ReadLog(stderr, headers, showinfo), kill);
         var frames = RunBelowNormal("IntroSkipper keyframe pages", () => ReadFrames(stdout, headers, threshold), kill);
 
         // Both tasks end: a fault on either side kills ffmpeg, which closes the other stream.
@@ -162,11 +162,8 @@ internal static partial class RawPageReader
 
     // Turns log lines into frame headers. A Dolby Vision frame logs kilobytes of side data, so
     // lines are searched as bytes, and only a line with a header or time base becomes a string.
-    // A line counts from showinfo's log context on, the "[showinfo@token @ 0x...] " it prints its
-    // messages under, so a message from another thread that lands in front of it changes nothing.
-    // ffmpeg's input and output dumps print a file's tags raw, line feeds included, but no file
-    // knows the token.
-    private static bool ReadLog(Stream stderr, BlockingCollection<FrameHeader> headers, byte[] context)
+    // Only the scan's showinfo instance logs a header or time base.
+    private static bool ReadLog(Stream stderr, BlockingCollection<FrameHeader> headers, FilterInstance showinfo)
     {
         var timeBase = 0.0;
         var reset = false;
@@ -211,13 +208,11 @@ internal static partial class RawPageReader
                 sliceStructureError |= line.IndexOf(error) >= 0;
             }
 
-            var at = line.IndexOf(context);
-            if (at < 0)
+            if (!showinfo.TryReadMessage(line, out line))
             {
                 return;
             }
 
-            line = line[(at + context.Length)..];
             if (line.IndexOf("config in time_base:"u8) >= 0
                 && TimeBaseRegex().Match(Encoding.Latin1.GetString(line)) is { Success: true } match)
             {
