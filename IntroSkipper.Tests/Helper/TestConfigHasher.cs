@@ -85,6 +85,7 @@ public sealed class TestConfigHasher
         Case("BlackInterval cache differs from BlackFrame", Cache(threshold32, CacheEntryType.BlackFrame, AnalysisMode.Credits), Cache(threshold32, CacheEntryType.BlackInterval, AnalysisMode.Credits), false);
         Case("Credits BlackFrame cache invalidates pre-keyframe-filter rows", Cache(defaults, CacheEntryType.BlackFrame, AnalysisMode.Credits), "3C80558124EB7712", false);
         Case("KeyframePage cache changes with threshold", Cache(threshold32, CacheEntryType.KeyframePage, AnalysisMode.Credits), Cache(threshold64, CacheEntryType.KeyframePage, AnalysisMode.Credits), false);
+        Case("KeyframePage cache invalidates rows of the first page shape", Cache(defaults, CacheEntryType.KeyframePage, AnalysisMode.Credits), "D9C3081C0BE29CD8", false);
         Case("KeyframePage cache ignores minimum percentage", Cache(percentage85, CacheEntryType.KeyframePage, AnalysisMode.Credits), Cache(percentage95, CacheEntryType.KeyframePage, AnalysisMode.Credits), true);
         Case("Credits BlackInterval cache invalidates rows probed under tinted-zeroed thresholds", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "3BB44B93C34D3451", false);
         Case("Credits BlackInterval cache invalidates window-relative rows", Cache(defaults, CacheEntryType.BlackInterval, AnalysisMode.Credits), "AF78C247AC1C8ED0", false);

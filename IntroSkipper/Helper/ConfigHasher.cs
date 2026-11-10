@@ -265,9 +265,10 @@ internal static class ConfigHasher
             // v2: VP9 keyframe listings select packet keyframes.
             CacheEntryType.Keyframe => $"cache|v2|{type}",
 
-            // Every fact of a page is cached, and the threshold decides its black percentage.
+            // Every fact of a page is cached, and the threshold decides its black percentage. v2: the
+            // page holds its time and black percentage directly; a v1 row would read back as zeros.
             CacheEntryType.KeyframePage => Invariant(
-                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
+                $"cache|v2|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
 
             // The rule's thresholds are constants: bump the token when they change.
             CacheEntryType.Cut => $"cache|v1|{type}",
