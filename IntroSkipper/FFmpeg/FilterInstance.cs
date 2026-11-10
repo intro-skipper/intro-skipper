@@ -15,8 +15,8 @@ namespace IntroSkipper.FFmpeg;
 /// output dumps print a file's name and tags raw, line feeds included, so a file can print a line
 /// that reads like a filter's, but not under a name drawn for the scan. The context counts anywhere
 /// in a line, so a message from another thread that lands in front of it changes nothing. Only a
-/// filter that logs through its own instance can be named this way: blackdetect and silencedetect
-/// log under their class names.
+/// filter that logs through its own instance can be named this way. jellyfin-ffmpeg 8.1 logs
+/// blackdetect and silencedetect through theirs, but 7.1.3 logs them under their class names.
 /// </remarks>
 /// <param name="name">The instance name, <c>filter@token</c>. Production draws it with <see cref="Draw"/>.</param>
 internal sealed class FilterInstance(string name)

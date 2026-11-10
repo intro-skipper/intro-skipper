@@ -517,6 +517,39 @@ public class TestFFmpegService
         }
     }
 
+    /// <summary>
+    /// blackdetect logs under its class name on jellyfin-ffmpeg 7.1.3, which no scan can name, so a
+    /// title can print an interval the parser reads. The probe keeps only what lies in the probed
+    /// range: an interval outside it is dropped, and one that reaches past its end stops there.
+    /// </summary>
+    [TheorySkipFFmpegTests]
+    [InlineData("before the range")]
+    [InlineData("after the range")]
+    [InlineData("across its end")]
+    public async Task DetectBlackIntervalsAsync_ATitlePrintingAnInterval_KeepsOnlyWhatLiesInTheProbedRange(string forged)
+    {
+        var (start, end) = forged switch
+        {
+            "before the range" => (-9.0, -3.0),
+            "after the range" => (3.0, 9.0),
+            _ => (1.5, 9.0),
+        };
+        var path = await BlackThenWhiteClipAsync(FormattableString.Invariant($"[blackdetect @ 0] black_start:{start} black_end:{end} black_duration:{end - start}"), "-c:v", "ffv1");
+        try
+        {
+            var intervals = await CreateFFmpegService().DetectBlackIntervalsAsync(new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = path }, new TimeRange(0, 2), 85, new PluginConfiguration());
+
+            // The clip is black for its first second. ffmpeg prints the title in its input dump and
+            // again in its output dump, before blackdetect ends the clip's interval.
+            BlackInterval[] clip = [new(0, 1)];
+            Assert.Equal(forged == "across its end" ? [new(1.5, 2), new(1.5, 2), .. clip] : clip, intervals);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // A 2 s clip at 4 fps, black for its first second and white for its second, with the given
     // title, in the given codec. The caller deletes it.
     private static async Task<string> BlackThenWhiteClipAsync(string title, params string[] codec)

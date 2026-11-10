@@ -91,7 +91,7 @@ public interface IFFmpegService
     /// <param name="minimum">Minimum percentage of a frame that must be black for it to count as black (blackdetect pic_th); tie this to the keyframe density threshold so both definitions of "black" agree.</param>
     /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns continuous black intervals, in absolute media seconds.</returns>
+    /// <returns>A task that returns continuous black intervals, in absolute media seconds, each clipped to <paramref name="range"/>.</returns>
     Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>

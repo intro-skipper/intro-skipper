@@ -382,7 +382,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private partial void LogCutWindowUnusable(string episode, int exitCode, bool truncated);
 
     /// <inheritdoc/>
-    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
+    public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         var pixelThreshold = FormatBlackDetectPixelThreshold(config.BlackFrameThreshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
@@ -400,7 +400,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // blackdetect prints times relative to the seek. The row holds absolute media times, the
         // time base of its key, so where the credits window starts never shifts them.
-        return RunCachedScanAsync(
+        var intervals = await RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.BlackInterval,
@@ -410,7 +410,15 @@ internal sealed partial class FFmpegService : IFFmpegService
             args,
             hardwareDecodable: true,
             raw => FFmpegOutputParser.ParseBlackIntervals(raw).Select(interval => new BlackInterval(interval.Start + range.Start, interval.End + range.Start)).ToArray(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+
+        // jellyfin-ffmpeg 7.1.3 logs blackdetect under its class name, so no instance name keeps a
+        // file's tags from printing an interval. Clipping to the probed range bounds what such a
+        // line can claim, but a forged interval inside the range still stands. The clip runs at the
+        // read, so it covers rows cached before it too.
+        return [.. intervals
+            .Select(interval => new BlackInterval(Math.Max(interval.Start, range.Start), Math.Min(interval.End, range.End)))
+            .Where(interval => interval.End > interval.Start)];
     }
 
     // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff
