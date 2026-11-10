@@ -1804,15 +1804,16 @@ public class TestBlackFrames
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Parses a raw FFmpeg blackframe filter output file into a list of <see cref="BlackFrame"/> records.
-    /// Delegates to the production <see cref="FFmpegOutputParser.ParseBlackFrame"/> parser to avoid
-    /// regex/format drift between tests and implementation.
+    /// Parses a raw FFmpeg blackframe filter output file, logged by a blackframe@TOKEN instance, into
+    /// a list of <see cref="BlackFrame"/> records. Delegates to the production
+    /// <see cref="FFmpegOutputParser.ParseBlackFrames"/> parser to avoid regex/format drift between
+    /// tests and implementation.
     /// </summary>
     private static List<BlackFrame> ParseFingerprintFile(string filename)
     {
         var path = Path.Combine("..", "..", "..", "fingerprints", filename);
         var raw = File.ReadAllText(path);
-        return [.. FFmpegOutputParser.ParseBlackFrames(raw)];
+        return [.. FFmpegOutputParser.ParseBlackFrames(raw, "TOKEN")];
     }
 
     /// <summary>

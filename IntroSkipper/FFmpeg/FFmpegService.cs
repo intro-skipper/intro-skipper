@@ -246,18 +246,19 @@ internal sealed partial class FFmpegService : IFFmpegService
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
+        var token = InstanceToken();
         string[] args =
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount={amount}:threshold={config.BlackFrameThreshold}",
+            "-vf", $"blackframe@{token}=amount={amount}:threshold={config.BlackFrameThreshold}",
             "-f", "null", "-",
         ];
 
         // Only the recap scan decodes on hardware: the legacy analyzer's scans were not measured there.
-        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, hardwareDecodable: mode == AnalysisMode.Recap, FFmpegOutputParser.ParseBlackFrames, cancellationToken).ConfigureAwait(false);
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, hardwareDecodable: mode == AnalysisMode.Recap, raw => FFmpegOutputParser.ParseBlackFrames(raw, token), cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
@@ -292,7 +293,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
         var hardwareInput = await HardwareDecodeInputAsync(episode, config, cancellationToken).ConfigureAwait(false);
         var codec = stream?.Codec;
-        var token = RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 8);
+        var token = InstanceToken();
         var (pages, sliceStructureError) = await DecodeAsync(episode, hardwareInput, hardware => RunRawPagePipeAsync(Arguments(hardware))).ConfigureAwait(false);
         if (sliceStructureError && WithoutSliceThreads(Arguments([])) is { } frameThreaded)
         {
@@ -320,6 +321,10 @@ internal sealed partial class FFmpegService : IFFmpegService
                 ScanTimeout(),
                 cancellationToken);
     }
+
+    // A filter instance name drawn for one scan, as in showinfo@token. ffmpeg logs the instance's
+    // messages under it, and a file whose tags print lines into the log cannot know it.
+    private static string InstanceToken() => RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 8);
 
     // The input of a keyframe-only decode of path from start, for a file whose mapped video
     // stream (the one ffmpeg decodes, GetVideoStreamAsync) has the given codec.

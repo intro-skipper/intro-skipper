@@ -98,18 +98,25 @@ internal static partial class FFmpegOutputParser
         return [.. keyframes];
     }
 
-    internal static BlackFrame[] ParseBlackFrames(string raw)
+    // Reads the frames a blackframe@token instance reports, each line from its log context on.
+    // ffmpeg's input and output dumps print a file's tags raw, but no file knows the token.
+    internal static BlackFrame[] ParseBlackFrames(string raw, string token)
     {
+        var context = $"[blackframe@{token} @ ";
         var blackFrames = new List<BlackFrame>();
-        /* Run the blackframe filter.
-         *
-         * Sample output:
-         * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
-         * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
+        /* Sample output:
+         * [blackframe@Ab3dE5gH @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
+         * [blackframe@Ab3dE5gH @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */
         foreach (var line in raw.Split('\n'))
         {
-            var match = _blackFrameRegex.Match(line);
+            var at = line.IndexOf(context, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                continue;
+            }
+
+            var match = _blackFrameRegex.Match(line[(at + context.Length)..]);
             if (!match.Success)
             {
                 continue;
@@ -428,8 +435,8 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
 
-    // The index after Parsed_blackframe_ is the filter's position in its chain, so it is not pinned.
-    [GeneratedRegex(@"\[Parsed_blackframe_\d+ @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
+    // The rest of a line after "[blackframe@token @ ": the instance's address, then its message.
+    [GeneratedRegex(@"^[^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
 
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]
