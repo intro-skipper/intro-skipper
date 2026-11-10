@@ -28,6 +28,8 @@ public sealed class TestRawPageReader
 
     private const string TimeBase = $"[showinfo@{Token} @ 0x1] config in time_base: 1/1000, frame_rate: 25/1\n";
 
+    private static readonly FilterInstance Showinfo = new($"showinfo@{Token}");
+
     /// <summary>
     /// Only this scan's showinfo instance announces a frame: a file can print lines under any other
     /// instance name, but not under a name drawn for the scan.
@@ -215,7 +217,7 @@ public sealed class TestRawPageReader
         using var stdout = new PriorityRecordingStream();
         using var stderr = new PriorityRecordingStream();
 
-        await RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Token);
+        await RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Showinfo);
 
         Assert.Equal(ThreadPriority.BelowNormal, stdout.Priority);
         Assert.Equal(ThreadPriority.BelowNormal, stderr.Priority);
@@ -256,7 +258,7 @@ public sealed class TestRawPageReader
         using var gate = new ManualResetEventSlim();
         using var stdout = new GatedEmptyStream(gate);
         using var stderr = new GatedEmptyStream(gate);
-        var read = RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Token);
+        var read = RawPageReader.ReadAsync(stdout, stderr, () => { }, 16, Showinfo);
         gate.Set();
         await read;
 
@@ -379,7 +381,7 @@ public sealed class TestRawPageReader
         public bool Killed { get; private set; }
 
         public Task<(KeyframePage[] Pages, bool SliceStructureError)> ReadAsync()
-            => RawPageReader.ReadAsync(_stdout.Reader.AsStream(), _stderr.Reader.AsStream(), Kill, 16, Token)
+            => RawPageReader.ReadAsync(_stdout.Reader.AsStream(), _stderr.Reader.AsStream(), Kill, 16, Showinfo)
                 .WaitAsync(TimeSpan.FromSeconds(60));
 
         public void Log(string text) => Send(_stderr, Encoding.ASCII.GetBytes(text));

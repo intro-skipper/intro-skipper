@@ -45,8 +45,8 @@ public sealed class TestKeyframeAnalyzerFallback
             var visual = middleScene || (earlierScene && !earlierSceneHasVisuals) || (finalScene && !finalSceneHasVisuals)
                 ? null
                 : earlierScene || finalScene
-                    ? KeyframeVisuals.Black(time)
-                    : KeyframeVisuals.Content(time);
+                    ? KeyframeVisuals.Black
+                    : KeyframeVisuals.Content;
             return new KeyframePage(time, earlierScene || middleScene || finalScene ? 95 : 0, visual);
         })];
         var ffmpeg = new StubFFmpegService

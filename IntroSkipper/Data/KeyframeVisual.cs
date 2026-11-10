@@ -16,11 +16,10 @@ namespace IntroSkipper.Data;
 /// (<see cref="LumaLow"/> to <see cref="LumaHigh"/> within a few levels) with text far from it
 /// (<see cref="LumaMin"/> or <see cref="LumaMax"/> far outside that band).
 /// </remarks>
-/// <param name="Time">Keyframe time relative to the credits fingerprint start; for a frame of a cut decode, media time.</param>
 /// <param name="LumaMin">Lowest luma in the frame (<c>YMIN</c>).</param>
 /// <param name="LumaLow">10th percentile luma (<c>YLOW</c>).</param>
 /// <param name="LumaHigh">90th percentile luma (<c>YHIGH</c>).</param>
 /// <param name="LumaMax">Highest luma in the frame (<c>YMAX</c>).</param>
 /// <param name="Saturation">Mean saturation (<c>SATAVG</c>, 0..255).</param>
 /// <param name="FrameDifference">Mean absolute luma difference to the frame decoded before it (<c>YDIF</c>), 0 on the first frame of a decode. In the keyframe scan the frame before is the previous keyframe, so a large difference says the picture changed somewhere between the two.</param>
-public sealed record KeyframeVisual(double Time, double LumaMin, double LumaLow, double LumaHigh, double LumaMax, double Saturation, double FrameDifference);
+public sealed record KeyframeVisual(double LumaMin, double LumaLow, double LumaHigh, double LumaMax, double Saturation, double FrameDifference);

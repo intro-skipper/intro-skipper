@@ -74,7 +74,7 @@ internal static class PageFacts
         return new KeyframePage(
             time,
             percentage,
-            new KeyframeVisual(time, minimum, low, high, maximum, PrintedByFilter(1.0 * saturation / chromaSamples), PrintedByFilter(1.0 * difference / pixels)));
+            new KeyframeVisual(minimum, low, high, maximum, PrintedByFilter(1.0 * saturation / chromaSamples), PrintedByFilter(1.0 * difference / pixels)));
     }
 
     // Four interleaved histograms, so consecutive bytes of a flat picture do not stall on the

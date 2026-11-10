@@ -1302,12 +1302,12 @@ public sealed class TestCreditsPass
     /// Silence and keyframe lookups return nothing so end adjustment leaves ends alone.
     /// </summary>
     private static (List<QueuedEpisode> Episodes, StubFFmpegService Ffmpeg, IntroSkipperDatabase Database) CreateSeason(
-        (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[]? spans = null,
+        (double From, double To, int Percentage, KeyframeVisual? Visual)[]? spans = null,
         int sharedAudioLastPoint = DefaultSharedAudioLastPoint,
         Func<QueuedEpisode, Exception?>? fingerprintFailure = null,
         Func<QueuedEpisode, Exception?>? scanFailure = null,
         Func<QueuedEpisode, TimeRange, int, int, AnalysisMode, BlackFrame[]>? rangeScan = null,
-        Func<QueuedEpisode, TimeRange, KeyframeVisual[]?>? cutDecode = null,
+        Func<QueuedEpisode, TimeRange, CutFrame[]?>? cutDecode = null,
         Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? keyFrames = null,
         ChapterInfo[]? chapters = null,
         Func<TimeRange, BlackInterval[]>? blackIntervals = null,
@@ -1355,7 +1355,7 @@ public sealed class TestCreditsPass
     /// keyframe inside one of the <paramref name="spans"/>, given in file time, takes that span's
     /// black percentage and visual; any other keyframe is busy content, not black.
     /// </summary>
-    private static KeyframePage[] ScanOf(QueuedEpisode episode, (double From, double To, int Percentage, Func<double, KeyframeVisual?> Visual)[] spans)
+    private static KeyframePage[] ScanOf(QueuedEpisode episode, (double From, double To, int Percentage, KeyframeVisual? Visual)[] spans)
     {
         var start = episode.CreditsFingerprintStart;
         return Pages(Keyframes(0, episode.Duration - start, 2, [.. spans.Select(span => (span.From - start, span.To - start, span.Percentage, span.Visual))]));

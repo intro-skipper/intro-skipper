@@ -91,7 +91,7 @@ public interface IFFmpegService
     /// <param name="minimum">Minimum percentage of a frame that must be black for it to count as black (blackdetect pic_th); tie this to the keyframe density threshold so both definitions of "black" agree.</param>
     /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns continuous black intervals, in absolute media seconds.</returns>
+    /// <returns>A task that returns continuous black intervals, in absolute media seconds, each clipped to <paramref name="range"/>.</returns>
     Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -107,8 +107,8 @@ public interface IFFmpegService
     /// <param name="episode">Media file to decode.</param>
     /// <param name="window">Absolute media time range to decode, from the keyframe before a part's first page to that page. Its start must be a keyframe from the keyframe scan: the decode seeks there, so a demuxer that seeks by timestamp, such as MPEG-TS, decodes from that keyframe rather than the next one, and the frame times fall on the scan's timeline.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>The frames' visuals in presentation order, with times in media seconds, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, or its output crossed the byte cap. A frame whose block lacks a statistic is left out.</returns>
-    Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default);
+    /// <returns>The frames in presentation order, each with its time in media seconds and its visual, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, or its output crossed the byte cap. A frame whose block lacks a statistic is left out.</returns>
+    Task<CutFrame[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Detects key frames in a media file within a time range.

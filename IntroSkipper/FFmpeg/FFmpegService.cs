@@ -5,7 +5,6 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -30,10 +29,10 @@ internal sealed partial class FFmpegService : IFFmpegService
     private const double LimitedRangeLumaRange = 219.0;
 
     // A cut decode's per-frame luma percentiles, mean saturation and luma difference to the frame
-    // before. format=yuv420p brings 10-bit sources to 8-bit values and keeps the source's range, so
-    // a full-range source spans 0 to 255. PageFacts measures the keyframe scan's pages on the same
-    // scale from the same format.
-    private const string KeyframeVisualFilters = "format=yuv420p,signalstats,metadata=print";
+    // before, which a metadata instance prints. format=yuv420p brings 10-bit sources to 8-bit values
+    // and keeps the source's range, so a full-range source spans 0 to 255. PageFacts measures the
+    // keyframe scan's pages on the same scale from the same format.
+    private const string KeyframeVisualFilters = "format=yuv420p,signalstats";
 
     // VP9/WebM may ignore -skip_frame nokey; filter expensive scans by packet keyframe.
     private const string KeyframeSelect = "select=eq(key\\,1)";
@@ -246,19 +245,19 @@ internal sealed partial class FFmpegService : IFFmpegService
         // observe the content's full darkness distribution; other modes keep the amount=50
         // superset that existing cache rows and their callers' post-filters rely on.
         var amount = mode == AnalysisMode.Recap ? 0 : 50;
-        var token = InstanceToken();
+        var blackframe = FilterInstance.Draw("blackframe");
         string[] args =
         [
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe@{token}=amount={amount}:threshold={config.BlackFrameThreshold}",
+            "-vf", $"{blackframe.Name}=amount={amount}:threshold={config.BlackFrameThreshold}",
             "-f", "null", "-",
         ];
 
         // Only the recap scan decodes on hardware: the legacy analyzer's scans were not measured there.
-        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, hardwareDecodable: mode == AnalysisMode.Recap, raw => FFmpegOutputParser.ParseBlackFrames(raw, token), cancellationToken).ConfigureAwait(false);
+        var allFrames = await RunCachedScanAsync(episode, mode, CacheEntryType.BlackFrame, range.Start, range.End, config, args, hardwareDecodable: mode == AnalysisMode.Recap, raw => FFmpegOutputParser.ParseBlackFrames(raw, blackframe), cancellationToken).ConfigureAwait(false);
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
@@ -293,7 +292,7 @@ internal sealed partial class FFmpegService : IFFmpegService
         var stream = await GetVideoStreamAsync(episode, cancellationToken).ConfigureAwait(false);
         var hardwareInput = await HardwareDecodeInputAsync(episode, config, cancellationToken).ConfigureAwait(false);
         var codec = stream?.Codec;
-        var token = InstanceToken();
+        var showinfo = FilterInstance.Draw("showinfo");
         var (pages, sliceStructureError) = await DecodeAsync(episode, hardwareInput, hardware => RunRawPagePipeAsync(Arguments(hardware))).ConfigureAwait(false);
         if (sliceStructureError && WithoutSliceThreads(Arguments([])) is { } frameThreaded)
         {
@@ -309,7 +308,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             .. KeyframeInput(codec, start, episode.Path),
             "-an", "-dn", "-sn",
             "-fps_mode", "passthrough", "-noautoscale",
-            "-vf", KeyframeFilters(codec, $"{(hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le," : string.Empty)}format=yuv420p,showinfo@{token}=checksum=0"),
+            "-vf", KeyframeFilters(codec, $"{(hardware.Length > 0 && stream?.PixelFormat == "yuv420p10le" ? "format=yuv420p10le," : string.Empty)}format=yuv420p,{showinfo.Name}=checksum=0"),
             "-f", "rawvideo", "-",
         ];
 
@@ -317,14 +316,10 @@ internal sealed partial class FFmpegService : IFFmpegService
             => _processRunner.RunStreamingAsync(
                 FFmpegPath,
                 ProcessArgs(arguments, "info"),
-                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, config.BlackFrameThreshold, token),
+                (stdout, stderr, kill) => RawPageReader.ReadAsync(stdout, stderr, kill, config.BlackFrameThreshold, showinfo),
                 ScanTimeout(),
                 cancellationToken);
     }
-
-    // A filter instance name drawn for one scan, as in showinfo@token. ffmpeg logs the instance's
-    // messages under it, and a file whose tags print lines into the log cannot know it.
-    private static string InstanceToken() => RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 8);
 
     // The input of a keyframe-only decode of path from start, for a file whose mapped video
     // stream (the one ffmpeg decodes, GetVideoStreamAsync) has the given codec.
@@ -340,18 +335,19 @@ internal sealed partial class FFmpegService : IFFmpegService
     private static string KeyframeFilters(string? codec, string filters) => codec == "vp9" ? $"{KeyframeSelect},{filters}" : filters;
 
     /// <inheritdoc/>
-    public async Task<KeyframeVisual[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
+    public async Task<CutFrame[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default)
     {
         // Every frame, at source resolution and in the keyframe scan's pixel format, so a frame's
         // difference is on the scale of the page's. Seeking to the earlier keyframe starts the
         // decode on it.
+        var metadata = FilterInstance.Draw("metadata");
         string[] args =
         [
             "-ss", FormatSeconds(window.Start),
             "-t", FormatSeconds(window.Duration),
             "-i", episode.Path,
             "-an", "-dn", "-sn",
-            "-vf", KeyframeVisualFilters,
+            "-vf", $"{KeyframeVisualFilters},{metadata.Name}=print",
             "-f", "null", "-",
         ];
 
@@ -372,7 +368,7 @@ internal sealed partial class FFmpegService : IFFmpegService
             return null;
         }
 
-        return [.. FFmpegOutputParser.ParseKeyframeVisuals(capture.Stderr).Select(frame => frame with { Time = window.Start + frame.Time })];
+        return [.. FFmpegOutputParser.ParseKeyframeVisuals(capture.Stderr, metadata).Select(frame => frame with { Time = window.Start + frame.Time })];
     }
 
     // Fixed-point seconds: ffmpeg's time parser rejects the exponent the default format gives a
@@ -386,7 +382,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     private partial void LogCutWindowUnusable(string episode, int exitCode, bool truncated);
 
     /// <inheritdoc/>
-    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
+    public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         var pixelThreshold = FormatBlackDetectPixelThreshold(config.BlackFrameThreshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
@@ -404,7 +400,7 @@ internal sealed partial class FFmpegService : IFFmpegService
 
         // blackdetect prints times relative to the seek. The row holds absolute media times, the
         // time base of its key, so where the credits window starts never shifts them.
-        return RunCachedScanAsync(
+        var intervals = await RunCachedScanAsync(
             episode,
             AnalysisMode.Credits,
             CacheEntryType.BlackInterval,
@@ -414,7 +410,15 @@ internal sealed partial class FFmpegService : IFFmpegService
             args,
             hardwareDecodable: true,
             raw => FFmpegOutputParser.ParseBlackIntervals(raw).Select(interval => new BlackInterval(interval.Start + range.Start, interval.End + range.Start)).ToArray(),
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+
+        // jellyfin-ffmpeg 7.1.3 logs blackdetect under its class name, so no instance name keeps a
+        // file's tags from printing an interval. Clipping to the probed range bounds what such a
+        // line can claim, but a forged interval inside the range still stands. The clip runs at the
+        // read, so it covers rows cached before it too.
+        return [.. intervals
+            .Select(interval => new BlackInterval(Math.Max(interval.Start, range.Start), Math.Min(interval.End, range.End)))
+            .Where(interval => interval.End > interval.Start)];
     }
 
     // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff
@@ -442,6 +446,7 @@ internal sealed partial class FFmpegService : IFFmpegService
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default)
     {
         // -to runs after showinfo, so the parser clips keyframes logged past the requested window.
+        var showinfo = FilterInstance.Draw("showinfo");
         var keyframes = await RunCachedScanAsync(
             episode,
             mode,
@@ -457,12 +462,12 @@ internal sealed partial class FFmpegService : IFFmpegService
                     .. KeyframeInput(codec, range.Start, episode.Path),
                     "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
                     "-an", "-dn", "-sn",
-                    "-vf", KeyframeFilters(codec, "showinfo"),
+                    "-vf", KeyframeFilters(codec, showinfo.Name),
                     "-f", "null", "-",
                 ];
             },
             hardwareDecodable: false,
-            raw => FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger),
+            raw => FFmpegOutputParser.ParseKeyFrames(raw, showinfo, range.Start, _logger),
             cancellationToken).ConfigureAwait(false);
         return [.. keyframes.Where(time => time >= range.Start && time <= range.End)];
     }

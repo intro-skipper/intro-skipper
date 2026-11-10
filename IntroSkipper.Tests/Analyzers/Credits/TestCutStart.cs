@@ -70,7 +70,7 @@ public class TestCutStart
     {
         // The gap's first frame is the page before, whose difference is to a frame before the gap,
         // and a frame at the page's own time belongs to the page.
-        var frames = Gap(frame => frame == 0 ? 100 : 1).Append(new KeyframeVisual(Page, 16, 16, 16, 16, 0, 100)).ToArray();
+        var frames = Gap(frame => frame == 0 ? 100 : 1).Append(new CutFrame(Page, new KeyframeVisual(16, 16, 16, 16, 0, 100))).ToArray();
 
         Assert.Null(CutStart.Locate(frames, new TimeRange(PageBefore, Page), PageDifference));
     }
@@ -100,11 +100,11 @@ public class TestCutStart
             Assert.NotNull(frames);
             Assert.Equal(48, frames.Length);
             Assert.Equal(0, frames[0].Time, 3);
-            Assert.Equal(0, frames[0].FrameDifference);
-            var cut = frames.MaxBy(frame => frame.FrameDifference)!;
+            Assert.Equal(0, frames[0].Visual.FrameDifference);
+            var cut = frames.MaxBy(frame => frame.Visual.FrameDifference)!;
             Assert.Equal(1.5, cut.Time, 3);
-            Assert.InRange(cut.FrameDifference, 90, 120);
-            Assert.All(frames.Where(frame => frame != cut), frame => Assert.InRange(frame.FrameDifference, 0, 1));
+            Assert.InRange(cut.Visual.FrameDifference, 90, 120);
+            Assert.All(frames.Where(frame => frame != cut), frame => Assert.InRange(frame.Visual.FrameDifference, 0, 1));
         }
         finally
         {
@@ -121,9 +121,9 @@ public class TestCutStart
     }
 
     private static KeyframePage[] Pages(params (double Time, double Difference)[] pages)
-        => [.. pages.Select(page => new KeyframePage(page.Time, 100, KeyframeVisuals.Black(page.Time) with { FrameDifference = page.Difference }))];
+        => [.. pages.Select(page => new KeyframePage(page.Time, 100, KeyframeVisuals.Black with { FrameDifference = page.Difference }))];
 
     // The 48 frames of the gap, each with the difference the function gives its index.
-    private static KeyframeVisual[] Gap(Func<int, double> difference)
-        => [.. Enumerable.Range(0, 48).Select(frame => KeyframeVisuals.Black(PageBefore + (frame / 24.0)) with { FrameDifference = difference(frame) })];
+    private static CutFrame[] Gap(Func<int, double> difference)
+        => [.. Enumerable.Range(0, 48).Select(frame => new CutFrame(PageBefore + (frame / 24.0), KeyframeVisuals.Black with { FrameDifference = difference(frame) }))];
 }

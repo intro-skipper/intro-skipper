@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -567,7 +568,7 @@ public sealed class TestCacheOperations
         Assert.Equal(pages.Select(page => (page.Time, page.BlackPercentage)), wider.Select(page => (page.Time, page.BlackPercentage)));
         Assert.Equal([5.0, 15.0, 25.0, 35.0], VisualTimes(wider));
 
-        static double[] VisualTimes(KeyframePage[] scanned) => [.. scanned.Select(page => page.Visual).OfType<KeyframeVisual>().Select(visual => visual.Time)];
+        static double[] VisualTimes(KeyframePage[] scanned) => [.. scanned.Where(page => page.Visual is not null).Select(page => page.Time)];
     }
 
     /// <summary>
@@ -588,6 +589,27 @@ public sealed class TestCacheOperations
 
         Assert.Contains(fresh, page => page.Visual!.FrameDifference > 0 && page.Visual.Saturation > 0);
         Assert.Equal(fresh, cached);
+    }
+
+    /// <summary>
+    /// A page's visual held a copy of the page's time until the cut decode's frames took that time
+    /// over. Rows written then keep their token, so they must read back as the same pages. The path
+    /// is broken, so a row that failed to read would run ffmpeg and throw.
+    /// </summary>
+    [Fact]
+    public async Task ScanKeyframesAsync_ReadsARowWhoseVisualsHoldTheirTime()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Path = "/does/not/exist.mkv", Duration = 330, CreditsFingerprintStart = 5, CreditsFingerprintEnd = 35 };
+        // Two pages of a row the keyframe scan wrote for an episode before the change.
+        const string Row = """[{"Time":3.78,"BlackPercentage":8,"Visual":{"Time":3.78,"LumaMin":0,"LumaLow":29,"LumaHigh":105,"LumaMax":133,"Saturation":6.30699,"FrameDifference":0}},{"Time":7.784,"BlackPercentage":6,"Visual":{"Time":7.784,"LumaMin":0,"LumaLow":29,"LumaHigh":106,"LumaMax":121,"Saturation":4.41675,"FrameDifference":23.023}}]""";
+        using var row = JsonDocument.Parse(Row);
+        scope.SeedRow(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, DetectionCacheService.CompressBrotli(row.RootElement), 5, 0, ConfigHasher.DetectionCache(scope.Config, CacheEntryType.KeyframePage, AnalysisMode.Credits));
+
+        var pages = await scope.CreateFFmpegService().ScanKeyframesAsync(episode, scope.Config);
+
+        KeyframePage[] expected = [new(3.78, 8, new KeyframeVisual(0, 29, 105, 133, 6.30699, 0)), new(7.784, 6, new KeyframeVisual(0, 29, 106, 121, 4.41675, 23.023))];
+        Assert.Equal(expected, pages);
     }
 
     /// <summary>
@@ -734,7 +756,7 @@ public sealed class TestCacheOperations
             CreditsFingerprintStart = 5,
             CreditsFingerprintEnd = 35,
         };
-        scope.CacheService.Write<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, [new(0, 100, new KeyframeVisual(0, 16, 16, 16, 16, 0, 0))]);
+        scope.CacheService.Write<KeyframePage>(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframePage, 5, 0, scope.Config, [new(0, 100, new KeyframeVisual(16, 16, 16, 16, 0, 0))]);
         scope.CacheService.Write<double>(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 30, scope.Config, [10]);
         var logger = new ScanLogger();
         var service = scope.CreateFFmpegService(logger);
