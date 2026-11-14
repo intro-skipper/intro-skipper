@@ -173,8 +173,8 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <remarks>
     /// Compares the episodes that need analysis plus the already-analyzed ones that still
     /// have a cached fingerprint, so a newly added episode re-derives its fingerprinted
-    /// siblings' candidates; a lone open episode is compared with the episodes numbered next
-    /// to it, cached or not. Episode state is left to the caller: an episode whose
+    /// siblings' candidates; every open episode is also compared with all the episodes
+    /// numbered next to it, cached or not. Episode state is left to the caller: an episode whose
     /// fingerprint fails gets no candidate and, when it still needed analysis, is reported in
     /// the result's failures.
     /// </remarks>
@@ -207,13 +207,18 @@ internal sealed partial class ChromaprintAnalyzer(
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
-        // Ensure at least two fingerprints are present.
-        if (episodeAnalysisQueue.Count == 1)
-        {
-            var currentEpisode = episodeAnalysisQueue[0];
-            episodeAnalysisQueue.AddRange(analysisQueue
-                .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
-        }
+        // Every open episode is compared with all the episodes numbered next to it, cached or not.
+        // Settled siblings without a cached fingerprint are otherwise left out, so two open
+        // episodes far apart, such as one without a credits chapter and a finale whose credits
+        // chapter story follows, would only meet each other. There is no cap: which fingerprints
+        // succeed is known only later, and unnumbered episodes all count as number 0, so a capped
+        // pick could leave an open special with only failed references. Neighbours join in season
+        // order without duplicates, none when nothing in the season is settled, and a lone open
+        // episode gets the same neighbours as when it was the only one compared with them.
+        var open = episodeAnalysisQueue.Where(episode => episode.NeedsAnalysis(mode)).ToList();
+        var compared = episodeAnalysisQueue.ToHashSet();
+        episodeAnalysisQueue.AddRange(analysisQueue.Where(episode =>
+            !compared.Contains(episode) && open.Any(o => Math.Abs(episode.EpisodeNumber - o.EpisodeNumber) <= 1)));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)

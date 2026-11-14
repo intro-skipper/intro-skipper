@@ -576,6 +576,76 @@ public sealed class TestCreditsPass
         Assert.Equal([RollProbe, BlackBeforeProbe], ffmpeg.Calls);
     }
 
+    // Found on Frieren season 2. A credits chapter to the end settles episodes 1, 5, 7 and 9, so
+    // their fingerprints are neither extracted nor cached. Episode 6 has no chapters and shares
+    // its ending audio with its neighbours; the finale, episode 10, has story after its credits
+    // chapter, so it stays open too, and shares nothing. Two episodes are open, so each brings in
+    // its numbered neighbours: compared only with the finale, episode 6 would get no credits.
+    // Episode 1 is no one's neighbour and is not fingerprinted.
+    [Fact]
+    public async Task EachOpenEpisode_IsComparedWithItsNumberedNeighbours()
+    {
+        using var scope = Scope();
+        var fingerprinted = new List<int>();
+        var (_, ffmpeg, database) = CreateSeason(
+            [],
+            fingerprints: episode =>
+            {
+                fingerprinted.Add(episode.EpisodeNumber);
+                return SharedAudioFingerprint(episode, episode.EpisodeNumber == 10 ? SharedAudioFirstPoint - 1 : DefaultSharedAudioLastPoint);
+            });
+        var seasonId = Guid.NewGuid();
+        var episodes = new[] { 1, 5, 6, 7, 9, 10 }.Select(number => Episode(seasonId, number)).ToList();
+        foreach (var episode in episodes)
+        {
+            episode.Chapters = episode.EpisodeNumber switch
+            {
+                6 => [],
+                10 => [Chapter("Main", 0), Chapter("Credits", 800), Chapter("Epilogue", 860)],
+                _ => [Chapter("Main", 0), Chapter("Credits", PointTime(SharedAudioFirstPoint))],
+            };
+        }
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var credits = Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId), row => row.Type == AnalysisMode.Credits);
+        Assert.NotEqual(SegmentSource.Chapter, credits.Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), credits.ToSegment().Start, 0.5);
+        Assert.Equal([5, 6, 7, 9, 10], fingerprinted.Order());
+    }
+
+    // Specials without episode numbers all count as number 0, so each is the others' neighbour.
+    // A credits chapter to the end settles three of them without a cached fingerprint; the fourth
+    // has no chapters and is the only open episode. Every neighbour is compared, not just the
+    // first two: those fail to fingerprint here, and the third is the only reference left.
+    [Fact]
+    public async Task LoneOpenEpisode_IsComparedWithAllItsNumberedNeighbours()
+    {
+        using var scope = Scope();
+        var seasonId = Guid.NewGuid();
+        var episodes = Enumerable.Range(0, 4).Select(_ => Episode(seasonId, 0)).ToList();
+        var attempted = new List<QueuedEpisode>();
+        var (_, ffmpeg, database) = CreateSeason(
+            [],
+            fingerprintFailure: episode =>
+            {
+                attempted.Add(episode);
+                return episode == episodes[0] || episode == episodes[1] ? new FingerprintException("no audio") : null;
+            },
+            fingerprints: episode => SharedAudioFingerprint((uint)episodes.IndexOf(episode) + 1, DefaultSharedAudioLastPoint));
+        foreach (var episode in episodes.Take(3))
+        {
+            episode.Chapters = [Chapter("Main", 0), Chapter("Credits", PointTime(SharedAudioFirstPoint))];
+        }
+
+        await CreatePass(ffmpeg, database).RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(episodes.ToHashSet(), attempted.ToHashSet());
+        var credits = Assert.Single(await database.GetSegmentsAsync(episodes[3].EpisodeId), row => row.Type == AnalysisMode.Credits);
+        Assert.NotEqual(SegmentSource.Chapter, credits.Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), credits.ToSegment().Start, 0.5);
+    }
+
     [Fact]
     public async Task FingerprintFailure_WritesTheOtherCandidatesAndSettlesTheEpisode()
     {
@@ -1380,8 +1450,12 @@ public sealed class TestCreditsPass
     }
 
     private static uint[] SharedAudioFingerprint(QueuedEpisode episode, int sharedAudioLastPoint)
+        => SharedAudioFingerprint((uint)episode.EpisodeNumber, sharedAudioLastPoint);
+
+    // The audio outside the shared region differs between two distinct keys.
+    private static uint[] SharedAudioFingerprint(uint key, int sharedAudioLastPoint)
     {
-        var mask = 0x11111111u * (uint)episode.EpisodeNumber;
+        var mask = 0x11111111u * key;
         var points = new uint[3600];
         for (var i = 0; i < points.Length; i++)
         {
