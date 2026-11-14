@@ -25,6 +25,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
 /// <param name="applyLocalConsensus">Whether to require local group consensus for a settled-season re-analysis.</param>
 /// <param name="hardBoundaries">Per episode, its <see cref="CreditsCandidateCombiner.HardBoundaries"/> shifted onto its fingerprint clock; a cross-alignment join keeps the cap its region's start had (<see cref="CreditsCandidateCombiner.SameCap"/>).</param>
+/// <param name="derivesPreview">Whether the season derives its Preview from the credits end; credits candidates that leave no room for one are then put to a vote (<see cref="EndBeforeSharedPreviews"/>).</param>
 internal sealed partial class ChromaprintAnalyzer(
     ILogger<ChromaprintAnalyzer> logger,
     IFFmpegService ffmpegService,
@@ -32,8 +33,15 @@ internal sealed partial class ChromaprintAnalyzer(
     IntroSkipperDatabase database,
     PluginConfiguration? configuration = null,
     bool applyLocalConsensus = false,
-    IReadOnlyDictionary<Guid, IReadOnlyList<double>>? hardBoundaries = null) : IMediaFileAnalyzer
+    IReadOnlyDictionary<Guid, IReadOnlyList<double>>? hardBoundaries = null,
+    bool derivesPreview = false) : IMediaFileAnalyzer
 {
+    // How many episodes, the ones numbered nearest, a credits candidate that leaves no room for a
+    // derived preview is compared with again, and how many of them must share its credits audio
+    // for their ends to outvote it (EndBeforeSharedPreviews).
+    private const int PreviewVotePartners = 8;
+    private const int PreviewVoteMinimum = 3;
+
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
     /// </summary>
@@ -62,6 +70,7 @@ internal sealed partial class ChromaprintAnalyzer(
     private readonly IntroSkipperDatabase _database = database;
     private readonly bool _applyLocalConsensus = applyLocalConsensus;
     private readonly IReadOnlyDictionary<Guid, IReadOnlyList<double>>? _hardBoundaries = hardBoundaries;
+    private readonly bool _derivesPreview = derivesPreview;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
 
     // Per-episode recap inputs, reused across every pair the episode takes part in: the
@@ -347,12 +356,99 @@ internal sealed partial class ChromaprintAnalyzer(
             }
         }
 
+        // Before the consensus, so it confirms the voted range, which the neighbours' own pair
+        // matches support, rather than the region only the episode sharing its preview does.
+        if (_derivesPreview && _analysisMode == AnalysisMode.Credits)
+        {
+            EndBeforeSharedPreviews(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
+        }
+
         if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
         {
             seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, mode, cancellationToken);
         }
 
         return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+    }
+
+    /// <summary>
+    /// In a season that derives its previews from the credits end, ends a credits candidate that
+    /// leaves no room for the preview where most of the episodes numbered nearest end their match.
+    /// </summary>
+    /// <remarks>
+    /// An episode keeps the longest region any one partner shares with it (<see cref="IsBetterCandidate"/>).
+    /// Within a story arc, consecutive episodes can close on the same next-episode preview music
+    /// over different pictures, so their pair matches the ending and the preview as one region to
+    /// the end of the file, while every other episode shares only the ending. A candidate whose
+    /// tail is shorter than the derived preview minimum is compared again with up to
+    /// <see cref="PreviewVotePartners"/> episodes numbered nearest to it. Each partner whose match
+    /// overlaps the candidate by at least the minimum credits duration, so shares its credits
+    /// audio, votes with the end of its match. With at least <see cref="PreviewVoteMinimum"/>
+    /// votes, the candidate ends at the latest end a strict majority of them reach, when that
+    /// leaves a tail of a derived preview's length and at least the minimum credits duration before
+    /// it. A majority reaching the end keeps the candidate, so a season whose credits run to the end
+    /// of every file is unchanged. Only the fingerprints already extracted are compared again.
+    /// </remarks>
+    /// <param name="episodes">Episodes whose fingerprints took part in the season comparison.</param>
+    /// <param name="fingerprints">The fingerprints already extracted for those episodes; an empty one is a failed extraction.</param>
+    /// <param name="candidates">The season's credits candidates, in file seconds; ended in place.</param>
+    /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
+    internal void EndBeforeSharedPreviews(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, uint[]> fingerprints,
+        Dictionary<Guid, Segment> candidates,
+        CancellationToken cancellationToken)
+    {
+        _analysisMode = AnalysisMode.Credits;
+        var minimumTail = AnimePreviewDeriver.MinimumDuration(_config.MinimumPreviewDuration);
+        var minimumCredits = _config.MinimumCreditsDuration;
+        List<QueuedEpisode> usable = [.. episodes.Where(episode => fingerprints.TryGetValue(episode.EpisodeId, out var points) && points.Length > 0)];
+
+        foreach (var episode in usable)
+        {
+            var windowEnd = episode.GetFingerprintRange(AnalysisMode.Credits).End;
+            if (!candidates.TryGetValue(episode.EpisodeId, out var candidate) || windowEnd - candidate.End >= minimumTail)
+            {
+                continue;
+            }
+
+            List<double> ends = [];
+            foreach (var partner in usable
+                .Where(partner => partner.EpisodeId != episode.EpisodeId)
+                .OrderBy(partner => Math.Abs(partner.EpisodeNumber - episode.EpisodeNumber))
+                .ThenBy(partner => partner.EpisodeNumber)
+                .Take(PreviewVotePartners))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var (match, _) = CompareEpisodes(episode.EpisodeId, fingerprints[episode.EpisodeId], partner.EpisodeId, fingerprints[partner.EpisodeId]);
+                if (!match.Valid || match.Duration > GetMaximumSegmentDuration(episode))
+                {
+                    continue;
+                }
+
+                var start = match.Start + episode.CreditsFingerprintStart;
+                var end = match.End + episode.CreditsFingerprintStart;
+                if (Math.Min(end, candidate.End) - Math.Max(start, candidate.Start) >= minimumCredits)
+                {
+                    ends.Add(end);
+                }
+            }
+
+            if (ends.Count < PreviewVoteMinimum)
+            {
+                continue;
+            }
+
+            // Latest first: the end at index n/2 is reached by n/2 + 1 votes, a strict majority.
+            ends.Sort((left, right) => right.CompareTo(left));
+            var majorityEnd = ends[ends.Count / 2];
+            var tail = windowEnd - majorityEnd;
+            if (tail >= minimumTail && tail <= _config.MaximumPreviewDuration && majorityEnd - candidate.Start >= minimumCredits)
+            {
+                LogCreditsEndedBeforeSharedPreview(episode.EpisodeId, candidate.End, majorityEnd, ends.Count);
+                candidates[episode.EpisodeId] = new Segment(episode.EpisodeId, new TimeRange(candidate.Start, majorityEnd));
+            }
+        }
     }
 
     /// <summary>
@@ -1046,6 +1142,9 @@ internal sealed partial class ChromaprintAnalyzer(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "{Mode} Chromaprint consensus removed {RemovedCount} candidate(s) without range-specific support from a {MinimumGroupSize}-episode local group; {ConfirmedCount} candidate(s) remain")]
     private static partial void LogCandidatesWithoutLocalConsensus(ILogger logger, AnalysisMode mode, int minimumGroupSize, int removedCount, int confirmedCount);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Credits of {Episode} end at {End:F2}s instead of {SharedEnd:F2}s, where most of {Votes} neighbours end their match: the rest is a preview only some share")]
+    private partial void LogCreditsEndedBeforeSharedPreview(Guid episode, double sharedEnd, double end, int votes);
 
     private readonly record struct ConsensusRangeKey(Guid EpisodeId, long StartSecond, long EndSecond);
 }

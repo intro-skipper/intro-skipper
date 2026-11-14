@@ -34,7 +34,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="derivesPreview">
 /// Whether the season derives its Preview from the credits end. Credits then extend to the
 /// window end only from within <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so a
-/// preview shorter than the minimum credits duration stays outside them.
+/// preview shorter than the minimum credits duration stays outside them, and a Chromaprint
+/// candidate that runs to the end ends where most of its neighbours' matches do
+/// (<see cref="ChromaprintAnalyzer.EndBeforeSharedPreviews"/>), so a preview whose music only
+/// the episodes of one story arc share stays outside them too.
 /// </param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
@@ -162,7 +165,7 @@ internal sealed partial class CreditsPass(
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
                         episode => (IReadOnlyList<double>)[.. ChapterCreditsOf(chapter, episode).HardBoundaries.Select(boundary => boundary - episode.CreditsFingerprintStart)]);
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries, _derivesPreview)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

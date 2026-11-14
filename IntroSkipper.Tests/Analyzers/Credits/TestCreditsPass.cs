@@ -41,6 +41,8 @@ public sealed class TestCreditsPass
     private const int SharedAudioFirstPoint = 1600;
     private const int TitlesFirstPoint = 1300;
     private const int DefaultSharedAudioLastPoint = 3499;
+    private const int ArcEndingLastPoint = 3300;
+    private const int ArcPreviewFirstPoint = 3330;
 
     // The cut decode of the default roll, over the gap from the keyframe before it.
     private static readonly CutDecode RollProbe = new(948, 950);
@@ -559,6 +561,63 @@ public sealed class TestCreditsPass
         Assert.Equal(SegmentSource.Chromaprint, segment.Source);
         Assert.Equal(PointTime(SharedAudioFirstPoint), segment.ToSegment().Start, 0.5);
         Assert.InRange(segment.ToSegment().End, 985, Duration - AnimePreviewDeriver.ShortestTailSeconds);
+    }
+
+    // Gintama: episodes 2 and 3, one story arc, close on the same preview music over different
+    // pictures, so their pair matches the ending and the preview as one region to the end of the
+    // file. Every other episode shares only the ending. In a season that derives previews the
+    // neighbours outvote the pair and the credits of 2 and 3 stop where the ending does, about
+    // 41 s before the end; elsewhere the pass keeps the longest match as before.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PreviewMusicSharedByOneArc_StaysOutOfTheCreditsInAPreviewSeason(bool derivesPreview)
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason([], fingerprints: EndingThenArcPreview(ArcEndingLastPoint, 2, 3), episodeCount: 5);
+
+        await new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, new PluginConfiguration(), derivesPreview: derivesPreview)
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var segment = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).ToSegment();
+            Assert.Equal(PointTime(SharedAudioFirstPoint), segment.Start, 0.5);
+            var sharesThePreview = episode.EpisodeNumber is 2 or 3;
+            Assert.Equal(sharesThePreview && !derivesPreview ? Duration : PointTime(ArcEndingLastPoint), segment.End, 0.5);
+        }
+    }
+
+    // A preview season whose ending runs to the end of every episode: every neighbour's match
+    // reaches the end too, so the vote keeps the credits there.
+    [Fact]
+    public async Task EndingToTheEndOfEveryEpisode_InAPreviewSeason_KeepsTheCreditsToTheEnd()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason([], fingerprints: EndingThenArcPreview(3599), episodeCount: 5);
+
+        await new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, new PluginConfiguration(), derivesPreview: true)
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            Assert.Equal(Duration, Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId)).ToSegment().End);
+        }
+    }
+
+    // Three episodes give each one two partners, under the three votes the cut needs, so even
+    // where the pair sharing the preview is outvoted the credits keep the longest match.
+    [Fact]
+    public async Task PreviewMusicSharedByOneArc_WithTooFewVotes_KeepsTheLongestMatch()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason([], fingerprints: EndingThenArcPreview(ArcEndingLastPoint, 1, 2), episodeCount: 3);
+
+        await new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, new PluginConfiguration(), derivesPreview: true)
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        Assert.Equal(Duration, Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).ToSegment().End);
+        Assert.Equal(PointTime(ArcEndingLastPoint), Assert.Single(await database.GetSegmentsAsync(episodes[2].EpisodeId)).ToSegment().End, 0.5);
     }
 
     [Fact]
@@ -1310,6 +1369,27 @@ public sealed class TestCreditsPass
         => new(NullLoggerFactory.Instance, ffmpeg, cache ?? DatabaseTestHelpers.CreateTempCacheService(), database, config ?? new PluginConfiguration());
 
     /// <summary>
+    /// Fingerprints of a season whose episodes share an ending from <see cref="SharedAudioFirstPoint"/>
+    /// to <paramref name="endingLastPoint"/>. The episodes in <paramref name="previewSharers"/> also
+    /// share the audio of the preview after it, from <see cref="ArcPreviewFirstPoint"/> to the end,
+    /// as a story arc's episodes do; between the two, about 3.6 s of each episode's own audio stand
+    /// in for the break. Every other point is the episode's own, so pairs share nothing else.
+    /// </summary>
+    private static Func<QueuedEpisode, uint[]> EndingThenArcPreview(int endingLastPoint, params int[] previewSharers)
+        => episode =>
+        {
+            var points = new uint[3600];
+            for (var i = 0; i < points.Length; i++)
+            {
+                points[i] = i >= SharedAudioFirstPoint && i <= endingLastPoint ? 0x40000000u + ((uint)i * 7919u)
+                    : i >= ArcPreviewFirstPoint && previewSharers.Contains(episode.EpisodeNumber) ? 0x60000000u + ((uint)i * 6151u)
+                    : ((uint)i * 2654435761u) ^ ((uint)episode.EpisodeNumber * 0x9E3779B9u);
+            }
+
+            return points;
+        };
+
+    /// <summary>
     /// A two-episode season over the stub. Each episode's keyframe scan comes from one keyframe list
     /// (see <see cref="ScanOf"/>). When <paramref name="spans"/> is null the pages from 950 to the end
     /// are a 95 percent black roll with lettering whose first page follows a cut; an empty list gives
@@ -1328,10 +1408,11 @@ public sealed class TestCreditsPass
         Func<QueuedEpisode, TimeRange, AnalysisMode, double[]>? keyFrames = null,
         ChapterInfo[]? chapters = null,
         Func<TimeRange, BlackInterval[]>? blackIntervals = null,
-        Func<QueuedEpisode, uint[]>? fingerprints = null)
+        Func<QueuedEpisode, uint[]>? fingerprints = null,
+        int episodeCount = 2)
     {
         var seasonId = Guid.NewGuid();
-        var episodes = Enumerable.Range(1, 2).Select(number => Episode(seasonId, number)).ToList();
+        var episodes = Enumerable.Range(1, episodeCount).Select(number => Episode(seasonId, number)).ToList();
         episodes.ForEach(episode => episode.Chapters = chapters ?? []);
         var scanSpans = spans ?? [(BlackStart, Duration, 95, KeyframeVisuals.BlackAfterCut)];
 

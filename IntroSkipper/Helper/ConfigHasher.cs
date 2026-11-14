@@ -42,6 +42,13 @@ internal static class ConfigHasher
     // reopens.
     private const string PreviewTailToken = "|previewTail=5";
 
+    // A season that derives previews ends a Chromaprint credits candidate that runs to the end of
+    // the file where most of the episodes numbered nearest end their match, so a preview whose
+    // music only one story arc shares stays out of the credits
+    // (ChromaprintAnalyzer.EndBeforeSharedPreviews). Present only beside PreviewTailToken, so those
+    // seasons rerun Credits once more and no other season reopens.
+    private const string PreviewSharedAudioToken = "|previewVote=majority";
+
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
     // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
@@ -143,7 +150,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
-                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewTailToken : string.Empty)}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewTailToken + PreviewSharedAudioToken : string.Empty)}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
                 $"{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
