@@ -544,6 +544,23 @@ public sealed class TestCreditsPass
         Assert.Equal(Duration, segment.ToSegment().End);
     }
 
+    // In a season that derives previews, the 9 s after the shared audio are the next-episode
+    // preview, so the credits stop where the audio does.
+    [Fact]
+    public async Task ChromaprintWithinMinimumDurationOfTheEnd_InAPreviewSeason_LeavesThePreviewOut()
+    {
+        using var scope = Scope();
+        var (episodes, ffmpeg, database) = CreateSeason([], sharedAudioLastPoint: 3560); // shared audio to about 991 of 1000
+
+        await new CreditsPass(NullLoggerFactory.Instance, ffmpeg, DatabaseTestHelpers.CreateTempCacheService(), database, new PluginConfiguration(), derivesPreview: true)
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: true, CancellationToken.None);
+
+        var segment = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(SegmentSource.Chromaprint, segment.Source);
+        Assert.Equal(PointTime(SharedAudioFirstPoint), segment.ToSegment().Start, 0.5);
+        Assert.InRange(segment.ToSegment().End, 985, Duration - AnimePreviewDeriver.ShortestTailSeconds);
+    }
+
     [Fact]
     public async Task ChapterAction_DoesNotRestrictThePass()
     {

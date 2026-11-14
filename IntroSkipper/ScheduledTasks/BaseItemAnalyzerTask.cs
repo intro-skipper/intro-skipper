@@ -419,7 +419,7 @@ public partial class BaseItemAnalyzerTask(
             await AnimePreviewDeriver.DeriveAsync(
                 _database,
                 creditsPreviewEpisodes,
-                Config.MinimumPreviewDuration,
+                AnimePreviewDeriver.MinimumDuration(Config.MinimumPreviewDuration),
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -819,8 +819,9 @@ public partial class BaseItemAnalyzerTask(
 
             // Credits settle chapter matches that no story follows first by default; the
             // others, and every match under enhancement, combine with the other candidates.
-            // A single item cannot use chromaprint comparison.
-            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, config, useLocalConsensus);
+            // A single item cannot use chromaprint comparison. A season that derives previews
+            // keeps a short tail after the credits for its preview.
+            var pass = new CreditsPass(_loggerFactory, _ffmpegService, _cacheService, _database, config, useLocalConsensus, ShouldDerivePreview(first, config));
             await pass.RunAsync(conventionalItems, action, ffmpegValid, cancellationToken).ConfigureAwait(false);
 
             await _database.CleanStaleAutomaticSegmentsAsync(
@@ -863,7 +864,7 @@ public partial class BaseItemAnalyzerTask(
                 await AnimePreviewDeriver.DeriveAsync(
                     _database,
                     settledCreditsItems,
-                    config.MinimumPreviewDuration,
+                    AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration),
                     cancellationToken,
                     settlePreviewState: !subtitlePreviewWillRun).ConfigureAwait(false);
             }
@@ -902,7 +903,7 @@ public partial class BaseItemAnalyzerTask(
                     unsettled.Add(item);
                 }
 
-                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, config.MinimumPreviewDuration, cancellationToken).ConfigureAwait(false);
+                await AnimePreviewDeriver.DeriveAsync(_database, unsettled, AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration), cancellationToken).ConfigureAwait(false);
             }
         }
 

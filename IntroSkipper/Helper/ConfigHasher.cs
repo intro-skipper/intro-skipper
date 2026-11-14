@@ -35,6 +35,13 @@ internal static class ConfigHasher
     // conventional part of a compound hash, outside the subtitle settings.
     private const string PreviewAnchorToken = "|previewAnchor=lastCredits";
 
+    // A season that derives previews extends credits to the window end only from within
+    // AnimePreviewDeriver.ShortestTailSeconds, no longer from within the minimum credits duration,
+    // so a short post-credits preview stays out of the credits. It reaches the Credits hash only
+    // while the season derives previews, so those seasons rerun Credits once and no other season
+    // reopens.
+    private const string PreviewTailToken = "|previewTail=5";
+
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
     // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
@@ -136,7 +143,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
-                $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewTailToken : string.Empty)}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
                 $"{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(

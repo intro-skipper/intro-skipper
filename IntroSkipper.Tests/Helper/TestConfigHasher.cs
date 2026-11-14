@@ -179,6 +179,9 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with the preview chapter pattern", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
         Case("Credits analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), false);
         Case("Credits analysis changes with the preview maximum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MaximumPreviewDuration = 60 }, AnalysisMode.Credits), false);
+        // A season that derives previews extends credits over a shorter tail, so its Credits rerun
+        // once (CC5F9EA9595B11BC without the token); the pinned default above stays.
+        Case("Credits analysis carries the preview tail while previews derive", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Credits), "E90C6C8DFED653DF", true);
         Case("Credits analysis ignores the preview minimum under chapter enhancement", Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { EnhanceChapterCredits = true, MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
         Case("Credits analysis ignores the preview chapter pattern under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
         // Full-length chapters replace the preview duration limits; the pattern still applies.
