@@ -31,13 +31,22 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
 /// <param name="useLocalConsensus">Whether this run is a settled-season re-analysis.</param>
+/// <param name="derivesPreview">
+/// Whether the season derives its Preview from the credits end. Credits then extend to the
+/// window end only from within <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so a
+/// preview shorter than the minimum credits duration stays outside them, and a Chromaprint
+/// candidate that runs to the end ends where most of its neighbours' matches do
+/// (<see cref="ChromaprintAnalyzer.EndBeforeSharedPreviews"/>), so a preview whose music only
+/// the episodes of one story arc share stays outside them too.
+/// </param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration config,
-    bool useLocalConsensus = false)
+    bool useLocalConsensus = false,
+    bool derivesPreview = false)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -53,6 +62,7 @@ internal sealed partial class CreditsPass(
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
     private readonly bool _useLocalConsensus = useLocalConsensus;
+    private readonly bool _derivesPreview = derivesPreview;
 
     /// <summary>
     /// Analyzes the season's credits.
@@ -155,7 +165,7 @@ internal sealed partial class CreditsPass(
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
                         episode => (IReadOnlyList<double>)[.. ChapterCreditsOf(chapter, episode).HardBoundaries.Select(boundary => boundary - episode.CreditsFingerprintStart)]);
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
+                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries, _derivesPreview)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -219,6 +229,7 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
+                double? windowEndReach = _derivesPreview ? Math.Min(minimumDuration, AnimePreviewDeriver.ShortestTailSeconds) : null;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
@@ -265,7 +276,7 @@ internal sealed partial class CreditsPass(
 
                 var state = await StoreCandidatesAsync(
                     episode,
-                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
+                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, windowEndReach),
                     timeAdjustmentHelper,
                     analyzerFailed,
                     cancellationToken).ConfigureAwait(false);

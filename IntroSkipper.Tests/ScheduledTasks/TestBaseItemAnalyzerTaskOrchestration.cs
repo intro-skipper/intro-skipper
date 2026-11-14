@@ -312,11 +312,12 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     /// <summary>
     /// Credits the user authored never enter the credits pass, so the Preview mode has to
     /// refresh the derived preview when the preview minimum changes: a stale one goes, an
-    /// eligible one appears.
+    /// eligible one appears. The derived minimum is the preview minimum capped at
+    /// <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so the 4 s tail tests values under it.
     /// </summary>
     [Theory]
-    [InlineData(15, 30, false)]
-    [InlineData(30, 15, true)]
+    [InlineData(3, 5, false)]
+    [InlineData(5, 3, true)]
     public async Task PreviewMode_RefreshesDerivedPreviewOverUserProvidedCredits(int before, int after, bool expectPreview)
     {
         var config = new PluginConfiguration
@@ -342,7 +343,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
             CreditsFingerprintEnd = 1320,
         };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.SeedUserSegmentAsync(episode.EpisodeId, AnalysisMode.Credits, TimeSpan.FromSeconds(900).Ticks, TimeSpan.FromSeconds(1300).Ticks);
+        await database.SeedUserSegmentAsync(episode.EpisodeId, AnalysisMode.Credits, TimeSpan.FromSeconds(900).Ticks, TimeSpan.FromSeconds(1316).Ticks);
         await AnimePreviewDeriver.DeriveAsync(database, [episode], before, CancellationToken.None);
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Credits, [episode.EpisodeId], ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, false));
         await database.MarkItemsAnalyzedAsync(AnalysisMode.Preview, [episode.EpisodeId], ConfigHasher.Analysis(config, AnalysisMode.Preview, AnalyzerAction.Default, false));
@@ -363,6 +364,45 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         var rows = await database.GetSegmentsAsync(episode.EpisodeId);
         Assert.Equal(SegmentSource.User, Assert.Single(rows, s => s.Type == AnalysisMode.Credits).Source);
         Assert.Equal(expectPreview, rows.Any(s => s.Type == AnalysisMode.Preview));
+    }
+
+    /// <summary>
+    /// Gintama: a 10 s next-episode preview after the ending, under the 15 s preview minimum.
+    /// The credits pass of a season that derives previews leaves such a tail out of the
+    /// credits, so the derive takes it for the preview.
+    /// </summary>
+    [Fact]
+    public async Task PreviewMode_DerivesATailShorterThanThePreviewMinimum()
+    {
+        var config = new PluginConfiguration
+        {
+            AnimePreviewFromCreditsEnd = true,
+            MinimumPreviewDuration = 15,
+            ChapterAnalyzerPreviewPattern = string.Empty,
+            EnableSponsorBlockChapterDetection = false,
+            EnableSubtitlePreviewDetection = false,
+        };
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config, []);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = Guid.NewGuid(),
+            SeriesId = Guid.NewGuid(),
+            SeasonNumber = 1,
+            EpisodeNumber = 1,
+            Category = QueuedMediaCategory.AnimeEpisode,
+            Name = "Episode 1",
+            Path = "/media/episode-1.mkv",
+            Duration = 1320,
+        };
+        await database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Credits, [new Segment(episode.EpisodeId, new TimeRange(1220, 1310))], SegmentSource.Chromaprint);
+
+        await CreateTask(new StubFFmpegService(), database).AnalyzeItemsAsync([episode], AnalysisMode.Preview, AnalyzerAction.Default, false, CancellationToken.None);
+
+        var preview = Assert.Single(await database.GetSegmentsAsync(episode.EpisodeId), segment => segment.Type == AnalysisMode.Preview);
+        Assert.Equal(SegmentSource.CreditsDerived, preview.Source);
+        Assert.Equal((1310d, 1320d), (TickConversions.ToSeconds(preview.StartTicks), TickConversions.ToSeconds(preview.EndTicks)));
     }
 
     [Fact]
