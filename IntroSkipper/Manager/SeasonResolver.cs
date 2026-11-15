@@ -102,7 +102,6 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// </summary>
     /// <param name="failures">The number of libraries that were skipped.</param>
     /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
-    /// <param name="countUnresolvedItems"><see langword="true"/> to count unprobed or pathless items as failures, so one-time migrations can remain pending until those items can be resolved.</param>
     /// <returns>The series and movies to resolve.</returns>
     internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures, bool includePluginDisabled = false)
     {
@@ -260,6 +259,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
     /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
+    /// <param name="countUnresolvedItems"><see langword="true"/> to count unprobed or pathless items as failures, so one-time migrations can remain pending until those items can be resolved.</param>
     /// <returns>The seasons and the failure count.</returns>
     internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken, bool includePluginDisabled = false, bool countUnresolvedItems = false)
     {
