@@ -244,7 +244,15 @@ internal sealed partial class CreditsPass(
                 {
                     try
                     {
-                        candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                        var keyframeCandidates = await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false);
+                        IReadOnlyList<Segment> previewChapters = chapter is null ? [] : ChapterCreditsOf(chapter, episode).PreviewChapters;
+                        foreach (var keyframeCandidate in keyframeCandidates)
+                        {
+                            if (KeepCardCreditsBeforePreview(keyframeCandidate, previewChapters) is { } candidate)
+                            {
+                                candidates.Add(candidate);
+                            }
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -359,16 +367,48 @@ internal sealed partial class CreditsPass(
     private ChapterCredits FindChapterCredits(ChapterAnalyzer chapter, QueuedEpisode episode)
     {
         var matches = chapter.FindChapterCandidates(episode, Mode);
+        var previewChapters = chapter.FindChapterCandidates(episode, AnalysisMode.Preview);
         var windowEnd = episode.GetFingerprintRange(Mode).End;
         var hardBoundaries = CreditsCandidateCombiner.HardBoundaries(matches, windowEnd);
         if (_config.EnhanceChapterCredits || matches.Count == 0)
         {
-            return new ChapterCredits(matches, Settles: false, hardBoundaries);
+            return new ChapterCredits(matches, previewChapters, Settles: false, hardBoundaries);
         }
 
         var end = matches.Max(m => m.End);
         var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
-        return new ChapterCredits(matches, Settles: storyEnd - end < _config.MinimumCreditsDuration, hardBoundaries);
+        return new ChapterCredits(matches, previewChapters, Settles: storyEnd - end < _config.MinimumCreditsDuration, hardBoundaries);
+    }
+
+    /// <summary>
+    /// Removes the portion of a keyframe card candidate inside an explicitly labeled Preview
+    /// chapter, retaining any card credits that precede it.
+    /// </summary>
+    /// <param name="candidate">The candidate from keyframe visuals or black-frame evidence.</param>
+    /// <param name="previewChapters">Chapter ranges recognized as Preview.</param>
+    /// <returns>The candidate unchanged, clipped before a Preview chapter, or <see langword="null"/> when it starts inside one.</returns>
+    private static AttributedSegment? KeepCardCreditsBeforePreview(AttributedSegment candidate, IReadOnlyList<Segment> previewChapters)
+    {
+        if (candidate.Source != SegmentSource.KeyframeVisuals)
+        {
+            return candidate;
+        }
+
+        foreach (var preview in previewChapters.OrderBy(preview => preview.Start))
+        {
+            if (candidate.Segment.Start >= preview.End || preview.Start >= candidate.Segment.End)
+            {
+                continue;
+            }
+
+            return candidate.Segment.Start >= preview.Start
+                ? null
+                : new AttributedSegment(
+                    new Segment(candidate.Segment.EpisodeId, new TimeRange(candidate.Segment.Start, preview.Start)),
+                    candidate.Source);
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -492,7 +532,7 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
     private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 
-    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, bool Settles, IReadOnlyList<double> HardBoundaries)
+    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, IReadOnlyList<Segment> PreviewChapters, bool Settles, IReadOnlyList<double> HardBoundaries)
     {
         public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
     }
