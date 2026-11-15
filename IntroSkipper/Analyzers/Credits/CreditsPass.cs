@@ -248,7 +248,7 @@ internal sealed partial class CreditsPass(
                         IReadOnlyList<Segment> previewChapters = chapter is null ? [] : ChapterCreditsOf(chapter, episode).PreviewChapters;
                         foreach (var keyframeCandidate in keyframeCandidates)
                         {
-                            if (KeepCardCreditsBeforePreview(keyframeCandidate, previewChapters) is { } candidate)
+                            if (KeepCardCreditsBeforePreview(keyframeCandidate, previewChapters, minimumDuration) is { } candidate)
                             {
                                 candidates.Add(candidate);
                             }
@@ -386,8 +386,9 @@ internal sealed partial class CreditsPass(
     /// </summary>
     /// <param name="candidate">The candidate from keyframe visuals or black-frame evidence.</param>
     /// <param name="previewChapters">Chapter ranges recognized as Preview.</param>
-    /// <returns>The candidate unchanged, clipped before a Preview chapter, or <see langword="null"/> when it starts inside one.</returns>
-    private static AttributedSegment? KeepCardCreditsBeforePreview(AttributedSegment candidate, IReadOnlyList<Segment> previewChapters)
+    /// <param name="minimumCreditsDuration">The minimum duration of a Credits candidate.</param>
+    /// <returns>The candidate unchanged, clipped before a Preview chapter, or <see langword="null"/> when it starts inside one or the clipped portion is too short.</returns>
+    private static AttributedSegment? KeepCardCreditsBeforePreview(AttributedSegment candidate, IReadOnlyList<Segment> previewChapters, int minimumCreditsDuration)
     {
         if (candidate.Source != SegmentSource.KeyframeVisuals)
         {
@@ -401,11 +402,15 @@ internal sealed partial class CreditsPass(
                 continue;
             }
 
-            return candidate.Segment.Start >= preview.Start
-                ? null
-                : new AttributedSegment(
-                    new Segment(candidate.Segment.EpisodeId, new TimeRange(candidate.Segment.Start, preview.Start)),
-                    candidate.Source);
+            if (candidate.Segment.Start >= preview.Start)
+            {
+                return null;
+            }
+
+            var clipped = new AttributedSegment(
+                new Segment(candidate.Segment.EpisodeId, new TimeRange(candidate.Segment.Start, preview.Start)),
+                candidate.Source);
+            return clipped.Segment.Duration >= minimumCreditsDuration ? clipped : null;
         }
 
         return candidate;

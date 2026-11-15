@@ -383,15 +383,15 @@ internal static class ConfigHasher
     private static string ChapterEnhancementToken(PluginConfiguration config, AnalyzerAction action)
         => config.EnhanceChapterCredits && action is not AnalyzerAction.BlackFrame ? "|enhanceChapterCredits=True" : string.Empty;
 
-    // Without enhancement a credits chapter settles its episode only when no story runs to the
-    // next preview chapter, so the preview chapter settings can change Credits. Present only when
-    // they differ from the defaults, the pre-10.11.22 pattern included, so default installs keep
-    // their hash. The two default patterns differ only on colon-delimited end labels such as
-    // "Preview: End". Full-length chapters replace the duration limits for every mode, so under
-    // them the limits count as their defaults.
+    // Preview chapters affect Credits when enhancement is off, because they determine whether
+    // story follows a credits chapter, and with enhancement on, because their ranges keep card
+    // candidates from consuming preview cards. A BlackFrame action does not consult chapters.
+    // Present only when these settings differ from defaults, the pre-10.11.22 pattern included,
+    // so default installs keep their hash. Full-length chapters replace duration limits for every
+    // mode, so under them the limits count as their defaults.
     private static string PreviewChapterToken(PluginConfiguration config, AnalyzerAction action)
     {
-        if (config.EnhanceChapterCredits || action is AnalyzerAction.BlackFrame)
+        if (action is AnalyzerAction.BlackFrame)
         {
             return string.Empty;
         }
