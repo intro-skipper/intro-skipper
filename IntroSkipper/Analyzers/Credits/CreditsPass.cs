@@ -497,4 +497,3 @@ internal sealed partial class CreditsPass(
         public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
     }
 }
-

@@ -1164,4 +1164,3 @@ internal sealed partial class ChromaprintAnalyzer(
 /// <param name="FingerprintFailures">The episodes that still needed analysis and whose fingerprint failed.</param>
 /// <param name="PreviewBoundaryChanges">The episode ids whose candidates were shortened by the shared-preview vote.</param>
 internal sealed record ChromaprintCandidates(Dictionary<Guid, Segment> Candidates, HashSet<Guid> FingerprintFailures, HashSet<Guid> PreviewBoundaryChanges);
-
