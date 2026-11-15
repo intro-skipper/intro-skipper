@@ -256,8 +256,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// libraries so their choices are still present if those libraries are enabled later.
     /// </summary>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
-    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <returns>The seasons and the failure count.</returns>
     internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken, bool includePluginDisabled = false)
     {

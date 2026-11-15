@@ -36,6 +36,11 @@ internal static class ConfigHasher
     // conventional part of a compound hash, outside the subtitle settings.
     private const string PreviewAnchorToken = "|previewAnchor=lastCredits";
 
+    // Preview derivation now caps its minimum at the shortest eligible post-credits tail. The
+    // setting already carries the raw configured minimum; this token invalidates old NoSegments
+    // records once so newly eligible tails under the cap can be derived.
+    private const string PreviewDerivedMinimumToken = "|previewDerivedMin=cap5";
+
     // A season that derives previews extends credits to the window end according to the effective
     // derived-preview minimum, capped at AnimePreviewDeriver.ShortestTailSeconds. Shared-audio
     // voting also uses that minimum and MaximumPreviewDuration. Keep these inputs in the Credits
@@ -43,11 +48,6 @@ internal static class ConfigHasher
     private static string PreviewCreditsToken(PluginConfiguration config)
         => FormattableString.Invariant(
             $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}");
-
-    // Preview derivation now caps its minimum at the shortest eligible post-credits tail. The
-    // setting already carries the raw configured minimum; this token invalidates old NoSegments
-    // records once so newly eligible tails under the cap can be derived.
-    private const string PreviewDerivedMinimumToken = "|previewDerivedMin=cap5";
 
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
