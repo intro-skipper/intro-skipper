@@ -253,8 +253,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <summary>
     /// Resolves every season of every enabled library, sequentially, counting the
     /// libraries and series that failed so maintenance can refuse to act on an
-    /// incomplete result. Callers migrating library-wide settings can include disabled
-    /// libraries so their choices are still present if those libraries are enabled later.
+    /// incomplete result. A one-time migration can also count items that are not ready
+    /// to resolve yet, and include disabled libraries so their choices are present if
+    /// those libraries are enabled later.
     /// </summary>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
