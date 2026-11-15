@@ -200,9 +200,8 @@ internal sealed partial class CreditsPass(
             }
 
             // An already-analyzed sibling re-derived from a changed season is re-scanned only
-            // when its new shared-audio candidate reaches outside stored Credits. A shorter or
-            // longer voted end changes the old boundary, even when the candidate is contained by
-            // the stored row.
+            // when its new shared-audio candidate reaches outside stored Credits. A vote-shortened
+            // end changes the old boundary, even when the candidate is contained by the stored row.
             if (!episode.NeedsAnalysis(Mode) && !previewBoundaryChanges.Contains(episode.EpisodeId) && CandidateIsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
