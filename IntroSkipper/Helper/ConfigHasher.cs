@@ -35,6 +35,14 @@ internal static class ConfigHasher
     // conventional part of a compound hash, outside the subtitle settings.
     private const string PreviewAnchorToken = "|previewAnchor=lastCredits";
 
+    // The credits combiner drops a keyframe part that lies more than 30 s of story before a part a
+    // chapter or shared audio vouches for (CreditsCandidateCombiner.Combine), so a dark story scene
+    // minutes before the credits song is no second Outro. It changes stored credits, so the token
+    // reruns Credits once in every season whose pass can hold both kinds of candidate; a BlackFrame
+    // action has neither chapters nor Chromaprint, so those seasons omit it. Keyframe pages, cut
+    // starts, intervals and fingerprints come from the detection cache. Bump it when the rule changes.
+    private const string IsolatedKeyframePartToken = "|keyframeBeforeVouched=30";
+
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
     // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
@@ -137,7 +145,7 @@ internal static class ConfigHasher
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
                 $"|animePreview={previewFromCreditsEnd}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
-                $"{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
+                $"{(action is AnalyzerAction.BlackFrame ? string.Empty : IsolatedKeyframePartToken)}{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",

@@ -66,7 +66,8 @@ public class TestCreditsCandidateCombiner
     [InlineData("5-25 Chapter; 10-30 BlackFrame; 220-260 BlackFrame", "5-25 Combined")]                         // a chapter vouches for the black
     [InlineData("5-25 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "5-30 Combined")]                     // so does shared audio over it
     [InlineData("0-5 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "0-30 Combined")]                      // or just before it
-    [InlineData("10-30 BlackFrame; 100-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]              // shared audio 70 s later is the next part
+    [InlineData("10-30 BlackFrame; 55-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]               // shared audio 25 s later is the next part
+    [InlineData("10-30 BlackFrame; 120-150 BlackFrame; 300-340 BlackFrame", "10-30 BlackFrame")]               // a black part 90 s later is the next part
     [InlineData("10-30 Chromaprint; 220-260 BlackFrame", "10-30 Chromaprint")]                                 // only keyframe parts go
     public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(string candidates, string first)
     {
@@ -74,13 +75,35 @@ public class TestCreditsCandidateCombiner
 
         Assert.Equal(Shape(Parse(first)), Shape(result[0]));
         Assert.Equal(Parse(candidates.Split(';')[^1]).Segment.Start, result[^1].Segment.Start);
+    }
 
-        static AttributedSegment Parse(string text)
-        {
-            var parts = text.Trim().Split(' ');
-            var range = parts[0].Split('-').Select(double.Parse).ToArray();
-            return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
-        }
+    // Candidates and every stored segment, as "start-end Source" separated by ";". The episodes are
+    // real ones shifted so that their end is the window end. A keyframe part more than 30 s of story
+    // before a part that a chapter or shared audio vouches for goes; a mid-credits scene between two
+    // keyframe parts keeps both up to 180 s, and nothing changes when the earlier part is shared audio.
+    [Theory]
+    [InlineData("155.7-179.6 BlackFrame; 359.6-449.9 Chromaprint", "359.6-450 Chromaprint")]                     // Black Clover S2E7: a dark scene 180 s before the ending song
+    [InlineData("282-301 BlackFrame; 414-450 Chromaprint", "414-450 Chromaprint")]                               // Adventure Time S3E17: 113 s
+    [InlineData("232-330 KeyframeVisuals; 368-420 Chromaprint; 410-450 BlackFrame", "368-450 Combined")]         // Rent-a-Girlfriend S5E4: a card run 38 s before
+    [InlineData("311-340 BlackFrame; 380-437 Chromaprint; 417-450 BlackFrame", "380-450 Combined")]              // Lost S1E6: 40 s before
+    [InlineData("20-68 BlackFrame; 101-154 BlackFrame; 262-328 BlackFrame; 372-432 Chromaprint; 432-450 BlackFrame", "372-450 Combined")] // Needy Girl Overdose S1E5: three dark scenes go together
+    [InlineData("150-178 Chapter; 230-250 BlackFrame; 330-450 Chromaprint", "150-178 Chapter; 330-450 Chromaprint")] // a chapter part stays, the black between goes
+    [InlineData("300-330 BlackFrame; 355-450 Chromaprint", "300-330 BlackFrame; 355-450 Chromaprint")]           // a 25 s stinger between two parts stays
+    [InlineData("300-330 BlackFrame; 360-450 Chromaprint", "300-330 BlackFrame; 360-450 Chromaprint")]           // so does one of exactly 30 s
+    [InlineData("250-278 BlackFrame; 358-450 BlackFrame", "250-278 BlackFrame; 358-450 BlackFrame")]             // Daredevil: Born Again S01E09, an 80 s mid-credits scene
+    [InlineData("100-117 Chromaprint; 340-404 BlackFrame", "100-117 Chromaprint; 340-404 BlackFrame")]           // Silo S1E1: shared audio before a black roll stays
+    public void KeyframePartBeforeAVouchedPart_GoesPastHalfAMinuteOfStory(string candidates, string stored)
+    {
+        var result = Combine([.. candidates.Split(';').Select(Parse)]);
+
+        Assert.Equal(stored.Split(';').Select(Parse).Select(Shape).ToList(), result.Select(Shape).ToList());
+    }
+
+    private static AttributedSegment Parse(string text)
+    {
+        var parts = text.Trim().Split(' ');
+        var range = parts[0].Split('-').Select(s => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
     }
 
     [Fact]
