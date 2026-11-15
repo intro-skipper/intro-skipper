@@ -16,8 +16,8 @@ namespace IntroSkipper.Analyzers.Credits;
 /// merge into one segment from the earliest start to the latest end under
 /// <see cref="SegmentSource.Combined"/>. Candidates farther apart are emitted separately
 /// under their own source, except a part made only of keyframe candidates with minutes of story
-/// after it, or more than half a minute before a part a chapter or shared audio vouches for (see
-/// <see cref="Combine"/>). Order carries no information: shared audio before, inside or
+/// after it, or more than half a minute before a part a chapter or shared audio vouches for, and a
+/// short part of shared audio a minute or more before the next part (see <see cref="Combine"/>). Order carries no information: shared audio before, inside or
 /// after a black run merges the same way, and a union only grows, so a chapter range is
 /// never shortened. A producer that grows or moves a candidate before it is combined asks
 /// <see cref="WithinMergeGap"/> and <see cref="SameCap"/>, the tests <see cref="Combine"/> runs.
@@ -38,6 +38,16 @@ internal static class CreditsCandidateCombiner
     // song in the measured episodes; a stinger this short between two credits parts stays.
     private const double MaximumStoryBeforeVouchedPartSeconds = 30;
 
+    // The most story a short part with shared audio but no chapter may leave before the next part
+    // that stays. A story scene with a recurring score matches across the season for 15 to 22 s and
+    // sits 80 to 351 s before the credits in the measured episodes; a stinger of up to 30 s between
+    // two credits parts stays with room to spare.
+    private const double MaximumStoryAfterShortSharedAudioSeconds = 60;
+
+    // A part with shared audio is short below this many minimum credits durations: 30 s by default,
+    // above the 15 to 22 s scenes and below a season-final ending song of a minute.
+    private const int ShortPartMinimumDurations = 2;
+
     /// <summary>
     /// Combines the candidates of one episode.
     /// </summary>
@@ -53,8 +63,13 @@ internal static class CreditsCandidateCombiner
     /// chromaprint candidate, a keyframe part goes once more than
     /// <see cref="MaximumStoryBeforeVouchedPartSeconds"/> of story lies between them: a dark story
     /// scene that passes the black-frame rules reads as a short black roll some minutes before the
-    /// credits song, and two Outro segments then skip that scene too. A part that merged with a chapter
-    /// or chromaprint candidate stays, and so does the latest part.
+    /// credits song, and two Outro segments then skip that scene too. A part that holds a chromaprint
+    /// candidate but no chapter candidate and is shorter than twice <paramref name="minimumDuration"/>
+    /// goes once more than <see cref="MaximumStoryAfterShortSharedAudioSeconds"/> of story lie before
+    /// the next part that stays, whatever that part holds: a story scene with a recurring score matches
+    /// across the season for a few seconds, minutes before the credits. A part that merged with a
+    /// chapter candidate stays, so does a part with shared audio of at least that length, and so does
+    /// the latest part.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
@@ -73,9 +88,10 @@ internal static class CreditsCandidateCombiner
             .OfType<AttributedSegment>()
             .OrderBy(c => c.Segment.Start)];
 
-        // Each part remembers whether it holds only keyframe candidates.
+        // Each part remembers whether it holds only keyframe candidates, and whether it holds a chapter.
         var result = new List<AttributedSegment>(ordered.Count);
         var keyframeOnly = new List<bool>(ordered.Count);
+        var holdsChapter = new List<bool>(ordered.Count);
         foreach (var candidate in ordered)
         {
             if (result.Count > 0 &&
@@ -87,11 +103,13 @@ internal static class CreditsCandidateCombiner
                     new Segment(current.Segment.EpisodeId, new TimeRange(current.Segment.Start, Math.Max(current.Segment.End, candidate.Segment.End))),
                     SegmentSource.Combined);
                 keyframeOnly[^1] &= IsKeyframe(candidate);
+                holdsChapter[^1] |= candidate.Source == SegmentSource.Chapter;
                 continue;
             }
 
             result.Add(candidate);
             keyframeOnly.Add(IsKeyframe(candidate));
+            holdsChapter.Add(candidate.Source == SegmentSource.Chapter);
         }
 
         // Latest first, so each part is measured against the nearest part that stays.
@@ -100,10 +118,18 @@ internal static class CreditsCandidateCombiner
         var nextVouched = false;
         for (var i = result.Count - 1; i >= 0; i--)
         {
-            if (keyframeOnly[i] && nextStart is { } next &&
-                next - result[i].Segment.End > (nextVouched ? MaximumStoryBeforeVouchedPartSeconds : MaximumStoryBetweenPartsSeconds))
+            if (nextStart is { } next)
             {
-                continue;
+                var story = next - result[i].Segment.End;
+                var isolated = keyframeOnly[i]
+                    ? story > (nextVouched ? MaximumStoryBeforeVouchedPartSeconds : MaximumStoryBetweenPartsSeconds)
+                    : !holdsChapter[i] &&
+                        result[i].Segment.Duration < ShortPartMinimumDurations * minimumDuration &&
+                        story > MaximumStoryAfterShortSharedAudioSeconds;
+                if (isolated)
+                {
+                    continue;
+                }
             }
 
             kept.Add(result[i]);
