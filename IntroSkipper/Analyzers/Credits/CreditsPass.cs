@@ -196,9 +196,10 @@ internal sealed partial class CreditsPass(
             }
 
             // An already-analyzed sibling re-derived from a changed season is re-scanned only
-            // when its new shared-audio candidate reaches outside what is stored; otherwise
-            // the combination could not change and the black-frame scan is skipped.
-            if (!episode.NeedsAnalysis(Mode) && IsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
+            // when its new shared-audio candidate reaches outside stored Credits. A shorter or
+            // longer voted end changes the old boundary, even when the candidate is contained by
+            // the stored row.
+            if (!episode.NeedsAnalysis(Mode) && CandidateMatchesStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
             }
@@ -395,15 +396,15 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Whether one of the standing credits rows already contains the raw candidate, allowing for
-    /// the boundary movement time adjustment applies before storing.
+    /// Whether one standing credits row contains the raw candidate's start and has a matching end,
+    /// allowing for boundary movement time adjustment applies before storing.
     /// </summary>
-    private bool IsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
+    private bool CandidateMatchesStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
     {
         var tolerance = Math.Max(_config.AdjustWindowInward, _config.AdjustWindowOutward);
         return standing.Any(row =>
             TickConversions.ToSeconds(row.StartTicks) <= candidate.Start + tolerance &&
-            TickConversions.ToSeconds(row.EndTicks) >= candidate.End - tolerance);
+            Math.Abs(TickConversions.ToSeconds(row.EndTicks) - candidate.End) <= tolerance);
     }
 
     /// <summary>
