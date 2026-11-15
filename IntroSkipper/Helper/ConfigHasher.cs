@@ -45,10 +45,6 @@ internal static class ConfigHasher
     // derived-preview minimum, capped at AnimePreviewDeriver.ShortestTailSeconds. Shared-audio
     // voting also uses that minimum and MaximumPreviewDuration. Keep these inputs in the Credits
     // hash even when chapter policy hashing omits them, such as with chapter enhancement enabled.
-    private static string PreviewCreditsToken(PluginConfiguration config)
-        => FormattableString.Invariant(
-            $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}");
-
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
     // subtitle recap detection on rerun subtitle analysis alone. Bump it when that rule changes.
@@ -409,6 +405,10 @@ internal static class ConfigHasher
             ? FormattableString.Invariant($"|previewChap={config.ChapterAnalyzerPreviewPattern}|previewMin={minimum}|previewMax={maximum}")
             : string.Empty;
     }
+
+    private static string PreviewCreditsToken(PluginConfiguration config)
+        => FormattableString.Invariant(
+            $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}");
 
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
