@@ -1036,6 +1036,22 @@ public sealed class TestCreditsPass
     }
 
     [Fact]
+    public async Task ShortCardRemnantBeforePreviewChapter_IsNotStoredAsCredits()
+    {
+        using var scope = Scope();
+        var chapters = new[] { Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 975) };
+        var (episodes, ffmpeg, database) = CreateSeason(
+            [(970, Duration, 0, KeyframeVisuals.Card)],
+            chapters: chapters);
+
+        await CreatePass(ffmpeg, database, config: new PluginConfiguration { EnhanceChapterCredits = true })
+            .RunAsync(episodes, AnalyzerAction.Default, ffmpegValid: false, CancellationToken.None);
+
+        var row = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal((900, 975, SegmentSource.Chapter), (row.ToSegment().Start, row.ToSegment().End, row.Source));
+    }
+
+    [Fact]
     public async Task DarkLeadInBeforeTheBlackRoll_StaysOutOfTheCardCandidate()
     {
         // 900 to 940 is 90 percent black and a black page to the visuals, 942 to 978 is the roll, cards
