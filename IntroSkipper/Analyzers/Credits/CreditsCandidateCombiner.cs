@@ -57,12 +57,20 @@ internal static class CreditsCandidateCombiner
     /// previews passes <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so a short preview
     /// after the credits is not swallowed by them.
     /// </param>
+    /// <param name="maximumPreviewDuration">
+    /// The longest preview, in seconds, in a season that derives its previews from the credits end;
+    /// <see langword="null"/> otherwise. There, a last part made only of keyframe candidates that
+    /// reaches the window end, lasts no longer than this and lies past the end of a credits chapter
+    /// is the preview's title card on black, not credits: the chapter already marks where the
+    /// credits stop, so the part is dropped and the preview is derived from the chapter end.
+    /// </param>
     /// <returns>The segments to store, ordered by start; empty when no candidate is valid.</returns>
     public static List<AttributedSegment> Combine(
         IReadOnlyList<AttributedSegment> candidates,
         double windowEnd,
         int minimumDuration,
-        double? windowEndReach = null)
+        double? windowEndReach = null,
+        double? maximumPreviewDuration = null)
     {
         var boundaries = HardBoundaries(candidates.Where(c => c.Source == SegmentSource.Chapter).Select(c => c.Segment), windowEnd);
         var reach = windowEndReach ?? minimumDuration;
@@ -92,6 +100,19 @@ internal static class CreditsCandidateCombiner
 
             result.Add(candidate);
             keyframeOnly.Add(IsKeyframe(candidate));
+        }
+
+        if (maximumPreviewDuration is { } previewMaximum && result.Count > 1 && keyframeOnly[^1])
+        {
+            var last = result[^1].Segment;
+            var previous = result[^2].Segment;
+            if (last.End >= windowEnd - BoundaryTolerance &&
+                last.Duration <= previewMaximum &&
+                boundaries.Any(b => b >= previous.End - BoundaryTolerance && b <= last.Start + BoundaryTolerance))
+            {
+                result.RemoveAt(result.Count - 1);
+                keyframeOnly.RemoveAt(keyframeOnly.Count - 1);
+            }
         }
 
         // Latest first, so each part is measured against the nearest part that stays.

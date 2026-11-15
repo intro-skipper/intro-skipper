@@ -406,9 +406,13 @@ internal static class ConfigHasher
             : string.Empty;
     }
 
+    // previewCard: a season that derives previews drops a last keyframe part past the end of a
+    // credits chapter that reaches the window end and lasts no longer than MaximumPreviewDuration,
+    // the preview's title card on black (CreditsCandidateCombiner.Combine). The maximum is already
+    // here, so the token only reruns those seasons' Credits once. Bump it when that rule changes.
     private static string PreviewCreditsToken(PluginConfiguration config)
         => FormattableString.Invariant(
-            $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}");
+            $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}|previewCard=1");
 
     private static string ChapterSourceToken(ChapterSource source)
         => source == ChapterSource.Embedded ? EmbeddedChapterSourceToken : string.Empty;
