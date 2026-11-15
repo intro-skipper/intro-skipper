@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 14631)
+Total output lines: 1167
+
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
@@ -110,7 +113,9 @@ internal sealed partial class ChromaprintAnalyzer(
             comparisonQueue = combinedQueue;
         }
 
-        var (seasonIntros, fingerprintFailures) = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
+        var result = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
+        var seasonIntros = result.Candidates;
+        var fingerprintFailures = result.FingerprintFailures;
         foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
         {
             episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
@@ -190,7 +195,7 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The raw candidate per episode id, in file seconds, and the episodes whose fingerprint failed; both empty when the season has nothing to compare.</returns>
+    /// <returns>The raw candidate per episode id, the episodes whose fingerprint failed, and the candidates shortened by the shared-preview vote; all empty when the season has nothing to compare.</returns>
     internal async Task<ChromaprintCandidates> FindCandidatesAsync(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
@@ -199,6 +204,7 @@ internal sealed partial class ChromaprintAnalyzer(
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
         var fingerprintFailures = new HashSet<Guid>();
+        var previewBoundaryChanges = new HashSet<Guid>();
 
         // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
         // episodes that still have a fingerprint cache and can be re-analyzed.
@@ -208,7 +214,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
-            return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+            return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges);
         }
 
         _analysisMode = mode;
@@ -360,7 +366,7 @@ internal sealed partial class ChromaprintAnalyzer(
         // matches support, rather than the region only the episode sharing its preview does.
         if (_derivesPreview && _analysisMode == AnalysisMode.Credits)
         {
-            EndBeforeSharedPreviews(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
+            previewBoundaryChanges = EndBeforeSharedPreviews(episodeAnalysisQueue, fingerprintCache, seasonIntros, cancellationToken);
         }
 
         if (_applyLocalConsensus && (_analysisMode is AnalysisMode.Introduction or AnalysisMode.Credits))
@@ -368,7 +374,7 @@ internal sealed partial class ChromaprintAnalyzer(
             seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, mode, cancellationToken);
         }
 
-        return new ChromaprintCandidates(seasonIntros, fingerprintFailures);
+        return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges);
     }
 
     /// <summary>
@@ -393,12 +399,14 @@ internal sealed partial class ChromaprintAnalyzer(
     /// <param name="fingerprints">The fingerprints already extracted for those episodes; an empty one is a failed extraction.</param>
     /// <param name="candidates">The season's credits candidates, in file seconds; ended in place.</param>
     /// <param name="cancellationToken">Token used to stop pair comparisons.</param>
-    internal void EndBeforeSharedPreviews(
+    /// <returns>The episode ids whose candidates were shortened by the vote.</returns>
+    internal HashSet<Guid> EndBeforeSharedPreviews(
         IReadOnlyList<QueuedEpisode> episodes,
         IReadOnlyDictionary<Guid, uint[]> fingerprints,
         Dictionary<Guid, Segment> candidates,
         CancellationToken cancellationToken)
     {
+        HashSet<Guid> changedCandidates = [];
         _analysisMode = AnalysisMode.Credits;
         var minimumTail = AnimePreviewDeriver.MinimumDuration(_config.MinimumPreviewDuration);
         var minimumCredits = _config.MinimumCreditsDuration;
@@ -447,8 +455,11 @@ internal sealed partial class ChromaprintAnalyzer(
             {
                 LogCreditsEndedBeforeSharedPreview(episode.EpisodeId, candidate.End, majorityEnd, ends.Count);
                 candidates[episode.EpisodeId] = new Segment(episode.EpisodeId, new TimeRange(candidate.Start, majorityEnd));
+                changedCandidates.Add(episode.EpisodeId);
             }
         }
+
+        return changedCandidates;
     }
 
     /// <summary>
@@ -472,148 +483,7 @@ internal sealed partial class ChromaprintAnalyzer(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        _analysisMode = mode;
-        if (candidates.Count == 0)
-        {
-            return [];
-        }
-
-        var orderedEpisodes = episodes
-            .Where(episode =>
-                fingerprints.TryGetValue(episode.EpisodeId, out var fingerprint) &&
-                fingerprint.Length > 0)
-            .OrderBy(episode => episode.EpisodeNumber)
-            .ThenBy(episode => episode.EpisodeId)
-            .ToList();
-        var maximumGroupSize = Math.Min(_config.SettledSeasonChromaprintConsensusEpisodes, orderedEpisodes.Count);
-
-        var localCandidates = new Dictionary<ConsensusRangeKey, Segment>();
-        var matchingNeighbors = new Dictionary<ConsensusRangeKey, HashSet<ConsensusRangeKey>>();
-
-        for (var leftIndex = 0; leftIndex < orderedEpisodes.Count; leftIndex++)
-        {
-            var leftEpisode = orderedEpisodes[leftIndex];
-            var leftFingerprint = fingerprints[leftEpisode.EpisodeId];
-            var lastNeighbor = Math.Min(orderedEpisodes.Count - 1, leftIndex + ConsensusNeighborRadius);
-            for (var rightIndex = leftIndex + 1; rightIndex <= lastNeighbor; rightIndex++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var rightEpisode = orderedEpisodes[rightIndex];
-                var rightFingerprint = fingerprints[rightEpisode.EpisodeId];
-
-                var (leftCandidate, rightCandidate) = CompareEpisodes(
-                    leftEpisode.EpisodeId,
-                    leftFingerprint,
-                    rightEpisode.EpisodeId,
-                    rightFingerprint);
-
-                var leftCandidateValid = leftCandidate.Valid &&
-                    leftCandidate.Duration <= GetMaximumSegmentDuration(leftEpisode);
-                var rightCandidateValid = rightCandidate.Valid &&
-                    rightCandidate.Duration <= GetMaximumSegmentDuration(rightEpisode);
-
-                if (mode == AnalysisMode.Credits)
-                {
-                    leftCandidate.Start += leftEpisode.CreditsFingerprintStart;
-                    leftCandidate.End += leftEpisode.CreditsFingerprintStart;
-                    rightCandidate.Start += rightEpisode.CreditsFingerprintStart;
-                    rightCandidate.End += rightEpisode.CreditsFingerprintStart;
-                }
-
-                if (leftCandidateValid)
-                {
-                    KeepBetterCandidate(localCandidates, leftCandidate);
-                }
-
-                if (rightCandidateValid)
-                {
-                    KeepBetterCandidate(localCandidates, rightCandidate);
-                }
-
-                if (leftCandidateValid && rightCandidateValid)
-                {
-                    var leftRange = GetConsensusRangeKey(leftCandidate);
-                    var rightRange = GetConsensusRangeKey(rightCandidate);
-                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
-                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
-                }
-            }
-        }
-
-        // Consensus confirms the season-selected ranges; it must not introduce a new endpoint
-        // from a local pair that the season comparison itself did not select.
-        foreach (var candidate in candidates.Values)
-        {
-            KeepBetterCandidate(localCandidates, candidate);
-        }
-
-        // Pairwise comparisons can find slightly different endpoints for the same opening in
-        // different episode pairs. Join those compatible ranges within each episode so that
-        // their neighboring pair matches contribute to one local group. Requiring the ranges
-        // to overlap by most of the longer range keeps a longer cold open from borrowing the
-        // consensus of a shorter intro that merely starts at the same time.
-        foreach (var episodeRanges in localCandidates.Values.GroupBy(candidate => candidate.EpisodeId))
-        {
-            var ranges = episodeRanges.ToArray();
-            for (var leftIndex = 0; leftIndex < ranges.Length; leftIndex++)
-            {
-                for (var rightIndex = leftIndex + 1; rightIndex < ranges.Length; rightIndex++)
-                {
-                    if (!AreConsensusRangesCompatible(ranges[leftIndex], ranges[rightIndex]))
-                    {
-                        continue;
-                    }
-
-                    var leftRange = GetConsensusRangeKey(ranges[leftIndex]);
-                    var rightRange = GetConsensusRangeKey(ranges[rightIndex]);
-                    AddNeighbor(matchingNeighbors, leftRange, rightRange);
-                    AddNeighbor(matchingNeighbors, rightRange, leftRange);
-                }
-            }
-        }
-
-        var groups = new List<List<ConsensusRangeKey>>();
-        var visited = new HashSet<ConsensusRangeKey>();
-        foreach (var rangeKey in matchingNeighbors.Keys)
-        {
-            if (!visited.Add(rangeKey))
-            {
-                continue;
-            }
-
-            var group = new List<ConsensusRangeKey>();
-            var pending = new Stack<ConsensusRangeKey>();
-            pending.Push(rangeKey);
-            while (pending.TryPop(out var currentRangeKey))
-            {
-                group.Add(currentRangeKey);
-                foreach (var neighborKey in matchingNeighbors[currentRangeKey])
-                {
-                    if (visited.Add(neighborKey))
-                    {
-                        pending.Push(neighborKey);
-                    }
-                }
-            }
-
-            groups.Add(group);
-        }
-
-        // A season may contain multiple themes. When there are multiple comparably supported
-        // patterns, lower the configured target to the smallest such group so each pattern can
-        // qualify. A small, isolated pattern cannot lower the target for a larger group.
-        var groupEpisodeCounts = groups
-            .Select(group => group.Select(key => key.EpisodeId).Distinct().Count())
-            .Where(count => count > 0)
-            .ToArray();
-        var largestGroupSize = groupEpisodeCounts.DefaultIfEmpty(0).Max();
-        var comparableGroupSizes = groupEpisodeCounts
-            .Where(count => count * 2 >= largestGroupSize)
-            .ToArray();
-        var minimumGroupSize = comparableGroupSizes.Length > 1
-            ? Math.Min(maximumGroupSize, comparableGroupSizes.Min())
-            : maximumGroupSize;
-        var supermajoritySize =
+        _analysisMode…1631 tokens truncated…oritySize =
             ((orderedEpisodes.Count * ConsensusSupermajorityNumerator) + (ConsensusSupermajorityDenominator - 1)) /
             ConsensusSupermajorityDenominator;
         if (largestGroupSize >= supermajoritySize)
@@ -1154,4 +1024,6 @@ internal sealed partial class ChromaprintAnalyzer(
 /// </summary>
 /// <param name="Candidates">The raw candidate per episode id, in file seconds.</param>
 /// <param name="FingerprintFailures">The episodes that still needed analysis and whose fingerprint failed.</param>
-internal sealed record ChromaprintCandidates(Dictionary<Guid, Segment> Candidates, HashSet<Guid> FingerprintFailures);
+/// <param name="PreviewBoundaryChanges">The episode ids whose candidates were shortened by the shared-preview vote.</param>
+internal sealed record ChromaprintCandidates(Dictionary<Guid, Segment> Candidates, HashSet<Guid> FingerprintFailures, HashSet<Guid> PreviewBoundaryChanges);
+

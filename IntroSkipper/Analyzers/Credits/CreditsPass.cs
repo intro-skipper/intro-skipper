@@ -153,6 +153,7 @@ internal sealed partial class CreditsPass(
         // a two-episode season still has a reference.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
+        HashSet<Guid> previewBoundaryChanges = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
             try
@@ -165,8 +166,11 @@ internal sealed partial class CreditsPass(
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
                         episode => (IReadOnlyList<double>)[.. ChapterCreditsOf(chapter, episode).HardBoundaries.Select(boundary => boundary - episode.CreditsFingerprintStart)]);
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries, _derivesPreview)
+                var chromaprintResult = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries, _derivesPreview)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                chromaprintCandidates = chromaprintResult.Candidates;
+                fingerprintFailures = chromaprintResult.FingerprintFailures;
+                previewBoundaryChanges = chromaprintResult.PreviewBoundaryChanges;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -199,7 +203,7 @@ internal sealed partial class CreditsPass(
             // when its new shared-audio candidate reaches outside stored Credits. A shorter or
             // longer voted end changes the old boundary, even when the candidate is contained by
             // the stored row.
-            if (!episode.NeedsAnalysis(Mode) && CandidateMatchesStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
+            if (!episode.NeedsAnalysis(Mode) && !previewBoundaryChanges.Contains(episode.EpisodeId) && CandidateIsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
             }
@@ -396,15 +400,15 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Whether one standing credits row contains the raw candidate's start and has a matching end,
-    /// allowing for boundary movement time adjustment applies before storing.
+    /// Whether a standing credits row already contains the candidate, allowing for the boundary
+    /// movement time adjustment applies before storing.
     /// </summary>
-    private bool CandidateMatchesStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
+    private bool CandidateIsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
     {
         var tolerance = Math.Max(_config.AdjustWindowInward, _config.AdjustWindowOutward);
         return standing.Any(row =>
             TickConversions.ToSeconds(row.StartTicks) <= candidate.Start + tolerance &&
-            Math.Abs(TickConversions.ToSeconds(row.EndTicks) - candidate.End) <= tolerance);
+            TickConversions.ToSeconds(row.EndTicks) >= candidate.End - tolerance);
     }
 
     /// <summary>
@@ -494,3 +498,4 @@ internal sealed partial class CreditsPass(
         public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
     }
 }
+
