@@ -24,9 +24,9 @@ public sealed record UpdateAnalysisOverridesRequest
     public int? AnalysisLengthLimit { get; init; }
 
     /// <summary>
-    /// Gets the optional setting that derives a preview from the end of credits.
+    /// Gets whether to derive a preview from the end of credits for this season.
     /// </summary>
-    public bool? PreviewFromCreditsEnd { get; init; }
+    public bool PreviewFromCreditsEnd { get; init; }
 
     /// <summary>
     /// Gets the optional setting that enables subtitle-based recap detection.

@@ -107,7 +107,7 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     const analysisWindowDescription = el(
         "p",
         { className: "ts-action-description" },
-        "Optional per-season limits and detection settings. Blank fields and Global selections inherit the plugin settings.",
+        "Per-season limits and detection settings. Blank fields inherit their plugin settings.",
     );
     const analysisWindowGrid = el("div", { className: "ts-analysis-window-grid" });
     analysisWindowGrid.append(
@@ -122,12 +122,18 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     const resetWindowBtn = el(
         "button",
         { className: "ts-reset-overrides", type: "button" },
-        "Use global defaults",
+        "Reset optional overrides",
     );
     resetWindowBtn.addEventListener(
         "click",
         () => {
-            for (const key of overrideKeys) overrides.set(key, null);
+            for (const key of overrideKeys) {
+                if (key === "PreviewFromCreditsEnd") {
+                    overrides.set(key, false);
+                } else {
+                    overrides.set(key, null);
+                }
+            }
         },
         { signal },
     );
@@ -332,6 +338,12 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
         if (outcome === "unavailable") {
             statusMessage.show("Scan status unavailable. Refresh to check results.", "warning");
             return;
+        }
+        if (!currentIsMovie) {
+            const result = await api.getAnalysisOverrides(currentSeasonId, panel);
+            if (result.ok && result.data) {
+                overrides.setPreviewRecommendation(result.data.PreviewFromCreditsEndRecommended);
+            }
         }
         if (outcome === "failed") {
             statusMessage.show("Scan failed. See the server log.", "error");

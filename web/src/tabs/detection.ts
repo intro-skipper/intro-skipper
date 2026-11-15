@@ -22,7 +22,6 @@ export const detectionTab: Tab = {
             form.field("AdjustWindowOutward"),
             form.field("EndSnapThreshold"),
             form.field("FirstEpisodeIntroMode"),
-            form.field("AnimePreviewFromCreditsEnd"),
             form.field("AdjustIntroBasedOnSilence"),
             form.field("SilenceDetectionMaximumNoise", { visible: silenceVisible }),
             form.field("SilenceDetectionMinimumDuration", { visible: silenceVisible }),

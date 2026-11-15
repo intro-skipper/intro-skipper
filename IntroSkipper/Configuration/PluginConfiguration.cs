@@ -327,9 +327,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether content after credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment is created for anime from the end of the last credits block through
-    /// the end of the episode. Individual seasons can override this setting.
+    /// Gets or sets the legacy global preview choice retained for upgrade migration and legacy hash recognition.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 

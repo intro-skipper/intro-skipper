@@ -313,12 +313,6 @@ export const configSchema = {
         description:
             "For each season, choose whether the first episode intro is analyzed, ignored, or ignored only when the show is anime.",
     },
-    AnimePreviewFromCreditsEnd: {
-        kind: "checkbox",
-        label: "Set post-credits scene as preview for anime",
-        description:
-            "When enabled and no preview was detected, create a segment from the end of the last credits block to the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
-    },
     IntroStartOffset: {
         kind: "number",
         label: "Intro Start Offset (seconds)",

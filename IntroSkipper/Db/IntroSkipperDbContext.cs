@@ -65,6 +65,9 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public DbSet<DbImportRecord> ImportHistory => Set<DbImportRecord>();
 
+    /// <summary>Gets the durable plugin migration markers.</summary>
+    public DbSet<DbPluginMetadata> PluginMetadata => Set<DbPluginMetadata>();
+
     /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
     /// segments are withheld from Jellyfin.
@@ -154,6 +157,14 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
         });
 
+        modelBuilder.Entity<DbPluginMetadata>(entity =>
+        {
+            entity.ToTable("PluginMetadata");
+            entity.HasKey(row => row.Key);
+            entity.Property(row => row.Key).ValueGeneratedNever();
+            entity.Property(row => row.Value).IsRequired();
+        });
+
         modelBuilder.Entity<DbDisabledItem>(entity =>
         {
             entity.ToTable("DisabledItems");
@@ -236,6 +247,7 @@ public class IntroSkipperDbContext : DbContext
         var seasonAnalysisOverrides = new List<DbSeasonAnalysisOverride>();
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
+        var pluginMetadata = new List<DbPluginMetadata>();
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
@@ -254,6 +266,7 @@ public class IntroSkipperDbContext : DbContext
             seasonAnalysisOverrides = await SeasonAnalysisOverrides.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             analyzedItems = await AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             importRecords = await ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            pluginMetadata = await PluginMetadata.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             disabledItems = await DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             projectionQueue = await ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             projectionExternalOperations = await ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -324,6 +337,7 @@ public class IntroSkipperDbContext : DbContext
             await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.PluginMetadata, pluginMetadata, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
         }

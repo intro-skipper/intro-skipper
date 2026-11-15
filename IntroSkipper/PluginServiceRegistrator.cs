@@ -45,6 +45,11 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
+            // Freeze the old plugin-wide post-credits preview choice for every current
+            // season before analysis workers or library events can enqueue a pass.
+            serviceCollection.AddSingleton<PreviewSettingMigration>();
+            serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<PreviewSettingMigration>());
+
             // The only thing that runs the analyzer: the scheduled task, the watcher and
             // the dashboard scan enqueue requests here. Registered ahead of the watcher so
             // hosted services stop in reverse order: the watcher unsubscribes first, then
