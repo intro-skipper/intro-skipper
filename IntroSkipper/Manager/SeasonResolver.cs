@@ -320,8 +320,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         var seasonsByNumber = episodeItems
             .Where(episode => !episode.IsVirtualItem && episode.SeasonId != Guid.Empty && episode.ParentIndexNumber is not null
                 && !string.IsNullOrEmpty(episode.Path) && IsProbed(episode))
-            .Select(episode => episode.ParentIndexNumber!.Value)
-            .ToHashSet();
+            .GroupBy(episode => episode.ParentIndexNumber!.Value)
+            .ToDictionary(group => group.Key, group => group.First().SeasonId);
 
         return episodeItems.Any(episode =>
             !episode.IsVirtualItem
