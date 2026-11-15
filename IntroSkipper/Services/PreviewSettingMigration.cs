@@ -38,7 +38,7 @@ public sealed class PreviewSettingMigration(
                 return;
             }
 
-            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken, includePluginDisabled: true);
+            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken, includePluginDisabled: true, countUnresolvedItems: true);
             foreach (var season in resolution.Seasons)
             {
                 cancellationToken.ThrowIfCancellationRequested();
