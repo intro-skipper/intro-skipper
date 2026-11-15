@@ -316,8 +316,19 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         var episodes = _libraryManager.GetItemList(query, false)
             ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
 
-        return episodes.OfType<Episode>().Any(episode =>
-            !episode.IsVirtualItem && (string.IsNullOrEmpty(episode.Path) || !IsProbed(episode)));
+        var episodeItems = episodes.OfType<Episode>().ToList();
+        var seasonsByNumber = episodeItems
+            .Where(episode => !episode.IsVirtualItem && episode.SeasonId != Guid.Empty && episode.ParentIndexNumber is not null
+                && !string.IsNullOrEmpty(episode.Path) && IsProbed(episode))
+            .Select(episode => episode.ParentIndexNumber!.Value)
+            .ToHashSet();
+
+        return episodeItems.Any(episode =>
+            !episode.IsVirtualItem
+            && (string.IsNullOrEmpty(episode.Path)
+                || !IsProbed(episode)
+                || (episode.SeasonId == Guid.Empty
+                    && (episode.ParentIndexNumber is not { } number || !seasonsByNumber.Contains(number)))));
     }
 
     internal static DateTime EpisodeAvailabilityDate(Episode episode)
