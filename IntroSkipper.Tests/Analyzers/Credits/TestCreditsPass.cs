@@ -1244,7 +1244,7 @@ public sealed class TestCreditsPass
         using var scope = Scope();
         var (episodes, ffmpeg, database) = CreateSeason(chapters: [Chapter("Main", 0), Chapter("Ending", 900), Chapter("Preview", 950)]);
         var config = new PluginConfiguration();
-        const string currentHash = "7EF68040EE4E4EC7";
+        const string currentHash = "A897DFCC45A45139";
         Assert.Equal(currentHash, ConfigHasher.Analysis(config, AnalysisMode.Credits, AnalyzerAction.Default, true));
         await database.ReplaceAutoSegmentsAsync(episodes[0].EpisodeId, AnalysisMode.Credits,
             [new Segment(episodes[0].EpisodeId, new TimeRange(750, Duration))], SegmentSource.Combined, currentHash);

@@ -64,23 +64,69 @@ public class TestCreditsCandidateCombiner
     [InlineData("6-30 KeyframeVisuals; 10-30 BlackFrame; 220-260 BlackFrame", "220-260 BlackFrame")]           // a screen in two pieces goes whole
     [InlineData("10-30 BlackFrame; 100-120 BlackFrame; 310-350 BlackFrame", "310-350 BlackFrame")]             // so do two screens before a far roll
     [InlineData("5-25 Chapter; 10-30 BlackFrame; 220-260 BlackFrame", "5-25 Combined")]                         // a chapter vouches for the black
-    [InlineData("5-25 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "5-30 Combined")]                     // so does shared audio over it
+    [InlineData("5-45 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "5-45 Combined")]                     // so does shared audio over it
     [InlineData("0-5 Chromaprint; 10-30 BlackFrame; 220-260 BlackFrame", "0-30 Combined")]                      // or just before it
-    [InlineData("10-30 BlackFrame; 100-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]              // shared audio 70 s later is the next part
-    [InlineData("10-30 Chromaprint; 220-260 BlackFrame", "10-30 Chromaprint")]                                 // only keyframe parts go
+    [InlineData("10-30 BlackFrame; 55-150 Chromaprint; 400-440 BlackFrame", "10-30 BlackFrame")]               // shared audio 25 s later is the next part
+    [InlineData("10-30 BlackFrame; 120-150 BlackFrame; 300-340 BlackFrame", "10-30 BlackFrame")]               // a black part 90 s later is the next part
+    [InlineData("10-40 Chromaprint; 220-260 BlackFrame", "10-40 Chromaprint")]                                 // only keyframe parts and short shared audio go
     public void PartFarBeforeTheNext_GoesUnlessSomethingVouchesForIt(string candidates, string first)
     {
         var result = Combine([.. candidates.Split(';').Select(Parse)]);
 
         Assert.Equal(Shape(Parse(first)), Shape(result[0]));
         Assert.Equal(Parse(candidates.Split(';')[^1]).Segment.Start, result[^1].Segment.Start);
+    }
 
-        static AttributedSegment Parse(string text)
-        {
-            var parts = text.Trim().Split(' ');
-            var range = parts[0].Split('-').Select(double.Parse).ToArray();
-            return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
-        }
+    // Candidates and every stored segment, as "start-end Source" separated by ";". The episodes are
+    // real ones shifted so that their end is the window end. A keyframe part more than 30 s of story
+    // before a part that a chapter or shared audio vouches for goes, and a mid-credits scene between two
+    // keyframe parts keeps both up to 180 s.
+    [Theory]
+    [InlineData("155.7-179.6 BlackFrame; 359.6-449.9 Chromaprint", "359.6-450 Chromaprint")]                     // Black Clover S2E7: a dark scene 180 s before the ending song
+    [InlineData("282-301 BlackFrame; 414-450 Chromaprint", "414-450 Chromaprint")]                               // Adventure Time S3E17: 113 s
+    [InlineData("232-330 KeyframeVisuals; 368-420 Chromaprint; 410-450 BlackFrame", "368-450 Combined")]         // Rent-a-Girlfriend S5E4: a card run 38 s before
+    [InlineData("311-340 BlackFrame; 380-437 Chromaprint; 417-450 BlackFrame", "380-450 Combined")]              // Lost S1E6: 40 s before
+    [InlineData("20-68 BlackFrame; 101-154 BlackFrame; 262-328 BlackFrame; 372-432 Chromaprint; 432-450 BlackFrame", "372-450 Combined")] // Needy Girl Overdose S1E5: three dark scenes go together
+    [InlineData("150-178 Chapter; 230-250 BlackFrame; 330-450 Chromaprint", "150-178 Chapter; 330-450 Chromaprint")] // a chapter part stays, the black between goes
+    [InlineData("300-330 BlackFrame; 355-450 Chromaprint", "300-330 BlackFrame; 355-450 Chromaprint")]           // a 25 s stinger between two parts stays
+    [InlineData("300-330 BlackFrame; 360-450 Chromaprint", "300-330 BlackFrame; 360-450 Chromaprint")]           // so does one of exactly 30 s
+    [InlineData("250-278 BlackFrame; 358-450 BlackFrame", "250-278 BlackFrame; 358-450 BlackFrame")]             // Daredevil: Born Again S01E09, an 80 s mid-credits scene
+    public void KeyframePartBeforeAVouchedPart_GoesPastHalfAMinuteOfStory(string candidates, string stored)
+    {
+        var result = Combine([.. candidates.Split(';').Select(Parse)]);
+
+        Assert.Equal(stored.Split(';').Select(Parse).Select(Shape).ToList(), result.Select(Shape).ToList());
+    }
+
+    // As above. A part with shared audio and no chapter that is shorter than two minimum durations,
+    // 30 s here, goes once more than 60 s of story lie before the next part that stays, whatever that
+    // part holds: a story scene with a recurring score matches across the season for a few seconds.
+    // A longer part, a chapter part and one less than a minute before the next part stay.
+    [Theory]
+    [InlineData("146-163 Chromaprint; 386-450 BlackFrame", "386-450 BlackFrame")]                                // Silo S1E1: a scene with the season's score 223 s before the roll
+    [InlineData("264-281 Chromaprint; 387-450 BlackFrame", "387-450 BlackFrame")]                                // Silo S1E10: 106 s
+    [InlineData("131-148 Chromaprint; 318-400 Chromaprint; 395-450 BlackFrame", "318-450 Combined")]              // Accidentally Famous S2E1: the band's song 170 s before
+    [InlineData("0-21 Chromaprint; 318-400 Chromaprint; 395-450 BlackFrame", "318-450 Combined")]                 // Accidentally Famous S2E3: 21 s, 297 s before
+    [InlineData("324-346 Chromaprint; 426-450 BlackFrame", "426-450 BlackFrame")]                                // South Park S15E7: 22 s, 80 s before
+    [InlineData("147-162 Chromaprint; 405-450 BlackFrame", "405-450 BlackFrame")]                                // Breaking Bad S5E8
+    [InlineData("150-165 Chromaprint; 160-170 BlackFrame; 300-450 Chromaprint", "300-450 Chromaprint")]          // shared audio merged with black goes the same way
+    [InlineData("320-380 Chromaprint; 421-450 BlackFrame", "320-380 Chromaprint; 421-450 BlackFrame")]           // Bocchi the Rock! S1E12: a 60 s ending song stays
+    [InlineData("300-329 Chromaprint; 389-450 BlackFrame", "300-329 Chromaprint; 389-450 BlackFrame")]           // 60 s of story before the next part keeps it
+    [InlineData("300-330 Chromaprint; 400-450 BlackFrame", "300-330 Chromaprint; 400-450 BlackFrame")]           // so does a part of exactly 30 s
+    [InlineData("300-320 Chapter; 400-450 BlackFrame", "300-320 Chapter; 400-450 BlackFrame")]                   // a chapter part is authored and stays
+    [InlineData("100-115 Chromaprint; 105-120 Chapter; 400-450 BlackFrame", "100-120 Combined; 400-450 BlackFrame")] // so does short shared audio merged with one
+    public void ShortSharedAudioPart_GoesPastAMinuteOfStory(string candidates, string stored)
+    {
+        var result = Combine([.. candidates.Split(';').Select(Parse)]);
+
+        Assert.Equal(stored.Split(';').Select(Parse).Select(Shape).ToList(), result.Select(Shape).ToList());
+    }
+
+    private static AttributedSegment Parse(string text)
+    {
+        var parts = text.Trim().Split(' ');
+        var range = parts[0].Split('-').Select(s => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
     }
 
     [Fact]

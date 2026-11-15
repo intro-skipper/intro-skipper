@@ -167,8 +167,14 @@ public sealed class TestConfigHasher
         Case("Credits analysis ignores chapter enhancement under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
         // The string is frozen to what releases before the credits pass wrote, except for the
         // chapter pattern. 12.0.6 wrote 353008E48A5F559E under the old credits chapter pattern,
-        // and the new default reruns Credits once in every season.
-        Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "7EF68040EE4E4EC7", true);
+        // and the new default reruns Credits once in every season. 7EF68040EE4E4EC7 came before the
+        // combiner dropped a keyframe part more than 30 s before a part a chapter or shared audio
+        // vouches for; that token reruns Credits once more, except under a BlackFrame action, which
+        // has neither and keeps its hash. 3225D9FE649126B5 came before the combiner also dropped a
+        // short part of shared audio more than 60 s before the next part; bumping the same token
+        // reruns those seasons once more.
+        Case("Credits analysis hash is pinned", Analysis(defaults, AnalysisMode.Credits), "A897DFCC45A45139", true);
+        Case("Credits analysis under a BlackFrame action keeps its hash", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), "29DC691F3C11EFD5", true);
         // The credits pass reads none of these, so changing one must not rerun Credits.
         Case("Credits analysis ignores PreferChromaprint", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { PreferChromaprint = true }, AnalysisMode.Credits), true);
         Case("Credits analysis ignores the analysis percentage", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnalysisPercent = 40 }, AnalysisMode.Credits), true);
@@ -185,7 +191,7 @@ public sealed class TestConfigHasher
         Case("Credits analysis ignores the preview duration limits under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, MinimumPreviewDuration = 30, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), true);
         Case("Credits analysis changes with the preview chapter pattern under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
         // Installs from before 10.11.22 still carry that release's default preview pattern.
-        Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "7EF68040EE4E4EC7", true);
+        Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "A897DFCC45A45139", true);
         Case("Preview analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Preview), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Preview), false);
         Case("Recap analysis changes with chromaprint availability", Analysis(defaults, AnalysisMode.Recap), Analysis(defaults, AnalysisMode.Recap, ffmpegValid: false), false);
         Case("Preview analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Preview), Analysis(defaults, AnalysisMode.Preview, ffmpegValid: false), true);
