@@ -97,11 +97,13 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Lists the series and movies of every library the plugin is enabled for, in sort
-    /// name order. A library that cannot be enumerated is logged, skipped and counted.
+    /// name order, unless disabled libraries are included. A library that cannot be
+    /// enumerated is logged, skipped and counted.
     /// </summary>
     /// <param name="failures">The number of libraries that were skipped.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <returns>The series and movies to resolve.</returns>
-    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures)
+    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures, bool includePluginDisabled = false)
     {
         failures = 0;
         var policy = ExclusionPolicy.FromConfiguration(Config);
@@ -121,7 +123,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         List<BaseItem> owners = [];
         foreach (var folder in virtualFolders)
         {
-            if (PluginDisabledIn(folder.LibraryOptions))
+            if (!includePluginDisabled && PluginDisabledIn(folder.LibraryOptions))
             {
                 LogLibraryDisabled(_logger, folder.Name);
                 continue;
@@ -250,14 +252,16 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <summary>
     /// Resolves every season of every enabled library, sequentially, counting the
     /// libraries and series that failed so maintenance can refuse to act on an
-    /// incomplete result.
+    /// incomplete result. Callers migrating library-wide settings can include disabled
+    /// libraries so their choices are still present if those libraries are enabled later.
     /// </summary>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
     /// <returns>The seasons and the failure count.</returns>
-    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken)
+    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken, bool includePluginDisabled = false)
     {
-        var owners = EnumerateLibrary(out var failures);
+        var owners = EnumerateLibrary(out var failures, includePluginDisabled);
         List<ResolvedSeason> seasons = [];
         foreach (var owner in owners)
         {

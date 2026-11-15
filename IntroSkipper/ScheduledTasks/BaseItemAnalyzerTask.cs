@@ -241,6 +241,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (episodes.Count == 0)
         {
+            await RefreshPreviewFromCreditsEndRecommendationAsync(season, cancellationToken).ConfigureAwait(false);
             return;
         }
 

@@ -4,6 +4,7 @@
 
 using System.Security.Cryptography;
 using System.Text;
+using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 
@@ -35,19 +36,18 @@ internal static class ConfigHasher
     // conventional part of a compound hash, outside the subtitle settings.
     private const string PreviewAnchorToken = "|previewAnchor=lastCredits";
 
-    // A season that derives previews extends credits to the window end only from within
-    // AnimePreviewDeriver.ShortestTailSeconds, no longer from within the minimum credits duration,
-    // so a short post-credits preview stays out of the credits. It reaches the Credits hash only
-    // while the season derives previews, so those seasons rerun Credits once and no other season
-    // reopens.
-    private const string PreviewTailToken = "|previewTail=5";
+    // A season that derives previews extends credits to the window end according to the effective
+    // derived-preview minimum, capped at AnimePreviewDeriver.ShortestTailSeconds. Shared-audio
+    // voting also uses that minimum and MaximumPreviewDuration. Keep these inputs in the Credits
+    // hash even when chapter policy hashing omits them, such as with chapter enhancement enabled.
+    private static string PreviewCreditsToken(PluginConfiguration config)
+        => FormattableString.Invariant(
+            $"|previewTail={AnimePreviewDeriver.CreditsWindowEndReach(config.MinimumCreditsDuration, config.MinimumPreviewDuration)}|previewVote=majority:min={AnimePreviewDeriver.MinimumDuration(config.MinimumPreviewDuration)}:max={config.MaximumPreviewDuration}");
 
-    // A season that derives previews ends a Chromaprint credits candidate that runs to the end of
-    // the file where most of the episodes numbered nearest end their match, so a preview whose
-    // music only one story arc shares stays out of the credits
-    // (ChromaprintAnalyzer.EndBeforeSharedPreviews). Present only beside PreviewTailToken, so those
-    // seasons rerun Credits once more and no other season reopens.
-    private const string PreviewSharedAudioToken = "|previewVote=majority";
+    // Preview derivation now caps its minimum at the shortest eligible post-credits tail. The
+    // setting already carries the raw configured minimum; this token invalidates old NoSegments
+    // records once so newly eligible tails under the cap can be derived.
+    private const string PreviewDerivedMinimumToken = "|previewDerivedMin=cap5";
 
     // Subtitle recaps end at a chapter or a black run of at least 2 s, no longer at the intro
     // start (SubtitleAnalyzer). It sits in the subtitle part of the Recap hash, so seasons with
@@ -150,7 +150,7 @@ internal static class ConfigHasher
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={!config.UseLegacyBlackFrameAnalyzer || config.UseChapterMarkersBlackFrame}",
                 $"|bflegacy={config.UseLegacyBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfVersion=3{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}{SettledConsensusToken(config, mode, action, ffmpegValid)}",
-                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewTailToken + PreviewSharedAudioToken : string.Empty)}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
+                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewCreditsToken(config) : string.Empty)}{ChapterEnhancementToken(config, action)}{PreviewChapterToken(config, action)}",
                 $"{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Recap => Invariant(
@@ -163,7 +163,7 @@ internal static class ConfigHasher
 
             AnalysisMode.Preview => Invariant(
                 $"analysis|v2|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}{(includeSubtitleSettingsForMode ? ChapterBeforeSubtitlePrecedenceToken : string.Empty)}",
-                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewAnchorToken : string.Empty)}{(includeSubtitleSettingsForMode ? $"|subtitle=True|subtitlePattern={config.SubtitlePreviewPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}" : string.Empty)}",
+                $"|animePreview={previewFromCreditsEnd}{(previewFromCreditsEnd ? PreviewAnchorToken + PreviewDerivedMinimumToken : string.Empty)}{(includeSubtitleSettingsForMode ? $"|subtitle=True|subtitlePattern={config.SubtitlePreviewPattern}|subtitleLanguages={SubtitleLanguageSelection.Parse(config.SubtitleLanguages).Normalized}" : string.Empty)}",
                 $"{AdjustmentHash(config, mode)}{ChapterSourceToken(source)}"),
 
             AnalysisMode.Commercial => Invariant(

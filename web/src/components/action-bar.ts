@@ -244,7 +244,8 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
               : "Erase Season Timestamps";
     }
 
-    function resetScanButton(): void {
+    function resetScanButton(scan?: AbortSignal): void {
+        if (scan && (scan.aborted || scanScope?.signal !== scan)) return;
         scanBtn.disabled = false;
         fullSeriesCheckbox.disabled = false;
         updateActionLabels();
@@ -333,24 +334,30 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
     // Puts the buttons back and reports how the scan ended. onScanComplete owns
     // the refresh (and may withhold it over unsaved edits), so the message must
     // not claim one.
-    async function finishScan(outcome: ScanOutcome): Promise<void> {
-        resetScanButton();
+    async function finishScan(outcome: ScanOutcome, scan: AbortSignal): Promise<void> {
+        if (scan.aborted || scanScope?.signal !== scan) return;
         if (outcome === "unavailable") {
             statusMessage.show("Scan status unavailable. Refresh to check results.", "warning");
+            resetScanButton(scan);
             return;
         }
-        if (!currentIsMovie) {
-            const result = await api.getAnalysisOverrides(currentSeasonId, panel);
-            if (result.ok && result.data) {
-                overrides.setPreviewRecommendation(result.data.PreviewFromCreditsEndRecommended);
+        try {
+            if (!currentIsMovie) {
+                const result = await api.getAnalysisOverrides(currentSeasonId, scan);
+                if (scan.aborted || scanScope?.signal !== scan) return;
+                if (result.ok && result.data) {
+                    overrides.setPreviewRecommendation(result.data.PreviewFromCreditsEndRecommended);
+                }
             }
+            if (outcome === "failed") {
+                statusMessage.show("Scan failed. See the server log.", "error");
+            } else {
+                statusMessage.show("Scan finished.", "success");
+            }
+            await Promise.resolve(onScanComplete());
+        } finally {
+            resetScanButton(scan);
         }
-        if (outcome === "failed") {
-            statusMessage.show("Scan failed. See the server log.", "error");
-        } else {
-            statusMessage.show("Scan finished.", "success");
-        }
-        await Promise.resolve(onScanComplete());
     }
 
     async function runScan(): Promise<void> {
@@ -389,15 +396,16 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
 
                 const outcome = await awaitScan(seasonIds[index], scan);
                 if (outcome !== "completed") {
-                    await finishScan(outcome);
+                    await finishScan(outcome, scan);
                     return;
                 }
             }
 
-            await finishScan("completed");
+            await finishScan("completed", scan);
         } catch (err) {
             if (isAbortError(err)) return;
-            resetScanButton();
+            if (scan.aborted || scanScope?.signal !== scan) return;
+            resetScanButton(scan);
             statusMessage.show("Unable to start the scan.", "error");
         }
     }
@@ -527,7 +535,8 @@ export function actionBar({ onScanComplete, signal }: ActionBarOptions): {
                 fullSeriesCheckbox.disabled = true;
                 scanBtn.textContent = "Scan in progress…";
                 statusMessage.show("Scan in progress… This can take several minutes.");
-                void awaitScan(seasonId, startScan()).then(finishScan).catch(ignoreAbort);
+                const scan = startScan();
+                void awaitScan(seasonId, scan).then((outcome) => finishScan(outcome, scan)).catch(ignoreAbort);
             } else if (status.data.isRunning) {
                 // Another pass is running. It does not block a scan of this season: the
                 // queue runs it once the pass ends, so the button stays enabled.

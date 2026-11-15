@@ -136,7 +136,7 @@ export function createOverrideStore(): OverrideStore {
         },
         setPreviewRecommendation(recommended) {
             previewRecommended = recommended;
-            bus.emit("loaded");
+            bus.emit("options");
         },
         values: () => ({ ...values }),
         firstError: () => errors.values().next().value ?? null,

@@ -132,6 +132,13 @@ function select(
     control.append(...optionEls);
     container.append(label, control);
 
+    const refreshOptionLabels = () => {
+        spec.options.forEach((choice, index) => {
+            if (typeof choice.label === "function") optionEls[index].textContent = choice.label();
+        });
+    };
+    store.subscribe("options", refreshOptionLabels, { signal: options.signal });
+
     bindField({
         store,
         container,
@@ -140,9 +147,7 @@ function select(
         ...options,
         describedByIds: appendFieldMeta(container, { ...spec, idBase: inputId }),
         onLoaded: () => {
-            spec.options.forEach((choice, index) => {
-                if (typeof choice.label === "function") optionEls[index].textContent = choice.label();
-            });
+            refreshOptionLabels();
             const current = store.get(id);
             const displayedValue = current === null && spec.nullDisplayValue
                 ? spec.nullDisplayValue()

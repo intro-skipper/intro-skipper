@@ -229,7 +229,9 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
-                double? windowEndReach = _derivesPreview ? Math.Min(minimumDuration, AnimePreviewDeriver.ShortestTailSeconds) : null;
+                double? windowEndReach = _derivesPreview
+                    ? AnimePreviewDeriver.CreditsWindowEndReach(minimumDuration, _config.MinimumPreviewDuration)
+                    : null;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only

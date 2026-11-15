@@ -73,6 +73,7 @@ export type FieldStoreEvents<K> = {
     loaded: [];
     changed: [{ field: K }];
     validation: [{ field: K; error: string | null }];
+    options: [];
 };
 
 /**

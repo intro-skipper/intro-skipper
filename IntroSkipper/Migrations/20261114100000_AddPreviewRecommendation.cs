@@ -15,6 +15,7 @@ namespace IntroSkipper.Migrations;
 public partial class AddPreviewRecommendation : Migration
 {
     /// <summary>Applies the recommendation column to season overrides.</summary>
+    /// <param name="migrationBuilder">The builder used to configure the migration.</param>
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.AddColumn<bool>(
@@ -26,6 +27,7 @@ public partial class AddPreviewRecommendation : Migration
     }
 
     /// <summary>Removes the recommendation column from season overrides.</summary>
+    /// <param name="migrationBuilder">The builder used to configure the migration.</param>
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropColumn(

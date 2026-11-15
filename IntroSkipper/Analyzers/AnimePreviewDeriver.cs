@@ -39,6 +39,16 @@ internal static class AnimePreviewDeriver
         => Math.Min(minimumPreviewDuration, ShortestTailSeconds);
 
     /// <summary>
+    /// Returns how close an automatic Credits candidate may end to the episode boundary
+    /// before the credits pass extends it to the end instead of reserving the tail for Preview.
+    /// </summary>
+    /// <param name="minimumCreditsDuration">The configured minimum Credits duration in seconds.</param>
+    /// <param name="minimumPreviewDuration">The configured minimum Preview duration in seconds.</param>
+    /// <returns>The Credits extension reach in seconds.</returns>
+    internal static int CreditsWindowEndReach(int minimumCreditsDuration, int minimumPreviewDuration)
+        => Math.Min(ShortestTailSeconds, Math.Max(minimumCreditsDuration, MinimumDuration(minimumPreviewDuration)));
+
+    /// <summary>
     /// Creates or refreshes the Preview segment of every episode whose credits end before the episode does.
     /// </summary>
     /// <remarks>

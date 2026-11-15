@@ -52,7 +52,7 @@ public sealed partial class IntroSkipperDatabase
     /// <param name="seasonId">Season ID.</param>
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
-    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null for a legacy unset value.</param>
+    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to preserve the current choice.</param>
     /// <param name="subtitleRecapDetection">Whether to enable subtitle recap detection, or null to inherit.</param>
     /// <param name="subtitlePreviewDetection">Whether to enable subtitle preview detection, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -75,9 +75,16 @@ public sealed partial class IntroSkipperDatabase
             && subtitleRecapDetection is null
             && subtitlePreviewDetection is null)
         {
-            await db.SeasonAnalysisOverrides
-                .Where(s => s.SeasonId == seasonId)
-                .ExecuteDeleteAsync(cancellationToken)
+            await db.Database.ExecuteSqlAsync(
+                $"""
+                UPDATE "SeasonAnalysisOverrides"
+                SET "AnalysisPercent" = NULL,
+                    "AnalysisLengthLimit" = NULL,
+                    "SubtitleRecapDetection" = NULL,
+                    "SubtitlePreviewDetection" = NULL
+                WHERE "SeasonId" = {seasonId}
+                """,
+                cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -89,7 +96,7 @@ public sealed partial class IntroSkipperDatabase
             ON CONFLICT("SeasonId") DO UPDATE SET
                 "AnalysisPercent" = excluded."AnalysisPercent",
                 "AnalysisLengthLimit" = excluded."AnalysisLengthLimit",
-                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd",
+                "PreviewFromCreditsEnd" = COALESCE(excluded."PreviewFromCreditsEnd", "SeasonAnalysisOverrides"."PreviewFromCreditsEnd"),
                 "SubtitleRecapDetection" = excluded."SubtitleRecapDetection",
                 "SubtitlePreviewDetection" = excluded."SubtitlePreviewDetection"
             """,

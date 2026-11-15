@@ -30,43 +30,50 @@ public sealed class PreviewSettingMigration(
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance!.Configuration;
-        if (await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false))
+        try
         {
-            return;
-        }
-
-        var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken);
-        foreach (var season in resolution.Seasons)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
-            if (overrides.PreviewFromCreditsEnd is not null)
+            var config = Plugin.Instance!.Configuration;
+            if (await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false))
             {
-                continue;
+                return;
             }
 
-            var enabled = config.AnimePreviewFromCreditsEnd
-                && season.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
-            await _database.SetAnalysisOverridesAsync(
-                season.Key,
-                overrides.AnalysisPercent,
-                overrides.AnalysisLengthLimit,
-                enabled,
-                overrides.SubtitleRecapDetection,
-                overrides.SubtitlePreviewDetection,
-                cancellationToken).ConfigureAwait(false);
-        }
+            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken, includePluginDisabled: true);
+            foreach (var season in resolution.Seasons)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
+                if (overrides.PreviewFromCreditsEnd is not null)
+                {
+                    continue;
+                }
 
-        if (resolution.Failures > 0)
+                var enabled = config.AnimePreviewFromCreditsEnd
+                    && season.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
+                await _database.SetAnalysisOverridesAsync(
+                    season.Key,
+                    overrides.AnalysisPercent,
+                    overrides.AnalysisLengthLimit,
+                    enabled,
+                    overrides.SubtitleRecapDetection,
+                    overrides.SubtitlePreviewDetection,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (resolution.Failures > 0)
+            {
+                _logger.LogWarning(
+                    "Could not migrate the legacy post-credits preview choice for every library; {FailureCount} library or series resolutions failed. The migration will retry at the next server start.",
+                    resolution.Failures);
+                return;
+            }
+
+            await _database.CompletePreviewSettingMigrationAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(
-                "Could not migrate the legacy post-credits preview choice for every library; {FailureCount} library or series resolutions failed. The migration will retry at the next server start.",
-                resolution.Failures);
-            return;
+            _logger.LogError(ex, "Could not migrate the legacy post-credits preview choice. The migration will retry at the next server start.");
         }
-
-        await _database.CompletePreviewSettingMigrationAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
