@@ -24,7 +24,7 @@ public sealed record UpdateAnalysisOverridesRequest
     public int? AnalysisLengthLimit { get; init; }
 
     /// <summary>
-    /// Gets whether to derive a preview from the end of credits for this season.
+    /// Gets a value indicating whether to derive a preview from the end of credits for this season.
     /// </summary>
     public bool PreviewFromCreditsEnd { get; init; }
 

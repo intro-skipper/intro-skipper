@@ -26,13 +26,13 @@ public sealed class DbSeasonAnalysisOverride
     public int? AnalysisLengthLimit { get; set; }
 
     /// <summary>
-    /// Gets or sets whether to derive a preview from the end of credits. Null is retained only
-    /// for legacy rows that have not yet been migrated.
+    /// Gets or sets a value indicating whether to derive a preview from the end of credits.
+    /// Null is retained only for legacy rows that have not yet been migrated.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; set; }
 
     /// <summary>
-    /// Gets or sets whether analysis found recurring short tails after Credits in this season.
+    /// Gets or sets a value indicating whether analysis found recurring short tails after Credits in this season.
     /// </summary>
     public bool PreviewFromCreditsEndRecommended { get; set; }
 

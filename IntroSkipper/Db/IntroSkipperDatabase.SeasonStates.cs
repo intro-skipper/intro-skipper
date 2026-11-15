@@ -130,6 +130,7 @@ public sealed partial class IntroSkipperDatabase
 
     /// <summary>Records successful migration of the legacy global preview choice.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing completion of the migration marker write.</returns>
     public async Task CompletePreviewSettingMigrationAsync(CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);

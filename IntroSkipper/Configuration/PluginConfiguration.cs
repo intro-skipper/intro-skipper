@@ -327,7 +327,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets the legacy global preview choice retained for upgrade migration and legacy hash recognition.
+    /// Gets or sets a value indicating whether the legacy global preview choice is enabled. It is
+    /// retained for upgrade migration and legacy hash recognition.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 
