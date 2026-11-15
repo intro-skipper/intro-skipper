@@ -327,8 +327,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             !episode.IsVirtualItem
             && (string.IsNullOrEmpty(episode.Path)
                 || !IsProbed(episode)
-                || (episode.SeasonId == Guid.Empty
-                    && (episode.ParentIndexNumber is not { } number || !seasonsByNumber.Contains(number)))));
+                || Place(episode, seasonsByNumber) is null));
     }
 
     internal static DateTime EpisodeAvailabilityDate(Episode episode)
