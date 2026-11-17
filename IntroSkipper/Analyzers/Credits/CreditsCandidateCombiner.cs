@@ -46,7 +46,8 @@ internal static class CreditsCandidateCombiner
     /// the next part that stays starts is dropped: a lettered black scene inside the episode, such as
     /// a text screen, reads as credits to the keyframe analyzer, but minutes of story follow it, more
     /// than any mid-credits scene leaves between two parts. A part that merged with a chapter or
-    /// chromaprint candidate stays, and so does the latest part.
+    /// chromaprint candidate stays, and so does the latest part, unless it is a preview's title card
+    /// (see <paramref name="maximumPreviewDuration"/>).
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
