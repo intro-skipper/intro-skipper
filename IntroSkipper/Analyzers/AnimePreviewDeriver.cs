@@ -20,6 +20,35 @@ internal static class AnimePreviewDeriver
     private const double StartTolerance = 0.5;
 
     /// <summary>
+    /// The shortest tail after the credits, in seconds, that a season deriving previews keeps for
+    /// the preview. Next-episode previews after an anime ending can run under the minimum credits
+    /// duration, which the credits pass otherwise extends the credits over, so in such a season it
+    /// extends credits only over a shorter tail (<see cref="Credits.CreditsCandidateCombiner"/>),
+    /// and the derive minimum is capped here (<see cref="MinimumDuration"/>), so a tail is credits
+    /// or preview and never neither.
+    /// </summary>
+    internal const int ShortestTailSeconds = 5;
+
+    /// <summary>
+    /// The minimum duration of a derived preview: the configured preview minimum, capped at
+    /// <see cref="ShortestTailSeconds"/>.
+    /// </summary>
+    /// <param name="minimumPreviewDuration">The configured minimum preview duration in seconds.</param>
+    /// <returns>The minimum derived preview duration in seconds.</returns>
+    internal static int MinimumDuration(int minimumPreviewDuration)
+        => Math.Min(minimumPreviewDuration, ShortestTailSeconds);
+
+    /// <summary>
+    /// Returns how close an automatic Credits candidate may end to the episode boundary
+    /// before the credits pass extends it to the end instead of reserving the tail for Preview.
+    /// </summary>
+    /// <param name="minimumCreditsDuration">The configured minimum Credits duration in seconds.</param>
+    /// <param name="minimumPreviewDuration">The configured minimum Preview duration in seconds.</param>
+    /// <returns>The Credits extension reach in seconds.</returns>
+    internal static int CreditsWindowEndReach(int minimumCreditsDuration, int minimumPreviewDuration)
+        => Math.Min(ShortestTailSeconds, Math.Max(minimumCreditsDuration, MinimumDuration(minimumPreviewDuration)));
+
+    /// <summary>
     /// Creates or refreshes the Preview segment of every episode whose credits end before the episode does.
     /// </summary>
     /// <remarks>

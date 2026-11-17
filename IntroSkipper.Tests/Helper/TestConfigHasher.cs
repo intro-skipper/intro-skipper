@@ -179,10 +179,13 @@ public sealed class TestConfigHasher
         Case("Credits analysis changes with the preview chapter pattern", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
         Case("Credits analysis changes with the preview minimum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MinimumPreviewDuration = 30 }, AnalysisMode.Credits), false);
         Case("Credits analysis changes with the preview maximum", Analysis(defaults, AnalysisMode.Credits), Analysis(new PluginConfiguration { MaximumPreviewDuration = 60 }, AnalysisMode.Credits), false);
-        Case("Credits analysis ignores the preview minimum under chapter enhancement", Analysis(new PluginConfiguration { EnhanceChapterCredits = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { EnhanceChapterCredits = true, MinimumPreviewDuration = 30 }, AnalysisMode.Credits), true);
+        // A season that derives previews hashes the effective tail and voting limits so a changed
+        // preview boundary cannot leave its settled Credits result stale.
+        Case("Credits analysis tracks vote limits while previews derive", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), false);
+        Case("Credits analysis tracks the preview minimum under chapter enhancement", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, EnhanceChapterCredits = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, EnhanceChapterCredits = true, MinimumPreviewDuration = 30 }, AnalysisMode.Credits), false);
         Case("Credits analysis ignores the preview chapter pattern under a BlackFrame action", ConfigHasher.Analysis(defaults, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), ConfigHasher.Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits, AnalyzerAction.BlackFrame, ffmpegValid: true), true);
-        // Full-length chapters replace the preview duration limits; the pattern still applies.
-        Case("Credits analysis ignores the preview duration limits under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, MinimumPreviewDuration = 30, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), true);
+        // Full-length chapters replace chapter duration limits, but preview voting still uses them.
+        Case("Credits analysis tracks vote limits under full-length chapters", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true, FullLengthChapters = true, MinimumPreviewDuration = 30, MaximumPreviewDuration = 60 }, AnalysisMode.Credits), false);
         Case("Credits analysis changes with the preview chapter pattern under full-length chapters", Analysis(new PluginConfiguration { FullLengthChapters = true }, AnalysisMode.Credits), Analysis(new PluginConfiguration { FullLengthChapters = true, ChapterAnalyzerPreviewPattern = "Next" }, AnalysisMode.Credits), false);
         // Installs from before 10.11.22 still carry that release's default preview pattern.
         Case("Credits analysis keeps the pinned hash under the pre-10.11.22 default preview pattern", Analysis(new PluginConfiguration { ChapterAnalyzerPreviewPattern = @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" }, AnalysisMode.Credits), "7EF68040EE4E4EC7", true);
@@ -192,11 +195,11 @@ public sealed class TestConfigHasher
         Case("Commercial analysis ignores chromaprint availability", Analysis(defaults, AnalysisMode.Commercial), Analysis(defaults, AnalysisMode.Commercial, ffmpegValid: false), true);
 
         // Frozen to what 12.0.5 wrote for seasons that do not derive previews, so with subtitle
-        // detection off they do not re-analyze Preview on upgrade. Seasons that derive previews
-        // carry the anchor token and re-derive once (12.0.5 wrote 2735F6E29B514900 for them).
+        // detection off they do not re-analyze Preview on upgrade. Deriving seasons carry an
+        // anchor token and a capped-minimum token so stale NoSegments results reopen once.
         // Enabling subtitle detection adds its own hash.
         Case("Preview analysis hash is pinned while subtitle detection is off", Analysis(defaults, AnalysisMode.Preview), "19C776EE18C06441", true);
-        Case("Preview analysis re-derives under the last-credits anchor", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "EEAC9F1E9F57CD47", true);
+        Case("Preview analysis re-derives under the last-credits anchor and capped minimum", Analysis(new PluginConfiguration { AnimePreviewFromCreditsEnd = true }, AnalysisMode.Preview), "299B40632EF94A9C", true);
 
         // 12.0.5 wrote 9F39FAF9AB4D7445 here, when a Chromaprint recap ended at the latest black
         // frame. The sting end token reruns Recap once in every season. 12.0.6 wrote

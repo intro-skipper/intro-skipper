@@ -4,8 +4,9 @@
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Stores optional analysis overrides for one season key. A null value inherits
-/// the corresponding plugin-wide setting.
+/// Stores analysis overrides for one season key. A null value inherits the corresponding
+/// plugin-wide setting, except the post-credits preview choice, which is nullable only for
+/// legacy rows awaiting migration and defaults to disabled for new seasons.
 /// </summary>
 public sealed class DbSeasonAnalysisOverride
 {
@@ -25,9 +26,15 @@ public sealed class DbSeasonAnalysisOverride
     public int? AnalysisLengthLimit { get; set; }
 
     /// <summary>
-    /// Gets or sets the optional setting that derives a preview from the end of credits.
+    /// Gets or sets a value indicating whether to derive a preview from the end of credits.
+    /// Null is retained only for legacy rows that have not yet been migrated.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether analysis found recurring short tails after Credits in this season.
+    /// </summary>
+    public bool PreviewFromCreditsEndRecommended { get; set; }
 
     /// <summary>
     /// Gets or sets the optional setting that enables subtitle-based recap detection.

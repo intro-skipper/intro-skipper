@@ -97,11 +97,13 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Lists the series and movies of every library the plugin is enabled for, in sort
-    /// name order. A library that cannot be enumerated is logged, skipped and counted.
+    /// name order, unless disabled libraries are included. A library that cannot be
+    /// enumerated is logged, skipped and counted.
     /// </summary>
     /// <param name="failures">The number of libraries that were skipped.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <returns>The series and movies to resolve.</returns>
-    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures)
+    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures, bool includePluginDisabled = false)
     {
         failures = 0;
         var policy = ExclusionPolicy.FromConfiguration(Config);
@@ -121,7 +123,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         List<BaseItem> owners = [];
         foreach (var folder in virtualFolders)
         {
-            if (PluginDisabledIn(folder.LibraryOptions))
+            if (!includePluginDisabled && PluginDisabledIn(folder.LibraryOptions))
             {
                 LogLibraryDisabled(_logger, folder.Name);
                 continue;
@@ -250,18 +252,38 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <summary>
     /// Resolves every season of every enabled library, sequentially, counting the
     /// libraries and series that failed so maintenance can refuse to act on an
-    /// incomplete result.
+    /// incomplete result. A one-time migration can also count items that are not ready
+    /// to resolve yet, and include disabled libraries so their choices are present if
+    /// those libraries are enabled later.
     /// </summary>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
+    /// <param name="countUnresolvedItems"><see langword="true"/> to count unprobed or pathless items as failures, so one-time migrations can remain pending until those items can be resolved.</param>
     /// <returns>The seasons and the failure count.</returns>
-    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken)
+    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken, bool includePluginDisabled = false, bool countUnresolvedItems = false)
     {
-        var owners = EnumerateLibrary(out var failures);
+        var owners = EnumerateLibrary(out var failures, includePluginDisabled);
         List<ResolvedSeason> seasons = [];
         foreach (var owner in owners)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (countUnresolvedItems)
+            {
+                try
+                {
+                    if (HasUnresolvedItems(owner))
+                    {
+                        failures++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures++;
+                    LogFailedResolve(_logger, ex, owner.Name, owner.Id);
+                }
+            }
+
             if (!TryResolve(owner, includeExcluded, out var resolved))
             {
                 failures++;
@@ -271,6 +293,41 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         }
 
         return new LibraryResolution(seasons, failures);
+    }
+
+    private bool HasUnresolvedItems(BaseItem owner)
+    {
+        if (owner is Movie movie)
+        {
+            return string.IsNullOrEmpty(movie.Path) || !IsProbed(movie);
+        }
+
+        if (owner is not Series series)
+        {
+            return false;
+        }
+
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            AncestorIds = [series.Id],
+        };
+        var episodes = _libraryManager.GetItemList(query, false)
+            ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
+
+        var episodeItems = episodes.OfType<Episode>().ToList();
+        var seasonsByNumber = episodeItems
+            .Where(episode => !episode.IsVirtualItem && episode.SeasonId != Guid.Empty && episode.ParentIndexNumber is not null
+                && !string.IsNullOrEmpty(episode.Path) && IsProbed(episode))
+            .GroupBy(episode => episode.ParentIndexNumber!.Value)
+            .ToDictionary(group => group.Key, group => group.First().SeasonId);
+
+        return episodeItems.Any(episode =>
+            !episode.IsVirtualItem
+            && (string.IsNullOrEmpty(episode.Path)
+                || !IsProbed(episode)
+                || Place(episode, seasonsByNumber) is null));
     }
 
     internal static DateTime EpisodeAvailabilityDate(Episode episode)

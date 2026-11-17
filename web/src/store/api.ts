@@ -8,6 +8,7 @@ import type {
     SegmentUpdateRequest,
     AnalyzerActions,
     AnalysisOverrides,
+    UpdateAnalysisOverrides,
     ScanStatus,
     PluginInfo,
     LibraryStorage,
@@ -225,7 +226,7 @@ export function getAnalysisOverrides(
 
 export function updateAnalysisOverrides(
     id: string,
-    overrides: AnalysisOverrides,
+    overrides: UpdateAnalysisOverrides,
     signal?: AbortSignal,
 ): Promise<ApiResult<null>> {
     return request<null>("Intros/AnalysisOverrides/UpdateSeason", {

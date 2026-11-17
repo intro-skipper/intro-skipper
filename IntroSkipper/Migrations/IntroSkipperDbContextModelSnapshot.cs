@@ -77,6 +77,20 @@ namespace IntroSkipper.Migrations
                     b.ToTable("ImportHistory", (string)null);
                 });
 
+            modelBuilder.Entity("IntroSkipper.Db.DbPluginMetadata", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("PluginMetadata", (string)null);
+                });
+
             modelBuilder.Entity("IntroSkipper.Db.DbProjectionExternalOperation", b =>
                 {
                     b.Property<long>("Id")
@@ -141,6 +155,9 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool?>("PreviewFromCreditsEnd")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("PreviewFromCreditsEndRecommended")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool?>("SubtitlePreviewDetection")

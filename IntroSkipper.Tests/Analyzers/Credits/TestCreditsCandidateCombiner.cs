@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using IntroSkipper.Analyzers;
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Data;
 using Xunit;
@@ -138,6 +139,19 @@ public class TestCreditsCandidateCombiner
     public void CandidateNearTheWindowEnd_IsExtendedToIt(double end, double expectedEnd)
     {
         var result = Combine(Candidate(326, end, SegmentSource.Chromaprint));
+
+        Assert.Equal((326, expectedEnd, SegmentSource.Chromaprint), Shape(Assert.Single(result)));
+    }
+
+    // A season that derives its previews passes a 5 s reach: Gintama's next-episode previews
+    // run 8 to 14 s after the ending, under the 15 s minimum credits duration.
+    [Theory]
+    [InlineData(441.0, 441.0)] // a 9 s preview after the ending stays out of the credits
+    [InlineData(445.0, 445.0)] // exactly the reach left: a preview still fits
+    [InlineData(446.0, 450.0)] // a fade-out shorter than the reach is still extended over
+    public void CandidateNearTheWindowEnd_InAPreviewSeason_IsExtendedOnlyOverTheShortReach(double end, double expectedEnd)
+    {
+        var result = CreditsCandidateCombiner.Combine([Candidate(326, end, SegmentSource.Chromaprint)], WindowEnd, MinimumDuration, AnimePreviewDeriver.ShortestTailSeconds);
 
         Assert.Equal((326, expectedEnd, SegmentSource.Chromaprint), Shape(Assert.Single(result)));
     }

@@ -5,7 +5,7 @@ import { eventBus } from "../lifecycle.ts";
 import { configStore } from "../store/config-store.ts";
 import type { AnalysisOverrides } from "../types.ts";
 
-// The plugin-wide value a season without its own subtitle override inherits.
+// The plugin-wide values a season without its own subtitle overrides inherits.
 function inheritedSubtitleDetection(key: "EnableSubtitleRecapDetection" | "EnableSubtitlePreviewDetection"): boolean {
     return configStore.isLoaded() && configStore.get(key);
 }
@@ -17,9 +17,12 @@ function globalValue(key: "AnalysisPercent" | "AnalysisLengthLimit"): () => stri
 }
 
 /**
- * The per-season analysis overrides the action bar edits. Analysis limits
- * and subtitle detection inherit the plugin-wide values when null.
+ * The per-season analysis overrides the action bar edits. The post-credits preview choice is
+ * always explicit; analysis limits and subtitle detection
+ * inherit the plugin-wide values when null.
  */
+let previewRecommended = false;
+
 export const overrideSchema = {
     AnalysisPercent: {
         kind: "number",
@@ -44,18 +47,9 @@ export const overrideSchema = {
         kind: "select",
         label: "Set post-credits scene as preview",
         description:
-            "Use the post-credits duration as a fallback preview when no other preview is detected.",
+            "Use the post-credits duration as a fallback preview when no other preview is detected. Analysis may recommend this for shows with recurring short tails after Credits.",
         options: [
-            {
-                value: null,
-                label: () =>
-                    configStore.isLoaded()
-                        ? configStore.get("AnimePreviewFromCreditsEnd")
-                            ? "Global: Anime only"
-                            : "Global: Disabled"
-                        : "Global default",
-            },
-            { value: true, label: "Enabled" },
+            { value: true, label: () => previewRecommended ? "Enabled (Recommended)" : "Enabled" },
             { value: false, label: "Disabled" },
         ],
     },
@@ -91,7 +85,7 @@ export const overrideKeys = Object.keys(overrideSchema) as OverrideKey[];
 const EMPTY: SeasonOverrides = {
     AnalysisPercent: null,
     AnalysisLengthLimit: null,
-    PreviewFromCreditsEnd: null,
+    PreviewFromCreditsEnd: false,
     SubtitleRecapDetection: false,
     SubtitlePreviewDetection: false,
 };
@@ -99,6 +93,8 @@ const EMPTY: SeasonOverrides = {
 export type OverrideStore = FieldStore<SeasonOverrides> & {
     /** Replaces every value with the season's saved overrides and marks the store loaded. */
     load(values: AnalysisOverrides): void;
+    /** Updates the analysis recommendation without replacing unsaved choices. */
+    setPreviewRecommendation(recommended: boolean): void;
     values(): SeasonOverrides;
     /** The message of the first field that fails its rules, or null when all pass. */
     firstError(): string | null;
@@ -124,12 +120,23 @@ export function createOverrideStore(): OverrideStore {
         },
         subscribe: bus.on,
         load(next) {
-            values = { ...next };
+            previewRecommended = next.PreviewFromCreditsEndRecommended;
+            values = {
+                AnalysisPercent: next.AnalysisPercent,
+                AnalysisLengthLimit: next.AnalysisLengthLimit,
+                PreviewFromCreditsEnd: next.PreviewFromCreditsEnd ?? false,
+                SubtitleRecapDetection: next.SubtitleRecapDetection,
+                SubtitlePreviewDetection: next.SubtitlePreviewDetection,
+            };
             loaded = true;
             bus.emit("loaded");
             // Saved overrides carry no error; take down what the previous season left showing.
             for (const field of errors.keys()) bus.emit("validation", { field, error: null });
             errors.clear();
+        },
+        setPreviewRecommendation(recommended) {
+            previewRecommended = recommended;
+            bus.emit("options");
         },
         values: () => ({ ...values }),
         firstError: () => errors.values().next().value ?? null,

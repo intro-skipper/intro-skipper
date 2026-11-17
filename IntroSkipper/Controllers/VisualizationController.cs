@@ -178,7 +178,17 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        return Ok(await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false));
+        var overrides = await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        if (overrides.PreviewFromCreditsEnd is not null)
+        {
+            return Ok(overrides);
+        }
+
+        var config = Plugin.Instance!.Configuration;
+        var legacyPreviewEnabled = !await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false)
+            && config.AnimePreviewFromCreditsEnd
+            && _seasonResolver.ResolveDisplayed(seasonId)?.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode) == true;
+        return Ok(overrides with { PreviewFromCreditsEnd = legacyPreviewEnabled });
     }
 
     /// <summary>

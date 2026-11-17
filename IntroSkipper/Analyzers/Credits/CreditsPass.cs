@@ -31,13 +31,22 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <param name="database">Segment database facade.</param>
 /// <param name="config">Plugin configuration.</param>
 /// <param name="useLocalConsensus">Whether this run is a settled-season re-analysis.</param>
+/// <param name="derivesPreview">
+/// Whether the season derives its Preview from the credits end. Credits then extend to the
+/// window end only from within <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so a
+/// preview shorter than the minimum credits duration stays outside them, and a Chromaprint
+/// candidate that runs to the end ends where most of its neighbours' matches do
+/// (<see cref="ChromaprintAnalyzer.EndBeforeSharedPreviews"/>), so a preview whose music only
+/// the episodes of one story arc share stays outside them too.
+/// </param>
 internal sealed partial class CreditsPass(
     ILoggerFactory loggerFactory,
     IFFmpegService ffmpegService,
     DetectionCacheService cacheService,
     IntroSkipperDatabase database,
     PluginConfiguration config,
-    bool useLocalConsensus = false)
+    bool useLocalConsensus = false,
+    bool derivesPreview = false)
 {
     private const AnalysisMode Mode = AnalysisMode.Credits;
 
@@ -53,6 +62,7 @@ internal sealed partial class CreditsPass(
     private readonly IntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = config;
     private readonly bool _useLocalConsensus = useLocalConsensus;
+    private readonly bool _derivesPreview = derivesPreview;
 
     /// <summary>
     /// Analyzes the season's credits.
@@ -143,6 +153,7 @@ internal sealed partial class CreditsPass(
         // a two-episode season still has a reference.
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
+        HashSet<Guid> previewBoundaryChanges = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
             try
@@ -155,8 +166,11 @@ internal sealed partial class CreditsPass(
                     : items.ToDictionary(
                         episode => episode.EpisodeId,
                         episode => (IReadOnlyList<double>)[.. ChapterCreditsOf(chapter, episode).HardBoundaries.Select(boundary => boundary - episode.CreditsFingerprintStart)]);
-                (chromaprintCandidates, fingerprintFailures) = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries)
+                var chromaprintResult = await new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database, _config, _useLocalConsensus, hardBoundaries, _derivesPreview)
                     .FindCandidatesAsync(items, Mode, cancellationToken).ConfigureAwait(false);
+                chromaprintCandidates = chromaprintResult.Candidates;
+                fingerprintFailures = chromaprintResult.FingerprintFailures;
+                previewBoundaryChanges = chromaprintResult.PreviewBoundaryChanges;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -186,9 +200,9 @@ internal sealed partial class CreditsPass(
             }
 
             // An already-analyzed sibling re-derived from a changed season is re-scanned only
-            // when its new shared-audio candidate reaches outside what is stored; otherwise
-            // the combination could not change and the black-frame scan is skipped.
-            if (!episode.NeedsAnalysis(Mode) && IsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
+            // when its new shared-audio candidate reaches outside stored Credits. A vote-shortened
+            // end changes the old boundary, even when the candidate is contained by the stored row.
+            if (!episode.NeedsAnalysis(Mode) && !previewBoundaryChanges.Contains(episode.EpisodeId) && CandidateIsCoveredByStoredCredits(await StandingCreditsAsync(episode, cancellationToken).ConfigureAwait(false), chromaprintCandidate!))
             {
                 continue;
             }
@@ -219,6 +233,9 @@ internal sealed partial class CreditsPass(
 
                 var (_, windowEnd) = episode.GetFingerprintRange(Mode);
                 var minimumDuration = _config.MinimumCreditsDuration;
+                double? windowEndReach = _derivesPreview
+                    ? AnimePreviewDeriver.CreditsWindowEndReach(minimumDuration, _config.MinimumPreviewDuration)
+                    : null;
 
                 // The whole credits window, every time: black credits and card credits can sit anywhere in
                 // it, before, between or after the other candidates, and the keyframe scan is cached so only
@@ -227,7 +244,15 @@ internal sealed partial class CreditsPass(
                 {
                     try
                     {
-                        candidates.AddRange(await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false));
+                        var keyframeCandidates = await detectKeyframeCredits(episode, cancellationToken).ConfigureAwait(false);
+                        IReadOnlyList<Segment> previewChapters = chapter is null ? [] : ChapterCreditsOf(chapter, episode).PreviewChapters;
+                        foreach (var keyframeCandidate in keyframeCandidates)
+                        {
+                            if (KeepCardCreditsBeforePreview(keyframeCandidate, previewChapters, minimumDuration) is { } candidate)
+                            {
+                                candidates.Add(candidate);
+                            }
+                        }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -265,7 +290,7 @@ internal sealed partial class CreditsPass(
 
                 var state = await StoreCandidatesAsync(
                     episode,
-                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration),
+                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, windowEndReach),
                     timeAdjustmentHelper,
                     analyzerFailed,
                     cancellationToken).ConfigureAwait(false);
@@ -342,16 +367,53 @@ internal sealed partial class CreditsPass(
     private ChapterCredits FindChapterCredits(ChapterAnalyzer chapter, QueuedEpisode episode)
     {
         var matches = chapter.FindChapterCandidates(episode, Mode);
+        var previewChapters = chapter.FindChapterCandidates(episode, AnalysisMode.Preview);
         var windowEnd = episode.GetFingerprintRange(Mode).End;
         var hardBoundaries = CreditsCandidateCombiner.HardBoundaries(matches, windowEnd);
         if (_config.EnhanceChapterCredits || matches.Count == 0)
         {
-            return new ChapterCredits(matches, Settles: false, hardBoundaries);
+            return new ChapterCredits(matches, previewChapters, Settles: false, hardBoundaries);
         }
 
         var end = matches.Max(m => m.End);
         var storyEnd = Math.Min(chapter.FindFirstMatchStart(episode, AnalysisMode.Preview, end) ?? windowEnd, windowEnd);
-        return new ChapterCredits(matches, Settles: storyEnd - end < _config.MinimumCreditsDuration, hardBoundaries);
+        return new ChapterCredits(matches, previewChapters, Settles: storyEnd - end < _config.MinimumCreditsDuration, hardBoundaries);
+    }
+
+    /// <summary>
+    /// Removes the portion of a keyframe card candidate inside an explicitly labeled Preview
+    /// chapter, retaining any card credits that precede it.
+    /// </summary>
+    /// <param name="candidate">The candidate from keyframe visuals or black-frame evidence.</param>
+    /// <param name="previewChapters">Chapter ranges recognized as Preview.</param>
+    /// <param name="minimumCreditsDuration">The minimum duration of a Credits candidate.</param>
+    /// <returns>The candidate unchanged, clipped before a Preview chapter, or <see langword="null"/> when it starts inside one or the clipped portion is too short.</returns>
+    private static AttributedSegment? KeepCardCreditsBeforePreview(AttributedSegment candidate, IReadOnlyList<Segment> previewChapters, int minimumCreditsDuration)
+    {
+        if (candidate.Source != SegmentSource.KeyframeVisuals)
+        {
+            return candidate;
+        }
+
+        foreach (var preview in previewChapters.OrderBy(preview => preview.Start))
+        {
+            if (candidate.Segment.Start >= preview.End || preview.Start >= candidate.Segment.End)
+            {
+                continue;
+            }
+
+            if (candidate.Segment.Start >= preview.Start)
+            {
+                return null;
+            }
+
+            var clipped = new AttributedSegment(
+                new Segment(candidate.Segment.EpisodeId, new TimeRange(candidate.Segment.Start, preview.Start)),
+                candidate.Source);
+            return clipped.Segment.Duration >= minimumCreditsDuration ? clipped : null;
+        }
+
+        return candidate;
     }
 
     /// <summary>
@@ -382,10 +444,10 @@ internal sealed partial class CreditsPass(
     }
 
     /// <summary>
-    /// Whether one of the standing credits rows already contains the raw candidate, allowing for
-    /// the boundary movement time adjustment applies before storing.
+    /// Whether a standing credits row already contains the candidate, allowing for the boundary
+    /// movement time adjustment applies before storing.
     /// </summary>
-    private bool IsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
+    private bool CandidateIsCoveredByStoredCredits(IReadOnlyList<DbSegment> standing, Segment candidate)
     {
         var tolerance = Math.Max(_config.AdjustWindowInward, _config.AdjustWindowOutward);
         return standing.Any(row =>
@@ -475,7 +537,7 @@ internal sealed partial class CreditsPass(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint credits comparison failed; continuing with the other analyzers{Hint}")]
     private partial void LogChromaprintComparisonFailed(Exception ex, string hint);
 
-    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, bool Settles, IReadOnlyList<double> HardBoundaries)
+    private readonly record struct ChapterCredits(IReadOnlyList<Segment> Matches, IReadOnlyList<Segment> PreviewChapters, bool Settles, IReadOnlyList<double> HardBoundaries)
     {
         public List<AttributedSegment> Candidates => [.. Matches.Select(match => new AttributedSegment(match, SegmentSource.Chapter))];
     }
