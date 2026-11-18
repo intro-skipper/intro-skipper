@@ -80,10 +80,11 @@ public sealed partial class IntroSkipperDatabase
                 return result;
             }
 
-            // A preview derived from the old credits end would otherwise stay: an edited
-            // Credits mode settles as user-provided and never reruns its derive. A
-            // visibility change lists every visible row but changes no credits.
-            if (intent is not SegmentVisibilityChangeIntent && result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
+            // A credits-derived Preview is based on Credits, so adding, editing, or removing
+            // Credits must reopen its analysis. A visibility change lists every visible row
+            // but changes no credits.
+            if (intent is not SegmentVisibilityChangeIntent &&
+                (result.CreditsRemoved || result.Affected.Any(value => value.Mode == AnalysisMode.Credits)))
             {
                 await ClearItemAnalysisCoreAsync(db, intent.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
             }
@@ -334,6 +335,8 @@ public sealed partial class IntroSkipperDatabase
 
                     if (row.Type != mode)
                     {
+                        var creditsRemoved = row.Type == AnalysisMode.Credits;
+
                         // A type correction deletes the old automatic range (leaving its
                         // tombstone) and promotes or creates the requested type in one
                         // transaction, so analysis cannot later restore the old type.
@@ -351,7 +354,7 @@ public sealed partial class IntroSkipperDatabase
                             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                         }
 
-                        return new MutationResult(null, [ToValue(reclassified)]);
+                        return new MutationResult(null, [ToValue(reclassified)], CreditsRemoved: creditsRemoved);
                     }
 
                     // A null after the precheck means a concurrent non-stripe writer
