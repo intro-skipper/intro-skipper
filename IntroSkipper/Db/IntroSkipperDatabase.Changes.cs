@@ -80,11 +80,12 @@ public sealed partial class IntroSkipperDatabase
                 return result;
             }
 
-            // A credits-derived Preview is based on Credits, so adding, editing, or removing
-            // Credits must reopen its analysis. A visibility change lists every visible row
-            // but changes no credits.
+            // A credits-derived Preview is based on Credits, so every affected Credits value
+            // reopens its analysis. A visibility change lists every visible row but changes no
+            // credits. Reclassification away from Credits clears Preview in its mutation branch,
+            // because its returned survivor belongs to the new mode.
             if (intent is not SegmentVisibilityChangeIntent &&
-                (result.CreditsRemoved || result.Affected.Any(value => value.Mode == AnalysisMode.Credits)))
+                result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
             {
                 await ClearItemAnalysisCoreAsync(db, intent.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
             }
@@ -335,11 +336,14 @@ public sealed partial class IntroSkipperDatabase
 
                     if (row.Type != mode)
                     {
-                        var creditsRemoved = row.Type == AnalysisMode.Credits;
-
                         // A type correction deletes the old automatic range (leaving its
                         // tombstone) and promotes or creates the requested type in one
                         // transaction, so analysis cannot later restore the old type.
+                        if (row.Type == AnalysisMode.Credits)
+                        {
+                            await ClearItemAnalysisCoreAsync(db, value.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+                        }
+
                         StageDelete(db, row);
                         var exact = await FindExactRangeAsync(db, value.ItemId, mode, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
                         var reclassified = await AddUserSegmentCoreAsync(db, value.ItemId, mode, value.StartTicks, value.EndTicks, exact, cancellationToken).ConfigureAwait(false);
@@ -354,7 +358,7 @@ public sealed partial class IntroSkipperDatabase
                             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                         }
 
-                        return new MutationResult(null, [ToValue(reclassified)], CreditsRemoved: creditsRemoved);
+                        return new MutationResult(null, [ToValue(reclassified)]);
                     }
 
                     // A null after the precheck means a concurrent non-stripe writer

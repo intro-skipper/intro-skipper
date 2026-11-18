@@ -53,8 +53,7 @@ public sealed record SegmentImageSnapshot(IReadOnlyList<SegmentValue> Segments, 
 /// Ignored outcomes whose target exists in no state at all: nothing addressable can have diverged,
 /// so a 404-style probe does not pay a journal write and a mirror sync.</param>
 /// <param name="Revision">Opaque revision of the committed segment image, when available.</param>
-/// <param name="CreditsRemoved">Whether the mutation removed a Credits segment without returning it as an affected survivor.</param>
-public sealed record MutationResult(SegmentChangeOutcome? Outcome, IReadOnlyList<SegmentValue> Affected, bool Reproject = true, string? Revision = null, bool CreditsRemoved = false)
+public sealed record MutationResult(SegmentChangeOutcome? Outcome, IReadOnlyList<SegmentValue> Affected, bool Reproject = true, string? Revision = null)
 {
     internal static MutationResult Ignore(SegmentChangeIgnoredReason reason, string message, IReadOnlyList<SegmentValue>? affectedValues = null, bool reproject = true) => new(new Ignored(reason, message, affectedValues ?? []), [], reproject);
 
