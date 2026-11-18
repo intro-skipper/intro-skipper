@@ -59,6 +59,7 @@ export type SegmentCreateRequest = {
 };
 
 export type SegmentUpdateRequest = {
+    Type?: SegmentType;
     Start: number;
     End: number;
 };

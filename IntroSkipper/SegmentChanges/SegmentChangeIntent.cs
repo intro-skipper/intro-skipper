@@ -33,9 +33,10 @@ public sealed record ReplaceUserSegmentsForItemIntent(Guid ItemId, IReadOnlyList
 /// <summary>Updates one segment and promotes the surviving row to user provenance.</summary>
 /// <param name="ItemId">Item ID.</param>
 /// <param name="SegmentId">Segment ID.</param>
+/// <param name="Mode">New analysis mode, or <see langword="null"/> to preserve the current mode.</param>
 /// <param name="StartTicks">Start ticks.</param>
 /// <param name="EndTicks">End ticks.</param>
-public sealed record UpdateSegmentIntent(Guid ItemId, Guid SegmentId, long StartTicks, long EndTicks) : SegmentChangeIntent(ItemId);
+public sealed record UpdateSegmentIntent(Guid ItemId, Guid SegmentId, long StartTicks, long EndTicks, AnalysisMode? Mode = null) : SegmentChangeIntent(ItemId);
 
 /// <summary>Deletes one stored segment, preserving automatic intent as a tombstone.</summary>
 /// <param name="ItemId">Item ID.</param>
