@@ -80,10 +80,12 @@ public sealed partial class IntroSkipperDatabase
                 return result;
             }
 
-            // A preview derived from the old credits end would otherwise stay: an edited
-            // Credits mode settles as user-provided and never reruns its derive. A
-            // visibility change lists every visible row but changes no credits.
-            if (intent is not SegmentVisibilityChangeIntent && result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
+            // A credits-derived Preview is based on Credits, so every affected Credits value
+            // reopens its analysis. A visibility change lists every visible row but changes no
+            // credits. Reclassification away from Credits clears Preview in its mutation branch,
+            // because its returned survivor belongs to the new mode.
+            if (intent is not SegmentVisibilityChangeIntent &&
+                result.Affected.Any(value => value.Mode == AnalysisMode.Credits))
             {
                 await ClearItemAnalysisCoreAsync(db, intent.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
             }
@@ -215,6 +217,7 @@ public sealed partial class IntroSkipperDatabase
                 || value.Segments.Where(segment => segment.Id is { } id && id != Guid.Empty).GroupBy(segment => segment.Id).Any(group => group.Count() > 1)
                 => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid mode, tick range, or duplicate segment ID."),
             UpdateSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
+            UpdateSegmentIntent value when value.Mode is { } mode && !ValidMode(mode) => new(SegmentChangeRejectedReason.InvalidModeOrRange, "Invalid segment type."),
             UpdateSegmentIntent value when !TickConversions.IsValidTickRange(value.StartTicks, value.EndTicks) => new(SegmentChangeRejectedReason.InvalidSegmentIdOrRange, "Invalid tick range."),
             DeleteSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
             RestoreSegmentIntent value when value.SegmentId == Guid.Empty => new(SegmentChangeRejectedReason.EmptySegmentId, "Segment ID must not be empty."),
@@ -325,9 +328,37 @@ public sealed partial class IntroSkipperDatabase
                         return MutationResult.Reject(SegmentChangeRejectedReason.SegmentMissingOrSuppressed, "Segment was not found on the item or is suppressed.");
                     }
 
-                    if (row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks && row.Source == SegmentSource.User)
+                    var mode = value.Mode ?? row.Type;
+                    if (row.Type == mode && row.StartTicks == value.StartTicks && row.EndTicks == value.EndTicks && row.Source == SegmentSource.User)
                     {
                         return MutationResult.Ignore(SegmentChangeIgnoredReason.SegmentAlreadyHasValues, "The segment already has the requested values.", [ToValue(row)]);
+                    }
+
+                    if (row.Type != mode)
+                    {
+                        // A type correction deletes the old automatic range (leaving its
+                        // tombstone) and promotes or creates the requested type in one
+                        // transaction, so analysis cannot later restore the old type.
+                        if (row.Type == AnalysisMode.Credits)
+                        {
+                            await ClearItemAnalysisCoreAsync(db, value.ItemId, AnalysisMode.Preview, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        StageDelete(db, row);
+                        var exact = await FindExactRangeAsync(db, value.ItemId, mode, value.StartTicks, value.EndTicks, cancellationToken).ConfigureAwait(false);
+                        var reclassified = await AddUserSegmentCoreAsync(db, value.ItemId, mode, value.StartTicks, value.EndTicks, exact, cancellationToken).ConfigureAwait(false);
+
+                        // AddUserSegmentCoreAsync can recover a unique-index race by clearing
+                        // the change tracker. Reapply the old-type delete after that recovery
+                        // so a concurrent analysis write cannot leave both classifications.
+                        var oldTypeRow = await FindOwnedRowAsync(db, value.ItemId, value.SegmentId, cancellationToken).ConfigureAwait(false);
+                        if (oldTypeRow is { State: SegmentState.Active })
+                        {
+                            StageDelete(db, oldTypeRow);
+                            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                        }
+
+                        return new MutationResult(null, [ToValue(reclassified)]);
                     }
 
                     // A null after the precheck means a concurrent non-stripe writer

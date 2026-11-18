@@ -116,8 +116,8 @@ public class SegmentsController(
     }
 
     /// <summary>
-    /// Updates a segment's boundaries; the segment becomes user-provided. Moving a segment
-    /// exactly onto another segment of the same mode merges the two: the occupant survives
+    /// Updates a segment's type and boundaries; the segment becomes user-provided. Moving a segment
+    /// exactly onto another segment of the requested type merges the two: the occupant survives
     /// as the user segment and is returned.
     /// </summary>
     /// <param name="itemId">Item (episode or movie) id.</param>
@@ -126,7 +126,7 @@ public class SegmentsController(
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The updated (or merged-into) segment.</response>
     /// <response code="202">The update committed but its Jellyfin projection is pending or skipped.</response>
-    /// <response code="400">The boundaries are invalid.</response>
+    /// <response code="400">The boundaries or segment type are invalid.</response>
     /// <response code="404">The segment does not exist on this item or is suppressed.</response>
     /// <returns>The surviving segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -146,13 +146,18 @@ public class SegmentsController(
             return NotFound();
         }
 
+        if (request.Type is { } type && !AnalysisHelpers.IsSupported(type))
+        {
+            return BadRequest($"Unknown segment type '{(int)type}'.");
+        }
+
         if (!TickConversions.TryFromSecondsRange(request.Start, request.End, out var startTicks, out var endTicks))
         {
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
         var outcome = await _segmentChange
-            .ApplyAsync(new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks), cancellationToken)
+            .ApplyAsync(new UpdateSegmentIntent(itemId, segmentId, startTicks, endTicks, request.Type), cancellationToken)
             .ConfigureAwait(false);
         // A segment that already carries the requested values is reported like an update.
         return SegmentChangeHttp.Map(outcome, onApplied: values => Ok(SegmentChangeHttp.ToDto(values.Single())));

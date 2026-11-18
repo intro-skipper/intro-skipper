@@ -152,26 +152,31 @@ export function segmentEditor(opts: {
 
     function buildRow(segment: SegmentDto): HTMLElement {
         const row = el("div", { className: "ts-segment-row" + (segment.Suppressed ? " suppressed" : "") });
-        const label = MODE_OPTIONS.find((m) => m.value === segment.Type)?.label ?? segment.Type;
-        row.append(el("span", { className: "ts-segment-mode" }, label));
+        const typeSelect = el("select", { className: "ts-segment-select" });
+        for (const mode of MODE_OPTIONS) {
+            typeSelect.append(el("option", { value: mode.value }, mode.label));
+        }
+        typeSelect.value = segment.Type;
+        typeSelect.setAttribute("aria-label", "Segment type");
 
         const startInput = el("input", {
             className: "ts-segment-input",
             type: "text",
             value: formatTimeInput(segment.Start),
         });
-        startInput.setAttribute("aria-label", label + " start");
+        startInput.setAttribute("aria-label", "Segment start");
         const endInput = el("input", {
             className: "ts-segment-input",
             type: "text",
             value: formatTimeInput(segment.End),
         });
-        endInput.setAttribute("aria-label", label + " end");
+        endInput.setAttribute("aria-label", "Segment end");
 
         const badge = el("span", { className: "ts-pill-source" }, sourceBadgeText(segment));
         const errorEl = el("span", { className: "ts-segment-error" });
 
         if (segment.Suppressed) {
+            typeSelect.disabled = true;
             startInput.disabled = true;
             endInput.disabled = true;
             const restoreBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Restore");
@@ -186,12 +191,13 @@ export function segmentEditor(opts: {
                     setStatus(response.error, "error");
                 }
             }));
-            row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
+            row.append(typeSelect, startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
             return row;
         }
 
         dirtyChecks.push(
             () =>
+                typeSelect.value !== segment.Type ||
                 startInput.value !== formatTimeInput(segment.Start) ||
                 endInput.value !== formatTimeInput(segment.End),
         );
@@ -205,18 +211,33 @@ export function segmentEditor(opts: {
             const result = await api.updateEpisodeSegment(
                 opts.itemId,
                 segment.Id,
-                { Start: range.start, End: range.end },
+                { Type: typeSelect.value as SegmentType, Start: range.start, End: range.end },
                 signal,
             );
             if (result.ok) {
-                const next = current.map((s) =>
-                    s.Id === segment.Id ? { ...s, Start: range.start, End: range.end } : s,
-                );
+                const nextType = typeSelect.value as SegmentType;
+                const savedSegment = result.data ?? {
+                    ...segment,
+                    Type: nextType,
+                    Start: range.start,
+                    End: range.end,
+                };
+                const next = nextType === segment.Type
+                    ? current.map((s) => s.Id === segment.Id ? savedSegment : s)
+                    : current.flatMap((s) => {
+                          if (s.Id === segment.Id) {
+                              return segment.Source === "User" ? [] : [{ ...s, Suppressed: true }];
+                          }
+                          return s.Id === savedSegment.Id ? [savedSegment] : [s];
+                      });
+                if (nextType !== segment.Type && !next.some((s) => s.Id === savedSegment.Id)) {
+                    next.push(savedSegment);
+                }
                 await reloadAfterMutation("Segment saved.", next, {
-                    type: segment.Type,
+                    type: nextType,
                     start: range.start,
                     end: range.end,
-                    excludeId: segment.Id,
+                    excludeId: savedSegment.Id,
                 });
             } else {
                 errorEl.textContent = result.error;
@@ -252,7 +273,7 @@ export function segmentEditor(opts: {
         };
         deleteBtn.addEventListener("click", () => void deleteSegment().catch(ignoreAbort));
 
-        row.append(startInput, endInput, badge, saveBtn, deleteBtn, errorEl);
+        row.append(typeSelect, startInput, endInput, badge, saveBtn, deleteBtn, errorEl);
         return row;
     }
 
