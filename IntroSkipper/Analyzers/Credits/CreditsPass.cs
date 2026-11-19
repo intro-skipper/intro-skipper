@@ -290,7 +290,7 @@ internal sealed partial class CreditsPass(
 
                 var state = await StoreCandidatesAsync(
                     episode,
-                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, windowEndReach, _derivesPreview ? _config.MaximumPreviewDuration : null),
+                    CreditsCandidateCombiner.Combine(candidates, windowEnd, minimumDuration, windowEndReach),
                     timeAdjustmentHelper,
                     analyzerFailed,
                     cancellationToken).ConfigureAwait(false);

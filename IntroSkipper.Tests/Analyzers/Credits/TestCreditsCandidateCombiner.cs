@@ -149,24 +149,8 @@ public class TestCreditsCandidateCombiner
         Assert.Equal((326, expectedEnd, SegmentSource.Chromaprint), Shape(Assert.Single(result)));
     }
 
-    // A season that derives its previews, with a 45 s maximum preview: the "次回予告" title card on
-    // black after the ending chapter reads as a black card to the keyframe analyzer.
-    [Theory]
-    [InlineData("357-422 Chapter; 431-450 BlackFrame", "357-422 Chapter")]                           // Fire Force S3E20: card 9 s after the chapter end
-    [InlineData("342-433 Chromaprint; 345-433 Chapter; 433-450 BlackFrame", "342-433 Combined")]     // Fire Force S3E21: card right at the chapter end
-    [InlineData("309-398 Chapter; 399-450 BlackFrame", "309-398 Chapter; 399-450 BlackFrame")]       // longer than a preview: CITY's dubbing cards stay
-    [InlineData("357-440 Chromaprint; 441-450 BlackFrame", "357-450 Combined")]                      // no chapter end between them: they merge as before
-    [InlineData("300-380 Chapter; 400-430 BlackFrame", "300-380 Chapter; 400-430 BlackFrame")]       // a card that stops before the end stays
-    [InlineData("300-380 Chapter; 400-420 Chromaprint; 425-450 BlackFrame", "300-380 Chapter; 400-450 Combined")] // shared audio vouches for the part
-    public void PreviewCardAfterTheCreditsChapter_InAPreviewSeason_IsNoCredits(string candidates, string stored)
-    {
-        var result = CreditsCandidateCombiner.Combine([.. candidates.Split(';').Select(Parse)], WindowEnd, MinimumDuration, AnimePreviewDeriver.ShortestTailSeconds, 45);
-
-        Assert.Equal(stored.Split(';').Select(Parse).Select(Shape).ToList(), result.Select(Shape).ToList());
-    }
-
     [Fact]
-    public void PreviewCardAfterTheCreditsChapter_OutsideAPreviewSeason_Stays()
+    public void CreditsChapterEnd_DoesNotDiscardAShortWindowEndingKeyframePart()
     {
         var result = Combine(Candidate(357, 422, SegmentSource.Chapter), Candidate(431, 450, SegmentSource.BlackFrame));
 
@@ -245,14 +229,6 @@ public class TestCreditsCandidateCombiner
 
         Assert.Equal((351, 420, SegmentSource.BlackFrame), Shape(Assert.Single(result)));
         Assert.Empty(Combine());
-    }
-
-    // "start-end Source", as in the InlineData above.
-    private static AttributedSegment Parse(string text)
-    {
-        var parts = text.Trim().Split(' ');
-        var range = parts[0].Split('-').Select(double.Parse).ToArray();
-        return Candidate(range[0], range[1], Enum.Parse<SegmentSource>(parts[1]));
     }
 
     private static AttributedSegment Candidate(double start, double end, SegmentSource source)
