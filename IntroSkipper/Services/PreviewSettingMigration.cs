@@ -18,8 +18,10 @@ namespace IntroSkipper.Services;
 /// <remarks>
 /// Runs in the background so a slow library walk or a database that cannot initialize
 /// never holds up Jellyfin's startup. Until the completion marker is written, analysis and
-/// the dashboard derive the same per-season value from the old global switch, so passes
-/// that run first get the result this migration would have stored.
+/// the dashboard derive each season's value from the old global switch. For seasons in this
+/// migration's library snapshot that is the value it stores. A season added while it runs
+/// is not in the snapshot: it follows the old switch until the marker is written, then
+/// defaults to disabled like any other unseen season.
 /// </remarks>
 /// <param name="seasonResolver">Library season resolver.</param>
 /// <param name="database">Segment database facade.</param>
@@ -48,22 +50,12 @@ public sealed class PreviewSettingMigration(
             foreach (var season in resolution.Seasons)
             {
                 stoppingToken.ThrowIfCancellationRequested();
-                var overrides = await _database.GetAnalysisOverridesAsync(season.Key, stoppingToken).ConfigureAwait(false);
-                if (overrides.PreviewFromCreditsEnd is not null)
-                {
-                    continue;
-                }
-
                 var enabled = config.AnimePreviewFromCreditsEnd
                     && season.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
-                await _database.SetAnalysisOverridesAsync(
-                    season.Key,
-                    overrides.AnalysisPercent,
-                    overrides.AnalysisLengthLimit,
-                    enabled,
-                    overrides.SubtitleRecapDetection,
-                    overrides.SubtitlePreviewDetection,
-                    stoppingToken).ConfigureAwait(false);
+
+                // The dashboard is live while this runs, so the write fills only a missing
+                // choice and never reads and rewrites the season's other overrides.
+                await _database.SetPreviewFromCreditsEndIfUnsetAsync(season.Key, enabled, stoppingToken).ConfigureAwait(false);
             }
 
             if (resolution.Failures > 0)

@@ -52,6 +52,49 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
+    public async Task InitializationGate_WaitsForMigrationLockTakenByThisProcess()
+    {
+        // A lock newer than the process start is live (a rebuild migrating outside the
+        // gate), so initialization must wait for its release instead of stealing it.
+        await _db.Database.InitializeAsync();
+        using (var context = _db.Context())
+        {
+            await context.Database.ExecuteSqlAsync(
+                $"""INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, {DateTimeOffset.UtcNow})""");
+        }
+
+        var initialization = _db.CreateDatabase().InitializeAsync();
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.False(initialization.IsCompleted);
+
+        using (var context = _db.Context())
+        {
+            await context.Database.ExecuteSqlRawAsync("""DELETE FROM "__EFMigrationsLock" """);
+        }
+
+        await initialization.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task SetPreviewFromCreditsEndIfUnset_FillsOnlyAMissingChoice()
+    {
+        var unset = Guid.NewGuid();
+        var chosen = Guid.NewGuid();
+        await _db.Database.SetAnalysisOverridesAsync(unset, 40, 5, null, true, null);
+        await _db.Database.SetAnalysisOverridesAsync(chosen, null, null, false, null, null);
+
+        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(unset, true);
+        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(chosen, true);
+
+        var filled = await _db.Database.GetAnalysisOverridesAsync(unset);
+        Assert.True(filled.PreviewFromCreditsEnd);
+        Assert.Equal(40, filled.AnalysisPercent);
+        Assert.Equal(5, filled.AnalysisLengthLimit);
+        Assert.True(filled.SubtitleRecapDetection);
+        Assert.False((await _db.Database.GetAnalysisOverridesAsync(chosen)).PreviewFromCreditsEnd);
+    }
+
+    [Fact]
     public async Task InitializationGate_CreatesSchemaBeforeFirstQuery()
     {
         // No EnsureCreated, no migrations — the facade's initialization gate must run

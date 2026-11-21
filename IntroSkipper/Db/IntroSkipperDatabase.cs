@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -116,11 +117,15 @@ public sealed partial class IntroSkipperDatabase
     /// EF Core's SQLite provider takes this lock on every <c>MigrateAsync</c>, pending
     /// migrations or not, and waits for it without a timeout or a log line, so one stale
     /// row would hang initialization, and every operation behind it, forever. Only the
-    /// Jellyfin process opens this database, and the initialization gate runs one attempt
-    /// at a time, so any row present here belongs to a dead process.
+    /// Jellyfin process opens this database, so a row written before this process started
+    /// belongs to a dead one. Newer rows are left alone: the rebuild migrates outside the
+    /// initialization gate, and its live lock must keep a concurrent retry waiting.
     /// </summary>
     private async Task ClearStaleMigrationLockAsync(IntroSkipperDbContext db)
     {
+        // EF stores the lock time as UtcNow; Microsoft.Data.Sqlite binds a DateTimeOffset
+        // in the same text format, so the comparison is chronological.
+        var processStartedAt = new DateTimeOffset(Process.GetCurrentProcess().StartTime.ToUniversalTime(), TimeSpan.Zero);
         var lockTableExists = await db.Database
             .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM sqlite_master WHERE type = 'table' AND name = '__EFMigrationsLock'""")
             .SingleAsync()
@@ -130,7 +135,9 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        var cleared = await db.Database.ExecuteSqlRawAsync("""DELETE FROM "__EFMigrationsLock" """).ConfigureAwait(false);
+        var cleared = await db.Database
+            .ExecuteSqlAsync($"""DELETE FROM "__EFMigrationsLock" WHERE "Timestamp" < {processStartedAt}""")
+            .ConfigureAwait(false);
         if (cleared > 0)
         {
             LogStaleMigrationLockCleared(_logger);
