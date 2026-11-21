@@ -34,9 +34,12 @@ public sealed partial class IntroSkipperDatabase
     private readonly ILogger _logger;
     private readonly RetryableInitializationGate _initialization;
 
-    // Rebuilds in flight. A forced rebuild migrates the recreated live file outside the
-    // initialization gate, so its migration lock is the one lock row that is live.
-    private int _rebuildsRunning;
+    // Serializes everything that migrates the live file: initialization attempts and the
+    // rebuild, which migrates a recreated file outside the initialization gate. Each runs
+    // after the previous one settles, so any EF migration lock row it finds is a leftover,
+    // never a live lock.
+    private readonly Lock _liveFileMigrationLock = new();
+    private Task _liveFileMigration = Task.CompletedTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
@@ -102,23 +105,43 @@ public sealed partial class IntroSkipperDatabase
             LogRebuildingWithoutInitialization(_logger, ex);
         }
 
-        Interlocked.Increment(ref _rebuildsRunning);
-        try
+        await RunLiveFileMigrationAsync(async () =>
         {
             using var db = _contextFactory.CreateDbContext();
             await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
-        }
-        finally
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="migration"/> once every earlier live-file migration has settled,
+    /// whether it succeeded or failed, and returns its own outcome.
+    /// </summary>
+    private Task RunLiveFileMigrationAsync(Func<Task> migration)
+    {
+        lock (_liveFileMigrationLock)
         {
-            Interlocked.Decrement(ref _rebuildsRunning);
+            var run = RunAfterAsync(_liveFileMigration, migration);
+            _liveFileMigration = run;
+            return run;
+        }
+
+        static async Task RunAfterAsync(Task previous, Func<Task> migration)
+        {
+            // SuppressThrowing: an earlier failure belongs to its own caller.
+            await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await migration().ConfigureAwait(false);
         }
     }
 
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
-        await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
-        await db.Database.MigrateAsync().ConfigureAwait(false);
+        await RunLiveFileMigrationAsync(async () =>
+        {
+            await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
+            await db.Database.MigrateAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
     }
@@ -129,20 +152,11 @@ public sealed partial class IntroSkipperDatabase
     /// that failed without releasing it. EF Core's SQLite provider takes this lock on every
     /// <c>MigrateAsync</c>, pending migrations or not, and waits for it without a timeout or
     /// a log line, so one stale row would hang initialization, and every operation behind
-    /// it, forever. Only the Jellyfin process opens this database and the initialization
-    /// gate runs one attempt at a time, so the only live lock can be a rebuild's, which
-    /// migrates outside the gate; while one runs the row is left alone and this attempt
-    /// waits for its release.
+    /// it, forever. Only the Jellyfin process opens this database, and the caller runs inside
+    /// <see cref="RunLiveFileMigrationAsync"/>, so no migration that could own a row is running.
     /// </summary>
     private async Task ClearStaleMigrationLockAsync(IntroSkipperDbContext db)
     {
-        // A rebuild counts itself before it can take the lock, so a row seen here while
-        // the count is zero cannot be the lock of a rebuild in flight.
-        if (Volatile.Read(ref _rebuildsRunning) > 0)
-        {
-            return;
-        }
-
         var lockTableExists = await db.Database
             .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM sqlite_master WHERE type = 'table' AND name = '__EFMigrationsLock'""")
             .SingleAsync()
