@@ -14,7 +14,7 @@ body:
 
         If a segment is detected at the wrong time, not at all, or where there is none, use the **Detection report** form instead.
       options:
-        - label: I use Jellyfin 12.0.0 (or newer) and my filesystem permissions are correct
+        - label: I use Jellyfin 12.4.0 (or newer) and my filesystem permissions are correct
           required: true
         - label: I installed the Plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
