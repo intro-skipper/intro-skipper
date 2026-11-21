@@ -31,6 +31,27 @@ public sealed class TestDatabaseFacades : IDisposable
     public void Dispose() => _db.Dispose();
 
     [Fact]
+    public async Task InitializationGate_ClearsStaleMigrationLock()
+    {
+        // A process killed while holding EF's migration lock leaves its row behind, and
+        // EF waits on that row forever even with no migrations pending (#1188).
+        await _db.Database.InitializeAsync();
+        using (var context = _db.Context())
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                """INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, '2026-11-10 17:26:42.9503402+00:00')""");
+        }
+
+        await _db.CreateDatabase().InitializeAsync().WaitAsync(TimeSpan.FromSeconds(30));
+
+        using var verify = _db.Context();
+        var remaining = await verify.Database
+            .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM "__EFMigrationsLock" """)
+            .SingleAsync();
+        Assert.Equal(0, remaining);
+    }
+
+    [Fact]
     public async Task InitializationGate_CreatesSchemaBeforeFirstQuery()
     {
         // No EnsureCreated, no migrations — the facade's initialization gate must run

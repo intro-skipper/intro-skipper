@@ -105,9 +105,36 @@ public sealed partial class IntroSkipperDatabase
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
+        await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
         await db.Database.MigrateAsync().ConfigureAwait(false);
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a migration lock row left behind by a process that died while holding it.
+    /// EF Core's SQLite provider takes this lock on every <c>MigrateAsync</c>, pending
+    /// migrations or not, and waits for it without a timeout or a log line, so one stale
+    /// row would hang initialization, and every operation behind it, forever. Only the
+    /// Jellyfin process opens this database, and the initialization gate runs one attempt
+    /// at a time, so any row present here belongs to a dead process.
+    /// </summary>
+    private async Task ClearStaleMigrationLockAsync(IntroSkipperDbContext db)
+    {
+        var lockTableExists = await db.Database
+            .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM sqlite_master WHERE type = 'table' AND name = '__EFMigrationsLock'""")
+            .SingleAsync()
+            .ConfigureAwait(false) > 0;
+        if (!lockTableExists)
+        {
+            return;
+        }
+
+        var cleared = await db.Database.ExecuteSqlRawAsync("""DELETE FROM "__EFMigrationsLock" """).ConfigureAwait(false);
+        if (cleared > 0)
+        {
+            LogStaleMigrationLockCleared(_logger);
+        }
     }
 
     /// <summary>
@@ -160,6 +187,9 @@ public sealed partial class IntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; the next database operation will retry")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Cleared a stale migration lock left by an interrupted server run")]
+    private static partial void LogStaleMigrationLockCleared(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; proceeding with the requested rebuild, which recreates the schema")]
     private static partial void LogRebuildingWithoutInitialization(ILogger logger, Exception exception);

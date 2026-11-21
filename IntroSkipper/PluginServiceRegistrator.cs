@@ -46,7 +46,8 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
             // Freeze the old plugin-wide post-credits preview choice for every current
-            // season before analysis workers or library events can enqueue a pass.
+            // season. Runs in the background, off Jellyfin's startup path; passes that
+            // run before it finishes fall back to the old switch, with the same result.
             serviceCollection.AddSingleton<PreviewSettingMigration>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<PreviewSettingMigration>());
 

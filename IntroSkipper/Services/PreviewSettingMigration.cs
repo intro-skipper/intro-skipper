@@ -10,39 +10,45 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Services;
 
 /// <summary>
-/// Copies the removed plugin-wide anime preview choice into every current season before
-/// analysis starts. Existing explicit season choices are left untouched; seasons without a
-/// choice keep the behavior they had under the old global switch. Once complete, unseen
-/// seasons default to disabled.
+/// Copies the removed plugin-wide anime preview choice into every current season.
+/// Existing explicit season choices are left untouched; seasons without a choice keep the
+/// behavior they had under the old global switch. Once complete, unseen seasons default to
+/// disabled.
 /// </summary>
+/// <remarks>
+/// Runs in the background so a slow library walk or a database that cannot initialize
+/// never holds up Jellyfin's startup. Until the completion marker is written, analysis and
+/// the dashboard derive the same per-season value from the old global switch, so passes
+/// that run first get the result this migration would have stored.
+/// </remarks>
 /// <param name="seasonResolver">Library season resolver.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="logger">Logger.</param>
 public sealed class PreviewSettingMigration(
     SeasonResolver seasonResolver,
     IntroSkipperDatabase database,
-    ILogger<PreviewSettingMigration> logger) : IHostedService
+    ILogger<PreviewSettingMigration> logger) : BackgroundService
 {
     private readonly SeasonResolver _seasonResolver = seasonResolver;
     private readonly IntroSkipperDatabase _database = database;
     private readonly ILogger<PreviewSettingMigration> _logger = logger;
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
             var config = Plugin.Instance!.Configuration;
-            if (await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false))
+            if (await _database.IsPreviewSettingMigrationCompleteAsync(stoppingToken).ConfigureAwait(false))
             {
                 return;
             }
 
-            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, cancellationToken, includePluginDisabled: true, countUnresolvedItems: true);
+            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, stoppingToken, includePluginDisabled: true, countUnresolvedItems: true);
             foreach (var season in resolution.Seasons)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
+                stoppingToken.ThrowIfCancellationRequested();
+                var overrides = await _database.GetAnalysisOverridesAsync(season.Key, stoppingToken).ConfigureAwait(false);
                 if (overrides.PreviewFromCreditsEnd is not null)
                 {
                     continue;
@@ -57,7 +63,7 @@ public sealed class PreviewSettingMigration(
                     enabled,
                     overrides.SubtitleRecapDetection,
                     overrides.SubtitlePreviewDetection,
-                    cancellationToken).ConfigureAwait(false);
+                    stoppingToken).ConfigureAwait(false);
             }
 
             if (resolution.Failures > 0)
@@ -68,14 +74,11 @@ public sealed class PreviewSettingMigration(
                 return;
             }
 
-            await _database.CompletePreviewSettingMigrationAsync(cancellationToken).ConfigureAwait(false);
+            await _database.CompletePreviewSettingMigrationAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Could not migrate the legacy post-credits preview choice. The migration will retry at the next server start.");
         }
     }
-
-    /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
