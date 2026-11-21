@@ -127,8 +127,11 @@ public sealed partial class IntroSkipperDatabase
 
         static async Task RunAfterAsync(Task previous, Func<Task> migration)
         {
-            // SuppressThrowing: an earlier failure belongs to its own caller.
-            await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            // SuppressThrowing: an earlier failure belongs to its own caller. ForceYielding:
+            // SQLite's async calls run synchronously, so without it a migration behind an
+            // already settled one would run inside the caller's lock, and a concurrent
+            // caller would block its thread there instead of awaiting its turn.
+            await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ForceYielding);
             await migration().ConfigureAwait(false);
         }
     }

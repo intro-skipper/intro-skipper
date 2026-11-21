@@ -41,7 +41,8 @@ namespace IntroSkipper
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
             // gates, run on first use; every consumer goes through a facade. The
-            // segment-change worker's startup recovery is the first use at boot.
+            // first use at boot is the preview-setting migration or the segment-change
+            // worker's startup recovery, both background services.
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
