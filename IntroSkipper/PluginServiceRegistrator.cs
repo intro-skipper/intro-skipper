@@ -41,12 +41,14 @@ namespace IntroSkipper
                 SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
             // gates, run on first use; every consumer goes through a facade. The
-            // segment-change worker's startup recovery is the first use at boot.
+            // first use at boot is the preview-setting migration or the segment-change
+            // worker's startup recovery, both background services.
             serviceCollection.AddSingleton<IntroSkipperDatabase>();
             serviceCollection.AddSingleton<DetectionCacheDatabase>();
 
             // Freeze the old plugin-wide post-credits preview choice for every current
-            // season before analysis workers or library events can enqueue a pass.
+            // season. Runs in the background, off Jellyfin's startup path; passes that
+            // run before it finishes fall back to the old switch, with the same result.
             serviceCollection.AddSingleton<PreviewSettingMigration>();
             serviceCollection.AddSingleton<IHostedService>(serviceProvider => serviceProvider.GetRequiredService<PreviewSettingMigration>());
 

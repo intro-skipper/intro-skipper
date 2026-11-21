@@ -31,6 +31,99 @@ public sealed class TestDatabaseFacades : IDisposable
     public void Dispose() => _db.Dispose();
 
     [Fact]
+    public async Task InitializationGate_ClearsStaleMigrationLock()
+    {
+        // A process killed while holding EF's migration lock leaves its row behind, and
+        // EF waits on that row forever even with no migrations pending (#1188).
+        await _db.Database.InitializeAsync();
+        using (var context = _db.Context())
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                """INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, '2026-11-10 17:26:42.9503402+00:00')""");
+        }
+
+        await _db.CreateDatabase().InitializeAsync().WaitAsync(TimeSpan.FromSeconds(30));
+
+        using var verify = _db.Context();
+        var remaining = await verify.Database
+            .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM "__EFMigrationsLock" """)
+            .SingleAsync();
+        Assert.Equal(0, remaining);
+    }
+
+    [Fact]
+    public async Task InitializationRetry_WaitsForARunningRebuild()
+    {
+        // Initialization deletes every migration lock row it finds. That is only safe
+        // because it never runs while a rebuild, the other migrator of the live file, does.
+        await _db.Database.InitializeAsync();
+
+        var contextCreations = 0;
+        var rebuildParked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseRebuild = new ManualResetEventSlim();
+        var database = new IntroSkipperDatabase(
+            new TestDbContextFactory<IntroSkipperDbContext>(() =>
+            {
+                switch (Interlocked.Increment(ref contextCreations))
+                {
+                    case 1:
+                        // The rebuild's own initialization fails, which resets the gate.
+                        throw new IOException("Simulated unavailable database.");
+                    case 2:
+                        // The rebuild's context: park the rebuild inside its turn.
+                        rebuildParked.SetResult();
+                        releaseRebuild.Wait();
+                        break;
+                }
+
+                return CreateSegmentContext(_db.Path);
+            }),
+            NullLogger<IntroSkipperDatabase>.Instance);
+
+        var rebuild = Task.Run(() => database.RebuildDatabaseAsync());
+        try
+        {
+            await rebuildParked.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var initialization = database.InitializeAsync();
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            Assert.False(initialization.IsCompleted);
+
+            releaseRebuild.Set();
+            await rebuild.WaitAsync(TimeSpan.FromSeconds(30));
+            await initialization.WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        finally
+        {
+            releaseRebuild.Set();
+        }
+    }
+
+    [Fact]
+    public async Task SetPreviewFromCreditsEndIfUnset_FillsOnlyAMissingChoice()
+    {
+        var absent = Guid.NewGuid();
+        var unset = Guid.NewGuid();
+        var chosen = Guid.NewGuid();
+        await _db.Database.SetAnalysisOverridesAsync(unset, 40, 5, null, true, null);
+        await _db.Database.SetAnalysisOverridesAsync(chosen, null, null, false, null, null);
+
+        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(absent, true);
+        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(unset, true);
+        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(chosen, true);
+
+        // A season with no overrides row at all, the migration's usual case.
+        Assert.True((await _db.Database.GetAnalysisOverridesAsync(absent)).PreviewFromCreditsEnd);
+
+        var filled = await _db.Database.GetAnalysisOverridesAsync(unset);
+        Assert.True(filled.PreviewFromCreditsEnd);
+        Assert.Equal(40, filled.AnalysisPercent);
+        Assert.Equal(5, filled.AnalysisLengthLimit);
+        Assert.True(filled.SubtitleRecapDetection);
+        Assert.False((await _db.Database.GetAnalysisOverridesAsync(chosen)).PreviewFromCreditsEnd);
+    }
+
+    [Fact]
     public async Task InitializationGate_CreatesSchemaBeforeFirstQuery()
     {
         // No EnsureCreated, no migrations — the facade's initialization gate must run
