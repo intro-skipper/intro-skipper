@@ -52,10 +52,10 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task InitializationGate_WaitsForMigrationLockTakenByThisProcess()
+    public async Task InitializationGate_ClearsOrphanedLockFromThisProcess()
     {
-        // A lock newer than the process start is live (a rebuild migrating outside the
-        // gate), so initialization must wait for its release instead of stealing it.
+        // A failed attempt in this process can leave EF's lock behind too, stamped after
+        // the process started; the retry must clear it rather than wait forever.
         await _db.Database.InitializeAsync();
         using (var context = _db.Context())
         {
@@ -63,16 +63,7 @@ public sealed class TestDatabaseFacades : IDisposable
                 $"""INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, {DateTimeOffset.UtcNow})""");
         }
 
-        var initialization = _db.CreateDatabase().InitializeAsync();
-        await Task.Delay(TimeSpan.FromSeconds(2));
-        Assert.False(initialization.IsCompleted);
-
-        using (var context = _db.Context())
-        {
-            await context.Database.ExecuteSqlRawAsync("""DELETE FROM "__EFMigrationsLock" """);
-        }
-
-        await initialization.WaitAsync(TimeSpan.FromSeconds(30));
+        await _db.CreateDatabase().InitializeAsync().WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Fact]
