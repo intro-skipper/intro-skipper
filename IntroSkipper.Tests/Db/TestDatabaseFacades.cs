@@ -5,7 +5,9 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -15,6 +17,7 @@ using IntroSkipper.Db;
 using IntroSkipper.SegmentChanges;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using static IntroSkipper.Tests.DatabaseTestHelpers;
@@ -52,75 +55,131 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task InitializationRetry_WaitsForARunningRebuild()
-    {
-        // Initialization deletes every migration lock row it finds. That is only safe
-        // because it never runs while a rebuild, the other migrator of the live file, does.
-        await _db.Database.InitializeAsync();
-
-        var contextCreations = 0;
-        var rebuildParked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var releaseRebuild = new ManualResetEventSlim();
-        var database = new IntroSkipperDatabase(
-            new TestDbContextFactory<IntroSkipperDbContext>(() =>
-            {
-                switch (Interlocked.Increment(ref contextCreations))
-                {
-                    case 1:
-                        // The rebuild's own initialization fails, which resets the gate.
-                        throw new IOException("Simulated unavailable database.");
-                    case 2:
-                        // The rebuild's context: park the rebuild inside its turn.
-                        rebuildParked.SetResult();
-                        releaseRebuild.Wait();
-                        break;
-                }
-
-                return CreateSegmentContext(_db.Path);
-            }),
-            NullLogger<IntroSkipperDatabase>.Instance);
-
-        var rebuild = Task.Run(() => database.RebuildDatabaseAsync());
-        try
-        {
-            await rebuildParked.Task.WaitAsync(TimeSpan.FromSeconds(30));
-
-            var initialization = database.InitializeAsync();
-            await Task.Delay(TimeSpan.FromMilliseconds(500));
-            Assert.False(initialization.IsCompleted);
-
-            releaseRebuild.Set();
-            await rebuild.WaitAsync(TimeSpan.FromSeconds(30));
-            await initialization.WaitAsync(TimeSpan.FromSeconds(30));
-        }
-        finally
-        {
-            releaseRebuild.Set();
-        }
-    }
-
-    [Fact]
-    public async Task SetPreviewFromCreditsEndIfUnset_FillsOnlyAMissingChoice()
+    public async Task CompletePreviewSettingMigration_FillsOnlyUnsetChoicesAndDisablesUnlistedSeasons()
     {
         var absent = Guid.NewGuid();
         var unset = Guid.NewGuid();
         var chosen = Guid.NewGuid();
-        await _db.Database.SetAnalysisOverridesAsync(unset, 40, 5, null, true, null);
-        await _db.Database.SetAnalysisOverridesAsync(chosen, null, null, false, null, null);
+        var unlisted = Guid.NewGuid();
+        var database = _db.Database;
+        await database.SetAnalysisOverridesAsync(unset, 40, 5, null, true, null);
+        await database.SetAnalysisOverridesAsync(chosen, null, null, false, null, null);
 
-        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(absent, true);
-        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(unset, true);
-        await _db.Database.SetPreviewFromCreditsEndIfUnsetAsync(chosen, true);
+        Assert.Null((await database.GetAnalysisOverridesAsync(unlisted)).PreviewFromCreditsEnd);
+        Assert.Null((await database.GetAnalysisOverridesAsync(unset)).PreviewFromCreditsEnd);
 
-        // A season with no overrides row at all, the migration's usual case.
-        Assert.True((await _db.Database.GetAnalysisOverridesAsync(absent)).PreviewFromCreditsEnd);
+        await database.CompletePreviewSettingMigrationAsync([absent, unset, chosen]);
 
-        var filled = await _db.Database.GetAnalysisOverridesAsync(unset);
+        Assert.True((await database.GetAnalysisOverridesAsync(absent)).PreviewFromCreditsEnd);
+        var filled = await database.GetAnalysisOverridesAsync(unset);
         Assert.True(filled.PreviewFromCreditsEnd);
         Assert.Equal(40, filled.AnalysisPercent);
         Assert.Equal(5, filled.AnalysisLengthLimit);
         Assert.True(filled.SubtitleRecapDetection);
-        Assert.False((await _db.Database.GetAnalysisOverridesAsync(chosen)).PreviewFromCreditsEnd);
+        Assert.False((await database.GetAnalysisOverridesAsync(chosen)).PreviewFromCreditsEnd);
+        Assert.False((await database.GetAnalysisOverridesAsync(unlisted)).PreviewFromCreditsEnd);
+        Assert.True(await database.IsPreviewSettingMigrationCompleteAsync());
+    }
+
+    [Fact]
+    public async Task CompletePreviewSettingMigration_MarkerWriteFails_StoresNoChoice()
+    {
+        var season = Guid.NewGuid();
+        await _db.Database.InitializeAsync();
+        var database = CreateCommandHookedDatabase(_db.Path, command => command.Contains("INSERT INTO \"PluginMetadata\"", StringComparison.Ordinal)
+            ? Task.FromException(new InvalidOperationException("Simulated write failure."))
+            : Task.CompletedTask);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => database.CompletePreviewSettingMigrationAsync([season]));
+
+        Assert.Null((await _db.Database.GetAnalysisOverridesAsync(season)).PreviewFromCreditsEnd);
+        Assert.False(await _db.Database.IsPreviewSettingMigrationCompleteAsync());
+    }
+
+    [Fact]
+    public async Task GetAnalysisOverrides_MigrationCommittingDuringTheRead_IsSeenWhole()
+    {
+        var season = Guid.NewGuid();
+        await _db.Database.InitializeAsync();
+        var fired = 0;
+        var reader = CreateCommandHookedDatabase(_db.Path, command =>
+            command.Contains("FROM \"PluginMetadata\"", StringComparison.Ordinal) && Interlocked.Exchange(ref fired, 1) == 0
+                ? _db.Database.CompletePreviewSettingMigrationAsync([season])
+                : Task.CompletedTask);
+
+        Assert.True((await reader.GetAnalysisOverridesAsync(season)).PreviewFromCreditsEnd);
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_MigrationCommittingBetweenReads_RestoresChoicesAndMarkerTogether()
+    {
+        var kept = Guid.NewGuid();
+        var season = Guid.NewGuid();
+        await _db.Database.SetAnalysisOverridesAsync(kept, null, null, true, null, null);
+        var fired = 0;
+        var rebuilding = CreateCommandHookedDatabase(_db.Path, command =>
+            command.Contains("FROM \"PluginMetadata\"", StringComparison.Ordinal) && Interlocked.Exchange(ref fired, 1) == 0
+                ? _db.Database.CompletePreviewSettingMigrationAsync([season])
+                : Task.CompletedTask);
+
+        await rebuilding.RebuildDatabaseAsync().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(1, fired);
+        Assert.False(await _db.Database.IsPreviewSettingMigrationCompleteAsync());
+        Assert.Null((await _db.Database.GetAnalysisOverridesAsync(season)).PreviewFromCreditsEnd);
+        Assert.True((await _db.Database.GetAnalysisOverridesAsync(kept)).PreviewFromCreditsEnd);
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_ForceClean_UnreadableChoices_DropsTheMarker()
+    {
+        var season = Guid.NewGuid();
+        await _db.Database.CompletePreviewSettingMigrationAsync([season]);
+        await ExecuteRawAsync(_db.Path, "DROP TABLE \"SeasonAnalysisOverrides\"");
+
+        await _db.Database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
+
+        Assert.False(await _db.Database.IsPreviewSettingMigrationCompleteAsync());
+        Assert.Null((await _db.Database.GetAnalysisOverridesAsync(season)).PreviewFromCreditsEnd);
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_ForceClean_DoesNotMigrateTheLiveFile()
+    {
+        var itemId = Guid.NewGuid();
+        await _db.Database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
+        var commands = new ConcurrentQueue<string>();
+        var rebuilding = CreateCommandHookedDatabase(_db.Path, command =>
+        {
+            commands.Enqueue(command);
+            return Task.CompletedTask;
+        });
+        await rebuilding.InitializeAsync();
+        Assert.Contains(commands, command => command.Contains("__EFMigrations", StringComparison.Ordinal));
+        await ExecuteRawAsync(_db.Path, "DROP TABLE \"ProjectionExternalOperations\"");
+        commands.Clear();
+
+        await rebuilding.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
+
+        Assert.DoesNotContain(commands, command => command.Contains("__EFMigrations", StringComparison.Ordinal));
+        Assert.Single(await rebuilding.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_ForceClean_CancelledBeforeTheCopy_LeavesTheFile()
+    {
+        var itemId = Guid.NewGuid();
+        await _db.Database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
+        using var cancellation = new CancellationTokenSource();
+        var rebuilding = CreateCommandHookedDatabase(_db.Path, onFailed: cancellation.Cancel);
+        await rebuilding.InitializeAsync();
+        await ExecuteRawAsync(_db.Path, "DROP TABLE \"ProjectionExternalOperations\"");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => rebuilding.RebuildDatabaseAsync(forceCleanOnBackupFailure: true, cancellation.Token));
+
+        Assert.Single(await _db.Database.GetSegmentsAsync(itemId));
     }
 
     [Fact]
@@ -920,6 +979,7 @@ public sealed class TestDatabaseFacades : IDisposable
             seasonId,
             new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Credits] = AnalyzerAction.None });
         await database.SetItemDisabledAsync(episodeIds[0], disabled: true);
+        await database.CompletePreviewSettingMigrationAsync([seasonId]);
 
         // Tombstones record user intent and must survive corruption recovery.
         await database.ReplaceAutoSegmentsAsync(tombstonedItemId, AnalysisMode.Introduction, [new Segment(tombstonedItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
@@ -949,6 +1009,8 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(episodeIds.OrderBy(id => id), analyzed.Select(a => a.ItemId).OrderBy(id => id));
         Assert.All(analyzed, a => Assert.Equal("cfg-season", a.ConfigHash));
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(episodeIds));
+        Assert.True((await database.GetAnalysisOverridesAsync(seasonId)).PreviewFromCreditsEnd);
+        Assert.True(await database.IsPreviewSettingMigrationCompleteAsync());
 
         // The import marker survives the rebuild, so the next initialization never
         // re-runs the legacy import on top of the restored rows.
@@ -1036,7 +1098,7 @@ public sealed class TestDatabaseFacades : IDisposable
 
         // Deterministic backup failure: dropping a column the model SELECT expects
         // makes the backup read throw SqliteException ("no such column").
-        await DropSegmentsConfigHashColumnAsync(_db.Path);
+        await ExecuteRawAsync(_db.Path, "ALTER TABLE \"Segments\" DROP COLUMN \"ConfigHash\"");
 
         var exception = await Assert.ThrowsAsync<DatabaseRebuildBackupException>(() => database.RebuildDatabaseAsync());
         Assert.IsType<SqliteException>(exception.InnerException);
@@ -1057,7 +1119,7 @@ public sealed class TestDatabaseFacades : IDisposable
         var database = _db.Database;
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
 
-        await DropSegmentsConfigHashColumnAsync(_db.Path);
+        await ExecuteRawAsync(_db.Path, "ALTER TABLE \"Segments\" DROP COLUMN \"ConfigHash\"");
 
         await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
 
@@ -1086,14 +1148,7 @@ public sealed class TestDatabaseFacades : IDisposable
         await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(5, 30))], SegmentSource.Chapter);
 
         // The salvage reads Segments first and this table last, so only the last read fails.
-        SqliteConnection.ClearAllPools();
-        await using (var connection = new SqliteConnection($"Data Source={_db.Path}"))
-        {
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE \"ProjectionExternalOperations\"";
-            await command.ExecuteNonQueryAsync();
-        }
+        await ExecuteRawAsync(_db.Path, "DROP TABLE \"ProjectionExternalOperations\"");
 
         await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
 
@@ -1229,54 +1284,6 @@ public sealed class TestDatabaseFacades : IDisposable
     }
 
     [Fact]
-    public async Task ConcurrentFacadeInstances_InitializeFreshDatabaseWithoutErrors()
-    {
-        // Tests construct sibling facade instances with independent retryable gates over
-        // the same file, so both may run migrations + the legacy-import check
-        // concurrently on first use. MigrateAsync takes EF's migration lock and the
-        // import commits atomically with its marker; this pins that both succeed.
-        var episodeId = Guid.NewGuid();
-
-        var facadeA = _db.CreateDatabase();
-        var facadeB = _db.CreateDatabase();
-
-        // Trigger both initialization gates concurrently via first operations. A
-        // start barrier ensures both workers are running and parked before either
-        // touches its facade, so the two gates genuinely overlap instead of racing
-        // opportunistically.
-        var startBarrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var readyA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var readyB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        var taskA = Task.Run(async () =>
-        {
-            readyA.SetResult();
-            await startBarrier.Task;
-            return await facadeA.GetSegmentsAsync(episodeId);
-        });
-        var taskB = Task.Run(async () =>
-        {
-            readyB.SetResult();
-            await startBarrier.Task;
-            return await facadeB.GetSegmentsAsync(episodeId);
-        });
-
-        await Task.WhenAll(readyA.Task, readyB.Task);
-        startBarrier.SetResult();
-
-        var results = await Task.WhenAll(taskA, taskB);
-        Assert.All(results, segments => Assert.Empty(segments));
-
-        await using var db = _db.Context();
-        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
-
-        // Both gates may have answered the (no-legacy-file) import question before
-        // either marker was visible; one or two markers are both fine — the point is
-        // that neither initialization failed.
-        Assert.True(await db.ImportHistory.CountAsync() >= 1);
-    }
-
-    [Fact]
     public async Task Initialization_EnforcesWalJournalMode_OnSegmentDatabase()
     {
         // Simulate a database created or rewritten by external tooling: a valid
@@ -1342,7 +1349,7 @@ public sealed class TestDatabaseFacades : IDisposable
         Assert.Equal(0, await database.DeleteForItemsAsync([Guid.NewGuid()]));
     }
 
-    private static async Task DropSegmentsConfigHashColumnAsync(string dbPath)
+    private static async Task ExecuteRawAsync(string dbPath, string sql)
     {
         // Clear pooled handles first so the schema change cannot hit a stale lock.
         SqliteConnection.ClearAllPools();
@@ -1350,7 +1357,7 @@ public sealed class TestDatabaseFacades : IDisposable
         await using var connection = new SqliteConnection($"Data Source={dbPath}");
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "ALTER TABLE \"Segments\" DROP COLUMN \"ConfigHash\"";
+        command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
     }
 
@@ -1425,6 +1432,48 @@ public sealed class TestDatabaseFacades : IDisposable
             }
 
             return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Creates a facade over an initialized <paramref name="dbPath"/> whose contexts call
+    /// <paramref name="beforeCommand"/> with each command's text before it runs and
+    /// <paramref name="onFailed"/> when one fails.
+    /// </summary>
+    private static IntroSkipperDatabase CreateCommandHookedDatabase(string dbPath, Func<string, Task>? beforeCommand = null, Action? onFailed = null)
+    {
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>(CreateContextOptions<IntroSkipperDbContext>(dbPath))
+            .AddInterceptors(new CommandHook(beforeCommand ?? (_ => Task.CompletedTask), onFailed ?? (() => { })))
+            .Options;
+        return new IntroSkipperDatabase(
+            new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(options)),
+            NullLogger<IntroSkipperDatabase>.Instance);
+    }
+
+    private sealed class CommandHook(Func<string, Task> beforeCommand, Action onFailed) : DbCommandInterceptor
+    {
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            await beforeCommand(command.CommandText);
+            return result;
+        }
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            await beforeCommand(command.CommandText);
+            return result;
+        }
+
+        public override async ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<object> result, CancellationToken cancellationToken = default)
+        {
+            await beforeCommand(command.CommandText);
+            return result;
+        }
+
+        public override Task CommandFailedAsync(DbCommand command, CommandErrorEventData eventData, CancellationToken cancellationToken = default)
+        {
+            onFailed();
+            return Task.CompletedTask;
         }
     }
 }

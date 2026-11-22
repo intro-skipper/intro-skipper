@@ -8,9 +8,10 @@ using IntroSkipper.Db;
 
 /// <summary>
 /// A temp-file segment database (<c>introskipper-v2.db</c>) whose files are deleted
-/// on dispose. <see cref="Database"/> is one facade over the file; tests that need
-/// independent initialization gates over the same file call
-/// <see cref="CreateDatabase"/> again.
+/// on dispose. <see cref="Database"/> is one facade over the file. A test that reopens
+/// the file, as a server restart would, calls <see cref="CreateDatabase"/> again. Facades
+/// over one file must not initialize at the same time, as <see cref="IntroSkipperDatabase"/>
+/// explains.
 /// </summary>
 internal sealed class TempSegmentDb : IDisposable
 {

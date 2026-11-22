@@ -7,6 +7,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -15,6 +16,7 @@ using IntroSkipper.Data;
 using IntroSkipper.SegmentChanges;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -473,6 +475,23 @@ public sealed class TestAnalysisScheduler
 
         gate.SetResult();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => holding.WaitAsync(Timeout));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dashboard_UnsetPreviewChoice_FollowsTheOldSwitchUntilTheMigrationCompletes(bool migrated)
+    {
+        await using var h = await QueueHarness.StartAsync();
+        Plugin.Instance!.Configuration.AnimePreviewFromCreditsEnd = true;
+        h.Items.OfType<Series>().Single().Genres = ["Anime"];
+        if (migrated)
+        {
+            await h.Segments.Database.CompletePreviewSettingMigrationAsync([]);
+        }
+
+        var shown = Assert.IsType<OkObjectResult>((await h.Controller.GetAnalysisOverrides(h.SeasonId)).Result);
+        Assert.Equal(!migrated, Assert.IsType<AnalysisOverrides>(shown.Value).PreviewFromCreditsEnd);
     }
 
     // Parks every pass at its ffmpeg version check until the gate opens; a released gate

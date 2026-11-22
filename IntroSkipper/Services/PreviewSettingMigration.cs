@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using Microsoft.Extensions.Hosting;
@@ -17,11 +16,9 @@ namespace IntroSkipper.Services;
 /// </summary>
 /// <remarks>
 /// Runs in the background so a slow library walk or a database that cannot initialize
-/// never holds up Jellyfin's startup. Until the completion marker is written, analysis and
-/// the dashboard derive each season's value from the old global switch. For seasons in this
-/// migration's library snapshot that is the value it stores. A season added while it runs
-/// is not in the snapshot: it follows the old switch until the marker is written, then
-/// defaults to disabled like any other unseen season.
+/// never holds up Jellyfin's startup. It stores the seasons the old switch enabled and the
+/// completion marker in one transaction, and only once every library resolves. Otherwise it
+/// stores nothing and the next start retries.
 /// </remarks>
 /// <param name="seasonResolver">Library season resolver.</param>
 /// <param name="database">Segment database facade.</param>
@@ -46,30 +43,30 @@ public sealed class PreviewSettingMigration(
                 return;
             }
 
-            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, stoppingToken, includePluginDisabled: true, countUnresolvedItems: true);
-            foreach (var season in resolution.Seasons)
+            if (!config.AnimePreviewFromCreditsEnd)
             {
-                stoppingToken.ThrowIfCancellationRequested();
-                var enabled = config.AnimePreviewFromCreditsEnd
-                    && season.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
-
-                // The dashboard is live while this runs, so the write fills only a missing
-                // choice and never reads and rewrites the season's other overrides.
-                await _database.SetPreviewFromCreditsEndIfUnsetAsync(season.Key, enabled, stoppingToken).ConfigureAwait(false);
+                await _database.CompletePreviewSettingMigrationAsync([], stoppingToken).ConfigureAwait(false);
+                return;
             }
 
+            var resolution = _seasonResolver.ResolveLibrary(includeExcluded: true, stoppingToken, includePluginDisabled: true, countUnresolvedItems: true);
             if (resolution.Failures > 0)
             {
                 _logger.LogWarning(
-                    "Could not migrate the legacy post-credits preview choice for every library; {FailureCount} library or series resolutions failed. The migration will retry at the next server start.",
+                    "Could not migrate the legacy post-credits preview choice for every library; {FailureCount} library, series or item resolutions failed. The migration will retry at the next server start.",
                     resolution.Failures);
                 return;
             }
 
-            await _database.CompletePreviewSettingMigrationAsync(stoppingToken).ConfigureAwait(false);
+            var enabled = resolution.Seasons
+                .Where(season => config.LegacyPreviewFromCreditsEnd(season.Episodes))
+                .Select(season => season.Key);
+            await _database.CompletePreviewSettingMigrationAsync(enabled, stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
         {
+            // Only a shutdown cancellation may leave ExecuteAsync. Any other exception that
+            // escapes it stops the host.
             _logger.LogError(ex, "Could not migrate the legacy post-credits preview choice. The migration will retry at the next server start.");
         }
     }
