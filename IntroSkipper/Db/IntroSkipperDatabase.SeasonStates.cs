@@ -122,6 +122,29 @@ public sealed partial class IntroSkipperDatabase
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Stores a post-credits preview choice for a season that has none, leaving every other
+    /// override and any choice already stored untouched. One statement, so a choice the
+    /// user saves concurrently always wins.
+    /// </summary>
+    /// <param name="seasonId">Season key.</param>
+    /// <param name="enabled">The choice to store when the season has none.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes after the choice is stored or found already present.</returns>
+    public async Task SetPreviewFromCreditsEndIfUnsetAsync(Guid seasonId, bool enabled, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "PreviewFromCreditsEnd")
+            VALUES ({seasonId}, {enabled})
+            ON CONFLICT("SeasonId") DO UPDATE SET
+                "PreviewFromCreditsEnd" = COALESCE("SeasonAnalysisOverrides"."PreviewFromCreditsEnd", excluded."PreviewFromCreditsEnd")
+            """,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Gets whether the legacy global post-credits preview setting has been migrated.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true"/> after every current season has a stored choice.</returns>

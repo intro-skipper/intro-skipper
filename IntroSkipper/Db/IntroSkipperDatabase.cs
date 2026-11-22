@@ -34,6 +34,13 @@ public sealed partial class IntroSkipperDatabase
     private readonly ILogger _logger;
     private readonly RetryableInitializationGate _initialization;
 
+    // Serializes everything that migrates the live file: initialization attempts and the
+    // rebuild, which migrates a recreated file outside the initialization gate. Each runs
+    // after the previous one settles, so any EF migration lock row it finds is a leftover,
+    // never a live lock.
+    private readonly Lock _liveFileMigrationLock = new();
+    private Task _liveFileMigration = Task.CompletedTask;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
     /// </summary>
@@ -98,16 +105,77 @@ public sealed partial class IntroSkipperDatabase
             LogRebuildingWithoutInitialization(_logger, ex);
         }
 
-        using var db = _contextFactory.CreateDbContext();
-        await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
+        await RunLiveFileMigrationAsync(async () =>
+        {
+            using var db = _contextFactory.CreateDbContext();
+            await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="migration"/> once every earlier live-file migration has settled,
+    /// whether it succeeded or failed, and returns its own outcome.
+    /// </summary>
+    private Task RunLiveFileMigrationAsync(Func<Task> migration)
+    {
+        lock (_liveFileMigrationLock)
+        {
+            var run = RunAfterAsync(_liveFileMigration, migration);
+            _liveFileMigration = run;
+            return run;
+        }
+
+        static async Task RunAfterAsync(Task previous, Func<Task> migration)
+        {
+            // SuppressThrowing: an earlier failure belongs to its own caller. ForceYielding:
+            // SQLite's async calls run synchronously, so without it a migration behind an
+            // already settled one would run inside the caller's lock, and a concurrent
+            // caller would block its thread there instead of awaiting its turn.
+            await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ForceYielding);
+            await migration().ConfigureAwait(false);
+        }
     }
 
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
-        await db.Database.MigrateAsync().ConfigureAwait(false);
+        await RunLiveFileMigrationAsync(async () =>
+        {
+            await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
+            await db.Database.MigrateAsync().ConfigureAwait(false);
+        }).ConfigureAwait(false);
+
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Deletes a migration lock row left behind by a migration that is no longer running:
+    /// one in a process that died while holding it, or an earlier attempt in this process
+    /// that failed without releasing it. EF Core's SQLite provider takes this lock on every
+    /// <c>MigrateAsync</c>, pending migrations or not, and waits for it without a timeout or
+    /// a log line, so one stale row would hang initialization, and every operation behind
+    /// it, forever. Only the Jellyfin process opens this database, and the caller runs inside
+    /// <see cref="RunLiveFileMigrationAsync"/>, so no migration that could own a row is running.
+    /// </summary>
+    private async Task ClearStaleMigrationLockAsync(IntroSkipperDbContext db)
+    {
+        var lockTableExists = await db.Database
+            .SqlQuery<int>($"""SELECT COUNT(*) AS "Value" FROM sqlite_master WHERE type = 'table' AND name = '__EFMigrationsLock'""")
+            .SingleAsync()
+            .ConfigureAwait(false) > 0;
+        if (!lockTableExists)
+        {
+            return;
+        }
+
+        var cleared = await db.Database
+            .ExecuteSqlRawAsync("""DELETE FROM "__EFMigrationsLock" """)
+            .ConfigureAwait(false);
+        if (cleared > 0)
+        {
+            LogStaleMigrationLockCleared(_logger);
+        }
     }
 
     /// <summary>
@@ -160,6 +228,9 @@ public sealed partial class IntroSkipperDatabase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; the next database operation will retry")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Cleared a stale migration lock left by an interrupted migration")]
+    private static partial void LogStaleMigrationLockCleared(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; proceeding with the requested rebuild, which recreates the schema")]
     private static partial void LogRebuildingWithoutInitialization(ILogger logger, Exception exception);
