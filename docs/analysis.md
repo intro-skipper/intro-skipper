@@ -40,7 +40,7 @@ How library changes become analysis passes, how a pass decides what to analyze, 
    - `AnalyzerAction.None` skips the mode for the season and records its episodes as analyzed under a hash that includes the action, so the season is not queued again on every pass.
    - `tools/CreditsRunner` in intro mode runs the default Introduction chain over labeled real files, one season at a time, and judges every Chapter, Chromaprint or time adjustment change to Introduction; its README has the commands.
 
-A season key stores `AnalysisPercent`, `AnalysisLengthLimit`, `PreviewFromCreditsEnd`, `SubtitleRecapDetection` and `SubtitlePreviewDetection` (`DbSeasonAnalysisOverride`). The dashboard always saves the post-credits preview choice as Enabled or Disabled. Its Full Series option writes the choice to every season the series has at that moment. A season added later has no choice. It follows the old plugin-wide switch until the preview migration completes, and is Disabled after.
+A season key stores `AnalysisPercent`, `AnalysisLengthLimit`, `PreviewFromCreditsEnd`, `SubtitleRecapDetection` and `SubtitlePreviewDetection` (`DbSeasonAnalysisOverride`). The dashboard always saves the post-credits preview choice as Enabled or Disabled. Its Full Series option writes the choice to every season the series has at that moment. A season added later has no choice. Before the preview migration completes it follows the old plugin-wide switch. After, it is Disabled.
 
 ### Subtitle analysis
 
