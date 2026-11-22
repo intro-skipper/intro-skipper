@@ -208,18 +208,13 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyList<AnalysisMode> settledResetModes = [];
         HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
 
-        // The marker is read before the overrides: the background migration stores a
-        // season's choice before its marker, so a marker read first can never pair with a
-        // stale unset choice and clear previews the migrated choice keeps.
-        var legacyPreviewFallback = !await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false)
-            && Config.AnimePreviewFromCreditsEnd;
         var overrides = await _database.GetAnalysisOverridesAsync(season.Key, cancellationToken).ConfigureAwait(false);
+        var previewChoice = overrides.PreviewFromCreditsEnd ?? Config.LegacyPreviewFromCreditsEnd(season.Episodes);
         foreach (var episode in season.Episodes)
         {
             episode.AnalysisPercentOverride = overrides.AnalysisPercent;
             episode.AnalysisLengthLimitOverride = overrides.AnalysisLengthLimit;
-            episode.PreviewFromCreditsEndOverride = overrides.PreviewFromCreditsEnd
-                ?? (legacyPreviewFallback && episode.Category == QueuedMediaCategory.AnimeEpisode);
+            episode.PreviewFromCreditsEndOverride = previewChoice;
             episode.SubtitleRecapDetectionOverride = overrides.SubtitleRecapDetection;
             episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
         }

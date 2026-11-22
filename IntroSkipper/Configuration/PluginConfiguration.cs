@@ -751,6 +751,16 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
+    /// Gets the post-credits preview choice the removed plugin-wide switch gave a season.
+    /// It is on when <see cref="AnimePreviewFromCreditsEnd"/> is on and the season has an
+    /// anime episode.
+    /// </summary>
+    /// <param name="episodes">The season's episodes.</param>
+    /// <returns>The legacy choice for the season.</returns>
+    public bool LegacyPreviewFromCreditsEnd(IEnumerable<QueuedEpisode> episodes)
+        => AnimePreviewFromCreditsEnd && episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
+
+    /// <summary>
     /// Gets the subtitle pattern that detects <paramref name="mode"/> for
     /// <paramref name="episode"/>, under its season's detection override. See
     /// <see cref="ActiveSubtitlePattern(AnalysisMode, bool?)"/>.

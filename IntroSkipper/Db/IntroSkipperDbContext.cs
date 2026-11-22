@@ -228,10 +228,13 @@ public class IntroSkipperDbContext : DbContext
     /// import; the importer skips rows the restored data already holds.
     /// </summary>
     /// <remarks>
-    /// The replacement is migrated and restored in a private in-memory database, then copied
-    /// over the live file in one SQLite transaction. A failed rebuild leaves the file as it
-    /// was, and writes that commit while the rebuild runs are overwritten. Only the consented
-    /// <paramref name="forceCleanOnBackupFailure"/> path deletes and recreates the file.
+    /// The rebuild reads every table in one read transaction, so it restores rows that
+    /// committed together as a pair. It migrates and restores the replacement in a private
+    /// in-memory database, then copies that over the live file in one SQLite transaction. A
+    /// failed rebuild leaves the file as it was, and the copy overwrites writes that commit
+    /// while the rebuild runs. Only the consented <paramref name="forceCleanOnBackupFailure"/>
+    /// path deletes the file, and only once its replacement is built. A failure between that
+    /// delete and the copy leaves an empty file.
     /// </remarks>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c> and the backup read fails, the file is recreated with only the tables read before the failure.
@@ -251,12 +254,20 @@ public class IntroSkipperDbContext : DbContext
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
+        var recreate = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
         try
         {
             // Stays open for the copy at the end; disposing the context closes it.
             await Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+            // Deferred takes no write lock, and the connection enlists EF's read commands in
+            // it. It ends with this block, because the copy below needs a connection with no
+            // open transaction.
+#pragma warning disable CA1849 // A deferred BEGIN does no I/O, and no async overload takes deferred.
+            using var snapshot = ((SqliteConnection)Database.GetDbConnection()).BeginTransaction(deferred: true);
+#pragma warning restore CA1849
 
             // Suppressed rows are salvaged too: tombstones are user intent. So is
             // pending projection work: markers and journaled foreign-row deletes
@@ -285,11 +296,7 @@ public class IntroSkipperDbContext : DbContext
                 throw new DatabaseRebuildBackupException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
             }
 
-            // Explicit consent to discard an unreadable file: recreate it, then restore
-            // the tables read before the failure into it like any other rebuild.
-            DeleteDatabaseFiles();
-            await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
-            await Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            recreate = true;
         }
 
         // Rebuild targets corrupted databases, whose readable rows can still violate the
@@ -340,6 +347,11 @@ public class IntroSkipperDbContext : DbContext
             await AddInBatchesAsync(db, db.PluginMetadata, pluginMetadata, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
             await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (recreate)
+        {
+            await RecreateDatabaseFileAsync().ConfigureAwait(false);
         }
 
         // The copy is one SQLite write transaction on the live file, so a failure before it
@@ -412,7 +424,12 @@ public class IntroSkipperDbContext : DbContext
         }
     }
 
-    private void DeleteDatabaseFiles()
+    /// <summary>
+    /// Replaces the database file with an empty one in WAL mode, left open for the copy.
+    /// It takes no cancellation token, because stopping once the file is gone would lose
+    /// the salvage.
+    /// </summary>
+    private async Task RecreateDatabaseFileAsync()
     {
         var dbPath = GetDatabaseFilePath();
         if (string.IsNullOrEmpty(dbPath))
@@ -421,7 +438,7 @@ public class IntroSkipperDbContext : DbContext
         }
 
         // Close this context's own connection before clearing pools, so nothing holds a lock.
-        Database.CloseConnection();
+        await Database.CloseConnectionAsync().ConfigureAwait(false);
         SqliteConnection.ClearAllPools();
 
         // Attempt to delete all files, collecting failures so one locked file doesn't prevent the rest.
@@ -445,6 +462,10 @@ public class IntroSkipperDbContext : DbContext
                 $"Failed to delete {failures.Count} database file(s): {string.Join(", ", failures.Select(f => f.Path))}",
                 failures.Select(f => f.Exception));
         }
+
+        // The copy keeps its destination's journal mode, and a new file starts in rollback mode.
+        await Database.OpenConnectionAsync().ConfigureAwait(false);
+        await SqlitePragmas.EnforceWalAsync(Database).ConfigureAwait(false);
     }
 
     internal string? GetDatabaseFilePath()

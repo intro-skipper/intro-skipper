@@ -178,20 +178,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        // The marker is read before the overrides: the migration stores a season's choice
-        // before its marker, so a marker read first can never pair with a stale unset choice.
-        var migrated = await _database.IsPreviewSettingMigrationCompleteAsync(cancellationToken).ConfigureAwait(false);
         var overrides = await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false);
-        if (overrides.PreviewFromCreditsEnd is not null)
+        return Ok(overrides with
         {
-            return Ok(overrides);
-        }
-
-        var config = Plugin.Instance!.Configuration;
-        var legacyPreviewEnabled = !migrated
-            && config.AnimePreviewFromCreditsEnd
-            && _seasonResolver.ResolveDisplayed(seasonId)?.Episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode) == true;
-        return Ok(overrides with { PreviewFromCreditsEnd = legacyPreviewEnabled });
+            PreviewFromCreditsEnd = overrides.PreviewFromCreditsEnd
+                ?? Plugin.Instance!.Configuration.LegacyPreviewFromCreditsEnd(_seasonResolver.ResolveDisplayed(seasonId)?.Episodes ?? []),
+        });
     }
 
     /// <summary>

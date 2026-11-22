@@ -1168,6 +1168,59 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeasonPass_UnsetPreviewChoice_FollowsTheOldSwitchUntilTheMigrationCompletes(bool migrated)
+    {
+        var config = new PluginConfiguration
+        {
+            ScanIntroduction = false,
+            ScanCredits = false,
+            ScanRecap = false,
+            ScanPreview = true,
+            ScanCommercial = false,
+            AnimePreviewFromCreditsEnd = true,
+        };
+        using var pluginScope = EntrypointTestHelpers.CreatePluginScope(config);
+        var mediaPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(mediaPath, string.Empty);
+        try
+        {
+            var seriesId = Guid.NewGuid();
+            var seasonId = Guid.NewGuid();
+            var series = JellyfinItems.Series(seriesId);
+            series.Genres = ["Anime"];
+            var episode = JellyfinItems.Episode(Guid.NewGuid(), seriesId, seasonId, path: mediaPath);
+            var libraryManager = EntrypointTestHelpers.FakeLibraryManager.Create([JellyfinItems.Folder("Media")], JellyfinItems.WithParents(series, episode));
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", libraryManager);
+            var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+            await database.SetAnalyzerActionAsync(seasonId, new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Preview] = AnalyzerAction.None });
+            await database.ReplaceAutoSegmentsAsync(episode.Id, AnalysisMode.Preview, [new Segment(episode.Id, new TimeRange(200, 240))], SegmentSource.CreditsDerived);
+            if (migrated)
+            {
+                await database.CompletePreviewSettingMigrationAsync([]);
+            }
+
+            var analyzer = new BaseItemAnalyzerTask(
+                NullLoggerFactory.Instance,
+                EntrypointTestHelpers.CreateSeasonResolver(libraryManager),
+                new StubFFmpegService { VersionCheck = () => false },
+                DatabaseTestHelpers.CreateTempCacheService(),
+                cacheDatabase: null!,
+                database);
+
+            await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]);
+
+            Assert.Equal(!migrated, (await database.GetSegmentsAsync(episode.Id)).Any(segment => segment.Type == AnalysisMode.Preview));
+        }
+        finally
+        {
+            File.Delete(mediaPath);
+        }
+    }
+
     /// <summary>
     /// A season that throws is skipped, not the pass: the other seasons in scope are still
     /// analyzed and recorded, and the failed one is left unrecorded for the next pass.

@@ -27,19 +27,14 @@ namespace IntroSkipper.Db;
 /// </list>
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory.
+/// One instance serves a database file per process, and the plugin registers it as a
+/// singleton.
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
     private readonly RetryableInitializationGate _initialization;
-
-    // Serializes everything that migrates the live file: initialization attempts and the
-    // rebuild, which migrates a recreated file outside the initialization gate. Each runs
-    // after the previous one settles, so any EF migration lock row it finds is a leftover,
-    // never a live lock.
-    private readonly Lock _liveFileMigrationLock = new();
-    private Task _liveFileMigration = Task.CompletedTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
@@ -98,53 +93,20 @@ public sealed partial class IntroSkipperDatabase
         }
         catch (Exception ex)
         {
-            // Rebuild exists to recover from exactly this state — a database whose
-            // migrations fail — so a failed gate must not make it unreachable. The
-            // rebuild migrates the recreated file itself, and the failed attempt was
-            // already reset, so the next operation re-initializes against the result.
+            // Rebuild exists to recover from exactly this state, a database whose
+            // migrations fail, so a failed gate must not make it unreachable.
             LogRebuildingWithoutInitialization(_logger, ex);
         }
 
-        await RunLiveFileMigrationAsync(async () =>
-        {
-            using var db = _contextFactory.CreateDbContext();
-            await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
-        }).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Runs <paramref name="migration"/> once every earlier live-file migration has settled,
-    /// whether it succeeded or failed, and returns its own outcome.
-    /// </summary>
-    private Task RunLiveFileMigrationAsync(Func<Task> migration)
-    {
-        lock (_liveFileMigrationLock)
-        {
-            var run = RunAfterAsync(_liveFileMigration, migration);
-            _liveFileMigration = run;
-            return run;
-        }
-
-        static async Task RunAfterAsync(Task previous, Func<Task> migration)
-        {
-            // SuppressThrowing: an earlier failure belongs to its own caller. ForceYielding:
-            // SQLite's async calls run synchronously, so without it a migration behind an
-            // already settled one would run inside the caller's lock, and a concurrent
-            // caller would block its thread there instead of awaiting its turn.
-            await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ForceYielding);
-            await migration().ConfigureAwait(false);
-        }
+        using var db = _contextFactory.CreateDbContext();
+        await db.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();
-        await RunLiveFileMigrationAsync(async () =>
-        {
-            await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
-            await db.Database.MigrateAsync().ConfigureAwait(false);
-        }).ConfigureAwait(false);
-
+        await ClearStaleMigrationLockAsync(db).ConfigureAwait(false);
+        await db.Database.MigrateAsync().ConfigureAwait(false);
         await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
         await ImportLegacyDatabaseAsync(db).ConfigureAwait(false);
     }
@@ -155,8 +117,9 @@ public sealed partial class IntroSkipperDatabase
     /// that failed without releasing it. EF Core's SQLite provider takes this lock on every
     /// <c>MigrateAsync</c>, pending migrations or not, and waits for it without a timeout or
     /// a log line, so one stale row would hang initialization, and every operation behind
-    /// it, forever. Only the Jellyfin process opens this database, and the caller runs inside
-    /// <see cref="RunLiveFileMigrationAsync"/>, so no migration that could own a row is running.
+    /// it, forever. No migration that could own a row is still running. Only the Jellyfin
+    /// process opens this database, one instance serves the file, the gate runs one attempt
+    /// at a time, and only initialization migrates the file.
     /// </summary>
     private async Task ClearStaleMigrationLockAsync(IntroSkipperDbContext db)
     {

@@ -34,8 +34,8 @@ internal static class SqlitePragmas
 
     /// <summary>
     /// Enforces WAL journal mode. WAL is a persistent database property, but EF only
-    /// sets it when *it* creates the database file. Enforce it idempotently so databases
-    /// vacuumed or recreated by external tooling are covered as well.
+    /// sets it when *it* creates the database file. The pragma is idempotent, so this also
+    /// covers databases that external tooling vacuumed or recreated.
     /// </summary>
     /// <param name="database">The database facade to apply the pragma to.</param>
     public static void EnforceWal(DatabaseFacade database)
