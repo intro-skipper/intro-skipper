@@ -1195,6 +1195,7 @@ internal sealed partial class ChromaprintAnalyzer(
 /// <param name="Candidates">The raw candidate per episode id, in file seconds.</param>
 /// <param name="FingerprintFailures">The episodes that still needed analysis and whose fingerprint failed.</param>
 /// <param name="PreviewBoundaryChanges">The episode ids whose candidates were shortened by the shared-preview vote.</param>
+/// <param name="ComparisonIncomplete">The analysis targets that had no usable comparison pair.</param>
 internal sealed record ChromaprintCandidates(
     Dictionary<Guid, Segment> Candidates,
     HashSet<Guid> FingerprintFailures,
