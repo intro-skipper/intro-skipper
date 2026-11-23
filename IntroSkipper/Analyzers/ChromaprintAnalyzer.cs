@@ -234,6 +234,7 @@ internal sealed partial class ChromaprintAnalyzer(
         {
             return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges, comparisonIncomplete);
         }
+
         if (episodeAnalysisQueue.Count == 1)
         {
             var currentEpisode = episodeAnalysisQueue[0];

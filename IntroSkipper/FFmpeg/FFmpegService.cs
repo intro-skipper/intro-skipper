@@ -793,7 +793,6 @@ internal sealed partial class FFmpegService : IFFmpegService
             var output = Encoding.UTF8.GetString(await _processRunner.RunAsync(
                 GetFFprobePath(),
                 args,
-                stderr: false,
                 timeout: 15 * 1000,
                 cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
 

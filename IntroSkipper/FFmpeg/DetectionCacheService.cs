@@ -216,6 +216,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 CacheEntryType.ShortcutDuration,
                 fileVersion,
                 0,
+                Plugin.Instance?.Configuration ?? new PluginConfiguration(),
                 out double[] values)
             || values.Length != 1
             || values[0] <= 0)
@@ -271,6 +272,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             CacheEntryType.ShortcutDuration,
             fileVersion,
             0,
+            Plugin.Instance?.Configuration ?? new PluginConfiguration(),
             [duration]);
     }
 
