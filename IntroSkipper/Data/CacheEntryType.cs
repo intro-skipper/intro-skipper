@@ -44,4 +44,9 @@ public enum CacheEntryType
     /// Where the credits cut start places a part's start, keyed by the two keyframes that bound the decoded gap.
     /// </summary>
     Cut,
+
+    /// <summary>
+    /// Successfully probed duration for a shortcut target, keyed by its file identity.
+    /// </summary>
+    ShortcutDuration,
 }

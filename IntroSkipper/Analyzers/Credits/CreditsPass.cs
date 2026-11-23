@@ -96,7 +96,7 @@ internal sealed partial class CreditsPass(
         var chapter = useChapter ? new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config) : null;
         var detectKeyframeCredits = useBlackFrame ? CreateKeyframeDetector() : null;
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, Mode, _ffmpegService);
-        var pendingItems = items.Where(e => e.NeedsAnalysis(Mode)).ToList();
+        var pendingItems = items.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(Mode)).ToList();
 
         // Found the first time a step needs them, inside that step's error handling, then reused.
         Dictionary<Guid, ChapterCredits> chapterCredits = [];
@@ -154,6 +154,7 @@ internal sealed partial class CreditsPass(
         Dictionary<Guid, Segment> chromaprintCandidates = [];
         HashSet<Guid> fingerprintFailures = [];
         HashSet<Guid> previewBoundaryChanges = [];
+        HashSet<Guid> comparisonIncomplete = [];
         if (useChromaprint && pendingItems.Any(e => !chapterHandled.Contains(e.EpisodeId)))
         {
             try
@@ -171,6 +172,7 @@ internal sealed partial class CreditsPass(
                 chromaprintCandidates = chromaprintResult.Candidates;
                 fingerprintFailures = chromaprintResult.FingerprintFailures;
                 previewBoundaryChanges = chromaprintResult.PreviewBoundaryChanges;
+                comparisonIncomplete = chromaprintResult.ComparisonIncomplete;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -187,7 +189,7 @@ internal sealed partial class CreditsPass(
             }
         }
 
-        foreach (var episode in items)
+        foreach (var episode in items.Where(e => e.IsAnalysisTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -278,6 +280,17 @@ internal sealed partial class CreditsPass(
 
                         analyzerFailed = true;
                     }
+                }
+
+                if (candidates.Count == 0
+                    && comparisonIncomplete.Contains(episode.EpisodeId)
+                    && !analyzerFailed)
+                {
+                    // A later shortcut batch may supply the missing comparison fingerprint.
+                    // Do not persist this temporary lack of context as a durable NoSegments result.
+                    episode.SetComparisonPending(Mode, true);
+                    episode.SetAnalyzed(Mode, EpisodeState.NotAnalyzed);
+                    continue;
                 }
 
                 // After the keyframe scan, so a scan that keeps the standing credits costs no probe.

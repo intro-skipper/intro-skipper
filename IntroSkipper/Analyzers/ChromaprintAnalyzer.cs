@@ -113,9 +113,28 @@ internal sealed partial class ChromaprintAnalyzer(
         var result = await FindCandidatesAsync(comparisonQueue, mode, cancellationToken).ConfigureAwait(false);
         var seasonIntros = result.Candidates;
         var fingerprintFailures = result.FingerprintFailures;
-        foreach (var episode in analysisQueue.Where(e => fingerprintFailures.Contains(e.EpisodeId)))
+        foreach (var episode in analysisQueue.Where(e => e.IsAnalysisTarget && fingerprintFailures.Contains(e.EpisodeId)))
         {
             episode.SetAnalyzed(mode, EpisodeState.AnalysisFailed);
+        }
+
+        foreach (var episode in analysisQueue.Where(e => e.IsAnalysisTarget
+            && result.ComparisonIncomplete.Contains(e.EpisodeId)
+            && !fingerprintFailures.Contains(e.EpisodeId)))
+        {
+            // A shortcut batch can fingerprint its target before a usable sibling fingerprint
+            // is available. Keep it pending so a later batch can reuse the cached target.
+            episode.SetComparisonPending(mode, true);
+            episode.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
+        }
+
+        foreach (var episode in analysisQueue.Where(e => e.IsAnalysisTarget
+            && e.NeedsAnalysis(mode)
+            && !fingerprintFailures.Contains(e.EpisodeId)
+            && !result.ComparisonIncomplete.Contains(e.EpisodeId)))
+        {
+            episode.SetComparisonPending(mode, false);
+            episode.SetAnalyzed(mode, EpisodeState.NoSegments);
         }
 
         if (seasonIntros.Count == 0)
@@ -125,7 +144,7 @@ internal sealed partial class ChromaprintAnalyzer(
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
 
-        foreach (var currentEpisode in analysisQueue)
+        foreach (var currentEpisode in analysisQueue.Where(e => e.IsAnalysisTarget))
         {
             // A user-provided neighbour is padded into the comparison only for its fingerprint.
             if (currentEpisode.GetAnalyzed(mode) == EpisodeState.UserProvided ||
@@ -182,17 +201,16 @@ internal sealed partial class ChromaprintAnalyzer(
     /// for the episodes no credits chapter settled.
     /// </summary>
     /// <remarks>
-    /// Compares the episodes that need analysis plus the already-analyzed ones that still
-    /// have a cached fingerprint, so a newly added episode re-derives its fingerprinted
-    /// siblings' candidates; a lone open episode is compared with the episodes numbered next
-    /// to it, cached or not. Episode state is left to the caller: an episode whose
-    /// fingerprint fails gets no candidate and, when it still needed analysis, is reported in
-    /// the result's failures.
+    /// Compares analysis targets with the other targets and reusable cached fingerprints in
+    /// their season. A shortcut batch never probes an unselected sibling just to build context;
+    /// an unselected sibling without a cached fingerprint leaves the target pending until a
+    /// later batch supplies a comparison pair. An episode whose fingerprint fails gets no
+    /// candidate and, when it still needed analysis, is reported in the result's failures.
     /// </remarks>
     /// <param name="analysisQueue">The season's queued media files, analyzed or not.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The raw candidate per episode id, the episodes whose fingerprint failed, and the candidates shortened by the shared-preview vote; all empty when the season has nothing to compare.</returns>
+    /// <returns>Raw candidates, fingerprint failures, candidates shortened by the shared-preview vote, and targets without a usable comparison pair.</returns>
     internal async Task<ChromaprintCandidates> FindCandidatesAsync(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
@@ -202,30 +220,37 @@ internal sealed partial class ChromaprintAnalyzer(
         var seasonIntros = new Dictionary<Guid, Segment>();
         var fingerprintFailures = new HashSet<Guid>();
         var previewBoundaryChanges = new HashSet<Guid>();
+        var comparisonIncomplete = new HashSet<Guid>();
 
         // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
         // episodes that still have a fingerprint cache and can be re-analyzed.
+        var targets = analysisQueue.Where(e => e.IsAnalysisTarget && e.NeedsAnalysis(mode)).ToList();
         var episodeAnalysisQueue = analysisQueue.Where(e =>
-            e.NeedsAnalysis(mode) ||
-            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && _cacheService.HasCachedFingerprint(e, mode))).ToList();
+            (e.IsAnalysisTarget && e.NeedsAnalysis(mode)) ||
+            (!e.IsAnalysisTarget && !e.FileChanged && _cacheService.HasCachedFingerprint(e, mode)) ||
+            (e.IsAnalysisTarget && e.GetAnalyzed(mode) == EpisodeState.Analyzed && _cacheService.HasCachedFingerprint(e, mode))).ToList();
 
-        if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
+        if (targets.Count == 0)
         {
-            return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges);
+            return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges, comparisonIncomplete);
+        }
+
+        if (episodeAnalysisQueue.Count == 1)
+        {
+            var currentEpisode = episodeAnalysisQueue[0];
+            var regularPass = analysisQueue.All(episode => episode.IsAnalysisTarget);
+            episodeAnalysisQueue.AddRange(analysisQueue
+                .Where(episode => (regularPass || episode.IsAnalysisTarget)
+                    && episode != currentEpisode
+                    && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1
+                    && !episodeAnalysisQueue.Contains(episode)));
         }
 
         _analysisMode = mode;
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
-
-        // Ensure at least two fingerprints are present.
-        if (episodeAnalysisQueue.Count == 1)
-        {
-            var currentEpisode = episodeAnalysisQueue[0];
-            episodeAnalysisQueue.AddRange(analysisQueue
-                .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
-        }
+        var comparableEpisodes = new HashSet<Guid>();
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
@@ -239,11 +264,11 @@ internal sealed partial class ChromaprintAnalyzer(
             {
                 if (ex.InnerException is TimeoutException)
                 {
-                    LogFingerprintTimeout(ex, episode.Name, episode.Path);
+                    LogFingerprintTimeout(ex, episode.Name, episode.AnalysisPath);
                 }
                 else
                 {
-                    LogCaughtFingerprintError(ex, episode.Path);
+                    LogCaughtFingerprintError(ex, episode.AnalysisPath);
                 }
 
                 WarningManager.RecordFingerprintFailure($"{episode.EpisodeId:N}: {ex.Message}");
@@ -266,6 +291,12 @@ internal sealed partial class ChromaprintAnalyzer(
             for (var remaining = current + 1; remaining < episodeAnalysisQueue.Count; remaining++)
             {
                 var remainingEpisode = episodeAnalysisQueue[remaining];
+
+                if (fingerprintCache[currentEpisode.EpisodeId].Length > 0 && fingerprintCache[remainingEpisode.EpisodeId].Length > 0)
+                {
+                    comparableEpisodes.Add(currentEpisode.EpisodeId);
+                    comparableEpisodes.Add(remainingEpisode.EpisodeId);
+                }
 
                 // Compare the current episode to all remaining episodes in the queue.
                 var (currentIntro, remainingIntro) = CompareEpisodes(
@@ -371,7 +402,8 @@ internal sealed partial class ChromaprintAnalyzer(
             seasonIntros = ConfirmLocalConsensus(episodeAnalysisQueue, fingerprintCache, seasonIntros, mode, cancellationToken);
         }
 
-        return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges);
+        comparisonIncomplete.UnionWith(targets.Where(target => !comparableEpisodes.Contains(target.EpisodeId)).Select(target => target.EpisodeId));
+        return new ChromaprintCandidates(seasonIntros, fingerprintFailures, previewBoundaryChanges, comparisonIncomplete);
     }
 
     /// <summary>
@@ -1163,4 +1195,9 @@ internal sealed partial class ChromaprintAnalyzer(
 /// <param name="Candidates">The raw candidate per episode id, in file seconds.</param>
 /// <param name="FingerprintFailures">The episodes that still needed analysis and whose fingerprint failed.</param>
 /// <param name="PreviewBoundaryChanges">The episode ids whose candidates were shortened by the shared-preview vote.</param>
-internal sealed record ChromaprintCandidates(Dictionary<Guid, Segment> Candidates, HashSet<Guid> FingerprintFailures, HashSet<Guid> PreviewBoundaryChanges);
+/// <param name="ComparisonIncomplete">The analysis targets that had no usable comparison pair.</param>
+internal sealed record ChromaprintCandidates(
+    Dictionary<Guid, Segment> Candidates,
+    HashSet<Guid> FingerprintFailures,
+    HashSet<Guid> PreviewBoundaryChanges,
+    HashSet<Guid> ComparisonIncomplete);

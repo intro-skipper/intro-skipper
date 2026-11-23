@@ -283,6 +283,8 @@ internal static class ConfigHasher
             // The rule's thresholds are constants: bump the token when they change.
             CacheEntryType.Cut => $"cache|v1|{type}",
 
+            CacheEntryType.ShortcutDuration => $"cache|v1|{type}",
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
 

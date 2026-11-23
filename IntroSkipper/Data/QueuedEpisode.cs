@@ -16,6 +16,7 @@ public sealed class QueuedEpisode
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
     private readonly SubtitleOutcome[] _subtitleOutcomes = new SubtitleOutcome[Enum.GetValues<AnalysisMode>().Length];
     private readonly HashSet<AnalysisMode> _subtitleOnlyReanalysisModes = [];
+    private readonly HashSet<AnalysisMode> _comparisonPendingModes = [];
     private readonly Dictionary<AnalysisMode, ChapterSourceCheck> _chapterSourceChecks = [];
 
     /// <summary>
@@ -52,6 +53,26 @@ public sealed class QueuedEpisode
     /// Gets or sets the full path to episode.
     /// </summary>
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the resolved target path for a shortcut media item.
+    /// </summary>
+    public string ShortcutPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this media item is a shortcut.
+    /// </summary>
+    public bool IsShortcut { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this item is analyzed in the current pass.
+    /// </summary>
+    internal bool IsAnalysisTarget { get; set; } = true;
+
+    /// <summary>
+    /// Gets the media path FFmpeg should read, resolving shortcuts to their target.
+    /// </summary>
+    internal string AnalysisPath => IsShortcut && !string.IsNullOrEmpty(ShortcutPath) ? ShortcutPath : Path;
 
     /// <summary>
     /// Gets or sets the item's internal metadata folder, where Jellyfin saves the subtitles it
@@ -252,7 +273,38 @@ public sealed class QueuedEpisode
     public void SetAnalyzed(AnalysisMode mode, EpisodeState value)
     {
         _isAnalyzed[(int)mode] = value;
+        if (value is EpisodeState.Analyzed or EpisodeState.UserProvided)
+        {
+            // Only a usable result can close a comparison that an earlier analyzer left
+            // pending. NoSegments from a later analyzer is not definitive without that context.
+            SetComparisonPending(mode, false);
+        }
     }
+
+    /// <summary>
+    /// Marks whether the current analysis pass lacked a comparison partner for this mode.
+    /// Such an item must remain retryable instead of being persisted as NoSegments.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="value">Whether comparison is still pending.</param>
+    internal void SetComparisonPending(AnalysisMode mode, bool value)
+    {
+        if (value)
+        {
+            _comparisonPendingModes.Add(mode);
+        }
+        else
+        {
+            _comparisonPendingModes.Remove(mode);
+        }
+    }
+
+    /// <summary>
+    /// Gets whether the current analysis pass lacked a comparison partner for this mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><see langword="true"/> when the result must remain retryable.</returns>
+    internal bool IsComparisonPending(AnalysisMode mode) => _comparisonPendingModes.Contains(mode);
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

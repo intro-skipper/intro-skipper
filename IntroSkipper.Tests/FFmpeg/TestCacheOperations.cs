@@ -86,6 +86,57 @@ public sealed class TestCacheOperations
         Assert.Empty(result);
     }
 
+    [Fact]
+    public void ShortcutDurationCache_IsScopedToTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+        };
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+
+        Assert.True(scope.CacheService.TryReadShortcutDuration(episode, out var duration));
+        Assert.Equal(321, duration);
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.TryReadShortcutDuration(episode, out _));
+    }
+
+    [Fact]
+    public void ShortcutFingerprintCache_RequiresTheCurrentFileIdentity()
+    {
+        using var scope = new CachingPluginScope();
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IsShortcut = true,
+            ShortcutPath = "/remote/episode.mkv",
+            FileVersion = 123,
+            IntroFingerprintEnd = 600,
+        };
+
+        scope.SeedRow(
+            episode.EpisodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            EntrypointTestHelpers.EmptyJsonArray,
+            0,
+            600);
+
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        scope.CacheService.WriteShortcutDuration(episode, 321);
+        Assert.True(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+
+        episode.FileVersion = 124;
+        Assert.False(scope.CacheService.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+    }
+
     /// <summary>
     /// The cache reads and writes a row under the configuration the caller passes, not the live
     /// one, so a settings save during a pass never files a scan under settings it did not use.

@@ -91,6 +91,27 @@ public sealed partial class DetectionCacheDatabase
     }
 
     /// <summary>
+    /// Returns every cache entry for an item, mode, and type.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="type">Cache entry type.</param>
+    /// <returns>The matching entries, or an empty list when the cache database cannot initialize.</returns>
+    public IReadOnlyList<DbDetectionCache> FindEntries(Guid itemId, AnalysisMode mode, CacheEntryType type)
+    {
+        if (!TryInitialize())
+        {
+            return [];
+        }
+
+        using var db = _contextFactory.CreateDbContext();
+        return db.DetectionCache
+            .AsNoTracking()
+            .Where(entry => entry.ItemId == itemId && entry.Mode == mode && entry.Type == type)
+            .ToList();
+    }
+
+    /// <summary>
     /// Inserts or updates the cache entry for the given key in one statement.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
