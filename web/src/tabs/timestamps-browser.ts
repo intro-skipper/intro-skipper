@@ -222,7 +222,6 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
     async function navigateToShow(show: ShowItem): Promise<void> {
         const view = nextView();
 
-        actions.prepareForShow(show.Id);
         resetViewContent();
 
         if (show.Type === "Movie") {
@@ -299,6 +298,11 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
         seriesSeasons: readonly SeasonItem[] = currentSeasons,
     ): Promise<void> {
         const panel = nextPanel();
+        // Scan and Erase target this season from now on, even if its episodes
+        // never arrive.
+        void actions
+            .loadForSeason(show.Id, season.Id, false, panel, seriesSeasons)
+            .catch(ignoreAbort);
 
         setPanelBusy(true);
         epList.clear();
@@ -328,7 +332,6 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
                 disabledItemIds,
                 "Failed to load media-segment settings; the enable/disable toggles are hidden.",
             );
-            await actions.loadForSeason(show.Id, season.Id, false, panel, seriesSeasons);
         } catch (err) {
             if (isAbortError(err)) throw err;
             epList.setStatus("Failed to load episodes: " + errorText(err), "error");
@@ -342,6 +345,7 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
 
     async function loadMovieEpisodes(show: ShowItem): Promise<void> {
         const panel = nextPanel();
+        void actions.loadForSeason(show.Id, show.Id, true, panel).catch(ignoreAbort);
 
         setPanelBusy(true);
         epList.clear();
@@ -375,7 +379,6 @@ function createTimestampsBrowser(container: HTMLElement, signal: AbortSignal): v
                 disabledItemIds,
                 "Failed to load media-segment settings; the enable/disable toggle is hidden.",
             );
-            await actions.loadForSeason(show.Id, show.Id, true, panel);
         } catch (err) {
             if (isAbortError(err)) throw err;
             epList.setStatus("Failed to load timestamps: " + errorText(err), "error");

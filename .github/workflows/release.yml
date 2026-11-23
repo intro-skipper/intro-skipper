@@ -35,7 +35,7 @@ jobs:
 
       - name: Bump release version
         run: |
-          CURRENT_VERSION=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          CURRENT_VERSION="$FILE_VERSION"
           IFS='.' read -r JELLYFIN_MAJOR JELLYFIN_MINOR RELEASE _PRERELEASE <<< "$CURRENT_VERSION"
           NEW_FILE_VERSION="${JELLYFIN_MAJOR}.${JELLYFIN_MINOR}.$((RELEASE + 1)).0"
           sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${NEW_FILE_VERSION}</AssemblyVersion>|" IntroSkipper/IntroSkipper.csproj

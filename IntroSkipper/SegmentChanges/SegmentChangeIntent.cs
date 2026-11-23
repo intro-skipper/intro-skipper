@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
@@ -32,9 +33,10 @@ public sealed record ReplaceUserSegmentsForItemIntent(Guid ItemId, IReadOnlyList
 /// <summary>Updates one segment and promotes the surviving row to user provenance.</summary>
 /// <param name="ItemId">Item ID.</param>
 /// <param name="SegmentId">Segment ID.</param>
+/// <param name="Mode">New analysis mode, or <see langword="null"/> to preserve the current mode.</param>
 /// <param name="StartTicks">Start ticks.</param>
 /// <param name="EndTicks">End ticks.</param>
-public sealed record UpdateSegmentIntent(Guid ItemId, Guid SegmentId, long StartTicks, long EndTicks) : SegmentChangeIntent(ItemId);
+public sealed record UpdateSegmentIntent(Guid ItemId, Guid SegmentId, long StartTicks, long EndTicks, AnalysisMode? Mode = null) : SegmentChangeIntent(ItemId);
 
 /// <summary>Deletes one stored segment, preserving automatic intent as a tombstone.</summary>
 /// <param name="ItemId">Item ID.</param>
@@ -57,7 +59,8 @@ public sealed record SegmentVisibilityChangeIntent(Guid ItemId, bool Visible) : 
 /// sharing the id is deleted authoritatively (tombstoning automatic rows) with its
 /// Jellyfin twin's targeted delete journaled; an id with no plugin row resolves the
 /// Jellyfin row lazily inside the transaction, validates its ownership, matches the
-/// uncorrelated plugin counterpart, and journals the foreign row's durable delete.
+/// uncorrelated plugin counterpart when Intro Skipper's provider wrote the row, and
+/// journals the Jellyfin row's durable delete.
 /// </summary>
 /// <param name="ItemId">Owning item ID.</param>
 /// <param name="SegmentId">Editor-visible segment ID (shared with the plugin row when one exists).</param>

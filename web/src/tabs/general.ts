@@ -171,6 +171,14 @@ export const generalTab: Tab = {
             form.field("ShortcutAnalysisBatchSize", {
                 visible: () => configStore.get("ProcessShortcutVideos") === true,
             }),
+            form.field("UseSettledSeasonChromaprintConsensus", {
+                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
+            }),
+            form.field("SettledSeasonChromaprintConsensusEpisodes", {
+                visible: () =>
+                    configStore.get("ReanalyzeSettledSeasons") === true &&
+                    configStore.get("UseSettledSeasonChromaprintConsensus") === true,
+            }),
             form.field("UpdateMediaSegments"),
             form.field("AnalyzeSeasonZero"),
             form.list("SeriesExclusions", {

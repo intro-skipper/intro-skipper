@@ -35,7 +35,7 @@ public class IntroSkipperDbContext : DbContext
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
     /// </summary>
-    /// <param name="options">The options, configured through <see cref="SqlitePragmas.Configure"/>.</param>
+    /// <param name="options">The options, configured through <see cref="SqlitePragmas.Configure"/> (the rebuild's scratch context uses a private in-memory connection).</param>
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
     }
@@ -64,6 +64,9 @@ public class IntroSkipperDbContext : DbContext
     /// Gets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
     /// </summary>
     public DbSet<DbImportRecord> ImportHistory => Set<DbImportRecord>();
+
+    /// <summary>Gets the durable plugin migration markers.</summary>
+    public DbSet<DbPluginMetadata> PluginMetadata => Set<DbPluginMetadata>();
 
     /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
@@ -154,6 +157,14 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
         });
 
+        modelBuilder.Entity<DbPluginMetadata>(entity =>
+        {
+            entity.ToTable("PluginMetadata");
+            entity.HasKey(row => row.Key);
+            entity.Property(row => row.Key).ValueGeneratedNever();
+            entity.Property(row => row.Value).IsRequired();
+        });
+
         modelBuilder.Entity<DbDisabledItem>(entity =>
         {
             entity.ToTable("DisabledItems");
@@ -216,58 +227,60 @@ public class IntroSkipperDbContext : DbContext
     /// (the legacy import never succeeded) none is written, so the next start retries the
     /// import; the importer skips rows the restored data already holds.
     /// </summary>
-    /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
+    /// <remarks>
+    /// The rebuild reads every table in one read transaction, so it restores rows that
+    /// committed together as a pair. It migrates and restores the replacement in a private
+    /// in-memory database, then copies that over the live file in one SQLite transaction. A
+    /// failed rebuild leaves the file as it was, and the copy overwrites writes that commit
+    /// while the rebuild runs. Only the consented <paramref name="forceCleanOnBackupFailure"/>
+    /// path deletes the file, and only once its replacement is built. A failure between that
+    /// delete and the copy leaves an empty file.
+    /// </remarks>
     /// <param name="forceCleanOnBackupFailure">
-    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>true</c> and the backup read fails, the file is recreated with only the tables read before the failure.
     /// When <c>false</c>, the rebuild aborts to avoid data loss.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
-    internal async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
+    internal async Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
         var seasonAnalysisOverrides = new List<DbSeasonAnalysisOverride>();
         var analyzedItems = new List<DbAnalyzedItem>();
         var importRecords = new List<DbImportRecord>();
+        var pluginMetadata = new List<DbPluginMetadata>();
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
-        var backupFailed = false;
+        var recreate = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
         try
         {
-            using var db = contextFactory();
-            var connection = db.Database.GetDbConnection();
-            var wasOpen = connection.State == System.Data.ConnectionState.Open;
-            if (!wasOpen)
-            {
-                await db.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            }
+            // Stays open for the copy at the end; disposing the context closes it.
+            await Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-            try
-            {
-                // Suppressed rows are salvaged too: tombstones are user intent. So is
-                // pending projection work: markers and journaled foreign-row deletes
-                // record durable obligations toward Jellyfin.
-                segments = await db.Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                seasonAnalysisOverrides = await db.SeasonAnalysisOverrides.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                analyzedItems = await db.AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                projectionQueue = await db.ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-                projectionExternalOperations = await db.ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                if (!wasOpen)
-                {
-                    await db.Database.CloseConnectionAsync().ConfigureAwait(false);
-                }
-            }
+            // Deferred takes no write lock, and the connection enlists EF's read commands in
+            // it. It ends with this block, because the copy below needs a connection with no
+            // open transaction.
+#pragma warning disable CA1849 // A deferred BEGIN does no I/O, and no async overload takes deferred.
+            using var snapshot = ((SqliteConnection)Database.GetDbConnection()).BeginTransaction(deferred: true);
+#pragma warning restore CA1849
+
+            // Suppressed rows are salvaged too: tombstones are user intent. So is
+            // pending projection work: markers and journaled foreign-row deletes
+            // record durable obligations toward Jellyfin.
+            segments = await Segments.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            seasonStates = await SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            seasonAnalysisOverrides = await SeasonAnalysisOverrides.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            analyzedItems = await AnalyzedItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            importRecords = await ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            pluginMetadata = await PluginMetadata.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            disabledItems = await DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            projectionQueue = await ProjectionQueue.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            projectionExternalOperations = await ProjectionExternalOperations.AsNoTracking().OrderBy(o => o.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -283,17 +296,14 @@ public class IntroSkipperDbContext : DbContext
                 throw new DatabaseRebuildBackupException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
             }
 
-            // Explicit clean-rebuild fallback requested by the caller.
-            backupFailed = true;
+            recreate = true;
         }
 
-        // Sanitize the salvage before the old file is destroyed: rebuild targets
-        // corrupted databases, whose readable rows can still violate the fresh schema's
-        // CHECK constraint, unique index or primary keys — and the restore below is
-        // all-or-nothing, so a single such row must not turn a salvageable database
-        // into an empty one. Duplicates are collapsed with explicit precedence — user
-        // rows, then tombstones, then automatic rows — so recovery never trades a user's
-        // segment or deletion for an automatic row.
+        // Rebuild targets corrupted databases, whose readable rows can still violate the
+        // fresh schema's CHECK constraint, unique index or primary keys, and one such row
+        // would fail the restore. Duplicates collapse with explicit precedence (user rows,
+        // then tombstones, then automatic rows), so recovery never trades a user's segment
+        // or deletion for an automatic row.
         segments = [.. segments
             .Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)
             .OrderByDescending(s => s.Source == SegmentSource.User)
@@ -305,17 +315,6 @@ public class IntroSkipperDbContext : DbContext
         analyzedItems = [.. analyzedItems.DistinctBy(a => (a.ItemId, a.Type))];
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
-
-        if (backupFailed)
-        {
-            DeleteDatabaseFiles();
-        }
-        else
-        {
-            await Database.EnsureDeletedAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
         // Auto-increment keys must not be restored verbatim into the fresh table. The
         // external operations were read ordered by Id, so re-insertion in list order
@@ -330,26 +329,34 @@ public class IntroSkipperDbContext : DbContext
             operation.Id = 0;
         }
 
-        using (var db = contextFactory())
+        using var scratch = new SqliteConnection("Data Source=:memory:");
+        await scratch.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using (var db = new IntroSkipperDbContext(new DbContextOptionsBuilder<IntroSkipperDbContext>().UseSqlite(scratch).Options))
         {
+            await db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+
             // Restore in bounded batches with a cleared tracker (the importer's pattern)
             // so a large library's snapshot is not also held in the change tracker all at
-            // once; the explicit transaction keeps the restore all-or-nothing.
-            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            await using (transaction.ConfigureAwait(false))
-            {
-                await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
-                await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
-
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            }
+            // once.
+            await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.AnalyzedItems, analyzedItems, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.PluginMetadata, pluginMetadata, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.ProjectionQueue, projectionQueue, cancellationToken).ConfigureAwait(false);
+            await AddInBatchesAsync(db, db.ProjectionExternalOperations, projectionExternalOperations, cancellationToken).ConfigureAwait(false);
         }
+
+        if (recreate)
+        {
+            await RecreateDatabaseFileAsync().ConfigureAwait(false);
+        }
+
+        // The copy is one SQLite write transaction on the live file, so a failure before it
+        // leaves the file untouched and open connections see the new content on their next statement.
+        scratch.BackupDatabase((SqliteConnection)Database.GetDbConnection());
     }
 
     private static async Task AddInBatchesAsync<TEntity>(
@@ -417,7 +424,12 @@ public class IntroSkipperDbContext : DbContext
         }
     }
 
-    private void DeleteDatabaseFiles()
+    /// <summary>
+    /// Replaces the database file with an empty one in WAL mode, left open for the copy.
+    /// It takes no cancellation token, because stopping once the file is gone would lose
+    /// the salvage.
+    /// </summary>
+    private async Task RecreateDatabaseFileAsync()
     {
         var dbPath = GetDatabaseFilePath();
         if (string.IsNullOrEmpty(dbPath))
@@ -426,7 +438,7 @@ public class IntroSkipperDbContext : DbContext
         }
 
         // Close this context's own connection before clearing pools, so nothing holds a lock.
-        Database.CloseConnection();
+        await Database.CloseConnectionAsync().ConfigureAwait(false);
         SqliteConnection.ClearAllPools();
 
         // Attempt to delete all files, collecting failures so one locked file doesn't prevent the rest.
@@ -450,6 +462,10 @@ public class IntroSkipperDbContext : DbContext
                 $"Failed to delete {failures.Count} database file(s): {string.Join(", ", failures.Select(f => f.Path))}",
                 failures.Select(f => f.Exception));
         }
+
+        // The copy keeps its destination's journal mode, and a new file starts in rollback mode.
+        await Database.OpenConnectionAsync().ConfigureAwait(false);
+        await SqlitePragmas.EnforceWalAsync(Database).ConfigureAwait(false);
     }
 
     internal string? GetDatabaseFilePath()

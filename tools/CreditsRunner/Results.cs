@@ -24,7 +24,8 @@ internal sealed record Candidate(double Start, double End, string Source)
 /// the ffmpeg processes it started. A call served from the detection cache starts none.
 /// </summary>
 /// <param name="CpuSeconds">The user and system CPU time of the processes it started; <see langword="null"/> off Linux.</param>
-internal sealed record CallTiming(string Trigger, int Processes, double WallSeconds, double? CpuSeconds);
+/// <param name="TimedOut">The processes it started that were killed at their timeout. The analyzer can fall back to another boundary when one is, so a call with any is not a clean measurement. Results written before the field existed read as 0.</param>
+internal sealed record CallTiming(string Trigger, int Processes, double WallSeconds, double? CpuSeconds, int TimedOut = 0);
 
 /// <summary>
 /// One corpus file's result. With repeats, the times are medians over the timed passes, and
@@ -56,6 +57,8 @@ internal sealed record EpisodeResult(
 /// <param name="Ffmpeg">The first line of <c>ffmpeg -version</c>.</param>
 /// <param name="Repeats">Timed passes per file. Above one, an untimed pass warms the page cache first.</param>
 /// <param name="Configuration">The plugin configuration the analyzer ran with.</param>
+/// <param name="Mode">What the run analyzed. Results written before intro mode existed read as credits.</param>
+/// <param name="NoChapters">Whether the season run dropped every chapter after reading it.</param>
 internal sealed record RunResults(
     string Commit,
     string Ffmpeg,
@@ -63,4 +66,22 @@ internal sealed record RunResults(
     string Os,
     int Repeats,
     JsonElement Configuration,
-    IReadOnlyList<EpisodeResult> Episodes);
+    IReadOnlyList<EpisodeResult> Episodes,
+    RunMode Mode = RunMode.Credits,
+    bool NoChapters = false);
+
+/// <summary>
+/// What a run analyzes: the keyframe credits path one file at a time, or one season at a time
+/// through the Introduction chain or the whole credits pass.
+/// </summary>
+internal enum RunMode
+{
+    /// <summary>The keyframe analyzer and the credits combiner, per file.</summary>
+    Credits,
+
+    /// <summary>The Introduction chain, per season.</summary>
+    Introduction,
+
+    /// <summary><c>CreditsPass</c>: chapters, Chromaprint and the keyframe analyzer, per season.</summary>
+    CreditsPass,
+}

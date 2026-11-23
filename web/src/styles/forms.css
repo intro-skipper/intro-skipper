@@ -158,13 +158,13 @@
 
     .field-description > p + p { margin-block-start: var(--is-space-2xs); }
 
-    :is(.field-error, .field-warning, .status-message, .footer-status-message, .ts-status-msg, .ts-action-status, .ts-segment-status, .ts-episode-error, .tab-warning) {
+    :is(.field-error, .field-warning, .status-message, .footer-status-message, .ts-status-msg, .ts-action-status, .ts-segment-status, .ts-episode-error) {
         font-size: var(--is-step--1);
     }
 
     .field-error, .ts-episode-error, .ts-segment-error { color: var(--is-error-text); }
 
-    :is(.field-warning, .tab-warning, .dirty-indicator) { color: var(--is-warning-text); }
+    :is(.field-warning, .dirty-indicator) { color: var(--is-warning-text); }
 
     [data-state="success"] { color: var(--is-success-text); }
 
@@ -321,14 +321,6 @@
             padding-inline: 0.75em;
         }
     }
-
-    .tab-warning {
-        display: flex;
-        align-items: start;
-        gap: var(--is-space-2xs);
-    }
-
-    .tab-warning-icon { flex: none; }
 
     :is(.action-button.danger, .ts-action-btn.erase, .ts-segment-btn.danger, .is-confirm-btn.confirm):not(:disabled) { color: var(--is-error-text); }
 

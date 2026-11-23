@@ -1,0 +1,549 @@
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Tests;
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
+using IntroSkipper.Data;
+using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+using static IntroSkipper.Tests.StubFFmpegService;
+
+public class TestChapterAnalyzer
+{
+    [Theory]
+    [InlineData("Opening", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("OP", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro:", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Intro Start", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Introduction", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("01 Intro", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("\u266A OP", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("OP1", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening Theme", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening Credits", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening - Koi Kaze", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Main Titles", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("1. Main Titles", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Logos/Main Title", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening Credits/Skyfall", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening (Song)", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Opening Sequence", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("Abertura", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("\u30AA\u30FC\u30D7\u30CB\u30F3\u30B0", AnalysisMode.Introduction, 60, 90)]
+    [InlineData("End Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Ending", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credit start", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Closing Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Credits:", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("The Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("End Titles", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("ED1", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("ED - Song", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Ending Theme", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Closing", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Main Episode; Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Abspann", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Encerramento", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("\u266A ED", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Final Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Epilogue/End Credits", AnalysisMode.Credits, 1890, 2000)]
+    [InlineData("Preview", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Trailer", AnalysisMode.Preview, 1890, 2000)]
+    [InlineData("Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously...", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously, on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last season on Lost", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Catch up on the story so far", AnalysisMode.Recap, 60, 90)]
+    [InlineData("The Road So Far", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show - Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show \u2013 Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Show | Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("(Recap)", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Chapter 01: Recap", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Lost: Previously On", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previously in Show", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Previous Episode", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last Time", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last time\u2026", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Last time on Dragon Ball Z", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Earlier", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Summary", AnalysisMode.Recap, 60, 90)]
+    [InlineData("The Story So Far", AnalysisMode.Recap, 60, 90)]
+    [InlineData("Ad", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Advertisement", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Commercial", AnalysisMode.Commercial, 60, 90)]
+    [InlineData("Intermission", AnalysisMode.Commercial, 60, 90)]
+    public void ChapterExpression_MatchesExpectedLabels(string chapterName, AnalysisMode mode, double expectedStart, double expectedEnd)
+    {
+        var chapter = FindChapter(chapterName, mode);
+
+        Assert.NotNull(chapter);
+        Assert.Equal(expectedStart, chapter!.Start);
+        Assert.Equal(expectedEnd, chapter.End);
+    }
+
+    [Theory]
+    [InlineData(new[] { 32.5, 18.25, 45.0 }, 120, 45.0)] // latest frame inside the boundary, regardless of order
+    [InlineData(new[] { 32.5, 72.0, 90.0 }, 80, 72.0)]   // frames past the intro boundary are ignored
+    [InlineData(new[] { 3.5 }, 120, null)]               // frames before the minimum duration are ignored
+    public void BuildRecapFromBlackFrames(double[] frameTimes, double maximumRecapBoundary, double? expectedEnd)
+    {
+        var episodeId = Guid.NewGuid();
+        var frames = frameTimes.Select((time, i) => new BlackFrame(90, time, i)).ToList();
+
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapEnd: 5, maximumRecapBoundary);
+
+        if (expectedEnd is null)
+        {
+            Assert.Null(recap);
+            return;
+        }
+
+        Assert.NotNull(recap);
+        Assert.Equal(episodeId, recap.EpisodeId);
+        Assert.Equal(0, recap.Start);
+        Assert.Equal(expectedEnd.Value, recap.End);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_NormalizesThresholdFromFullDistributionScan()
+    {
+        var config = new PluginConfiguration
+        {
+            BlackFrameMinimumPercentage = 85,
+            BlackFrameThreshold = 32,
+            MinimumRecapDetectionDuration = 5,
+            MaximumRecapDetectionDuration = 120,
+        };
+        var ffmpeg = RecapScan(
+        [
+            new(2, 12, 5),
+            new(5, 15, 8),
+            new(50, 20, 10),
+            new(95, 40, 20),
+            new(88, 80, 30),
+        ]);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
+
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+
+        // Baseline (1st percentile) is 2, so the normalized minimum stays at the configured 85.
+        Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
+        Assert.NotNull(recap);
+        Assert.Equal(80, recap.End);
+        Assert.Equal([new RangeScan(0, 120, 0, 32, AnalysisMode.Recap)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_BrightContent_KeepsConfiguredMinimum()
+    {
+        // An 87% fade in normal (bright) content must satisfy the default 85% minimum;
+        // the adaptive floor may only tighten the threshold for globally dark content.
+        var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
+
+        BlackFrame[] scan = [.. Enumerable.Range(0, 40)
+            .Select(i => new BlackFrame(i % 4, i * 0.5, i))
+            .Append(new BlackFrame(87, 42.0, 1008))];
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+        var ffmpeg = RecapScan(scan);
+
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
+        var recap = RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+
+        var frame = Assert.Single(blackFrames);
+        Assert.Equal(87, frame.Percentage);
+        Assert.NotNull(recap);
+        Assert.Equal(42.0, recap.End);
+        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_DarkContent_RaisesThreshold()
+    {
+        // The same 87% fade inside globally dark content (baseline 45% black) must be
+        // rejected: the floor caps at 30, lifting the normalized minimum to 89.
+        var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
+
+        BlackFrame[] scan = [.. Enumerable.Range(0, 100)
+            .Select(i => new BlackFrame(45, i * 0.5, i))
+            .Append(new BlackFrame(87, 42.0, 1008))];
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+        var ffmpeg = RecapScan(scan);
+
+        var blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(ffmpeg, episode, 120, config, CancellationToken.None);
+
+        Assert.Empty(blackFrames);
+        Assert.Null(RecapDetectionHelper.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
+        Assert.Equal([new RangeScan(0, 120, 0, 28, AnalysisMode.Recap)], ffmpeg.Calls);
+    }
+
+    [Fact]
+    public void NormalizeThreshold_MovesWithScanDistribution()
+    {
+        var bright = Enumerable.Range(0, 200).Select(i => new BlackFrame(i < 190 ? 2 : 95, i, i)).ToList();
+        var dark = Enumerable.Range(0, 200).Select(i => new BlackFrame(i < 190 ? 45 : 95, i, i)).ToList();
+
+        var (brightMinimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(bright, 85);
+        var (darkMinimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(dark, 85);
+
+        Assert.Equal(85, brightMinimum);
+        Assert.Equal(89, darkMinimum);
+    }
+
+    [Theory]
+    [InlineData("Intermission/Intro")]
+    [InlineData("Intermission/Intro Animation")]
+    [InlineData("Commercial End")]
+    [InlineData("Intermission End")]
+    [InlineData("Intermission/Intro End")]
+    [InlineData("Intermission/Intro Animation End")]
+    public void TestCommercialExpressionIgnoresSponsorBlockOnlyAndEndLabels(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.Null(commercialChapter);
+    }
+
+    // A pattern that backtracks past the one-second match timeout on a chapter name is the
+    // user's configuration. The chapter counts as no match; the RegexMatchTimeoutException,
+    // a TimeoutException, must not reach the pass's handler and stop the season's other modes.
+    [Fact]
+    public void FindMatchingChapters_PatternThatTimesOut_CountsAsNoMatch()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = new Collection<ChapterInfo>(
+        [
+            CreateChapter("An input string that takes a long time or even makes this regex hang!", 0),
+            CreateChapter("Main Episode", 60)
+        ]);
+
+        var matches = analyzer.FindMatchingChapters(new() { Duration = 2000 }, chapters, @"^(\w+\s?)*$", AnalysisMode.Introduction);
+
+        Assert.Empty(matches);
+    }
+
+    [Theory]
+    [InlineData("END CREDITS", AnalysisMode.Credits)]
+    [InlineData("OPENING", AnalysisMode.Introduction)]
+    public void ChapterExpression_IgnoresCaseUnderATurkishCulture(string chapterName, AnalysisMode mode)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
+        try
+        {
+            Assert.NotNull(FindChapter(chapterName, mode));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = culture;
+        }
+    }
+
+    [Fact]
+    public void TestCommercialKeepsEveryChapterOfConsecutiveMatchingRun()
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = new Collection<ChapterInfo>(
+        [
+            CreateChapter("[SponsorBlock]: Sponsor", 0),
+            CreateChapter("[SponsorBlock]: Self Promotion", 30),
+            CreateChapter("Main Episode", 60)
+        ]);
+
+        // Adjacent matching chapters are the normal shape of an ad break: the
+        // single-match ambiguity skip must not swallow the front of the run.
+        var matches = analyzer.FindMatchingChapters(
+            new() { Duration = 2000 },
+            chapters,
+            new Configuration.PluginConfiguration().ChapterAnalyzerCommercialPattern,
+            AnalysisMode.Commercial);
+
+        Assert.Equal(2, matches.Count);
+        Assert.Equal(0, matches[0].Start);
+        Assert.Equal(30, matches[0].End);
+        Assert.Equal(30, matches[1].Start);
+        Assert.Equal(60, matches[1].End);
+    }
+
+    // A chapter pattern that is not a valid regular expression matches nothing and leaves
+    // the episodes to the analyzers after this one, with one warning for the run rather than
+    // one per episode.
+    [Fact]
+    public async Task InvalidChapterPattern_WarnsOnceAndMatchesNothing()
+    {
+        var config = new Configuration.PluginConfiguration { ChapterAnalyzerPreviewPattern = "(", EnableSponsorBlockChapterDetection = false };
+        var logger = new CapturingLogger<ChapterAnalyzer>();
+        var analyzer = new ChapterAnalyzer(logger, null!, DatabaseTestHelpers.CreateTempSegmentDatabase(), config);
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Preview", AnalysisMode.Preview) },
+        ];
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Preview, CancellationToken.None);
+
+        Assert.All(episodes, episode => Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Preview)));
+        Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Warning);
+    }
+
+    /// <summary>
+    /// A file whose keyframe snap throws on every pass, here a codec probe cut before its stream
+    /// mapping, fails only its own episode; its sibling still gets its black-frame recap.
+    /// </summary>
+    [Fact]
+    public async Task FailedKeyframeSnap_FailsOnlyItsEpisode()
+    {
+        var config = new Configuration.PluginConfiguration { DetectRecapUsingBlackFrames = true, AdjustIntroBasedOnSilence = false };
+        QueuedEpisode[] episodes =
+        [
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
+            new() { EpisodeId = Guid.NewGuid(), Duration = 2000 },
+        ];
+        // Bright frames (0-3% black) every 0.5 s up to 19.5 s, then a 95% black frame at 40 s, where the recap ends.
+        BlackFrame[] recapScan = [.. Enumerable.Range(0, 40).Select(i => new BlackFrame(i % 4, i * 0.5, i)).Append(new BlackFrame(95, 40, 1000))];
+        var ffmpeg = new StubFFmpegService
+        {
+            RangeBlackFrames = (_, _, _, _, _) => recapScan,
+            KeyFrames = (episode, _, _) => episode == episodes[0] ? throw new InvalidDataException("cut before the stream mapping") : [],
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, config, enableChapterDetection: false);
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, episodes[0].GetAnalyzed(AnalysisMode.Recap));
+        Assert.Empty(await database.GetSegmentsAsync(episodes[0].EpisodeId));
+        Assert.Equal(EpisodeState.Analyzed, episodes[1].GetAnalyzed(AnalysisMode.Recap));
+        Assert.Equal(SegmentSource.BlackFrame, Assert.Single(await database.GetSegmentsAsync(episodes[1].EpisodeId)).Source);
+    }
+
+    // The chapter mark at 90 s is the end, though silence starts at 88.9 s and a keyframe sits at 89.1 s.
+    [Fact]
+    public async Task ChapterIntro_EndsOnTheMark_WithoutSilenceOrKeyframeProbes()
+    {
+        var probes = 0;
+        var ffmpeg = new StubFFmpegService
+        {
+            Silence = (_, _, _) =>
+            {
+                probes++;
+                return [new TimeRange(88.9, 89.5)];
+            },
+            KeyFrames = (_, _, _) =>
+            {
+                probes++;
+                return [89.1];
+            },
+        };
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, database, new Configuration.PluginConfiguration());
+        QueuedEpisode[] episodes = [new() { EpisodeId = Guid.NewGuid(), Duration = 2000, Chapters = CreateChapters("Intro", AnalysisMode.Introduction) }];
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        var intro = Assert.Single(await database.GetSegmentsAsync(episodes[0].EpisodeId)).ToSegment();
+        Assert.Equal((60, 90), (intro.Start, intro.End));
+        Assert.Equal(0, probes);
+    }
+
+    [Theory]
+    [InlineData("Intro: End", AnalysisMode.Introduction)]
+    [InlineData("Opening: End", AnalysisMode.Introduction)]
+    [InlineData("Credits: End", AnalysisMode.Credits)]
+    [InlineData("Ending: End", AnalysisMode.Credits)]
+    [InlineData("Preview: End", AnalysisMode.Preview)]
+    [InlineData("Recap: End", AnalysisMode.Recap)]
+    [InlineData("Previously: End", AnalysisMode.Recap)]
+    [InlineData("Commercial: End", AnalysisMode.Commercial)]
+    [InlineData("Intermission: End", AnalysisMode.Commercial)]
+    public void TestChapterExpressionIgnoresColonDelimitedEndLabels(string chapterName, AnalysisMode mode)
+    {
+        var chapter = FindChapter(chapterName, mode);
+
+        Assert.Null(chapter);
+    }
+
+    // Scene and topic titles that contain an introduction or credits word without being one.
+    [Theory]
+    [InlineData("Opening Night", AnalysisMode.Introduction)]
+    [InlineData("Grand Opening", AnalysisMode.Introduction)]
+    [InlineData("Introduction to Tosca", AnalysisMode.Introduction)]
+    [InlineData("Intro - What is THE DRAMA about?", AnalysisMode.Introduction)]
+    [InlineData("Tokyo OP", AnalysisMode.Introduction)]
+    [InlineData("Photo Op", AnalysisMode.Introduction)]
+    [InlineData("Opening Credits", AnalysisMode.Credits)]
+    [InlineData("Happy Ending", AnalysisMode.Credits)]
+    [InlineData("Alternate Ending", AnalysisMode.Credits)]
+    [InlineData("Ed Gein", AnalysisMode.Credits)]
+    [InlineData("Meet Ed", AnalysisMode.Credits)]
+    [InlineData("Credit Card", AnalysisMode.Credits)]
+    [InlineData("ED-209", AnalysisMode.Credits)]
+    public void ChapterExpression_IgnoresTitlesThatOnlyContainAModeWord(string chapterName, AnalysisMode mode)
+        => Assert.Null(FindChapter(chapterName, mode));
+
+    // Scene and topic titles that contain a recap word without being a recap.
+    [Theory]
+    [InlineData("The Last Supper")]
+    [InlineData("Earlier That Day")]
+    [InlineData("Executive Summary")]
+    [InlineData("2023 Recap")]
+    [InlineData("Last Time in New York")]
+    [InlineData("Previously Unreleased")]
+    [InlineData("Previously Onward")]
+    [InlineData("Recapture")]
+    [InlineData("Recap End")]
+    [InlineData("Preview/Recap")]
+    public void RecapExpression_IgnoresTitlesThatOnlyContainARecapWord(string chapterName)
+        => Assert.Null(FindChapter(chapterName, AnalysisMode.Recap));
+
+    [Theory]
+    [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: Endcards/Credits", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: Recap", AnalysisMode.Recap)]
+    [InlineData("[SponsorBlock]: Sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Unpaid/Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: selfpromo", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Interaction Reminder (Subscribe)", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: interaction", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Tangents/Jokes", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Music: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: music_offtopic", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap/Hook", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Hook/Greetings", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: hook", AnalysisMode.Commercial)]
+    public void TestSponsorBlockChapterLabelsMapToExpectedMode(string chapterName, AnalysisMode expectedMode)
+    {
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            var chapter = FindChapter(chapterName, mode, expressionOverride: string.Empty);
+
+            if (mode == expectedMode)
+            {
+                Assert.NotNull(chapter);
+            }
+            else
+            {
+                Assert.Null(chapter);
+            }
+        }
+    }
+
+    [Fact]
+    public void TestSponsorBlockDetectionCanBeDisabled()
+    {
+        var commercialChapter = FindChapter(
+            "[SponsorBlock]: Intermission/Intro Animation",
+            AnalysisMode.Commercial,
+            expressionOverride: string.Empty,
+            enableSponsorBlockChapterDetection: false);
+
+        Assert.Null(commercialChapter);
+    }
+
+    [Fact]
+    public void TestUnmappedSponsorBlockChapterFallsBackToUserRegex()
+    {
+        var introChapter = FindChapter(
+            "[SponsorBlock]: Custom Intro",
+            AnalysisMode.Introduction,
+            expressionOverride: "Custom Intro");
+
+        Assert.NotNull(introChapter);
+        Assert.Equal(60, introChapter.Start);
+        Assert.Equal(90, introChapter.End);
+    }
+
+    private Segment? FindChapter(
+        string chapterName,
+        AnalysisMode mode,
+        string? expressionOverride = null,
+        bool enableSponsorBlockChapterDetection = true)
+    {
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var chapters = CreateChapters(chapterName, mode);
+
+        var config = new Configuration.PluginConfiguration();
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => config.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => config.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Preview => config.ChapterAnalyzerPreviewPattern,
+            AnalysisMode.Recap => config.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Commercial => config.ChapterAnalyzerCommercialPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
+
+        return analyzer.FindMatchingChapters(
+            new() { Duration = 2000 },
+            chapters,
+            expressionOverride ?? expression,
+            mode,
+            enableSponsorBlockChapterDetection) is [var first, ..] ? first : null;
+    }
+
+    private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)
+    {
+        var earlyName = mode is AnalysisMode.Introduction or AnalysisMode.Recap or AnalysisMode.Commercial ? name : "Introduction";
+        var lateName = mode is AnalysisMode.Credits or AnalysisMode.Preview ? name : "Credits";
+        var chapters = new[]
+        {
+            CreateChapter("Cold Open", 0),
+            CreateChapter(earlyName, 60),
+            CreateChapter("Main Episode", 90),
+            CreateChapter(lateName, 1890)
+        };
+
+        return new(new List<ChapterInfo>(chapters));
+    }
+
+    /// <summary>
+    /// Create a ChapterInfo object.
+    /// </summary>
+    /// <param name="name">Chapter name.</param>
+    /// <param name="position">Chapter position (in seconds).</param>
+    /// <returns>ChapterInfo.</returns>
+    private static ChapterInfo CreateChapter(string name, int position)
+    {
+        return new()
+        {
+            Name = name,
+            StartPositionTicks = TimeSpan.FromSeconds(position).Ticks
+        };
+    }
+
+    private static StubFFmpegService RecapScan(BlackFrame[] frames)
+        => new() { RangeBlackFrames = (_, _, _, _, _) => frames };
+}

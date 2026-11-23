@@ -1,0 +1,375 @@
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Tests;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
+using IntroSkipper.Data;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+using static IntroSkipper.Tests.StubFFmpegService;
+
+public class TestRecapDetection
+{
+    [Fact]
+    public void SelectSharedRegion_Introduction_PicksLongestRegion()
+    {
+        var (lhs, rhs) = TwoSharedRegions();
+
+        var (lhsSegment, _) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            lhs,
+            Guid.NewGuid(),
+            rhs,
+            AnalysisMode.Introduction,
+            double.MaxValue);
+
+        Assert.Equal(40, lhsSegment.Start);
+        Assert.Equal(65, lhsSegment.End);
+    }
+
+    [Fact]
+    public void SelectSharedRegion_Recap_PicksEarliestRegion()
+    {
+        var (lhs, rhs) = TwoSharedRegions();
+
+        var (lhsSegment, rhsSegment) = ChromaprintAnalyzer.SelectSharedRegion(
+            Guid.NewGuid(),
+            lhs,
+            Guid.NewGuid(),
+            rhs,
+            AnalysisMode.Recap,
+            double.MaxValue);
+
+        Assert.Equal(10, lhsSegment.Start);
+        Assert.Equal(16, lhsSegment.End);
+        Assert.Equal(11, rhsSegment.Start);
+        Assert.Equal(17, rhsSegment.End);
+    }
+
+    [Fact]
+    public void SelectSharedRegion_Recap_ReturnsInvalidSegments_WhenRangesAreEmpty()
+    {
+        var lhsId = Guid.NewGuid();
+        var rhsId = Guid.NewGuid();
+
+        var (lhsSegment, rhsSegment) = ChromaprintAnalyzer.SelectSharedRegion(
+            lhsId,
+            [],
+            rhsId,
+            [],
+            AnalysisMode.Recap,
+            double.MaxValue);
+
+        Assert.Equal(lhsId, lhsSegment.EpisodeId);
+        Assert.Equal(rhsId, rhsSegment.EpisodeId);
+        Assert.False(lhsSegment.Valid);
+        Assert.False(rhsSegment.Valid);
+    }
+
+    // An anchored recap (start 28) and a 0:00 recap for the same episode share their end at 90.
+    [Theory]
+    [InlineData(AnalysisMode.Recap, true, 28, 0, true)]
+    [InlineData(AnalysisMode.Recap, true, 0, 28, false)]
+    [InlineData(AnalysisMode.Recap, false, 28, 0, false)]
+    [InlineData(AnalysisMode.Introduction, true, 28, 0, false)]
+    public void IsBetterCandidate_PrefersAnchoredRecapOnlyWhenAnchoring(
+        AnalysisMode mode,
+        bool anchor,
+        double candidateStart,
+        double savedStart,
+        bool expected)
+    {
+        var episodeId = Guid.NewGuid();
+
+        var better = ChromaprintAnalyzer.IsBetterCandidate(
+            new Segment(episodeId, new TimeRange(candidateStart, 90)),
+            new Segment(episodeId, new TimeRange(savedStart, 90)),
+            mode,
+            anchor,
+            endSnapThreshold: 2);
+
+        Assert.Equal(expected, better);
+    }
+
+    [Theory]
+    [InlineData(2, 1, 0, false, 0)]
+    [InlineData(2, 0, 1, true, 0)]
+    [InlineData(2, 2, 0, false, 0)]
+    [InlineData(2, 2.001, 0, false, 0)]
+    [InlineData(2, 2.002, 0, true, 2.002)]
+    [InlineData(2, 0, 2.002, false, 2.002)]
+    [InlineData(5, 4, 0, false, 0)]
+    [InlineData(0, 0.001, 0, false, 0)]
+    [InlineData(0, 0.002, 0, true, 0.002)]
+    [InlineData(2, 28, 1, true, 28)]
+    [InlineData(2, 1, 28, false, 28)]
+    [InlineData(2, 28, 35, true, 28)]
+    [InlineData(2, 35, 28, false, 28)]
+    public async Task IsBetterCandidate_PrefersOnlyAnchorsThatSurviveStartSnapping(
+        double snapThreshold,
+        double candidateStart,
+        double savedStart,
+        bool expectedBetter,
+        double expectedAdjustedStart)
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 300 };
+        var candidate = new Segment(episode.EpisodeId, new TimeRange(candidateStart, 90));
+        var saved = new Segment(episode.EpisodeId, new TimeRange(savedStart, 90));
+        var config = new PluginConfiguration
+        {
+            AnchorRecapToColdOpen = true,
+            EndSnapThreshold = snapThreshold,
+            AdjustIntroBasedOnChapters = false,
+            AdjustIntroBasedOnSilence = false,
+            SnapToKeyframe = false,
+            IntroStartOffset = 0,
+            IntroEndOffset = 0,
+        };
+
+        var better = ChromaprintAnalyzer.IsBetterCandidate(
+            candidate, saved, AnalysisMode.Recap, config.AnchorRecapToColdOpen, config.EndSnapThreshold);
+        var helper = new TimeAdjustmentHelper(NullLogger.Instance, config, AnalysisMode.Recap, null!);
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, better ? candidate : saved);
+
+        Assert.Equal(expectedBetter, better);
+        Assert.Equal(expectedAdjustedStart, adjusted.Start);
+        Assert.Equal(90, adjusted.End);
+    }
+
+    // The sting is 5 s long, the scan window ends at 120 s, and the recap's black frames are
+    // BlackFrameFixtures.RecapBlackFrames: the fade before the sting at 28 s, the end at 90 s.
+    [Theory]
+    [InlineData(true, 35, 28)]
+    [InlineData(false, 35, 0)]
+    [InlineData(true, 4, 0)]
+    [InlineData(true, 75, 75)]
+    public void BuildRecapFromSting_StartsAtColdOpenFadeOnlyWhenAnchored(bool anchor, double stingStart, double expectedStart)
+    {
+        var episodeId = Guid.NewGuid();
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(stingStart, stingStart + 5)),
+            BlackFrameFixtures.RecapBlackFrames(),
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: 120,
+            anchor);
+
+        Assert.NotNull(recap);
+        Assert.Equal(expectedStart, recap.Start);
+        Assert.Equal(90, recap.End);
+    }
+
+    // A recap ends at the first black run of at least 2 s that starts after both the 5 s sting
+    // and the 15 s minimum, and no later than the boundary: not at the ident before the minimum,
+    // the 1 s cut inside the recap or the dark frame of the scene after it
+    // (BlackFrameFixtures.RecapBlackFrames). Without such a run the sting gives no recap.
+    [Theory]
+    [InlineData(0, 120, 90d)]
+    [InlineData(88, 120, null)]
+    [InlineData(35, 89, null)]
+    public void BuildRecapFromSting_EndsAtTheFirstLongBlackRunAfterTheSting(double stingStart, double boundary, double? expectedEnd)
+    {
+        var episodeId = Guid.NewGuid();
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(stingStart, stingStart + 5)),
+            BlackFrameFixtures.RecapBlackFrames(),
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: boundary,
+            anchorToColdOpen: false);
+
+        Assert.Equal(expectedEnd, recap?.End);
+    }
+
+    // A black frame at 28 s and a run at 41 s close a 0-41 recap, but anchoring to 28 leaves
+    // 13 s, under the minimum.
+    [Fact]
+    public void BuildRecapFromSting_ReturnsNull_WhenAnchoredRecapIsShorterThanMinimum()
+    {
+        var episodeId = Guid.NewGuid();
+
+        var recap = RecapDetectionHelper.BuildRecapFromSting(
+            episodeId,
+            new Segment(episodeId, new TimeRange(35, 40)),
+            [.. BlackFrameFixtures.CreateDenseFrames(28, 28, 100), .. BlackFrameFixtures.CreateDenseFrames(41, 43.5, 100)],
+            minimumRecapDuration: 15,
+            maximumRecapBoundary: 120,
+            anchorToColdOpen: true);
+
+        Assert.Null(recap);
+    }
+
+    // Episode A opens with a logo that B also has at 0:00 and, after a cold open, a sting at 35 s
+    // that C also has. The black frames are BlackFrameFixtures.RecapBlackFrames, with the fade
+    // before the sting at 28 s. Whichever pair the analyzer meets first, the recap saved for A
+    // must start at the fade, and each episode's black-frame scan must run once however many
+    // pairs it takes part in.
+    [Theory]
+    [InlineData("A,B,C")]
+    [InlineData("A,C,B")]
+    [InlineData("B,A,C")]
+    [InlineData("B,C,A")]
+    [InlineData("C,A,B")]
+    [InlineData("C,B,A")]
+    public async Task AnalyzeMediaFiles_AnchoredRecapSurvivesAnEarlierPairMatchingAtEpisodeStart(string order)
+    {
+        var fingerprints = new Dictionary<string, uint[]>
+        {
+            ["A"] = Fingerprint(0x10000, (0, 5, 0x1000), (35, 40, 0x2000)),
+            ["B"] = Fingerprint(0x20000, (0, 5, 0x1000)),
+            ["C"] = Fingerprint(0x30000, (35, 40, 0x2000)),
+        };
+        var episodes = order.Split(',').Select((name, index) => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = name,
+            EpisodeNumber = index + 1,
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+        }).ToList();
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => fingerprints[episode.Name],
+            RangeBlackFrames = (_, _, _, _, _) => BlackFrameFixtures.RecapBlackFrames(),
+        };
+        using var db = new TempSegmentDb();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            db.Database,
+            new PluginConfiguration
+            {
+                AnchorRecapToColdOpen = true,
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        var a = episodes.Single(episode => episode.Name == "A");
+        Assert.Equal(EpisodeState.Analyzed, a.GetAnalyzed(AnalysisMode.Recap));
+        var recap = Assert.Single(await db.Database.GetSegmentsAsync(a.EpisodeId));
+        Assert.Equal(28, TickConversions.ToSeconds(recap.StartTicks));
+        Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
+        var scan = new RangeScan(0, 120, 0, 28, AnalysisMode.Recap);
+        Assert.Equal([scan, scan, scan], ffmpeg.Calls);
+
+        // Sixty seconds of Chromaprint points unique to one episode, overlaid with runs shared
+        // with other episodes at the given seconds.
+        static uint[] Fingerprint(uint unique, params (double Start, double End, uint Shared)[] runs)
+        {
+            var points = Enumerable.Range(0, Position(60)).Select(i => unique + (uint)i).ToArray();
+            foreach (var (start, end, shared) in runs)
+            {
+                for (var i = Position(start); i < Position(end); i++)
+                {
+                    points[i] = shared + (uint)(i - Position(start));
+                }
+            }
+
+            return points;
+        }
+
+        static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
+    }
+
+    [Fact]
+    public async Task AnalyzeMediaFiles_RecapStingDoesNotJoinALaterSharedRun()
+    {
+        // Two episodes share 25 to 65 s and 69 to 100 s on one alignment. Joined, the sting would
+        // end at 100, past the only closing black run long enough (90 to 92.5), and neither episode
+        // would get a recap. Unjoined, the longer run is the sting and the recap ends at 90.
+        var fingerprints = new[] { Fingerprint(0x10000), Fingerprint(0x20000) };
+        var episodes = fingerprints.Select((_, index) => new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = $"E{index}",
+            EpisodeNumber = index + 1,
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+        }).ToList();
+        var ffmpeg = new StubFFmpegService
+        {
+            Fingerprints = (episode, _) => fingerprints[episode.EpisodeNumber - 1],
+            RangeBlackFrames = (_, _, _, _, _) => BlackFrameFixtures.RecapBlackFrames(),
+        };
+        using var db = new TempSegmentDb();
+        var analyzer = new ChromaprintAnalyzer(
+            NullLogger<ChromaprintAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            db.Database,
+            new PluginConfiguration
+            {
+                MaximumFingerprintPointDifferences = 0,
+                MaximumTimeSkip = 0.2,
+                InvertedIndexShift = 0,
+                AdjustIntroBasedOnChapters = false,
+                AdjustIntroBasedOnSilence = false,
+                SnapToKeyframe = false,
+            });
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Recap, CancellationToken.None);
+
+        foreach (var episode in episodes)
+        {
+            var recap = Assert.Single(await db.Database.GetSegmentsAsync(episode.EpisodeId));
+            Assert.Equal(90, TickConversions.ToSeconds(recap.EndTicks));
+        }
+
+        // A hundred and twenty seconds of points unique to one episode, with the two shared runs.
+        static uint[] Fingerprint(uint unique)
+        {
+            var points = Enumerable.Range(0, Position(120)).Select(i => unique + (uint)i).ToArray();
+            foreach (var (start, end, shared) in new[] { (25.0, 65.0, 0x1000u), (69.0, 100.0, 0x2000u) })
+            {
+                for (var i = Position(start); i < Position(end); i++)
+                {
+                    points[i] = shared + (uint)(i - Position(start));
+                }
+            }
+
+            return points;
+        }
+
+        static int Position(double seconds) => (int)Math.Round(seconds / ChromaprintConstants.SampleDuration);
+    }
+
+    [Fact]
+    public void RecapFingerprintRange_UsesIntroFingerprintWindow()
+    {
+        var episode = new QueuedEpisode
+        {
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+            CreditsFingerprintStart = 1500,
+            CreditsFingerprintEnd = 1800,
+        };
+
+        var range = episode.GetFingerprintRange(AnalysisMode.Recap);
+
+        Assert.Equal((0d, 240d), range);
+    }
+
+    private static (List<TimeRange> Lhs, List<TimeRange> Rhs) TwoSharedRegions()
+    {
+        return (
+            [new TimeRange(10, 16), new TimeRange(40, 65)],
+            [new TimeRange(11, 17), new TimeRange(41, 66)]);
+    }
+}

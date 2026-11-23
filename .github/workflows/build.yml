@@ -55,7 +55,7 @@ jobs:
 
       - name: Compute prerelease version
         run: |
-          BASE_VERSION=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          BASE_VERSION="$FILE_VERSION"
           BASE_PREFIX=${BASE_VERSION%.*}
           LAST_RELEASE_TAG=$(git describe --tags --match "${MAIN_VERSION}/v*" --abbrev=0 2>/dev/null || true)
           if [ -n "$LAST_RELEASE_TAG" ]; then
@@ -90,6 +90,18 @@ jobs:
           path: IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
           if-no-files-found: error
 
+      - name: Determine prerelease target ABI
+        if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
+        run: |
+          # Target the Jellyfin.Model version the plugin is built against, without any pre-release suffix.
+          # Checked before the rolling prerelease is replaced, so a bad version leaves it and the manifest untouched.
+          JELLYFIN_VERSION=$(sed -n 's|.*<PackageReference Include="Jellyfin\.Model" Version="\([^"-]*\)[^"]*".*|\1|p;T;q' IntroSkipper/IntroSkipper.csproj)
+          if ! [[ "$JELLYFIN_VERSION" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "Failed to read a pinned Jellyfin.Model version from IntroSkipper/IntroSkipper.csproj (got '${JELLYFIN_VERSION}')"
+            exit 1
+          fi
+          echo "TARGET_ABI=${JELLYFIN_VERSION}.0" >> $GITHUB_ENV
+
       - name: Create archive
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
         run: zip -j "intro-skipper-v${{ env.PRERELEASE_VERSION }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
@@ -105,16 +117,6 @@ jobs:
       - name: Update prerelease manifest
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
         run: |
-          if [ "$IS_BETA" = "true" ]; then
-            JELLYFIN_VERSION="${MAIN_VERSION}.0"
-          else
-            JELLYFIN_VERSION=$(curl -fsSL https://api.nuget.org/v3-flatcontainer/jellyfin.model/index.json | jq -r --arg prefix "${MAIN_VERSION}." '[.versions[] | select(startswith($prefix)) | select(contains("-") | not)] | last')
-          fi
-          if [ -z "$JELLYFIN_VERSION" ] || [ "$JELLYFIN_VERSION" = "null" ]; then
-            echo "Failed to determine the current Jellyfin version"
-            exit 1
-          fi
-          TARGET_ABI="${JELLYFIN_VERSION}.0"
           SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${MAIN_VERSION}/prerelease/intro-skipper-v${PRERELEASE_VERSION}.zip"
           CHECKSUM=$(md5sum "intro-skipper-v${PRERELEASE_VERSION}.zip" | awk '{print $1}')
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

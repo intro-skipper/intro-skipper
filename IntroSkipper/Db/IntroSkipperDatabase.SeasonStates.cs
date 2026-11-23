@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.Json;
@@ -14,43 +14,47 @@ namespace IntroSkipper.Db;
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
+    private const string PreviewSettingMigratedKey = "preview-from-credits-end-migrated";
+
     /// <summary>Returns the optional analysis-window overrides for a season.</summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The saved overrides, with null values meaning inherit.</returns>
+    /// <returns>
+    /// The saved overrides. <see cref="AnalysisOverrides.PreviewFromCreditsEnd"/> is
+    /// <see langword="null"/> only when the season has no stored choice and the
+    /// preview-setting migration has not completed, so the removed plugin-wide switch still
+    /// decides it. Callers resolve that with
+    /// <see cref="Configuration.PluginConfiguration.LegacyPreviewFromCreditsEnd"/>. After the
+    /// migration an unset choice reads as disabled.
+    /// </returns>
     public async Task<AnalysisOverrides> GetAnalysisOverridesAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var result = await db.SeasonAnalysisOverrides
-            .AsNoTracking()
-            .Where(s => s.SeasonId == seasonId)
-            .Select(s => new
-            {
-                s.AnalysisPercent,
-                s.AnalysisLengthLimit,
-                s.PreviewFromCreditsEnd,
-                s.SubtitleRecapDetection,
-                s.SubtitlePreviewDetection
-            })
-            .SingleOrDefaultAsync(cancellationToken)
+        return await db.Database
+            .SqlQuery<AnalysisOverrides>(
+                $"""
+                SELECT
+                    "o"."AnalysisPercent",
+                    "o"."AnalysisLengthLimit",
+                    COALESCE("o"."PreviewFromCreditsEnd", CASE WHEN EXISTS (
+                        SELECT 1 FROM "PluginMetadata" WHERE "Key" = {PreviewSettingMigratedKey} AND "Value" = 'true'
+                    ) THEN 0 END) AS "PreviewFromCreditsEnd",
+                    COALESCE("o"."PreviewFromCreditsEndRecommended", 0) AS "PreviewFromCreditsEndRecommended",
+                    "o"."SubtitleRecapDetection",
+                    "o"."SubtitlePreviewDetection"
+                FROM (SELECT 1) AS "one"
+                LEFT JOIN "SeasonAnalysisOverrides" AS "o" ON "o"."SeasonId" = {seasonId}
+                """)
+            .SingleAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        return result is null
-            ? new AnalysisOverrides(null, null, null, null, null)
-            : new AnalysisOverrides(
-                result.AnalysisPercent,
-                result.AnalysisLengthLimit,
-                result.PreviewFromCreditsEnd,
-                result.SubtitleRecapDetection,
-                result.SubtitlePreviewDetection);
     }
 
-    /// <summary>Stores or clears the optional analysis-window overrides for a season.</summary>
+    /// <summary>Stores analysis-window overrides for a season, or clears them when all are unset.</summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="analysisPercent">Percentage override, or null to inherit.</param>
     /// <param name="analysisLengthLimit">Runtime limit override in minutes, or null to inherit.</param>
-    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to inherit.</param>
+    /// <param name="previewFromCreditsEnd">Whether to derive a preview after credits, or null to preserve the current choice.</param>
     /// <param name="subtitleRecapDetection">Whether to enable subtitle recap detection, or null to inherit.</param>
     /// <param name="subtitlePreviewDetection">Whether to enable subtitle preview detection, or null to inherit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -73,9 +77,16 @@ public sealed partial class IntroSkipperDatabase
             && subtitleRecapDetection is null
             && subtitlePreviewDetection is null)
         {
-            await db.SeasonAnalysisOverrides
-                .Where(s => s.SeasonId == seasonId)
-                .ExecuteDeleteAsync(cancellationToken)
+            await db.Database.ExecuteSqlAsync(
+                $"""
+                UPDATE "SeasonAnalysisOverrides"
+                SET "AnalysisPercent" = NULL,
+                    "AnalysisLengthLimit" = NULL,
+                    "SubtitleRecapDetection" = NULL,
+                    "SubtitlePreviewDetection" = NULL
+                WHERE "SeasonId" = {seasonId}
+                """,
+                cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -87,11 +98,71 @@ public sealed partial class IntroSkipperDatabase
             ON CONFLICT("SeasonId") DO UPDATE SET
                 "AnalysisPercent" = excluded."AnalysisPercent",
                 "AnalysisLengthLimit" = excluded."AnalysisLengthLimit",
-                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd",
+                "PreviewFromCreditsEnd" = COALESCE(excluded."PreviewFromCreditsEnd", "SeasonAnalysisOverrides"."PreviewFromCreditsEnd"),
                 "SubtitleRecapDetection" = excluded."SubtitleRecapDetection",
                 "SubtitlePreviewDetection" = excluded."SubtitlePreviewDetection"
             """,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stores the analysis-derived recommendation without changing the season's choice.</summary>
+    /// <param name="seasonId">Season key.</param>
+    /// <param name="recommended">Whether recurring short post-credits tails were found.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes after the recommendation is stored.</returns>
+    public async Task SetPreviewFromCreditsEndRecommendationAsync(Guid seasonId, bool recommended, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "PreviewFromCreditsEndRecommended")
+            VALUES ({seasonId}, {recommended})
+            ON CONFLICT("SeasonId") DO UPDATE SET
+                "PreviewFromCreditsEndRecommended" = excluded."PreviewFromCreditsEndRecommended"
+            """,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Gets whether the legacy global post-credits preview setting has been migrated.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> once the migration's choices and marker are stored.</returns>
+    public async Task<bool> IsPreviewSettingMigrationCompleteAsync(CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        return await db.PluginMetadata
+            .AsNoTracking()
+            .AnyAsync(row => row.Key == PreviewSettingMigratedKey && row.Value == "true", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Completes the preview-setting migration. One transaction enables the post-credits
+    /// preview for each given season that has no choice and stores the completion marker.
+    /// Every other season reads disabled once the marker exists. The method leaves stored
+    /// choices and every other override untouched.
+    /// </summary>
+    /// <param name="enabledSeasonIds">The seasons the removed plugin-wide switch enabled.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes after the choices and the marker are committed.</returns>
+    public Task CompletePreviewSettingMigrationAsync(IEnumerable<Guid> enabledSeasonIds, CancellationToken cancellationToken = default)
+    {
+        var choices = MultiRowSql.Statements(
+            enabledSeasonIds.Distinct(),
+            id => $"({id}, 1)",
+            values => $"""
+                INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "PreviewFromCreditsEnd")
+                VALUES {values}
+                ON CONFLICT("SeasonId") DO UPDATE SET "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd"
+                WHERE "SeasonAnalysisOverrides"."PreviewFromCreditsEnd" IS NULL
+                """);
+        FormattableString marker = $"""
+            INSERT INTO "PluginMetadata" ("Key", "Value")
+            VALUES ({PreviewSettingMigratedKey}, 'true')
+            ON CONFLICT("Key") DO UPDATE SET "Value" = excluded."Value"
+            """;
+        return ExecuteInTransactionAsync([.. choices, marker], cancellationToken);
     }
 
     /// <summary>

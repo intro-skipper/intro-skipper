@@ -35,12 +35,13 @@ internal static class ConfigurationReport
         return [.. SettingProperties.Select(p => new SettingValue(p.Name, Format(p.GetValue(config)), Format(p.GetValue(defaults))))];
     }
 
+    // Lists hold media names and paths, and the bundle is pasted into public issues, so only their size is shown.
     private static string Format(object? value) => value switch
     {
         null => "null",
         bool flag => flag ? "true" : "false",
         string text => text.Length == 0 ? "(empty)" : text,
-        IEnumerable<string> list => "[" + string.Join(", ", list) + "]",
+        IEnumerable<string> list => list.Count().ToString(CultureInfo.InvariantCulture),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
         _ => value.ToString() ?? string.Empty,
     };

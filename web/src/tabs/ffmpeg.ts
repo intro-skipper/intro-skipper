@@ -11,6 +11,7 @@ export const ffmpegTab: Tab = {
             form.field("MaxParallelism"),
             form.field("ProcessPriority"),
             form.field("ProcessThreads"),
+            form.field("UseHardwareDecoding"),
             form.field("ScanTimeoutSeconds"),
             form.field("CacheCompressionLevel"),
         );

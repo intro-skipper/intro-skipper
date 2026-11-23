@@ -40,8 +40,9 @@ internal interface IJellyfinSegmentStore
     /// </summary>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    Task<MediaSegmentDto?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken);
+    /// <returns>The matching segment and whether Intro Skipper's provider wrote it, or
+    /// <c>null</c> if not found.</returns>
+    Task<(MediaSegmentDto Segment, bool IsOwn)?> FindSegmentAsync(Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a segment only while it still matches its validated shape — item, id,

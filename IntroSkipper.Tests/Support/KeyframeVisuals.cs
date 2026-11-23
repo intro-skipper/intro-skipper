@@ -1,0 +1,70 @@
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Tests;
+
+using IntroSkipper.Data;
+
+/// <summary>
+/// Keyframe visuals for tests, on the 8-bit scale the scan reports.
+/// </summary>
+internal static class KeyframeVisuals
+{
+    /// <summary>A grey credit card with white text: uniform background, text far above it.</summary>
+    internal static KeyframeVisual Card => new(16, 128, 128, 235, 30, 0);
+
+    /// <summary>A white card with black text.</summary>
+    internal static KeyframeVisual WhiteCard => new(0, 235, 235, 235, 0, 0);
+
+    /// <summary>A completely white screen with no text.</summary>
+    internal static KeyframeVisual WhiteScreen => new(235, 235, 235, 235, 0, 0);
+
+    /// <summary>A black roll page with white text.</summary>
+    internal static KeyframeVisual Black => new(16, 16, 16, 235, 0, 0);
+
+    /// <summary>A black roll page whose difference to the keyframe before says the picture cut between the two.</summary>
+    internal static KeyframeVisual BlackAfterCut => Black with { FrameDifference = 40 };
+
+    /// <summary>A black page with nothing on it.</summary>
+    internal static KeyframeVisual BlankBlack => new(16, 16, 16, 16, 0, 0);
+
+    /// <summary>Busy content: luma spread across the range.</summary>
+    internal static KeyframeVisual Content => new(16, 60, 200, 235, 108, 0);
+
+    /// <summary>A dark detailed scene, luma spread wide within the dark range: its darkest tenth is under the blackframe threshold and its brightest tenth is not, so the filter counts between a tenth and nine tenths of it black. Its mean saturation of 2 keeps it from reading as a roll page; at 0 a black roll before it would end at the last of these pages.</summary>
+    internal static KeyframeVisual Dark => new(0, 10, 50, 120, 2, 0);
+
+    /// <summary>A dark tinted scene, such as a blue night cave: black to the blackframe filter, saturated, a bright subject in front.</summary>
+    internal static KeyframeVisual Tinted => new(0, 10, 19, 198, 30, 0);
+
+    /// <summary>A dark grey scene before the cut to the roll: black to the blackframe filter, unsaturated, its darkest tenth five levels above black.</summary>
+    internal static KeyframeVisual DarkGrey => new(15, 21, 26, 131, 0, 0);
+
+    /// <summary>A black roll page on a source with lifted blacks: the darkest tenth at 20 rather than 16.</summary>
+    internal static KeyframeVisual LiftedBlack => new(18, 20, 20, 235, 0, 0);
+
+    /// <summary>A dark scene behind letterbox bars: the bars pin the darkest tenth at black, the picture sits above it, a lit face on top.</summary>
+    internal static KeyframeVisual LetterboxedDark => new(16, 16, 32, 200, 3, 0);
+
+    /// <summary>A black roll page with large lettering: the 90th percentile lands on the text.</summary>
+    internal static KeyframeVisual BigText => new(16, 16, 100, 240, 0, 0);
+
+    /// <summary>Dense white lettering on black: too much text for the card test, still a text page.</summary>
+    internal static KeyframeVisual DenseText => new(16, 16, 74, 244, 0, 0);
+
+    /// <summary>Red lettering on black: the mean saturation rises.</summary>
+    internal static KeyframeVisual RedText => new(16, 16, 17, 86, 11, 0);
+
+    /// <summary>Dense red lettering on black: dim and too dense for the flat branch, a tenth of the frame on the text.</summary>
+    internal static KeyframeVisual DenseRedText => new(16, 16, 81, 81, 11, 0);
+
+    /// <summary>The first keyframe of a dark scene after a cut: black to the blackframe filter, one lit spot, no lettering.</summary>
+    internal static KeyframeVisual DarkHighlight => new(9, 9, 19, 104, 2, 0);
+
+    /// <summary>A dim room at night without bars: black to the blackframe filter, its 90th percentile a few levels above its lifted darkest tenth, a lit candle on the flat dark, so it is card-like and lettered.</summary>
+    internal static KeyframeVisual DarkRoom => new(19, 20, 28, 141, 2.5, 0);
+
+    /// <summary>A flat colour background with a subject in front: the 90th percentile leaves the background.</summary>
+    internal static KeyframeVisual FlatWithSubject => new(54, 126, 226, 231, 45, 0);
+}

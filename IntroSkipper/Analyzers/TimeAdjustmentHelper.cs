@@ -27,13 +27,17 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     /// </summary>
     /// <param name="episode">The episode to adjust.</param>
     /// <param name="originalIntro">The original intro segment.</param>
-    /// <param name="adjustIntroBasedOnChapters">Whether to adjust based on chapters (overrides _config if true).</param>
+    /// <param name="chapterSourced">
+    /// Whether the range comes from chapter marks. Its boundaries then take the configured offsets
+    /// and the snaps to the episode start and end, but no chapter, silence or keyframe snap.
+    /// Otherwise chapter snapping follows <see cref="PluginConfiguration.AdjustIntroBasedOnChapters"/>.
+    /// </param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg-based adjustment probes.</param>
     /// <returns>A task that returns a new Segment with adjusted intro times.</returns>
     public async Task<Segment> AdjustIntroTimesAsync(
         QueuedEpisode episode,
         Segment originalIntro,
-        bool? adjustIntroBasedOnChapters = null,
+        bool chapterSourced = false,
         CancellationToken cancellationToken = default)
     {
         // Config checks
@@ -43,7 +47,11 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
             return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
-        bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
+        bool useChapters = !chapterSourced && _config.AdjustIntroBasedOnChapters;
+        bool isIntroduction = _mode == AnalysisMode.Introduction;
+        bool isCredits = _mode == AnalysisMode.Credits;
+        double startOffset = isIntroduction ? _config.IntroStartOffset : isCredits ? _config.CreditsStartOffset : 0;
+        double endOffset = isIntroduction ? _config.IntroEndOffset : isCredits ? _config.CreditsEndOffset : 0;
         var duration = episode.Duration;
         var chapters = useChapters ? episode.Chapters : [];
 
@@ -79,23 +87,25 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
 
         if (snapToEpisodeStart)
         {
-            // Snap the detected boundary first; IntroStartOffset is applied below so it also
-            // takes effect when the detected intro starts at (or near) the episode start.
+            // Snap the detected boundary first; mode-specific offset handling below decides whether
+            // playback should begin after the episode boundary.
             adjustedStart = 0;
         }
 
-        // Apply the configured playback offset after all other start adjustments. Snapped starts
-        // are opt-in because the default behavior is to preserve the episode boundary.
-        if (!snapToEpisodeStart || _config.IncludeIntroStartOffsetWhenSnapping)
+        // Apply the configured playback offset after all other start adjustments. Introduction
+        // keeps its opt-in for snapped starts; Credits always applies its own start offset there.
+        if (!snapToEpisodeStart || isCredits || (isIntroduction && _config.IncludeIntroStartOffsetWhenSnapping))
         {
-            adjustedStart = Math.Clamp(adjustedStart + _config.IntroStartOffset, 0, duration);
+            adjustedStart = Math.Clamp(adjustedStart + startOffset, 0, duration);
         }
 
         double rawEnd = originalIntro.End;
         double adjustedEnd = rawEnd;
         if (rawEnd >= duration - _config.EndSnapThreshold - Epsilon)
         {
-            adjustedEnd = duration;
+            adjustedEnd = isCredits && _config.IncludeCreditsEndOffsetWhenSnapping
+                ? Math.Clamp(duration - endOffset, 0, duration)
+                : duration;
         }
         else
         {
@@ -105,17 +115,17 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
                 adjustedEnd = GetChapterBoundary(chapters, adjustedEnd, searchRange);
             }
 
-            adjustedEnd -= _config.IntroEndOffset;
+            adjustedEnd -= endOffset;
             // Keep end inside media duration after offset
             adjustedEnd = Math.Clamp(adjustedEnd, 0, duration);
 
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
-            if (_config.AdjustIntroBasedOnSilence)
+            if (_config.AdjustIntroBasedOnSilence && !chapterSourced)
             {
                 adjustedEnd = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
             }
 
-            if (_config.SnapToKeyframe)
+            if (_config.SnapToKeyframe && !chapterSourced)
             {
                 adjustedEnd = await SnapToNearestKeyframeAsync(episode, adjustedEnd, silenceRange, cancellationToken).ConfigureAwait(false);
             }
@@ -170,7 +180,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     {
         try
         {
-            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, _config, cancellationToken).ConfigureAwait(false);
             foreach (var currentRange in silence)
             {
                 if (
@@ -201,7 +211,7 @@ internal sealed partial class TimeAdjustmentHelper(ILogger logger, PluginConfigu
     /// </summary>
     private async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
     {
-        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, _config, cancellationToken).ConfigureAwait(false);
         return SelectNearest(keyframes, time);
     }
 

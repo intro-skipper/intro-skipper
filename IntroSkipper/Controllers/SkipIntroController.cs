@@ -54,12 +54,12 @@ public partial class SkipIntroController(
     /// Rebuilds the database.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
-    /// When <c>true</c>, the rebuild proceeds with an empty database if the existing one
-    /// cannot be read for backup — every stored timestamp is discarded. When <c>false</c>,
-    /// such a rebuild aborts with 409 so no data is lost without explicit consent.
+    /// When <c>true</c> and the existing database cannot be fully read for backup, the file is
+    /// recreated with only the tables read before the failure, so stored timestamps can be lost.
+    /// When <c>false</c>, such a rebuild aborts with 409 so no data is lost without explicit consent.
     /// </param>
     /// <response code="204">Database rebuilt.</response>
-    /// <response code="409">The existing database could not be read for backup; repeat with forceCleanOnBackupFailure=true to discard it and rebuild empty.</response>
+    /// <response code="409">The existing database could not be read for backup; repeat with forceCleanOnBackupFailure=true to discard what cannot be read and rebuild.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/RebuildDatabase")]
@@ -72,7 +72,7 @@ public partial class SkipIntroController(
         }
         catch (DatabaseRebuildBackupException)
         {
-            return Conflict(new { message = "The existing database could not be read for backup. Repeat the request with forceCleanOnBackupFailure=true to discard it and rebuild empty." });
+            return Conflict(new { message = "The existing database could not be read for backup. Repeat the request with forceCleanOnBackupFailure=true to discard what cannot be read and rebuild." });
         }
 
         return NoContent();

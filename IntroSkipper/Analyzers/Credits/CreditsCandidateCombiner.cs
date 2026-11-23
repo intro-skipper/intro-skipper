@@ -11,18 +11,28 @@ namespace IntroSkipper.Analyzers.Credits;
 /// <remarks>
 /// A candidate that ends within the minimum credits duration of the window end is extended
 /// to it: nothing that short after credits can be a credits scene of its own, and shared
-/// audio stops a few seconds early at the fade-out. Candidates that then overlap or lie
-/// within <see cref="CreditSceneBuilder.MaximumSceneMergeGapSeconds"/> of each other
+/// audio stops a few seconds early at the fade-out. A season that derives its previews from the
+/// credits end extends only over a shorter reach, since a post-credits preview can be shorter
+/// than a credits scene. Candidates that then overlap or lie
+/// within <see cref="MergeGapSeconds"/> of each other
 /// merge into one segment from the earliest start to the latest end under
 /// <see cref="SegmentSource.Combined"/>. Candidates farther apart are emitted separately
-/// under their own source. Order carries no information: shared audio before, inside or
+/// under their own source, except a part made only of keyframe candidates with minutes of story
+/// after it (see <see cref="Combine"/>). Order carries no information: shared audio before, inside or
 /// after a black run merges the same way, and a union only grows, so a chapter range is
-/// never shortened.
+/// never shortened. A producer that grows or moves a candidate before it is combined asks
+/// <see cref="WithinMergeGap"/> and <see cref="SameCap"/>, the tests <see cref="Combine"/> runs.
 /// </remarks>
 internal static class CreditsCandidateCombiner
 {
     // Chapter starts are rounded to ticks; half a second absorbs that and keyframe jitter.
     private const double BoundaryTolerance = 0.5;
+
+    private const double MergeGapSeconds = 20;
+
+    // The most story a mid-credits or post-credits scene leaves between two credits parts. The widest
+    // in the measured corpus is 132 s.
+    private const double MaximumStoryBetweenPartsSeconds = 180;
 
     /// <summary>
     /// Combines the candidates of one episode.
@@ -31,91 +41,149 @@ internal static class CreditsCandidateCombiner
     /// The end of a chapter credits candidate is an authored credits-to-content boundary: the
     /// next chapter, such as a named preview, starts there. No candidate extends or merges
     /// across it, and a black-frame or chromaprint candidate reaching past it is capped
-    /// there. Later chapter markers carry no such meaning.
+    /// there. Later chapter markers carry no such meaning. After merging, a part made only of
+    /// keyframe candidates that ends more than <see cref="MaximumStoryBetweenPartsSeconds"/> before
+    /// the next part that stays starts is dropped: a lettered black scene inside the episode, such as
+    /// a text screen, reads as credits to the keyframe analyzer, but minutes of story follow it, more
+    /// than any mid-credits scene leaves between two parts. A part that merged with a chapter or
+    /// chromaprint candidate stays, and so does the latest part.
     /// </remarks>
     /// <param name="candidates">The candidates, in any order, each already bounded by its own analyzer. Invalid segments are ignored.</param>
     /// <param name="windowEnd">The end of the credits window in seconds.</param>
     /// <param name="minimumDuration">The minimum credits duration in seconds.</param>
+    /// <param name="windowEndReach">
+    /// How close to the window end, in seconds, a candidate must end to be extended to it;
+    /// <see langword="null"/> for <paramref name="minimumDuration"/>. A season that derives its
+    /// previews passes <see cref="AnimePreviewDeriver.ShortestTailSeconds"/>, so a short preview
+    /// after the credits is not swallowed by them.
+    /// </param>
     /// <returns>The segments to store, ordered by start; empty when no candidate is valid.</returns>
     public static List<AttributedSegment> Combine(
         IReadOnlyList<AttributedSegment> candidates,
         double windowEnd,
-        int minimumDuration)
+        int minimumDuration,
+        double? windowEndReach = null)
     {
-        var boundaries = HardBoundaries(candidates, windowEnd);
+        var boundaries = HardBoundaries(candidates.Where(c => c.Source == SegmentSource.Chapter).Select(c => c.Segment), windowEnd);
+        var reach = windowEndReach ?? minimumDuration;
 
         List<AttributedSegment> ordered = [.. candidates
             .Where(c => c.Segment.Valid)
-            .Select(c => Bound(c, boundaries, windowEnd, minimumDuration))
+            .Select(c => Bound(c, boundaries, windowEnd, minimumDuration, reach))
             .OfType<AttributedSegment>()
             .OrderBy(c => c.Segment.Start)];
 
+        // Each part remembers whether it holds only keyframe candidates.
         var result = new List<AttributedSegment>(ordered.Count);
+        var keyframeOnly = new List<bool>(ordered.Count);
         foreach (var candidate in ordered)
         {
             if (result.Count > 0 &&
-                candidate.Segment.Start <= result[^1].Segment.End + CreditSceneBuilder.MaximumSceneMergeGapSeconds &&
+                WithinMergeGap(result[^1].Segment.End, candidate.Segment.Start) &&
                 !boundaries.Any(b => b >= result[^1].Segment.End - BoundaryTolerance && b <= candidate.Segment.Start + BoundaryTolerance))
             {
                 var current = result[^1];
                 result[^1] = new AttributedSegment(
                     new Segment(current.Segment.EpisodeId, new TimeRange(current.Segment.Start, Math.Max(current.Segment.End, candidate.Segment.End))),
                     SegmentSource.Combined);
+                keyframeOnly[^1] &= IsKeyframe(candidate);
                 continue;
             }
 
             result.Add(candidate);
+            keyframeOnly.Add(IsKeyframe(candidate));
         }
 
-        return result;
+        // Latest first, so each part is measured against the nearest part that stays.
+        var kept = new List<AttributedSegment>(result.Count);
+        double? nextStart = null;
+        for (var i = result.Count - 1; i >= 0; i--)
+        {
+            if (keyframeOnly[i] && nextStart is { } next && next - result[i].Segment.End > MaximumStoryBetweenPartsSeconds)
+            {
+                continue;
+            }
+
+            kept.Add(result[i]);
+            nextStart = result[i].Segment.Start;
+        }
+
+        kept.Reverse();
+        return kept;
     }
 
     /// <summary>
-    /// Whether a candidate ends so close to the window end that no credits scene fits after it.
+    /// Whether a candidate starting at <paramref name="start"/> lies within the merge gap of one ending
+    /// at <paramref name="end"/>, overlap included, so that <see cref="Combine"/> merges the two unless a
+    /// hard boundary lies between them.
     /// </summary>
-    /// <param name="candidateEnd">The candidate's end in seconds.</param>
-    /// <param name="windowEnd">The end of the credits window in seconds.</param>
-    /// <param name="minimumDuration">The minimum credits duration in seconds.</param>
-    /// <returns><see langword="true"/> if the candidate reaches the window end for combination purposes; otherwise, <see langword="false"/>.</returns>
-    public static bool ReachesWindowEnd(double candidateEnd, double windowEnd, int minimumDuration)
-        => candidateEnd > windowEnd - minimumDuration;
+    /// <param name="end">The earlier candidate's end.</param>
+    /// <param name="start">The later candidate's start, on the same clock.</param>
+    /// <returns><see langword="true"/> when the two are close enough to merge; otherwise, <see langword="false"/>.</returns>
+    public static bool WithinMergeGap(double end, double start)
+        => start <= end + MergeGapSeconds;
 
-    // A chapter candidate's end that is not inside another chapter candidate (two adjacent
-    // credits chapters share a boundary that is not a boundary to content) and not the window end.
-    private static List<double> HardBoundaries(IReadOnlyList<AttributedSegment> candidates, double windowEnd)
+    /// <summary>
+    /// Whether <see cref="Combine"/> caps a non-chapter candidate at the same hard boundary, or at none,
+    /// whether it starts at <paramref name="start"/> or at <paramref name="otherStart"/>. A producer that
+    /// moves a start back asks it: a different cap is a boundary between the two starts, and the moved
+    /// candidate would be capped there and lose what lies after it.
+    /// </summary>
+    /// <param name="boundaries">Hard boundaries from <see cref="HardBoundaries"/>, on the same clock as the starts.</param>
+    /// <param name="start">One start.</param>
+    /// <param name="otherStart">The other start.</param>
+    /// <returns><see langword="true"/> when both starts are capped alike; otherwise, <see langword="false"/>.</returns>
+    public static bool SameCap(IReadOnlyList<double> boundaries, double start, double otherStart)
+        => Cap(boundaries, start) == Cap(boundaries, otherStart);
+
+    /// <summary>
+    /// The authored credits-to-content boundaries <see cref="Combine"/> caps at: each credits chapter's
+    /// end that is not inside another credits chapter (two adjacent credits chapters share a boundary
+    /// that is not a boundary to content) and not the window end.
+    /// </summary>
+    /// <param name="chapters">The episode's credits chapter matches. Invalid segments are ignored.</param>
+    /// <param name="windowEnd">The credits window end, which is never a hard boundary.</param>
+    /// <returns>The boundaries, in ascending order.</returns>
+    public static List<double> HardBoundaries(IEnumerable<Segment> chapters, double windowEnd)
     {
-        List<Segment> chapters = [.. candidates.Where(c => c.Source == SegmentSource.Chapter && c.Segment.Valid).Select(c => c.Segment)];
-        return [.. chapters
+        List<Segment> valid = [.. chapters.Where(c => c.Valid)];
+        return [.. valid
             .Select(c => c.End)
             .Where(b => b < windowEnd - BoundaryTolerance
-                && !chapters.Any(c => b >= c.Start - BoundaryTolerance && b < c.End - BoundaryTolerance))
+                && !valid.Any(c => b >= c.Start - BoundaryTolerance && b < c.End - BoundaryTolerance))
             .OrderBy(b => b)];
     }
+
+    // Whether a candidate ends so close to the window end that nothing of its own fits after it.
+    private static bool ReachesWindowEnd(double candidateEnd, double windowEnd, double reach)
+        => candidateEnd > windowEnd - reach;
+
+    private static bool IsKeyframe(AttributedSegment candidate)
+        => candidate.Source is SegmentSource.BlackFrame or SegmentSource.KeyframeVisuals;
+
+    private static double? Cap(IReadOnlyList<double> boundaries, double start)
+        => boundaries.Where(b => b > start + BoundaryTolerance).Min(b => (double?)b);
 
     /// <summary>
     /// Caps a non-chapter candidate at the first hard boundary after its start and extends any
     /// candidate that reaches the window end, unless a hard boundary stands in the way.
     /// </summary>
     /// <returns>The bounded candidate, or <see langword="null"/> when capping leaves too little of it.</returns>
-    private static AttributedSegment? Bound(AttributedSegment candidate, IReadOnlyList<double> boundaries, double windowEnd, int minimumDuration)
+    private static AttributedSegment? Bound(AttributedSegment candidate, IReadOnlyList<double> boundaries, double windowEnd, int minimumDuration, double reach)
     {
         var start = candidate.Segment.Start;
         var end = candidate.Segment.End;
 
-        if (candidate.Source != SegmentSource.Chapter)
+        if (candidate.Source != SegmentSource.Chapter && Cap(boundaries, start) is { } cap && end > cap)
         {
-            var cap = boundaries.FirstOrDefault(b => b > start + BoundaryTolerance, double.NaN);
-            if (!double.IsNaN(cap) && end > cap)
+            end = cap;
+            if (end - start < minimumDuration)
             {
-                end = cap;
-                if (end - start < minimumDuration)
-                {
-                    return null;
-                }
+                return null;
             }
         }
 
-        if (ReachesWindowEnd(end, windowEnd, minimumDuration) && end < windowEnd &&
+        if (ReachesWindowEnd(end, windowEnd, reach) && end < windowEnd &&
             !boundaries.Any(b => b >= end - BoundaryTolerance))
         {
             end = windowEnd;

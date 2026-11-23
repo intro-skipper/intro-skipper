@@ -178,7 +178,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        return Ok(await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false));
+        var overrides = await _database.GetAnalysisOverridesAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        return Ok(overrides with
+        {
+            PreviewFromCreditsEnd = overrides.PreviewFromCreditsEnd
+                ?? Plugin.Instance!.Configuration.LegacyPreviewFromCreditsEnd(_seasonResolver.ResolveDisplayed(seasonId)?.Episodes ?? []),
+        });
     }
 
     /// <summary>

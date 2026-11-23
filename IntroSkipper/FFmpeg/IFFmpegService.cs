@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 
@@ -39,9 +40,10 @@ public interface IFFmpegService
     /// <param name="episode">Queued episode.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns TimeRange objects that are silent in the queued episode.</returns>
-    Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
+    Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds the location of all black frames in a media file within a time range.
@@ -49,62 +51,64 @@ public interface IFFmpegService
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold drives the scan and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns frames that are mostly black.</returns>
     Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold,
         AnalysisMode mode,
+        PluginConfiguration config,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Scans the keyframes from the credits start to the end of the file: one page per keyframe,
-    /// with its black percentage and, inside the credits window, its luma percentiles and saturation.
+    /// with its black percentage and, inside the credits window, its luma percentiles, saturation and
+    /// frame difference.
     /// </summary>
     /// <remarks>
-    /// One keyframe decode writes two cache rows, the black-frame row and the visuals row. This reads
-    /// each row, or decodes it on a miss, and pairs them into pages, so no caller joins them. A
-    /// page's time is its black-frame time. A page has no visual when it lies past the credits
-    /// window, when no visual lies within 10 ms of its row, or when the ffmpeg check found the
-    /// signalstats filter missing.
+    /// One ffmpeg pipes every keyframe here as raw yuv420p and the plugin measures it (<see cref="PageFacts"/>).
+    /// The pages are cached as one row, keyed by the credits start. It holds every keyframe to the end of
+    /// the file and is clipped at this read, so a page past the credits window has no visual. A software scan whose
+    /// ffmpeg exits nonzero keeps and caches the pages it read; a hardware run that does is discarded
+    /// and rerun in software.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and the row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns one page per keyframe, in time order, relative to the credits fingerprint start.</returns>
-    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
+    /// <returns>A task that returns one page per keyframe, in the order ffmpeg decoded them, relative to the credits fingerprint start.</returns>
+    /// <exception cref="InvalidDataException">The pipe broke its protocol: ffmpeg was killed and nothing was cached.</exception>
+    /// <exception cref="TimeoutException">ffmpeg did not exit within the scan timeout; nothing was cached.</exception>
+    Task<KeyframePage[]> ScanKeyframesAsync(QueuedEpisode episode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds continuous black intervals in a bounded credits range.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Absolute media time range to search.</param>
-    /// <param name="threshold">Pixel threshold for black interval detection.</param>
     /// <param name="minimum">Minimum percentage of a frame that must be black for it to count as black (blackdetect pic_th); tie this to the keyframe density threshold so both definitions of "black" agree.</param>
+    /// <param name="config">The configuration the scan runs under; its black-frame threshold is the pixel threshold and its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>A task that returns continuous black intervals relative to the credits fingerprint start.</returns>
-    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default);
+    /// <returns>A task that returns continuous black intervals, in absolute media seconds, each clipped to <paramref name="range"/>.</returns>
+    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int minimum, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Decodes every frame of a window to its luma plane at a small width, for the credits lead-in probe.
+    /// Decodes every frame of a keyframe gap and reports each frame's visual, for the credits cut start.
     /// </summary>
     /// <remarks>
-    /// Not cached: the window is tens of megabytes, so the caller caches what it derives from it.
-    /// The frames stay on the source's own 8-bit scale, 16 to 235 on a limited-range source and 0
-    /// to 255 on a full-range one, as the keyframe scan's visuals read the same frames, so a level
-    /// from that scan compares directly.
-    /// Standard output is capped at 64 MiB.
+    /// Not cached: the caller caches the start it derives. The frames are decoded at source
+    /// resolution through signalstats on <c>format=yuv420p</c>, so each frame's
+    /// <see cref="KeyframeVisual.FrameDifference"/> compares directly with a page's: both are YDIF of
+    /// the same 8-bit yuv420p frames at the same resolution. The first frame's difference is 0,
+    /// since nothing was decoded before it. Each output stream is capped at 64 MiB.
     /// </remarks>
     /// <param name="episode">Media file to decode.</param>
-    /// <param name="window">Absolute media time range to decode. Its start must be a keyframe from the keyframe scan: the decode seeks there, so a demuxer that seeks by timestamp, such as MPEG-TS, decodes from that keyframe rather than the next one, and the frame times fall on the scan's timeline.</param>
-    /// <param name="width">Frame width to scale to; the height follows the aspect ratio.</param>
+    /// <param name="window">Absolute media time range to decode, from the keyframe before a part's first page to that page. Its start must be a keyframe from the keyframe scan: the decode seeks there, so a demuxer that seeks by timestamp, such as MPEG-TS, decodes from that keyframe rather than the next one, and the frame times fall on the scan's timeline.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    /// <returns>The frames with their times, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, its output crossed the byte cap, or the frame and timestamp counts disagree.</returns>
-    Task<LumaWindow?> DecodeLumaWindowAsync(QueuedEpisode episode, TimeRange window, int width, CancellationToken cancellationToken = default);
+    /// <returns>The frames in presentation order, each with its time in media seconds and its visual, or <see langword="null"/> when the decode cannot be trusted: ffmpeg failed to run or exited nonzero, or its output crossed the byte cap. A frame whose block lacks a statistic is left out.</returns>
+    Task<CutFrame[]?> DecodeCutWindowAsync(QueuedEpisode episode, TimeRange window, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Detects key frames in a media file within a time range.
@@ -112,9 +116,10 @@ public interface IFFmpegService
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
+    /// <param name="config">The configuration the scan runs under; its cache row is hashed under it.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>A task that returns timestamps of key frames.</returns>
-    Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
+    Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, PluginConfiguration config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Probes the first audio stream's actual duration with ffprobe.

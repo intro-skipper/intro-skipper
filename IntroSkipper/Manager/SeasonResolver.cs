@@ -1,7 +1,6 @@
-// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Buffers.Binary;
@@ -102,11 +101,13 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
 
     /// <summary>
     /// Lists the series and movies of every library the plugin is enabled for, in sort
-    /// name order. A library that cannot be enumerated is logged, skipped and counted.
+    /// name order, unless disabled libraries are included. A library that cannot be
+    /// enumerated is logged, skipped and counted.
     /// </summary>
     /// <param name="failures">The number of libraries that were skipped.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
     /// <returns>The series and movies to resolve.</returns>
-    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures)
+    internal IReadOnlyList<BaseItem> EnumerateLibrary(out int failures, bool includePluginDisabled = false)
     {
         failures = 0;
         var policy = ExclusionPolicy.FromConfiguration(Config);
@@ -126,7 +127,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         List<BaseItem> owners = [];
         foreach (var folder in virtualFolders)
         {
-            if (PluginDisabledIn(folder.LibraryOptions))
+            if (!includePluginDisabled && PluginDisabledIn(folder.LibraryOptions))
             {
                 LogLibraryDisabled(_logger, folder.Name);
                 continue;
@@ -255,18 +256,38 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     /// <summary>
     /// Resolves every season of every enabled library, sequentially, counting the
     /// libraries and series that failed so maintenance can refuse to act on an
-    /// incomplete result.
+    /// incomplete result. A one-time migration can also count items that are not ready
+    /// to resolve yet, and include disabled libraries so their choices are present if
+    /// those libraries are enabled later.
     /// </summary>
     /// <param name="includeExcluded"><see langword="true"/> to keep episodes the exclusion policy matches, flagged; otherwise, <see langword="false"/>.</param>
     /// <param name="cancellationToken">Cancellation token, checked between series.</param>
+    /// <param name="includePluginDisabled"><see langword="true"/> to include libraries where this plugin is disabled.</param>
+    /// <param name="countUnresolvedItems"><see langword="true"/> to count unprobed or pathless items as failures, so one-time migrations can remain pending until those items can be resolved.</param>
     /// <returns>The seasons and the failure count.</returns>
-    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken)
+    internal LibraryResolution ResolveLibrary(bool includeExcluded, CancellationToken cancellationToken, bool includePluginDisabled = false, bool countUnresolvedItems = false)
     {
-        var owners = EnumerateLibrary(out var failures);
+        var owners = EnumerateLibrary(out var failures, includePluginDisabled);
         List<ResolvedSeason> seasons = [];
         foreach (var owner in owners)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (countUnresolvedItems)
+            {
+                try
+                {
+                    if (HasUnresolvedItems(owner))
+                    {
+                        failures++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures++;
+                    LogFailedResolve(_logger, ex, owner.Name, owner.Id);
+                }
+            }
+
             if (!TryResolve(owner, includeExcluded, out var resolved))
             {
                 failures++;
@@ -276,6 +297,41 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         }
 
         return new LibraryResolution(seasons, failures);
+    }
+
+    private bool HasUnresolvedItems(BaseItem owner)
+    {
+        if (owner is Movie movie)
+        {
+            return string.IsNullOrEmpty(movie.Path) || !IsProbed(movie);
+        }
+
+        if (owner is not Series series)
+        {
+            return false;
+        }
+
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = true,
+            AncestorIds = [series.Id],
+        };
+        var episodes = _libraryManager.GetItemList(query, false)
+            ?? throw new InvalidOperationException($"Library query for the episodes of {series.Name} ({series.Id}) returned null");
+
+        var episodeItems = episodes.OfType<Episode>().ToList();
+        var seasonsByNumber = episodeItems
+            .Where(episode => !episode.IsVirtualItem && episode.SeasonId != Guid.Empty && episode.ParentIndexNumber is not null
+                && !string.IsNullOrEmpty(episode.Path) && IsProbed(episode))
+            .GroupBy(episode => episode.ParentIndexNumber!.Value)
+            .ToDictionary(group => group.Key, group => group.First().SeasonId);
+
+        return episodeItems.Any(episode =>
+            !episode.IsVirtualItem
+            && (string.IsNullOrEmpty(episode.Path)
+                || !IsProbed(episode)
+                || Place(episode, seasonsByNumber) is null));
     }
 
     internal static DateTime EpisodeAvailabilityDate(Episode episode)
@@ -305,13 +361,20 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
         return item.DateModified == DateTime.MinValue ? null : item.DateModified.Ticks;
     }
 
+    /// <summary>
+    /// Returns the runtime Jellyfin holds for an item, in seconds, or 0 when it holds none.
+    /// </summary>
+    /// <param name="item">An episode or movie.</param>
+    /// <returns>The runtime in seconds.</returns>
+    internal static double Duration(BaseItem item) => TimeSpan.FromTicks(item.RunTimeTicks ?? 0).TotalSeconds;
+
     // Whether Jellyfin has probed the item's file. A library scan creates an item, and
     // raises ItemAdded, before the metadata refresh that probes its runtime and chapters,
     // and on a large library that refresh can come minutes later. Analyzed in between, the
     // item has no duration to fingerprint and no chapters to match, and a mode that fails
     // nothing records it as analyzed with nothing found. The refresh saves the item, which
     // queues it again.
-    private static bool IsProbed(BaseItem item) => item.RunTimeTicks is > 0;
+    internal static bool IsProbed(BaseItem item) => item.RunTimeTicks is > 0;
 
     private static bool IsInSeasonSpecial(Episode episode)
         => episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0;
@@ -434,13 +497,9 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
     private static List<QueuedEpisode> QueueEpisodes(Series series, IEnumerable<PlacedEpisode> placed)
     {
         var category = SeriesHelper.IsAnime(series) ? QueuedMediaCategory.AnimeEpisode : QueuedMediaCategory.Episode;
-        var config = Config;
-        var analysisPercent = config.AnalysisPercent / 100.0;
-
         List<QueuedEpisode> queued = [];
         foreach (var (episode, decision, key, seasonNumber) in placed)
         {
-            var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
             queued.Add(new QueuedEpisode
             {
                 SeriesName = series.Name,
@@ -455,9 +514,8 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
                 Path = episode.Path,
                 IsShortcut = episode.IsShortcut,
                 ShortcutPath = episode.ShortcutPath ?? string.Empty,
-                Duration = duration,
+                Duration = Duration(episode),
                 DateAdded = EpisodeAvailabilityDate(episode),
-                IntroFingerprintEnd = Math.Min(duration >= 5 * 60 ? duration * analysisPercent : duration, 60 * config.AnalysisLengthLimit),
                 FileVersion = FileVersion(episode),
             });
         }
@@ -498,7 +556,7 @@ public sealed partial class SeasonResolver(ILogger<SeasonResolver> logger, ILibr
             Path = movie.Path,
             IsShortcut = movie.IsShortcut,
             ShortcutPath = movie.ShortcutPath ?? string.Empty,
-            Duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds,
+            Duration = Duration(movie),
             FileVersion = FileVersion(movie),
         };
         return new ResolvedSeason(movie.Id, movie.Id, [queued]);

@@ -32,7 +32,7 @@ export function validateSpec(spec: FieldSpec, value: unknown): string | null {
             return null;
         }
         case "regex": {
-            // Empty means "use the default pattern".
+            // Empty is valid: it turns the pattern off.
             if (typeof value !== "string" || value.trim().length === 0) return null;
             try {
                 new RegExp(value);

@@ -44,6 +44,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int DefaultSettledSeasonDelayHours = 24;
 
     /// <summary>
+    /// Default number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int DefaultSettledSeasonChromaprintConsensusEpisodes = 10;
+
+    /// <summary>
+    /// Minimum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MinimumSettledSeasonChromaprintConsensusEpisodes = 2;
+
+    /// <summary>
+    /// Maximum number of episodes required to confirm a settled-season Chromaprint consensus group.
+    /// </summary>
+    public const int MaximumSettledSeasonChromaprintConsensusEpisodes = 1000;
+
+    /// <summary>
     /// Maximum number of hours after the newest queued episode before a season is treated as settled.
     /// </summary>
     public const int MaximumSettledSeasonDelayHours = 87600;
@@ -67,7 +82,28 @@ public class PluginConfiguration : BasePluginConfiguration
     internal const string FirstEpisodeIntroModeIgnore = "Ignore";
     internal const string FirstEpisodeIntroModeIgnoreAnime = "IgnoreAnime";
 
+    // The default recap chapter patterns through 12.0.6. The first shipped from 10.11.22 on, the
+    // second before it. Jellyfin saved the defaults of the first load, so installs from those
+    // releases still carry them untouched. Frozen.
+    internal const string LegacyDefaultRecapPattern = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultRecapPatternBefore101122 = @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
+
+    // The default introduction and credits chapter patterns of every release through 12.0.6,
+    // newest first. The first shipped from 10.11.22 on, the second from 10.10.10 to 10.11.21
+    // and the third before 10.10.10. Credits also shipped the fourth in 10.8 and in 10.9 before
+    // v0.2.0.18, and the fifth from 2022 to March 2024. A pair a 10.11 prerelease build carried
+    // for a few hours is not recognized. Frozen.
+    internal const string LegacyDefaultIntroPattern = @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultIntroPatternBefore101122 = @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)";
+    internal const string LegacyDefaultIntroPatternBefore101010 = @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+    internal const string LegacyDefaultCreditsPattern = @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
+    internal const string LegacyDefaultCreditsPatternBefore101122 = @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternBefore101010 = @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternWithoutOutro = @"(^|\s)(Credits?|ED|Ending)(\s|$)";
+    internal const string LegacyDefaultCreditsPatternWithoutEd = @"(^|\s)(Credits?|Ending)(\s|$)";
+
     private string? _firstEpisodeIntroMode;
+    private int _settledSeasonChromaprintConsensusEpisodes = DefaultSettledSeasonChromaprintConsensusEpisodes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -108,6 +144,27 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ReanalyzeSettledSeasons { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether settled-season Introduction and Credits re-analysis
+    /// requires local Chromaprint consensus groups.
+    /// </summary>
+    public bool UseSettledSeasonChromaprintConsensus { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the target number of distinct episodes required in a settled-season Chromaprint
+    /// consensus group. Comparable pattern groups may lower the target to their smallest group size,
+    /// and a single group covering at least three quarters of the usable fingerprints may qualify
+    /// below the target.
+    /// </summary>
+    public int SettledSeasonChromaprintConsensusEpisodes
+    {
+        get => _settledSeasonChromaprintConsensusEpisodes;
+        set => _settledSeasonChromaprintConsensusEpisodes = Math.Clamp(
+            value,
+            MinimumSettledSeasonChromaprintConsensusEpisodes,
+            MaximumSettledSeasonChromaprintConsensusEpisodes);
+    }
+
+    /// <summary>
     /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
     /// A value of 0 means no additional quiet-time wait once the season is queued.
     /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
@@ -141,8 +198,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to combine recognized credits chapters with
-    /// black-frame and chromaprint candidates. When disabled, valid credits chapters settle
-    /// the episode before combined detection, even when playback adjustments consume the range.
+    /// black-frame and chromaprint candidates. When disabled, valid credits chapters that no story
+    /// follows settle the episode before combined detection, even when playback adjustments
+    /// consume the range.
     /// Explicit per-season analyzer restrictions still apply.
     /// </summary>
     public bool EnhanceChapterCredits { get; set; }
@@ -160,8 +218,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
-    /// When enabled, the black frame analyzer probes the gap between keyframes
-    /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
+    /// When enabled, the keyframe analyzer decodes every frame between a credits part's first keyframe
+    /// and the keyframe before it, and starts the part on the frame that cuts to it. Disable for faster
+    /// analysis with keyframe-only accuracy.
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
 
@@ -283,9 +342,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
-    /// Gets or sets a value indicating whether content after credits should be set as a preview for anime episodes.
-    /// When enabled, a Preview segment is created for anime from the end of the last credits block through
-    /// the end of the episode. Individual seasons can override this setting.
+    /// Gets or sets a value indicating whether the legacy global preview choice is enabled. It is
+    /// retained for upgrade migration and legacy hash recognition.
     /// </summary>
     public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 
@@ -343,8 +401,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string PreferredAudioLanguage { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether Chromaprint should prefer the audio stream with the most channels.
-    /// Streams with equal channel counts are ordered by their stream index.
+    /// Gets or sets a value indicating whether Chromaprint should take the audio stream FFmpeg would pick:
+    /// the default-disposition stream, then the most channels, then the lowest stream index.
+    /// When disabled, the lowest stream index wins.
     /// </summary>
     public bool PreferAudioStreamWithMostChannels { get; set; } = true;
 
@@ -456,14 +515,29 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a title that, after an optional number or ♪ prefix or a slash,
+    /// is Intro or Introduction (optionally with Start), or starts with OP, Opening, Abertura,
+    /// オープニング or (Main) Title(s), optionally followed by Theme, Song, Music, Credits,
+    /// Titles, Sequence or Start, and then ends or meets a separator. "Opening Night" and
+    /// "Photo Op" stay out, and "Opening Credits" counts as an introduction.
+    /// </remarks>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
+        @"(^[\s0-9.\u266A-]*|/\s*)((Intro|Introduction)(\s+Start)?:?$|(OP[0-9]*|Opening|Abertura|\u30AA\u30FC\u30D7\u30CB\u30F3\u30B0|(Main\s+)?Titles?)(\s+(Theme|Song|Music|Credits|Titles?|Sequences?|Start))?(?![\s:]+End)\s*($|[-\u2013\u2014/:(]))";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a title that, after an optional number or ♪ prefix, or after
+    /// <c>+ , ; :</c>, starts with (The) Credits, ED, Ending, Outro, Closing, Cast List, Abspann,
+    /// Encerramento or エンディング, optionally followed by Theme, Song, Music or Start, and then
+    /// ends or meets a colon or a spaced dash. End, Ending, Closing, Early or Final followed by Credits
+    /// or Titles matches anywhere in the title. "Ed Gein", "Happy Ending" and "Opening Credits"
+    /// stay out.
+    /// </remarks>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
+        @"(^[0-9.\s\u266A]*|[+,;:]\s*)((The\s+)?Credits?|(Mixed\s+)?(ED[0-9]*(v[0-9]+)?|Ending)|Outro|Closing|Cast\s+List|Abspann|Encerramento|\u30A8\u30F3\u30C7\u30A3\u30F3\u30B0)(\s+(Theme|Song|Music|Start))?(?![\s:]+End)\s*($|:|[-\u2013\u2014]\s)|(^|[^a-z])(End|Ending|Closing|Early|Final)\s+(Credits?|Titles?)(?![a-z])(?![\s:]+End)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
@@ -474,8 +548,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
+    /// <remarks>
+    /// The default matches a recap phrase only at the start of the title or after a separator
+    /// (a hyphen, an en or em dash, or one of <c>| : . ( ) [ ]</c>), so scene names such as
+    /// "The Last Supper" or "2023 Recap" stay out. "Recap" may be followed by more text.
+    /// Summary, Previously, Previous episode, Earlier, Last time/week/episode/season, Catch up
+    /// and (The) Story/Road so far must end the title or meet a separator. Last,
+    /// Last time/week/episode/season and Catch up may instead be followed by "on". Only
+    /// "Previously on" or "Previously in" may follow other words.
+    /// </remarks>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
+        @"(^|[-\u2013\u2014|:.()\[\]])\s*(Recap(?![a-z])(?![\s:]+End)|(Last(\s+(time|week|episode|season))?|Catch[ -]?up),?\s+on(?![a-z])|(Summary|Previously|Previous\s+episode|Earlier|Last\s+(time|week|episode|season)|Catch[ -]?up|(The\s+)?(Story|Road)\s+so\s+far)(?![\s:]+End)\s*($|[-\u2013\u2014|:.()\[\]\u2026]))|(^|\s)Previously,?\s+(on|in)(?![a-z])";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.
@@ -532,9 +615,25 @@ public class PluginConfiguration : BasePluginConfiguration
     public int IntroEndOffset { get; set; }
 
     /// <summary>
+    /// Gets or sets the amount of credits to play before resuming (in seconds).
+    /// </summary>
+    public double CreditsEndOffset { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to apply <see cref="CreditsEndOffset" /> when the
+    /// credits end is snapped to the end of the episode.
+    /// </summary>
+    public bool IncludeCreditsEndOffsetWhenSnapping { get; set; }
+
+    /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int IntroStartOffset { get; set; }
+
+    /// <summary>
+    /// Gets or sets the amount of credits at start to play (in seconds).
+    /// </summary>
+    public double CreditsStartOffset { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to apply <see cref="IntroStartOffset" /> when the
@@ -552,6 +651,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the maximum number of seconds that can pass between two similar fingerprint points before a new time range is started.
+    /// Two long time ranges can still be joined across a longer gap; see <c>ChromaprintAnalyzer.FindContiguous</c>.
     /// </summary>
     public double MaximumTimeSkip { get; set; } = 3.5;
 
@@ -593,6 +693,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the relative priority for analysis ffmpeg processes.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the keyframe scan, the recap black-frame scan and
+    /// the black interval probe decode H.264 and HEVC on the hardware Jellyfin's playback uses, in
+    /// the pixel formats measured to decode the same there (<c>FFmpegService.DecodesOnHardware</c>).
+    /// They follow Jellyfin's hardware settings and stay in software while a video transcode runs.
+    /// Not hashed: in those formats VAAPI and D3D11VA matched software's pages and frames, apart from the differences docs/credits.md accepts.
+    /// QSV on Windows and VideoToolbox have not been compared with software, so their cached rows share software's config hash on the untested assumption that they match too.
+    /// </summary>
+    public bool UseHardwareDecoding { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the File Transformation plugin if available.
@@ -656,6 +766,16 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
+    /// Gets the post-credits preview choice the removed plugin-wide switch gave a season.
+    /// It is on when <see cref="AnimePreviewFromCreditsEnd"/> is on and the season has an
+    /// anime episode.
+    /// </summary>
+    /// <param name="episodes">The season's episodes.</param>
+    /// <returns>The legacy choice for the season.</returns>
+    public bool LegacyPreviewFromCreditsEnd(IEnumerable<QueuedEpisode> episodes)
+        => AnimePreviewFromCreditsEnd && episodes.Any(episode => episode.Category == QueuedMediaCategory.AnimeEpisode);
+
+    /// <summary>
     /// Gets the subtitle pattern that detects <paramref name="mode"/> for
     /// <paramref name="episode"/>, under its season's detection override. See
     /// <see cref="ActiveSubtitlePattern(AnalysisMode, bool?)"/>.
@@ -682,4 +802,29 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </returns>
     public long? RecordedFileVersion(QueuedEpisode episode, AnalysisMode mode)
         => ActiveSubtitlePattern(episode, mode) is null ? episode.FileVersion : episode.SubtitleFileVersion;
+
+    /// <summary>
+    /// Replaces, in memory, a saved default the plugin has since changed with the current
+    /// default. A value the user edited is kept. Call it on every load. It does not save, so
+    /// the file keeps the old default until the next dashboard save.
+    /// </summary>
+    internal void UpgradeLegacyDefaults()
+    {
+        var defaults = new PluginConfiguration();
+        if (ChapterAnalyzerIntroductionPattern is LegacyDefaultIntroPattern or LegacyDefaultIntroPatternBefore101122 or LegacyDefaultIntroPatternBefore101010)
+        {
+            ChapterAnalyzerIntroductionPattern = defaults.ChapterAnalyzerIntroductionPattern;
+        }
+
+        if (ChapterAnalyzerEndCreditsPattern is LegacyDefaultCreditsPattern or LegacyDefaultCreditsPatternBefore101122 or LegacyDefaultCreditsPatternBefore101010
+            or LegacyDefaultCreditsPatternWithoutOutro or LegacyDefaultCreditsPatternWithoutEd)
+        {
+            ChapterAnalyzerEndCreditsPattern = defaults.ChapterAnalyzerEndCreditsPattern;
+        }
+
+        if (ChapterAnalyzerRecapPattern is LegacyDefaultRecapPattern or LegacyDefaultRecapPatternBefore101122)
+        {
+            ChapterAnalyzerRecapPattern = defaults.ChapterAnalyzerRecapPattern;
+        }
+    }
 }

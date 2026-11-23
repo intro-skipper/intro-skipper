@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Data;
@@ -24,7 +24,8 @@ public sealed record UpdateAnalysisOverridesRequest
     public int? AnalysisLengthLimit { get; init; }
 
     /// <summary>
-    /// Gets the optional setting that derives a preview from the end of credits.
+    /// Gets a value indicating whether to derive a preview from the end of credits for this season;
+    /// <see langword="null"/> preserves the saved choice for clients using the earlier nullable contract.
     /// </summary>
     public bool? PreviewFromCreditsEnd { get; init; }
 

@@ -22,6 +22,21 @@ export const configSchema = {
         description:
             "When a season has no new episodes for the configured delay, re-analyze the season (using cached fingerprints) so segments are recomputed against the full season. Media is not re-decoded.",
     },
+    UseSettledSeasonChromaprintConsensus: {
+        kind: "checkbox",
+        label: "Require Chromaprint consensus",
+        description:
+            "During settled-season re-analysis, require locally connected groups of episodes to share an intro or credits pattern for the pattern to be accepted as a segment.",
+    },
+    SettledSeasonChromaprintConsensusEpisodes: {
+        kind: "number",
+        label: "Consensus episode threshold",
+        min: 2,
+        max: 1000,
+        step: 1,
+        description:
+            "Target number of distinct episodes required to confirm a shared pattern. Comparable pattern groups can lower the target so mid-season theme changes can still qualify; one group covering at least three quarters of usable fingerprints can also qualify below the target.",
+    },
     SettledSeasonDelayHours: {
         kind: "number",
         label: "Settled season delay (hours)",
@@ -253,7 +268,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Enable keyframe snapping",
         description:
-            "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+            "Moves a segment's end to the nearest keyframe so a skip lands on a clean frame. Ends taken directly from a chapter stay on the chapter mark.",
     },
     AdjustIntroBasedOnChapters: {
         kind: "checkbox",
@@ -264,7 +279,8 @@ export const configSchema = {
     AdjustIntroBasedOnSilence: {
         kind: "checkbox",
         label: "Enable silence detection",
-        description: "When enabled, segment endpoints will be adjusted to the nearest silence point.",
+        description:
+            "Moves a segment's end to the first silence inside the adjustment window. Ends taken directly from a chapter stay on the chapter mark.",
     },
     SilenceDetectionMaximumNoise: {
         kind: "number",
@@ -312,12 +328,6 @@ export const configSchema = {
         description:
             "For each season, choose whether the first episode intro is analyzed, ignored, or ignored only when the show is anime.",
     },
-    AnimePreviewFromCreditsEnd: {
-        kind: "checkbox",
-        label: "Set post-credits scene as preview for anime",
-        description:
-            "When enabled and no preview was detected, create a segment from the end of the last credits block to the end of the episode. This can also be toggled for any season or show in Timestamps > Manage.",
-    },
     IntroStartOffset: {
         kind: "number",
         label: "Intro Start Offset (seconds)",
@@ -328,7 +338,7 @@ export const configSchema = {
     },
     IncludeIntroStartOffsetWhenSnapping: {
         kind: "checkbox",
-        label: "Include start offset when snapping to episode start",
+        label: "Include intro offset when snapping to episode start",
         description:
             "When enabled, Intro Start Offset is also applied when the detected intro start is snapped to the beginning of the episode.",
     },
@@ -339,6 +349,28 @@ export const configSchema = {
         step: 0.5,
         description:
             "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
+    },
+    CreditsStartOffset: {
+        kind: "number",
+        label: "Credits Start Offset (seconds)",
+        min: 0,
+        step: 1,
+        description:
+            "Default: 0. Example: If set to 3, the first 3 seconds of the credits will play before skipping.",
+    },
+    CreditsEndOffset: {
+        kind: "number",
+        label: "Credits End Offset (seconds)",
+        min: 0,
+        step: 1,
+        description:
+            "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the credits.",
+    },
+    IncludeCreditsEndOffsetWhenSnapping: {
+        kind: "checkbox",
+        label: "Include credits offset when snapping to episode end",
+        description:
+            "When enabled, Credits End Offset is also applied when the detected credits end is snapped to the end of the episode.",
     },
 
     // Black frame
@@ -402,13 +434,15 @@ export const configSchema = {
         kind: "regex",
         label: "Introductions",
         description: "Enter a regular expression to detect introduction chapters.",
-        default: "(^|\\s)(Intro|Introduction|OP|Opening)" + PATTERN_TAIL,
+        default:
+            "(^[\\s0-9.\\u266A-]*|/\\s*)((Intro|Introduction)(\\s+Start)?:?$|(OP[0-9]*|Opening|Abertura|\\u30AA\\u30FC\\u30D7\\u30CB\\u30F3\\u30B0|(Main\\s+)?Titles?)(\\s+(Theme|Song|Music|Credits|Titles?|Sequences?|Start))?(?![\\s:]+End)\\s*($|[-\\u2013\\u2014/:(]))",
     },
     ChapterAnalyzerEndCreditsPattern: {
         kind: "regex",
         label: "Credits",
         description: "Enter a regular expression to detect credits chapters.",
-        default: "(^|\\s)(Credits?|ED|Ending|Outro)" + PATTERN_TAIL,
+        default:
+            "(^[0-9.\\s\\u266A]*|[+,;:]\\s*)((The\\s+)?Credits?|(Mixed\\s+)?(ED[0-9]*(v[0-9]+)?|Ending)|Outro|Closing|Cast\\s+List|Abspann|Encerramento|\\u30A8\\u30F3\\u30C7\\u30A3\\u30F3\\u30B0)(\\s+(Theme|Song|Music|Start))?(?![\\s:]+End)\\s*($|:|[-\\u2013\\u2014]\\s)|(^|[^a-z])(End|Ending|Closing|Early|Final)\\s+(Credits?|Titles?)(?![a-z])(?![\\s:]+End)",
     },
     ChapterAnalyzerPreviewPattern: {
         kind: "regex",
@@ -423,8 +457,9 @@ export const configSchema = {
         label: "Recaps",
         description: "Enter a regular expression to detect recap chapters.",
         default:
-            "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)" +
-            PATTERN_TAIL,
+            "(^|[-\\u2013\\u2014|:.()\\[\\]])\\s*(Recap(?![a-z])(?![\\s:]+End)|(Last(\\s+(time|week|episode|season))?|Catch[ -]?up),?\\s+on(?![a-z])|" +
+            "(Summary|Previously|Previous\\s+episode|Earlier|Last\\s+(time|week|episode|season)|Catch[ -]?up|(The\\s+)?(Story|Road)\\s+so\\s+far)(?![\\s:]+End)\\s*($|[-\\u2013\\u2014|:.()\\[\\]\\u2026]))|" +
+            "(^|\\s)Previously,?\\s+(on|in)(?![a-z])",
     },
     ChapterAnalyzerCommercialPattern: {
         kind: "regex",
@@ -475,7 +510,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Prefer highest audio channel count",
         description:
-            "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
+            "When enabled, Chromaprint uses the stream FFmpeg would pick, ranking the default stream first, then channel count, then stream order. When disabled, the first stream is selected.",
     },
     ProbeAudioDuration: {
         kind: "checkbox",
@@ -510,6 +545,12 @@ export const configSchema = {
         max: 16,
         description:
             "Codec threads per FFmpeg process. 0 lets FFmpeg choose. Lower values reduce CPU use but may slow scans; use Maximum degree of parallelism to limit process count.",
+    },
+    UseHardwareDecoding: {
+        kind: "checkbox",
+        label: "Hardware decode",
+        description:
+            "Follows Jellyfin's hardware settings for the keyframe, recap and black interval scans, in software while a video transcode runs. Can be slower on weak integrated GPUs and 10-bit HEVC, so measure before leaving it on.",
     },
     ScanTimeoutSeconds: {
         kind: "number",

@@ -1,4 +1,5 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Frozen;
@@ -31,9 +32,9 @@ internal static partial class FFmpegOutputParser
 
     private static readonly Regex _keyframeSignalStatRegex = KeyframeSignalStatRegex();
 
-    private static readonly Regex _showInfoRegex = ShowInfoRegex();
-
     private static readonly Regex _mappedStreamRegex = MappedStreamRegex();
+
+    private static readonly Regex _inputVideoStreamRegex = InputVideoStreamRegex();
 
     // Subtitle codecs that jellyfin-ffmpeg 7.1.3 and 8.1.2 both decode to text (their -decoders
     // listings agree), which -c:s webvtt can re-encode. Left out: the image codecs
@@ -70,19 +71,25 @@ internal static partial class FFmpegOutputParser
         return [.. silenceRanges];
     }
 
-    internal static double[] ParseKeyFrames(string raw, double rangeStart, ILogger? logger = null)
+    // Reads the keyframe times a showinfo@token instance lists, each line from its log context on.
+    internal static double[] ParseKeyFrames(string raw, FilterInstance showinfo, double rangeStart, ILogger? logger = null)
     {
         var keyframes = new List<double>();
 
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (showinfo.Message(line) is not { } message)
+            {
+                continue;
+            }
+
+            var ptsIndex = message.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
             if (ptsIndex == -1)
             {
                 continue;
             }
 
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+            var ptsTimeStr = message[(ptsIndex + 9)..].Split(' ', 2)[0];
 
             if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out var timestamp))
             {
@@ -97,18 +104,22 @@ internal static partial class FFmpegOutputParser
         return [.. keyframes];
     }
 
-    internal static BlackFrame[] ParseBlackFrames(string raw)
+    // Reads the frames a blackframe@token instance reports, each line from its log context on.
+    internal static BlackFrame[] ParseBlackFrames(string raw, FilterInstance blackframe)
     {
         var blackFrames = new List<BlackFrame>();
-        /* Run the blackframe filter.
-         *
-         * Sample output:
-         * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
-         * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
+        /* Sample output:
+         * [blackframe@Ab3dE5gH @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
+         * [blackframe@Ab3dE5gH @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */
         foreach (var line in raw.Split('\n'))
         {
-            var match = _blackFrameRegex.Match(line);
+            if (blackframe.Message(line) is not { } message)
+            {
+                continue;
+            }
+
+            var match = _blackFrameRegex.Match(message);
             if (!match.Success)
             {
                 continue;
@@ -124,74 +135,60 @@ internal static partial class FFmpegOutputParser
         return [.. blackFrames];
     }
 
-    internal static KeyframeVisual[] ParseKeyframeVisuals(string raw)
+    // Reads the frames "signalstats,metadata@token=print" reports, each line from the metadata
+    // instance's log context on.
+    internal static CutFrame[] ParseKeyframeVisuals(string raw, FilterInstance metadata)
     {
-        var visuals = new List<KeyframeVisual>();
+        var frames = new List<CutFrame>();
 
-        /* Parse the per-keyframe metadata emitted by "signalstats,metadata=print".
-         *
-         * Sample output (one block per keyframe, other signalstats lines omitted):
-         * [Parsed_metadata_2 @ 0x0] frame:1 pts:20480 pts_time:2
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMIN=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YLOW=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YHIGH=16
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.YMAX=235
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATLOW=0
-         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+        /* Sample output (one block per frame, other signalstats lines omitted):
+         * [metadata@Ab3dE5gH @ 0x0] frame:1 pts:20480 pts_time:2
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YMIN=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YLOW=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YHIGH=16
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YMAX=235
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.SATAVG=33
+         * [metadata@Ab3dE5gH @ 0x0] lavfi.signalstats.YDIF=0
          */
         double? time = null;
         var stats = new Dictionary<string, double>(KeyframeSignalStatCount, StringComparer.Ordinal);
 
         foreach (var line in raw.Split('\n'))
         {
-            var timeMatch = _keyframeVisualTimeRegex.Match(line);
+            if (metadata.Message(line) is not { } message)
+            {
+                continue;
+            }
+
+            var timeMatch = _keyframeVisualTimeRegex.Match(message);
             if (timeMatch.Success)
             {
-                AddKeyframeVisual(visuals, time, stats);
+                AddFrame(frames, time, stats);
                 time = ParseDouble(timeMatch.Groups["time"].Value);
                 stats.Clear();
                 continue;
             }
 
-            var statMatch = _keyframeSignalStatRegex.Match(line);
+            var statMatch = _keyframeSignalStatRegex.Match(message);
             if (statMatch.Success)
             {
                 stats[statMatch.Groups["name"].Value] = ParseDouble(statMatch.Groups["value"].Value);
             }
         }
 
-        AddKeyframeVisual(visuals, time, stats);
+        AddFrame(frames, time, stats);
 
-        return [.. visuals];
+        return [.. frames];
     }
 
     // A block missing any stat, such as one truncated at the end of the output, is dropped rather
     // than emitted with zeros that would pass the card gate.
-    private static void AddKeyframeVisual(List<KeyframeVisual> visuals, double? time, Dictionary<string, double> stats)
+    private static void AddFrame(List<CutFrame> frames, double? time, Dictionary<string, double> stats)
     {
-        if (time is { } keyframeTime && stats.Count == KeyframeSignalStatCount)
+        if (time is { } frameTime && stats.Count == KeyframeSignalStatCount)
         {
-            visuals.Add(new KeyframeVisual(keyframeTime, stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATLOW"], stats["SATAVG"]));
+            frames.Add(new CutFrame(frameTime, new KeyframeVisual(stats["YMIN"], stats["YLOW"], stats["YHIGH"], stats["YMAX"], stats["SATAVG"], stats["YDIF"])));
         }
-    }
-
-    /// <summary>
-    /// Parses the showinfo filter's log: the presentation time and size of every frame it saw, in order.
-    /// </summary>
-    /// <param name="raw">The ffmpeg standard error output.</param>
-    /// <returns>One entry per frame.</returns>
-    internal static ShowInfoFrame[] ParseShowInfo(string raw)
-    {
-        var frames = new List<ShowInfoFrame>();
-        foreach (Match match in _showInfoRegex.Matches(raw))
-        {
-            frames.Add(new ShowInfoFrame(
-                double.Parse(match.Groups["time"].Value, CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["width"].Value, CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["height"].Value, CultureInfo.InvariantCulture)));
-        }
-
-        return [.. frames];
     }
 
     internal static BlackInterval[] ParseBlackIntervals(string raw)
@@ -253,8 +250,9 @@ internal static partial class FFmpegOutputParser
     }
 
     /// <summary>
-    /// Reads the codec of the input stream ffmpeg mapped to its first output stream, from the
-    /// stream mapping block a run prints at the info log level.
+    /// Reads the codec, pixel format and profile of the input stream ffmpeg mapped to its first output
+    /// stream, from the stream mapping block a run prints at the info log level and the input
+    /// dump before it.
     /// </summary>
     /// <remarks>
     /// The block is a line that reads exactly <c>Stream mapping:</c>, followed by one indented
@@ -264,9 +262,10 @@ internal static partial class FFmpegOutputParser
     /// jellyfin-ffmpeg 7.1.3 and 8.1.2.
     /// </remarks>
     /// <param name="raw">The ffmpeg standard error output.</param>
-    /// <returns>The mapped input stream's codec name, such as <c>hevc</c>, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
-    internal static string? ParseMappedVideoCodec(string raw)
+    /// <returns>The mapped input stream, or <see langword="null"/> when the output has no mapping block, as for a file without a video stream.</returns>
+    internal static VideoStream? ParseMappedVideoStream(string raw)
     {
+        var inputs = new Dictionary<string, Match>(StringComparer.Ordinal);
         var inBlock = false;
         foreach (var line in raw.Split('\n'))
         {
@@ -274,6 +273,11 @@ internal static partial class FFmpegOutputParser
             if (!inBlock)
             {
                 inBlock = text == "Stream mapping:";
+                if (_inputVideoStreamRegex.Match(text) is { Success: true } input)
+                {
+                    inputs[input.Groups["stream"].Value] = input;
+                }
+
                 continue;
             }
 
@@ -284,7 +288,8 @@ internal static partial class FFmpegOutputParser
 
             if (_mappedStreamRegex.Match(text) is { Success: true } match)
             {
-                return match.Groups["codec"].Value;
+                var input = inputs.GetValueOrDefault(match.Groups["stream"].Value);
+                return new(match.Groups["codec"].Value, input?.Groups["format"].Value, input?.Groups["profile"].Value);
             }
         }
 
@@ -438,29 +443,30 @@ internal static partial class FFmpegOutputParser
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
 
-    // The index after Parsed_blackframe_ is the filter's position in its chain, so it is not pinned.
-    [GeneratedRegex(@"\[Parsed_blackframe_\d+ @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
+    [GeneratedRegex(@"^frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
 
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]
     private static partial Regex BlackIntervalLogRegex();
 
-    [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    // metadata=print's frame header must be the whole message: the frame metadata a decoder attached
+    // prints under the same context as key=value, and no "=" fits here.
+    [GeneratedRegex(@"^frame:\s*\d+\s+pts:\s*(?:-?\d+|NOPTS)\s+pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)\s*$")]
     private static partial Regex KeyframeVisualTimeRegex();
 
-    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATLOW|SATAVG)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
+    [GeneratedRegex(@"lavfi\.signalstats\.(?<name>YMIN|YLOW|YHIGH|YMAX|SATAVG|YDIF)=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSignalStatRegex();
 
-    /*
-     * Sample output:
-     * [Parsed_showinfo_3 @ 0x0] n:   0 pts:     17 pts_time:0.017   duration:     41 duration_time:0.041   fmt:gray cl:left sar:1/1 s:320x240 i:P iskey:0 type:B checksum:6B847A12 plane_checksum:[6B847A12] mean:[32] stdev:[42.1]
-     */
-    [GeneratedRegex(@"\[Parsed_showinfo_\d+ @ [^\]]+\] n:\s*\d+ pts:\s*-?\d+ pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)[^\n]*? s:(?<width>\d+)x(?<height>\d+)")]
-    private static partial Regex ShowInfoRegex();
-
     // A stream mapping line for the first output stream, such as "  Stream #0:1 -> #0:0 (hevc (native) -> ...".
-    [GeneratedRegex(@"^  Stream #\d+:\d+ -> #0:0 \((?<codec>[^\s()]+)")]
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+) -> #0:0 \((?<codec>[^\s()]+) ")]
     private static partial Regex MappedStreamRegex();
+
+    // A video stream of the input dump, such as "  Stream #0:0[0x1](und): Video: hevc (Main 10)
+    // (hvc1 / 0x31637668), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160 ...": the
+    // codec, its parenthesized profile and tag, then the pixel format. One group holds all the
+    // parentheses: a group inside the repeat would hold only the last, the tag.
+    [GeneratedRegex(@"^  Stream #(?<stream>\d+:\d+)\S*: Video: [^\s,(]+ ?(?<profile>(?:\([^)]*\) ?)*), (?<format>[a-z][^\s,(]*)")]
+    private static partial Regex InputVideoStreamRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
@@ -471,4 +477,12 @@ internal static partial class FFmpegOutputParser
     /// <param name="Streams">The selected text subtitle streams, by stream index.</param>
     /// <param name="MatroskaStartTime">The file's start time in seconds when it is Matroska, else <see langword="null"/>.</param>
     internal sealed record SubtitleStreamListing(int[] Streams, double? MatroskaStartTime);
+
+    /// <summary>
+    /// The video stream a scan decodes.
+    /// </summary>
+    /// <param name="Codec">The codec name, such as <c>hevc</c>.</param>
+    /// <param name="PixelFormat">The pixel format the input dump gives it, such as <c>yuv420p10le</c>, or <see langword="null"/> when the dump gives none.</param>
+    /// <param name="Profile">The parenthesized text after the codec in the input dump, the profile and any container tag, such as <c>(Main 10) (hvc1 / 0x31637668)</c>, or <see langword="null"/> when the dump does not list the stream.</param>
+    internal sealed record VideoStream(string Codec, string? PixelFormat, string? Profile);
 }

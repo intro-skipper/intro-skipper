@@ -75,7 +75,7 @@ public class DetectionCacheDbContext : DbContext
         try
         {
             Database.EnsureCreated();
-            DetectionCache.AsNoTracking().Take(1).Load();
+            DetectionCache.AsNoTracking().OrderBy(entry => entry.Id).Take(1).Load();
         }
         catch (Exception ex) when (ex is DbException or InvalidOperationException)
         {

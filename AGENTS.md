@@ -17,9 +17,9 @@ intro-skipper: a Jellyfin plugin (C#, `net10.0`, Jellyfin 12 packages) that dete
   - `Data/` TickConversions, DTOs
   - `Services/` AnalysisScheduler (the analysis queue: one worker runs every pass; feeders enqueue and get a completion handle), Entrypoint (library watcher)
   - `Configuration/`, `Helper/`, `Filters/`
-- `IntroSkipper.Tests/` xUnit tests
+- `IntroSkipper.Tests/` xUnit tests, in folders that mirror the plugin project's (`Db/`, `Helper/`, `Analyzers/Credits/`, ...); shared test seams in `IntroSkipper.Tests/Support/`
 - `web/` frontend (pnpm)
-- `tools/CreditsRunner/` runs the keyframe credits analyzer over real files outside Jellyfin and scores it against labels
+- `tools/CreditsRunner/` runs the keyframe credits analyzer, or one season at a time the Introduction chain (intro mode) or the whole credits pass (credits-pass mode), over real files outside Jellyfin and scores it against labels
 - `CONTEXT.md` domain glossary. Use its terms in code, tests and prose.
 - `docs/` `segments.md` (storage, writes, projection to Jellyfin), `analysis.md` (queue, seasons, analysis records, detection cache), `credits.md` (credits pass, keyframe analyzer)
 
@@ -30,26 +30,26 @@ Run .NET commands from the repo root. Ignore `IntroSkipper/IntroSkipper.sln`; it
 | Command | What it does |
 |---|---|
 | `dotnet build IntroSkipper.sln` | plugin, tests and `tools/CreditsRunner` |
-| `dotnet build IntroSkipper.sln -p:SkipWebBuild=true` | skip the pnpm frontend build |
+| `dotnet build IntroSkipper.sln -p:SkipWebBuild=true` | skip the pnpm frontend build once its outputs exist |
 | `dotnet test` | all tests (xUnit) |
 | `dotnet test --filter "FullyQualifiedName~TestSegmentTombstones"` | one class; append `.MethodName` for one test |
 | `pnpm build` (in `web/`) | frontend build (there is no dev server; the dashboard only runs inside Jellyfin) |
 
-- The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#.
+- The plugin csproj's `WebBuild` target runs `pnpm install --frozen-lockfile && pnpm build` in `web/` before every compile. Pass `-p:SkipWebBuild=true` when only touching C#; it still builds the frontend when its gitignored outputs, introskipper.js and introskipper.css in `IntroSkipper/Configuration/`, are missing, as in a fresh worktree.
 - `TreatWarningsAsErrors` with StyleCop and all analyzers enabled (`AnalysisMode=AllEnabledByDefault`). Any new warning fails the build.
-- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads a portable build each time the test host starts and extracts `ffmpeg.exe` and `ffprobe.exe` to `IntroSkipper.Tests/bin/Debug/net10.0/_ffmpeg/extract/`; use those for experiments. Linux/CI installs the `jellyfin-ffmpeg8` package.
+- Tests need jellyfin-ffmpeg with chromaprint. On Windows, `WindowsFfmpegTestBootstrap` downloads the pinned portable build once per release into IntroSkipper.Tests/ffmpeg/<release> under %LOCALAPPDATA% and reuses it; use the `ffmpeg.exe` and `ffprobe.exe` there for experiments. Linux/CI installs the `jellyfin-ffmpeg8` package.
 - Tests and CI pin jellyfin-ffmpeg 8.1.3, matching Jellyfin 12 servers, but the README still accepts 7.1.3 or newer. Check a change to ffmpeg arguments or output parsing on both.
-- `web/` is plain TypeScript plus Vite, no framework. `pnpm build` runs `tsc` first, so a type error in `web/` fails the plugin build unless you pass `SkipWebBuild`.
+- `web/` is plain TypeScript plus Vite, no framework. `pnpm build` runs `tsc` first, so a type error in `web/` fails the plugin build unless you pass `SkipWebBuild` once its outputs exist.
 </important>
 
 <important if="you are writing or changing tests">
 Tautological tests considered harmful.
 
-Reuse the shared seams in `IntroSkipper.Tests/` instead of building new ones:
+Put a test in the folder matching the plugin code it covers. Reuse the shared seams in `IntroSkipper.Tests/Support/` instead of building new ones:
 - `TempSegmentDb`, `TempCacheDb` (temp-file segment and detection-cache databases, deleted on dispose), `DatabaseTestHelpers` (facades over temp-file SQLite), `TempJellyfinDb` (real `JellyfinDbContext` over temp SQLite)
 - `SegmentChangeHarness` (production segment-change composition over a temp DB and a fake store), `SegmentSeeding` (seeds user state through `ApplyChangeAsync`), `EntrypointTestHelpers` (entrypoint over fresh databases)
 - `FakeJellyfinSegmentStore` (records calls, can throw or park), `FakeMirrorPolicy` (settable policy with a toggle event), `StubFFmpegService` (counting `IFFmpegService` with per-member hooks), `ChapterManagerStub` (fixed chapter list), `JellyfinItems` (library items shaped for the season resolver, `WithParents` adds the series and seasons the episodes name)
-- `FfmpegTestHelpers` (real ffmpeg over the fixture media), `LegacySchemaFixtures` (pre-v2 rows for importer tests)
+- `FfmpegTestHelpers` (real ffmpeg over the fixture media), `KeyframeFilterOracle` (pages from ffmpeg's blackframe and signalstats filters, for pinning the C# page facts), `LegacySchemaFixtures` (pre-v2 rows for importer tests)
 
 Test parallelization is disabled assembly-wide, so tests may share `Plugin.Instance`.
 </important>
@@ -66,9 +66,9 @@ There is no `main`/`master`. Branches are named for Jellyfin releases, and origi
 </important>
 
 <important if="you are working on analyzers, the detection pipeline, or scheduled tasks">
-`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Analyzers read chapters only from `QueuedEpisode.Chapters`, which the season pass fills from the chapter source, and never fetch chapters themselves. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings.
+`DetectSegmentsTask`, the watcher (`Entrypoint`) and the manual scan endpoint enqueue into `AnalysisScheduler`, the only thing that runs `BaseItemAnalyzerTask`, which resolves seasons through `SeasonResolver` (per series, Jellyfin's own season rule, in-season specials with their host season) and orchestrates the analyzers per mode: a first-wins chain for every mode except credits, which `CreditsPass` (in `Analyzers/Credits/`) analyzes by combining every analyzer's candidate per episode. The pipeline is in `docs/analysis.md` and the credits rules in `docs/credits.md`. All media probing goes through `FFmpegService`. Analyzers read chapters only from `QueuedEpisode.Chapters`, which the season pass fills from the chapter source, and never fetch chapters themselves. Raw detection output is cached in the detection-cache DB keyed by config hash. A setting that changes detection output must be added to `Helper/ConfigHasher`, or cached results are reused under the old settings. A test fails until every new setting is hashed or listed as not affecting detection (`TestConfigHasher`).
 
-Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run; its README has the commands.
+Judge every keyframe credits change with `tools/CreditsRunner` against a baseline run, and every Chapter, Chromaprint or time adjustment change to Introduction with the runner's intro mode. A Chromaprint change also reaches credits, which credits-pass mode measures. Its README has the commands.
 </important>
 
 <important if="you are touching databases, EF Core, migrations, or anything in Db/">

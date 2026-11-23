@@ -22,10 +22,13 @@ export type AnalyzerActions = {
 export type AnalysisOverrides = {
     AnalysisPercent: number | null;
     AnalysisLengthLimit: number | null;
-    PreviewFromCreditsEnd: boolean | null;
+    PreviewFromCreditsEnd: boolean;
+    PreviewFromCreditsEndRecommended: boolean;
     SubtitleRecapDetection: boolean | null;
     SubtitlePreviewDetection: boolean | null;
 };
+
+export type UpdateAnalysisOverrides = Omit<AnalysisOverrides, "PreviewFromCreditsEndRecommended">;
 
 // One stored segment as returned by the plural segments API. The Id is shared with
 // the Jellyfin media segment row; boundaries are seconds.
@@ -56,6 +59,7 @@ export type SegmentCreateRequest = {
 };
 
 export type SegmentUpdateRequest = {
+    Type?: SegmentType;
     Start: number;
     End: number;
 };

@@ -82,8 +82,8 @@ internal static class RecapDetectionHelper
             episode,
             new TimeRange(0, maxRecapBoundary),
             0,
-            config.BlackFrameThreshold,
             AnalysisMode.Recap,
+            config,
             cancellationToken).ConfigureAwait(false);
         if (blackFrames.Length == 0)
         {

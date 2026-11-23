@@ -36,17 +36,17 @@ public enum CacheEntryType
     BlackInterval,
 
     /// <summary>
-    /// Per-keyframe visual statistics (luma percentiles and saturation) for card credits detection.
+    /// The pages of a keyframe scan, every keyframe to the end of the file, keyed by the credits start and an end of 0.
     /// </summary>
-    KeyframeVisual,
+    KeyframePage,
 
     /// <summary>
-    /// Where the credits lead-in probe starts a black scene, keyed by the two keyframes that bound its window.
+    /// Where the credits cut start places a part's start, keyed by the two keyframes that bound the decoded gap.
     /// </summary>
-    LeadIn = 6,
+    Cut,
 
     /// <summary>
     /// Successfully probed duration for a shortcut target, keyed by its file identity.
     /// </summary>
-    ShortcutDuration = 7,
+    ShortcutDuration,
 }
