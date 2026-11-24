@@ -334,7 +334,7 @@ internal sealed partial class QueueVerifier
         }
 
         HashSet<AnalysisMode> reopened = [];
-        if (mediaConfirmed)
+        if (mediaConfirmed && !_validateHashes)
         {
             foreach (var (mode, hash) in ambiguousMismatchModes)
             {

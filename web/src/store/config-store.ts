@@ -1,6 +1,6 @@
 import type { FieldStoreEvents } from "../config/field-spec.ts";
 import { configKeys, configSchema, isKind, type ConfigKey, type PluginConfig } from "../config/schema.ts";
-import { linkedField, validatePair, validateSpec } from "../config/validate.ts";
+import { linkedField, validateAll, validatePair, validateSpec } from "../config/validate.ts";
 import { withDashboardLoading } from "../components/async-feedback.ts";
 import { eventBus } from "../lifecycle.ts";
 import { loadPluginConfig, savePluginConfig, updateSkipDuration } from "./api.ts";
@@ -65,6 +65,13 @@ function createUpdateHashesRequestId(): string {
     });
 }
 
+export class ConfigMergeConflictError extends Error {
+    constructor() {
+        super("Server configuration changed and the merged values are invalid.");
+        this.name = "ConfigMergeConflictError";
+    }
+}
+
 export const configStore = {
     /** Listens until `signal` aborts. Every subscriber belongs to a mounted view. */
     subscribe: bus.on,
@@ -118,6 +125,8 @@ export const configStore = {
         await withDashboardLoading(async () => {
             const serverConfig = normalizePluginConfig(await loadPluginConfig());
             if (!config || !snapshot) throw new Error("Config not loaded");
+            const serverSnapshot = JSON.parse(JSON.stringify(serverConfig)) as PluginConfig;
+            const localErrors = validateAll(config);
             for (const key of configKeys) {
                 if (!sameValue(config[key], snapshot[key])) {
                     Object.assign(serverConfig, { [key]: config[key] });
@@ -128,6 +137,26 @@ export const configStore = {
                     UpdateHashesRequestId: config.UpdateHashesRequestId,
                     UpdateHashesOnce: config.UpdateHashesOnce,
                 });
+            }
+            const mergedErrors = validateAll(serverConfig);
+            const hasNewConflict = [...mergedErrors].some(([field, error]) => localErrors.get(field) !== error);
+            if (hasNewConflict) {
+                config = serverConfig;
+                snapshot = serverSnapshot;
+                emit("loaded");
+                for (const key of configKeys) {
+                    if (!sameValue(config[key], snapshot[key])) {
+                        emit("changed", { field: key });
+                    }
+
+                    emit("validation", { field: key, error: fieldError(key, config) });
+                }
+
+                if (config.UpdateHashesRequestId !== snapshot.UpdateHashesRequestId) {
+                    emit("changed", { field: "UpdateHashesOnce" });
+                }
+
+                throw new ConfigMergeConflictError();
             }
             const result = await savePluginConfig(serverConfig);
 
