@@ -1216,6 +1216,45 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
     }
 
     [Fact]
+    public async Task AnalyzeItemsAsync_SubtitleOnlyReopen_KeepsTheRecordOfASiblingNoAnalyzerReran()
+    {
+        var config = new PluginConfiguration();
+        using var scope = EntrypointTestHelpers.CreatePluginScope(config);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var seasonId = Guid.NewGuid();
+        QueuedEpisode Episode(int number) => new()
+        {
+            EpisodeId = Guid.NewGuid(),
+            SeasonId = seasonId,
+            SeasonNumber = 1,
+            EpisodeNumber = number,
+            Name = $"Episode {number}",
+            Duration = 1320,
+            Chapters = [],
+        };
+
+        var subtitleOnly = Episode(1);
+        var noSegments = Episode(2);
+        await database.ReplaceAutoSegmentsAsync(
+            subtitleOnly.EpisodeId,
+            AnalysisMode.Recap,
+            [new Segment(subtitleOnly.EpisodeId, new TimeRange(20, 40))],
+            SegmentSource.Chapter,
+            "old");
+        subtitleOnly.MarkSubtitleOnlyReanalysis(AnalysisMode.Recap);
+        noSegments.SetAnalyzed(AnalysisMode.Recap, EpisodeState.NoSegments);
+        await database.MarkItemsAnalyzedAsync(AnalysisMode.Recap, [noSegments.EpisodeId], "old");
+        var ffmpeg = new StubFFmpegService();
+
+        await CreateTask(ffmpeg, database).AnalyzeItemsAsync([subtitleOnly, noSegments], AnalysisMode.Recap, AnalyzerAction.Default, true, CancellationToken.None);
+
+        var records = (await database.GetSeasonQueueSnapshotAsync(seasonId, [subtitleOnly.EpisodeId, noSegments.EpisodeId])).AnalysisRecords;
+        Assert.Equal(0, ffmpeg.FingerprintCalls);
+        Assert.Contains((subtitleOnly.EpisodeId, AnalysisMode.Recap), records.Keys);
+        Assert.Equal("old", records[(noSegments.EpisodeId, AnalysisMode.Recap)].ConfigHash);
+    }
+
+    [Fact]
     public async Task SeasonPass_Recheck_ConfirmsACurrentRecordWithoutRewritingIt()
     {
         var config = new PluginConfiguration

@@ -730,8 +730,8 @@ public partial class BaseItemAnalyzerTask(
     /// which the season pass fills through <see cref="ReadChaptersAsync"/> before any mode
     /// runs. A caller that skips the season pass sets them itself.
     /// <para>
-    /// The mode records the episodes it opened: those that <see cref="QueuedEpisode.NeedsAnalysis"/>
-    /// when it starts, less the ones that end <see cref="EpisodeState.AnalysisFailed"/>.
+    /// The mode records the episodes not analyzed when it starts, and those settled with no
+    /// segments when the analyzers rerun them, less the ones that end <see cref="EpisodeState.AnalysisFailed"/>.
     /// </para>
     /// </remarks>
     /// <param name="items">Media items to analyze.</param>
@@ -760,7 +760,8 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        QueuedEpisode[] opened = [.. items.Where(item => item.NeedsAnalysis(mode))];
+        QueuedEpisode[] opened = [.. items.Where(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)];
+        QueuedEpisode[] settledWithoutSegments = [.. items.Where(item => item.GetAnalyzed(mode) == EpisodeState.NoSegments)];
 
         // Keep the hash and analyzer on one configuration object. Jellyfin replaces this
         // object when settings are saved, so a save during an awaited setup step must not
@@ -779,7 +780,7 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                opened.Select(i => (i.EpisodeId, config.RecordedFileVersion(i, mode))),
+                opened.Concat(settledWithoutSegments).Select(i => (i.EpisodeId, config.RecordedFileVersion(i, mode))),
                 hashes,
                 cancellationToken).ConfigureAwait(false);
             return;
@@ -804,6 +805,10 @@ public partial class BaseItemAnalyzerTask(
             .Where(item => !item.NeedsSubtitleOnlyReanalysis(mode))
             .ToArray();
 
+        // The analyzers rerun the episodes settled with no segments only when an open
+        // conventional episode starts them.
+        var conventionalRuns = conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
+
         // The cleanup journals the removed rows' projections, so they reach the mirror even
         // if the analyzers below detect nothing new. It covers only the episodes this pass
         // analyzes: an episode an earlier pass settled keeps its rows when a sibling reopens
@@ -824,12 +829,12 @@ public partial class BaseItemAnalyzerTask(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (conventionalRuns)
         {
             LogAnalyzingFiles(_logger, mode, conventionalItems.Length, first.SeriesName, first.SeasonNumber);
         }
 
-        if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed) && mode == AnalysisMode.Credits)
+        if (conventionalRuns && mode == AnalysisMode.Credits)
         {
             await SetCreditsWindowsAsync(conventionalItems, isMovie, config, cancellationToken).ConfigureAwait(false);
 
@@ -848,7 +853,7 @@ public partial class BaseItemAnalyzerTask(
                 configHash,
                 cancellationToken).ConfigureAwait(false);
         }
-        else if (conventionalItems.Any(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        else if (conventionalRuns)
         {
             await RunAnalyzerChainAsync(
                 conventionalItems,
@@ -903,7 +908,8 @@ public partial class BaseItemAnalyzerTask(
 
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            opened.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
+            (conventionalRuns ? opened.Concat(settledWithoutSegments) : opened)
+                .Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
                 .Select(item => (item.EpisodeId, config.RecordedFileVersion(item, mode))),
             hashes,
             cancellationToken).ConfigureAwait(false);
