@@ -22,6 +22,8 @@ namespace IntroSkipper.Manager;
 /// (<see cref="QueuedEpisode.ChapterSourceChecks"/>), which reopens the mode only when the two
 /// sources hold different chapters. The expected hash depends on the season's analyzer action
 /// and the mode, not on the episode, so every per-mode value is computed once per instance.
+/// When hash validation is disabled, a non-empty stored hash settles the result without changing
+/// that hash; file and subtitle version checks remain active.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -29,6 +31,7 @@ internal sealed partial class QueueVerifier
     private readonly IReadOnlyCollection<AnalysisMode> _modes;
     private readonly SeasonQueueSnapshot _snapshot;
     private readonly bool _ffmpegValid;
+    private readonly bool _validateHashes;
     private readonly Dictionary<AnalysisMode, AnalyzerAction> _actionByMode;
     private readonly Dictionary<AnalysisMode, string> _expectedHashByMode;
     private readonly Dictionary<AnalysisMode, string> _subtitleIndependentHashByMode = [];
@@ -60,6 +63,7 @@ internal sealed partial class QueueVerifier
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="snapshot">The season's stored analysis state.</param>
     /// <param name="ffmpegValid">Whether the Chromaprint capability probe succeeded.</param>
+    /// <param name="validateHashes">Whether configuration hash mismatches should reopen analysis.</param>
     /// <param name="analysisPercentOverride">Optional season-level percentage override.</param>
     /// <param name="analysisLengthLimitOverride">Optional season-level runtime limit override in minutes.</param>
     /// <param name="previewFromCreditsEndOverride">Optional season-level setting for deriving a Preview segment from Credits.</param>
@@ -74,12 +78,14 @@ internal sealed partial class QueueVerifier
         int? analysisLengthLimitOverride = null,
         bool? previewFromCreditsEndOverride = null,
         bool? subtitleRecapDetectionOverride = null,
-        bool? subtitlePreviewDetectionOverride = null)
+        bool? subtitlePreviewDetectionOverride = null,
+        bool validateHashes = true)
     {
         _config = config;
         _modes = modes;
         _snapshot = snapshot;
         _ffmpegValid = ffmpegValid;
+        _validateHashes = validateHashes;
         _actionByMode = new Dictionary<AnalysisMode, AnalyzerAction>(AllModes.Length);
         _expectedHashByMode = new Dictionary<AnalysisMode, string>(AllModes.Length);
         _availableHashByMode = ffmpegValid ? null : new Dictionary<AnalysisMode, string>(AllModes.Length);
@@ -140,15 +146,21 @@ internal sealed partial class QueueVerifier
             // rows created before hashing was recorded and must not settle an item forever.
             var hasAnalyzedHash = _snapshot.AnalysisRecords.TryGetValue((candidate.EpisodeId, mode), out var record)
                 && !string.IsNullOrEmpty(record.ConfigHash);
-            var hashMatches = hasAnalyzedHash && IsCurrentHash(record.ConfigHash, mode);
+            var hashMatches = hasAnalyzedHash && (!_validateHashes || IsCurrentHash(record.ConfigHash, mode));
             string? sourceCheckHash = null;
-            var otherSourceHash = hasAnalyzedHash && !hashMatches && IsOtherSourceHash(record.ConfigHash, mode, out sourceCheckHash);
-            var subtitleOnlyHashChange = hasAnalyzedHash && !hashMatches && IsConventionalHashCurrent(record.ConfigHash, mode);
+            var otherSourceHash = _validateHashes
+                && hasAnalyzedHash
+                && !hashMatches
+                && IsOtherSourceHash(record.ConfigHash, mode, out sourceCheckHash);
+            var subtitleOnlyHashChange = _validateHashes
+                && hasAnalyzedHash
+                && !hashMatches
+                && IsConventionalHashCurrent(record.ConfigHash, mode);
 
             if (hasAnalyzedHash && !fileChanged)
             {
                 // A record from the other chapter source is no configuration change to report.
-                var mismatch = !hashMatches && !otherSourceHash;
+                var mismatch = _validateHashes && !hashMatches && !otherSourceHash;
                 if (!_storedHashByMode.TryGetValue(mode, out var stored) || (mismatch && !stored.Mismatch))
                 {
                     _storedHashByMode[mode] = (record.ConfigHash, mismatch);

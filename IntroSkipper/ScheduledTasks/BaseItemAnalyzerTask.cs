@@ -75,6 +75,10 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyCollection<Guid>? itemIds = null,
         bool manualScan = false)
     {
+        var runConfig = Config;
+        var updateHashesOnce = runConfig.UpdateHashesOnce;
+        var validateHashes = updateHashesOnce || !runConfig.DisableAutomaticHashValidation;
+
         if (itemIds?.Count == 0)
         {
             progress.Report(100);
@@ -114,12 +118,30 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(
             SeasonsInScope(owners, scope, failures, progress),
             options,
-            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, failures, ct))).ConfigureAwait(false);
+            (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, validateHashes, failures, ct))).ConfigureAwait(false);
         progress.Report(100);
         if (failures is { IsEmpty: false })
         {
             throw new AggregateException(failures);
         }
+
+        if (updateHashesOnce)
+        {
+            DisableOneTimeHashUpdate();
+        }
+    }
+
+    private static void DisableOneTimeHashUpdate()
+    {
+        var plugin = Plugin.Instance;
+        if (plugin is null || !plugin.Configuration.UpdateHashesOnce)
+        {
+            return;
+        }
+
+        var config = plugin.Configuration;
+        config.UpdateHashesOnce = false;
+        plugin.UpdateConfiguration(config);
     }
 
     // A season that throws is logged and skipped so the pass goes on to the others: a
@@ -127,11 +149,11 @@ public partial class BaseItemAnalyzerTask(
     // and one broken season must not cost the rest their analysis. The failure joins
     // failures, when given, for the pass to throw at its end. Cancellation still stops
     // the pass.
-    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, ConcurrentQueue<Exception>? failures, CancellationToken cancellationToken)
+    private async Task TryAnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, bool validateHashes, ConcurrentQueue<Exception>? failures, CancellationToken cancellationToken)
     {
         try
         {
-            await AnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, cancellationToken).ConfigureAwait(false);
+            await AnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, validateHashes, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -203,7 +225,7 @@ public partial class BaseItemAnalyzerTask(
     /// every mode over the episodes whose chapters could be read. An opted-out Season 0 runs
     /// no mode unless a manual scan requested it.
     /// </summary>
-    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, CancellationToken cancellationToken)
+    private async Task AnalyzeSeasonAsync(ResolvedSeason season, IReadOnlyList<AnalysisMode> modes, bool ffmpegValid, bool manualScan, bool validateHashes, CancellationToken cancellationToken)
     {
         IReadOnlyList<AnalysisMode> settledResetModes = [];
         HashSet<Guid> clearedCreditsDerivedPreviewIds = [];
@@ -219,7 +241,7 @@ public partial class BaseItemAnalyzerTask(
             episode.SubtitlePreviewDetectionOverride = overrides.SubtitlePreviewDetection;
         }
 
-        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken).ConfigureAwait(false);
+        var episodes = await VerifyQueueAsync(season.Episodes, modes, ffmpegValid, cancellationToken, validateHashes).ConfigureAwait(false);
         if (season.Episodes.Count > 0 && !ShouldCreateCreditsDerivedPreview(season.Episodes[0], Config))
         {
             // A disabled season choice clears credits-derived previews even when queue
@@ -633,8 +655,14 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="modes">Analysis modes of the run.</param>
     /// <param name="ffmpegValid">Whether ffmpeg supports chromaprint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="validateHashes">Whether stored configuration hash mismatches should trigger analysis.</param>
     /// <returns>The episodes that exist and are not excluded, classified per mode.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(
+        IReadOnlyList<QueuedEpisode> candidates,
+        IReadOnlyCollection<AnalysisMode> modes,
+        bool ffmpegValid,
+        CancellationToken cancellationToken = default,
+        bool validateHashes = true)
     {
         if (candidates.Count == 0)
         {
@@ -649,7 +677,7 @@ public partial class BaseItemAnalyzerTask(
         var policy = ExclusionPolicy.FromConfiguration(config);
         var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
         var previewFromCreditsEnd = ShouldDerivePreview(candidates[0], config);
-        if (await LegacyAnalysisCompatibility.UpgradeAsync(
+        if (validateHashes && await LegacyAnalysisCompatibility.UpgradeAsync(
                 _database,
                 snapshot,
                 config,
@@ -669,7 +697,8 @@ public partial class BaseItemAnalyzerTask(
             candidates[0].AnalysisLengthLimitOverride,
             previewFromCreditsEnd,
             candidates[0].SubtitleRecapDetectionOverride,
-            candidates[0].SubtitlePreviewDetectionOverride);
+            candidates[0].SubtitlePreviewDetectionOverride,
+            validateHashes);
         var sidecarFolders = new SubtitleSidecarFiles.FolderListings();
 
         foreach (var candidate in candidates)
