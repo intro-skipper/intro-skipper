@@ -139,10 +139,16 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets a value indicating whether to validate and update analysis hashes on the
-    /// next completed analysis pass, even when automatic hash validation is disabled.
-    /// The pass clears this flag after it completes.
+    /// next successful full-library analysis pass, even when automatic hash validation is disabled.
+    /// The pass clears this flag after it completes without any failed seasons.
     /// </summary>
     public bool UpdateHashesOnce { get; set; }
+
+    /// <summary>
+    /// Gets or sets the identity of the current one-time hash update request. The dashboard
+    /// changes this when a new request is made so an in-progress run cannot clear that request.
+    /// </summary>
+    public Guid UpdateHashesRequestId { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops

@@ -23,7 +23,8 @@ namespace IntroSkipper.Manager;
 /// sources hold different chapters. The expected hash depends on the season's analyzer action
 /// and the mode, not on the episode, so every per-mode value is computed once per instance.
 /// When hash validation is disabled, a non-empty stored hash settles the result without changing
-/// that hash; file and subtitle version checks remain active.
+/// that hash. File-version changes confirmed by other mode records and subtitle-version changes
+/// still reopen analysis; an ambiguous Recap or Preview version alone does not.
 /// </summary>
 internal sealed partial class QueueVerifier
 {
@@ -251,6 +252,7 @@ internal sealed partial class QueueVerifier
         var needsBackfill = false;
         var mediaConfirmed = false;
         var ambiguousMismatch = false;
+        HashSet<AnalysisMode> ambiguousMismatchModes = [];
         List<(AnalysisMode Mode, string Hash)> sidecarMismatches = [];
         foreach (var mode in AllModes)
         {
@@ -290,21 +292,37 @@ internal sealed partial class QueueVerifier
                 {
                     mediaConfirmed = true;
                 }
-                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview) || IsCurrentHash(record.ConfigHash, mode))
+                else if (mode is not (AnalysisMode.Recap or AnalysisMode.Preview))
                 {
                     candidate.FileChanged = true;
                     return (true, new HashSet<AnalysisMode>());
                 }
                 else
                 {
-                    // Written under other settings, possibly with the sidecar version.
-                    ambiguousMismatch = true;
+                    // A Recap or Preview version may include a subtitle sidecar even when the
+                    // current settings no longer read it. Under validation, an old hash makes
+                    // that mismatch ambiguous; with validation disabled, leave the hash out of
+                    // the decision entirely and wait for another record to confirm a media change.
+                    if (_validateHashes && IsCurrentHash(record.ConfigHash, mode))
+                    {
+                        candidate.FileChanged = true;
+                        return (true, new HashSet<AnalysisMode>());
+                    }
+
+                    if (_validateHashes)
+                    {
+                        ambiguousMismatch = true;
+                    }
+
+                    ambiguousMismatchModes.Add(mode);
                 }
             }
         }
 
         // Neither mismatch can tell a sidecar change from a replaced media file.
-        if (fileVersion is not null && !mediaConfirmed && (ambiguousMismatch || sidecarMismatches.Count > 0))
+        if (fileVersion is not null
+            && !mediaConfirmed
+            && ((_validateHashes && ambiguousMismatch) || sidecarMismatches.Count > 0))
         {
             candidate.FileChanged = true;
             return (true, new HashSet<AnalysisMode>());
@@ -316,6 +334,11 @@ internal sealed partial class QueueVerifier
         }
 
         HashSet<AnalysisMode> reopened = [];
+        if (mediaConfirmed)
+        {
+            reopened.UnionWith(ambiguousMismatchModes);
+        }
+
         foreach (var (mode, hash) in sidecarMismatches)
         {
             if (mediaConfirmed && IsConventionalHashCurrent(hash, mode))

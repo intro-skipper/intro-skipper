@@ -76,7 +76,8 @@ public partial class BaseItemAnalyzerTask(
         bool manualScan = false)
     {
         var runConfig = Config;
-        var updateHashesOnce = runConfig.UpdateHashesOnce;
+        var updateHashesOnce = itemIds is null && runConfig.UpdateHashesOnce;
+        var updateHashesRequestId = runConfig.UpdateHashesRequestId;
         var validateHashes = updateHashesOnce || !runConfig.DisableAutomaticHashValidation;
 
         if (itemIds?.Count == 0)
@@ -110,7 +111,7 @@ public partial class BaseItemAnalyzerTask(
 
         // A scoped pass collects the seasons and series it could not analyze and throws
         // once the rest have run, so a manual scan of a broken season reports as failed.
-        var failures = scope is null ? null : new ConcurrentQueue<Exception>();
+        var failures = new ConcurrentQueue<Exception>();
 
         // The seasons stream out of the owners one series at a time as the parallel slots
         // free up. A series' episodes are in memory only while its seasons run, and the
@@ -120,21 +121,23 @@ public partial class BaseItemAnalyzerTask(
             options,
             (season, ct) => new ValueTask(TryAnalyzeSeasonAsync(season, modes, ffmpegValid, manualScan, validateHashes, failures, ct))).ConfigureAwait(false);
         progress.Report(100);
-        if (failures is { IsEmpty: false })
+        if (!failures.IsEmpty && scope is not null)
         {
             throw new AggregateException(failures);
         }
 
-        if (updateHashesOnce)
+        if (updateHashesOnce && failures.IsEmpty)
         {
-            DisableOneTimeHashUpdate();
+            DisableOneTimeHashUpdate(updateHashesRequestId);
         }
     }
 
-    private static void DisableOneTimeHashUpdate()
+    private static void DisableOneTimeHashUpdate(Guid consumedRequestId)
     {
         var plugin = Plugin.Instance;
-        if (plugin is null || !plugin.Configuration.UpdateHashesOnce)
+        if (plugin is null
+            || plugin.Configuration.UpdateHashesRequestId != consumedRequestId
+            || !plugin.Configuration.UpdateHashesOnce)
         {
             return;
         }
@@ -810,6 +813,10 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
+        // A sibling episode can open the mode while settled episodes remain reusable. Keep
+        // those episodes' prior hashes so a later validation pass can still find old results.
+        QueuedEpisode[] itemsToRecord = [.. items.Where(item => item.GetAnalyzed(mode) == EpisodeState.NotAnalyzed)];
+
         // Keep the hash and analyzer on one configuration object. Jellyfin replaces this
         // object when settings are saved, so a save during an awaited setup step must not
         // let the pass write results under a hash from the previous configuration.
@@ -836,7 +843,7 @@ public partial class BaseItemAnalyzerTask(
             // queued and skipped forever on every subsequent run.
             await _database.MarkItemsAnalyzedAsync(
                 mode,
-                items.Select(i => (i.EpisodeId, config.RecordedFileVersion(i, mode))),
+                itemsToRecord.Select(i => (i.EpisodeId, config.RecordedFileVersion(i, mode))),
                 configHash,
                 cancellationToken).ConfigureAwait(false);
             return;
@@ -984,7 +991,7 @@ public partial class BaseItemAnalyzerTask(
         // a transient FFmpeg or analyzer failure remains eligible on the next scan.
         await _database.MarkItemsAnalyzedAsync(
             mode,
-            items.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
+            itemsToRecord.Where(item => item.GetAnalyzed(mode) != EpisodeState.AnalysisFailed)
                 .Select(item => (item.EpisodeId, config.RecordedFileVersion(item, mode))),
             configHash,
             cancellationToken).ConfigureAwait(false);

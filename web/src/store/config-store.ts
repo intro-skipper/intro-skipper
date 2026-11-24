@@ -86,6 +86,10 @@ export const configStore = {
     set<K extends ConfigKey>(field: K, value: PluginConfig[K]): void {
         if (!config || !snapshot) throw new Error("Config not loaded");
 
+        if (field === "UpdateHashesOnce" && value === true && config.UpdateHashesOnce !== true) {
+            config = { ...config, UpdateHashesRequestId: crypto.randomUUID() };
+        }
+
         config[field] = value;
 
         // Re-check the other half of a min/max pair so both inputs stay in sync.
@@ -101,7 +105,15 @@ export const configStore = {
     async save(): Promise<void> {
         await withDashboardLoading(async () => {
             const serverConfig = normalizePluginConfig(await loadPluginConfig());
-            Object.assign(serverConfig, config);
+            if (!config || !snapshot) throw new Error("Config not loaded");
+            for (const key of configKeys) {
+                if (!sameValue(config[key], snapshot[key])) {
+                    Object.assign(serverConfig, { [key]: config[key] });
+                }
+            }
+            if (config.UpdateHashesRequestId !== snapshot.UpdateHashesRequestId) {
+                Object.assign(serverConfig, { UpdateHashesRequestId: config.UpdateHashesRequestId });
+            }
             const result = await savePluginConfig(serverConfig);
 
             // Keep the skip-button patch in sync, but do not block saving on it.
@@ -122,6 +134,6 @@ export const configStore = {
         const saved = snapshot;
         return (Object.keys(saved) as (keyof PluginConfig)[]).some(
             (field) => !sameValue(current[field], saved[field]),
-        );
+        ) || current.UpdateHashesRequestId !== saved.UpdateHashesRequestId;
     },
 };

@@ -26,7 +26,7 @@ export const configSchema = {
         kind: "checkbox",
         label: "Update hashes on next run",
         description:
-            "On the next completed analysis run, validate hashes and run any resulting analysis even if automatic hash validation is disabled. This option turns itself off when that run completes.",
+            "On the next completed full-library analysis run, validate hashes and run any resulting analysis even if automatic hash validation is disabled. This option turns itself off after a successful run.",
     },
     ReanalyzeSettledSeasons: {
         kind: "checkbox",
@@ -585,6 +585,7 @@ export type PluginConfig = ValuesOf<ConfigSchema> & {
     readonly FileTransformationPluginEnabled: boolean;
     readonly EnableSubtitleRecapDetection: boolean;
     readonly EnableSubtitlePreviewDetection: boolean;
+    readonly UpdateHashesRequestId: string;
 };
 
 /** Config keys whose value has type V, so a control binds only to keys it can hold. */
