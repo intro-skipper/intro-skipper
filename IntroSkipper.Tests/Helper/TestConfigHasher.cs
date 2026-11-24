@@ -420,6 +420,7 @@ public sealed class TestConfigHasher
                     int number => number + 1,
                     double number => number + 0.5,
                     string text => text + "x",
+                    Guid id => id == Guid.Empty ? Guid.Parse("00000000-0000-0000-0000-000000000001") : Guid.Empty,
                     Enum member => NextMember(member),
                     _ => throw new InvalidOperationException($"No perturbation for {setting.Name} ({setting.PropertyType})."),
                 };
