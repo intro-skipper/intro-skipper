@@ -24,7 +24,7 @@ export const configSchema = {
     },
     UpdateHashesOnce: {
         kind: "checkbox",
-        label: "Update hashes once",
+        label: "Update hashes on next run",
         description:
             "On the next completed analysis run, validate hashes and run any resulting analysis even if automatic hash validation is disabled. This option turns itself off when that run completes.",
     },
