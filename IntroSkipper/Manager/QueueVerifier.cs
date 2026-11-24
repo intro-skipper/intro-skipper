@@ -299,16 +299,10 @@ internal sealed partial class QueueVerifier
                 }
                 else
                 {
-                    // A Recap or Preview version may include a subtitle sidecar even when the
-                    // current settings no longer read it. Under validation, an old hash makes
-                    // that mismatch ambiguous; with validation disabled, leave the hash out of
-                    // the decision entirely and wait for another record to confirm a media change.
-                    if (_validateHashes && IsCurrentHash(record.ConfigHash, mode))
-                    {
-                        candidate.FileChanged = true;
-                        return (true, new HashSet<AnalysisMode>());
-                    }
-
+                    // A stale Recap or Preview hash may have recorded a subtitle-sidecar version
+                    // even when the current settings no longer read it. With validation enabled,
+                    // treat that mismatch as ambiguous; with it disabled, wait for another record
+                    // to confirm a media change.
                     if (_validateHashes)
                     {
                         ambiguousMismatch = true;
